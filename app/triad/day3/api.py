@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
 from triad.api import require_operator
@@ -10,6 +10,7 @@ from triad.brain import Brain
 from triad.day3.contracts import Candidate
 from triad.day3.cycles import Cycles
 from triad.day3.support import manifest, support
+from triad.jobs import Jobs
 
 router = APIRouter(prefix="/api/day3")
 
@@ -85,10 +86,9 @@ def health(engine: Cycles = DEP):
 
 
 @router.post("/cycles", dependencies=AUTH, status_code=202)
-def cycle(body: CycleInput, background: BackgroundTasks, engine: Cycles = DEP):
+def cycle(body: CycleInput, engine: Cycles = DEP):
     engine.ledger.guard()
-    background.add_task(engine.run, mode=body.mode)
-    return {"accepted": True, "mode": body.mode}
+    return Jobs(engine).submit(mode=body.mode)
 
 
 @router.post("/control", dependencies=AUTH)
@@ -140,3 +140,20 @@ def reasoning(body: ReasoningInput, engine: Cycles = DEP):
 @router.get("/records/{identifier}")
 def record(identifier: str, engine: Cycles = DEP):
     return engine.ledger.get(identifier)
+
+
+@router.get("/jobs")
+def jobs(engine: Cycles = DEP):
+    return {"jobs": Jobs(engine).list()}
+
+
+@router.post("/jobs/{identifier}/cancel", dependencies=AUTH)
+def cancel_job(identifier: str, engine: Cycles = DEP):
+    return Jobs(engine).cancel(identifier)
+
+
+@router.get("/readiness")
+def provider_readiness(engine: Cycles = DEP):
+    from triad.readiness import readiness
+
+    return readiness(engine)

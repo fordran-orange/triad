@@ -22,10 +22,13 @@ async def lifespan(app):
 
     def scheduled_loop():
         from triad.day3.scheduler import tick
+        from triad.jobs import Jobs
 
-        while not stop.wait(30):
+        while not stop.wait(5):
             try:
-                tick()
+                jobs = Jobs()
+                tick(jobs.cycles, submit=jobs.submit)
+                jobs.once()
             except Exception:  # noqa: BLE001 - scheduler must remain inspectable during outages
                 import logging
 
@@ -40,7 +43,7 @@ async def lifespan(app):
     worker.join(timeout=1)
 
 
-app = FastAPI(title="Triad bounded orchestration", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Triad bounded orchestration", version="0.4.0", lifespan=lifespan)
 
 
 def service():
@@ -106,7 +109,7 @@ def liveness():
 @app.get("/api/foundation")
 def foundation():
     return {
-        "phase": "Day 3",
+        "phase": "Day 4",
         "live_trading_authority": False,
         "execution_engine": "bounded_research_only",
         "policy_mutation_api": False,

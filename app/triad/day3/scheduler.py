@@ -8,7 +8,7 @@ from triad.day3.cycles import Cycles
 from triad.settings import ROOT
 
 
-def tick(cycles=None, instant=None, config=None):
+def tick(cycles=None, instant=None, config=None, submit=None):
     config = config or json.loads((ROOT / "agents/day3.json").read_text())["scheduler"]
     if not config["enabled"]:
         return {"status": "DISABLED"}
@@ -23,4 +23,4 @@ def tick(cycles=None, instant=None, config=None):
     if (local.hour, local.minute) < (hour, minute):
         return {"status": "NOT_DUE"}
     cycles.day = local.date().isoformat()
-    return cycles.run(mode=config["mode"], scheduled=True)
+    return (submit or cycles.run)(mode=config["mode"], scheduled=True)

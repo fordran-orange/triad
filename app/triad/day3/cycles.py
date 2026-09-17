@@ -611,11 +611,11 @@ class Cycles:
             )
             raise
 
-    def run(self, mode="REAL", scheduled=False):
+    def run(self, mode="REAL", scheduled=False, expected_epoch=None):
         if mode not in {"REAL", "SIMULATED"}:
             raise ValueError("Explicit REAL or SIMULATED mode required")
         with self.host.store.lease("day3-cycle"):
-            cycle_epoch = self.ledger.guard()["epoch"]
+            cycle_epoch = self.ledger.guard(epoch=expected_epoch)["epoch"]
             self.seed_backlog()
             cycle_id = uid()
             with self.host.store.connect() as c:
