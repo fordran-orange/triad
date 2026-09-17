@@ -22,3 +22,5 @@ databases/*
 logs/*
 !**/.gitkeep
 docs/vault/.obsidian/
+docs/vault/02_Journal/generated/
+research/generated/

@@ -25,6 +25,7 @@ triad = ["static/*.html"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = ["integration: requires the local PostgreSQL and Neo4j services"]
 
 [tool.ruff]
 line-length = 100

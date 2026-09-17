@@ -17,6 +17,12 @@ else:
     with target.open("x", encoding="utf-8") as handle:
         handle.write(template)
     print("Generated independent random local credentials")
+current = target.read_text(encoding="utf-8")
+if "TRIAD_OPERATOR_TOKEN=" not in current:
+    current += "\nTRIAD_OPERATOR_TOKEN=" + secrets.token_hex(32) + "\n"
+if "REPLACE_WITH_OPERATOR_SECRET" in current:
+    current = current.replace("REPLACE_WITH_OPERATOR_SECRET", secrets.token_hex(32))
+target.write_text(current, encoding="utf-8")
 if os.name == "nt":
     subprocess.run(
         [

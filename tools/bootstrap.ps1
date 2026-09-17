@@ -21,6 +21,8 @@ docker compose up -d --wait --wait-timeout 240
 Assert-Exit 'Database services'
 & $VenvPython tools/init_graph.py
 Assert-Exit 'Graph constraints'
+& $VenvPython tools/day2.py init
+Assert-Exit 'Orchestration migration and projections'
 & $VenvPython -m pytest
 Assert-Exit 'Automated tests'
 & $VenvPython tools/health_check.py
