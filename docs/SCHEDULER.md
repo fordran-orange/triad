@@ -4,4 +4,4 @@
 
 At or after the configured time, a PostgreSQL advisory lease prevents overlapping cycles. A persistent unique date/mode slot makes repeated ticks idempotent across restarts. Separate REAL/SIMULATED cycle records do not grant separate daily agent improvement allowances. Kill/pause prevents dispatch. The scheduler does not catch up historical missed days, retry failed cycles automatically, or require midnight.
 
-Daily provider reservations currently use UTC dates, while cycle scheduling may use its configured timezone. Keep UTC for aligned accounting boundaries; a different timezone changes the cycle date, not provider accounting's UTC reset. This is documented explicitly rather than presenting a local-midnight budget reset.
+Cycle and support execution pass the configured cycle date to daily reservations. Direct Ledger calls without a supplied date default to UTC. The dashboard currently groups usage timestamps by UTC day; use UTC scheduling for aligned display and reservation boundaries.

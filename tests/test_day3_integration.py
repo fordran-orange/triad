@@ -437,3 +437,13 @@ def test_unsafe_proposal_and_runtime_permissions_are_denied(engine):
         engine.evaluate_proposal(proposal.model_copy(update={"risk_class": "HIGH"}), work)
         == "REQUIRE_HUMAN_APPROVAL"
     )
+
+
+def test_cycle_reports_budget_stop_without_reset(engine):
+    engine.ledger.operate("lower_limits", limits={"max_tokens_day": 0})
+    cycle = engine.run("SIMULATED")
+    assert cycle["status"] == "BLOCKED"
+    assert cycle["summary"]["failures"] == ["AUTONOMY_BUDGET_EXHAUSTED"]
+    assert engine.ledger.totals()[0]["changes"] == 1
+    assert not engine.ledger.records("Usage")
+    assert engine.run("SIMULATED")["cycle_id"] == cycle["cycle_id"]

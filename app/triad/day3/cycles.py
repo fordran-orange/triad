@@ -32,6 +32,13 @@ from triad.work import (
 )
 
 
+def failure_code(exc):
+    # Preserve only a host-owned code; never persist arbitrary provider error text.
+    if isinstance(exc, PermissionError) and str(exc) == "AUTONOMY_BUDGET_EXHAUSTED":
+        return "AUTONOMY_BUDGET_EXHAUSTED"
+    return type(exc).__name__
+
+
 class Cycles:
     def __init__(self, store=None, git=None, day=None):
         self.host = Orchestrator(store=store)
@@ -580,7 +587,7 @@ class Cycles:
                     current,
                     kind="failure",
                     result="Day 3 bounded stage stopped",
-                    failures=(type(exc).__name__,),
+                    failures=(failure_code(exc),),
                     mode=mode,
                 )
                 self.host.advance(
@@ -588,10 +595,19 @@ class Cycles:
                     State.BLOCKED,
                     "Stage stopped; inspect evidence before resuming",
                     records=(journal,),
-                    failure_reason=type(exc).__name__,
+                    failure_reason=failure_code(exc),
                 )
+            for change in self.ledger.records("Change"):
+                if (
+                    change["work_item_id"] == work.work_item_id
+                    and change["status"] == "AWAITING_REVIEW"
+                ):
+                    change.update(status="BLOCKED", failure_reason=failure_code(exc))
+                    self.ledger.put(
+                        "Change", change, identifier=change["id"], work_id=work.work_item_id
+                    )
             self.ledger.event(
-                "stage_failed", work.work_item_id, error_class=type(exc).__name__, mode=mode
+                "stage_failed", work.work_item_id, error_class=failure_code(exc), mode=mode
             )
             raise
 
@@ -684,7 +700,7 @@ class Cycles:
                     candidate["status"] = "DONE"
                     self.ledger.put("Candidate", candidate, identifier=candidate["candidate_id"])
             except Exception as exc:  # noqa: BLE001 - persist redacted terminal cycle failure
-                failures.append(type(exc).__name__)
+                failures.append(failure_code(exc))
             changes = [r for r in self.ledger.records("Change") if r.get("cycle_id") == cycle_id]
             work_ids = {
                 w.work_item_id for w in self.host.store.list_work(1000) if w.mission_id == cycle_id
