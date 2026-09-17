@@ -1,7 +1,6 @@
 # Triad
 
-A bounded research and development work system. No trading strategies, indicators,
-broker credentials, live execution, or preselected research are included.
+A bounded research and development work system. Day 4 adds portable market data and deterministic backtesting. Only trivial engine-test fixtures are included; no broker credentials or live execution.
 
 ## Start on this machine
 
@@ -14,7 +13,7 @@ docker desktop start
 
 If containers are stopped, first run `docker compose up -d --wait --wait-timeout 240`.
 Open <http://127.0.0.1:8000>. The UI shows real work, journals, independent reviews and lineage. Day 3 adds provider adapters, daily cycles, proposal policy, reviewed Git changes, budgets and a kill switch. Cloud providers without credentials are UNAVAILABLE; explicit demo cycles are SIMULATED. Local Qwen uses real Ollama inference.
-Day 4 persists cycle submissions across API restarts and adds queue/recovery and provider-readiness views.
+Day 4 adds the research laboratory at http://127.0.0.1:8000/research: datasets, experiments, directional results, ledgers, quality and provenance. Its initial source is explicitly FIXTURE. Supporting durable queues and provider-readiness views remain available.
 Open `docs/vault` as an Obsidian vault; installing Obsidian is optional.
 
 ## Reproduce from a clean checkout
@@ -32,7 +31,8 @@ Credentials live only in ignored `.env`. Never run `docker compose config` witho
 
 ## Orientation
 
-- [Day 4 durable operations](docs/DAY4_SETUP.md)
+- [Day 4 research laboratory](docs/DAY4_SETUP.md)
+- [Supporting durable operations](docs/DAY4_DURABILITY_SETUP.md)
 - [Day 4 verification](docs/DAY4_VERIFICATION.md)
 - [Day 3 operation](docs/DAY3_SETUP.md)
 - [Day 3 verification](docs/DAY3_VERIFICATION.md)

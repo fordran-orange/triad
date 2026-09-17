@@ -9,3 +9,8 @@ Operator access accepts the ignored bearer token into page memory. Authenticated
 Dynamic content uses textContent; there are no external scripts, assets or analytics. Reads refresh every ten seconds. API tests cover authentication, forged origins/hosts and governance restrictions. DAY3_VERIFICATION.md records the actual browser and persistence checks.
 
 Day 4 adds Jobs & recovery and Provider readiness. Cycle buttons now queue persistent work; queued cancellation requires operator authorization. Job detail shows the returned cycle and failure codes. Provider readiness exposes missing configuration/budget prerequisites and retained real-call evidence without credential values. Review metrics distinguish simulation and do not claim correctness.
+
+
+## Day 4 research
+
+Open `/research` for Dataset Catalog, Experiments, Results & comparison, Trade ledger, Data quality, and Provenance. The screens read canonical records and checksum-verified artifacts. LONG and SHORT retain separate capital curves. Null metrics display N/A. Mutations require the local operator token. The initial source is FIXTURE and reviews distinguish host verification from model activity.

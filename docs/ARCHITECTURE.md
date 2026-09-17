@@ -33,3 +33,8 @@ No broker execution, live capital, strategy seeding or model self-training exist
 ## Day 4 durable cycle queue
 
 Dashboard cycle submissions and API scheduling persist in PostgreSQL cycle_jobs before execution. A single session-locked worker checks every five seconds; CLI workers share the same lock. Interrupted RUNNING jobs become UNCERTAIN and pause autonomy before reconciliation; they are not replayed. Day/mode uniqueness and cancellation epochs prevent duplicate or stale execution. Day 2 background routes and direct trusted Day 3 CLI calls retain their earlier semantics. See DAY4_SETUP.md for scope and failure limits. Provider readiness and review-evidence counts are separate from unmeasured model correctness.
+
+
+## Day 4 laboratory
+
+`triad.lab` provides provider-neutral ingestion, raw evidence, canonical/derived Parquet, manifests, session-aware quality, experiments, hypotheses, bounded deterministic execution and portable artifacts. PostgreSQL owns catalog/run/work/review metadata; Neo4j projects dataset-to-experiment-to-run provenance, never individual candles. `triad.research_review` supplies operator-authored method verdicts separately from engine source identity. See DAY4_SETUP.md and DATA_LINEAGE.md.

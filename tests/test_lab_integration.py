@@ -19,6 +19,31 @@ def test_research_pipeline_reproducibility_review_and_lineage(engine, tmp_path):
     assert review["decision"] == "ACCEPT_RESULT"
     assert engine.host.store.get(first.work_item_id).status == "COMPLETED"
     assert engine.host.store.get(second.work_item_id).status == "AWAITING_REVIEW"
+    from triad.research_review import MethodReview, record_method_review
+
+    method = record_method_review(
+        lab,
+        second.run_id,
+        MethodReview(
+            decision="LOOKAHEAD_RISK",
+            findings=("Test rejection of a method pending further audit",),
+            evidence_checked=(second.content_hash,),
+            tests_repeated=(),
+        ),
+    )
+    assert method["mode"] == "HUMAN_OPERATOR_METHOD_REVIEW"
+    assert engine.host.store.get(second.work_item_id).status == "CHANGES_REQUESTED"
+    with pytest.raises(ValueError, match="not awaiting"):
+        record_method_review(
+            lab,
+            second.run_id,
+            MethodReview(
+                decision="ACCEPT_RESULT",
+                findings=("Cannot overwrite prior review",),
+                evidence_checked=(second.content_hash,),
+                tests_repeated=(),
+            ),
+        )
     with Brain(engine.host.store).driver() as driver, driver.session() as session:
         assert (
             session.run(
@@ -85,6 +110,7 @@ def test_research_api_requires_auth(engine, tmp_path):  # noqa: F811
         client = TestClient(app)
         assert client.get("/api/research/dashboard").status_code == 200
         assert client.post("/api/research/fixture", json={}).status_code == 401
+        assert client.post("/api/research/runs/x/method-review", json={}).status_code == 401
         assert client.post("/api/research/experiments", json={"dataset_id": "x"}).status_code == 401
     finally:
         app.dependency_overrides.clear()

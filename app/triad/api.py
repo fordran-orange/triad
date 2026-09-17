@@ -253,6 +253,15 @@ from triad.lab.api import router as research_router
 
 app.include_router(research_router)
 
+from triad.lab.api import DEP as LAB_DEP
+from triad.lab.service import Laboratory
+from triad.research_review import MethodReview, record_method_review
+
+
+@app.post("/api/research/runs/{identifier}/method-review", dependencies=[Depends(require_operator)])
+def method_review(identifier: str, body: MethodReview, lab: Laboratory = LAB_DEP):
+    return record_method_review(lab, identifier, body)
+
 
 @app.get("/research", include_in_schema=False)
 def research_shell():
