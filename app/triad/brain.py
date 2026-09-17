@@ -9,6 +9,13 @@ from triad.settings import ROOT
 from triad.store import Store
 
 LABELS = {
+    "RawDataset",
+    "DatasetVersion",
+    "DataSource",
+    "BacktestRun",
+    "Strategy",
+    "Hypothesis",
+    "ResearchReview",
     "Day3Record",
     "Agent",
     "WorkItem",
@@ -28,6 +35,10 @@ LABELS = {
     "ElevationRequest",
 }
 RELATIONSHIPS = {
+    "NORMALIZED_INTO",
+    "DERIVED_INTO",
+    "USED_BY",
+    "USES_STRATEGY",
     "DISAGREES_WITH",
     "CONTRADICTS",
     "REVERTS",
@@ -134,6 +145,72 @@ class Brain:
                 edge(tx, "WorkItem", work_id, "SUPPORTED_BY", kind, entity_id)
             if data.get("cycle_id") and entity_id != data["cycle_id"]:
                 edge(tx, kind, entity_id, "PART_OF", "Day3Record", data["cycle_id"])
+            record_kind = data["record_kind"]
+            if record_kind == "RawDataset":
+                node(tx, "RawDataset", data["raw_id"], mode=data["mode"], checksum=data["checksum"])
+                edge(
+                    tx, "DataSource", data["provider"], "SUPPORTED_BY", "RawDataset", data["raw_id"]
+                )
+            elif record_kind == "DatasetManifest":
+                node(
+                    tx,
+                    "Dataset",
+                    entity_id,
+                    resolution=data["resolution"],
+                    mode=data["mode"],
+                    quality=data["quality_status"],
+                )
+                version_id = entity_id + ":" + data["dataset_version"]
+                node(tx, "DatasetVersion", version_id, checksum=data["checksum"])
+                edge(tx, "DatasetVersion", version_id, "PART_OF", "Dataset", entity_id)
+                for raw in data["raw_sources"]:
+                    edge(tx, "RawDataset", raw["raw_id"], "NORMALIZED_INTO", "Dataset", entity_id)
+                if data["provenance"].get("parent_dataset"):
+                    edge(
+                        tx,
+                        "Dataset",
+                        data["provenance"]["parent_dataset"],
+                        "DERIVED_INTO",
+                        "Dataset",
+                        entity_id,
+                    )
+            elif record_kind == "Experiment":
+                node(tx, "Experiment", entity_id, name=data["name"], status=data["status"])
+                edge(tx, "Dataset", data["dataset_id"], "USED_BY", "Experiment", entity_id)
+                edge(
+                    tx,
+                    "Experiment",
+                    entity_id,
+                    "USES_STRATEGY",
+                    "Strategy",
+                    data["strategy_version"],
+                )
+                edge(tx, "Experiment", entity_id, "SUPPORTED_BY", "Commit", data["code_commit"])
+                edge(tx, "Experiment", entity_id, "DERIVED_FROM", "Hypothesis", data["hypothesis"])
+            elif record_kind == "BacktestRun":
+                node(
+                    tx,
+                    "BacktestRun",
+                    entity_id,
+                    status=data["status"],
+                    content_hash=data.get("content_hash") or "",
+                )
+                edge(tx, "BacktestRun", entity_id, "PART_OF", "Experiment", data["experiment_id"])
+                edge(tx, "BacktestRun", entity_id, "SUPPORTED_BY", "Commit", data["code_commit"])
+                edge(tx, "WorkItem", work_id, "SUPPORTED_BY", "BacktestRun", entity_id)
+            elif record_kind == "ResearchReview":
+                node(tx, "ResearchReview", entity_id, decision=data["decision"], mode=data["mode"])
+                edge(tx, "BacktestRun", data["run_id"], "HAS_REVIEW", "ResearchReview", entity_id)
+            elif record_kind == "Hypothesis":
+                node(
+                    tx, "Hypothesis", entity_id, statement=data["statement"], status=data["status"]
+                )
+            elif record_kind == "ResearchFinding":
+                node(tx, "Claim", entity_id, text=data["statement"], status=data["status"])
+                for run_id in data["supported_by"]:
+                    edge(tx, "Claim", entity_id, "SUPPORTED_BY", "BacktestRun", run_id)
+                for run_id in data["contradicted_by"]:
+                    edge(tx, "Claim", entity_id, "CONTRADICTED_BY", "BacktestRun", run_id)
             metadata = data.get("git") or {}
             for name in (
                 "base_commit",

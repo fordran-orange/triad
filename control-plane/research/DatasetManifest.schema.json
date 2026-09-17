@@ -1,0 +1,173 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "dataset_id": {
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_version": {
+      "title": "Dataset Version",
+      "type": "string"
+    },
+    "symbols": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Symbols",
+      "type": "array"
+    },
+    "asset_class": {
+      "default": "equity",
+      "title": "Asset Class",
+      "type": "string"
+    },
+    "resolution": {
+      "default": "1m",
+      "enum": [
+        "1m",
+        "5m",
+        "15m",
+        "30m",
+        "1h",
+        "1d"
+      ],
+      "title": "Resolution",
+      "type": "string"
+    },
+    "start_time": {
+      "format": "date-time",
+      "title": "Start Time",
+      "type": "string"
+    },
+    "end_time": {
+      "format": "date-time",
+      "title": "End Time",
+      "type": "string"
+    },
+    "row_count": {
+      "title": "Row Count",
+      "type": "integer"
+    },
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "REAL",
+        "FIXTURE",
+        "SIMULATED",
+        "UNAVAILABLE"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "raw_sources": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Raw Sources",
+      "type": "array"
+    },
+    "canonical_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Canonical Paths",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "triad.ohlcv.v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "checksum": {
+      "title": "Checksum",
+      "type": "string"
+    },
+    "file_checksums": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "File Checksums",
+      "type": "object"
+    },
+    "quality_status": {
+      "enum": [
+        "PASS",
+        "FAIL"
+      ],
+      "title": "Quality Status",
+      "type": "string"
+    },
+    "known_gaps": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Known Gaps",
+      "type": "array"
+    },
+    "adjustment_policy": {
+      "default": "UNADJUSTED; corporate actions unsupported, no retrospective adjustment",
+      "title": "Adjustment Policy",
+      "type": "string"
+    },
+    "timezone_policy": {
+      "default": "UTC interval start; source America/New_York retained; regular session only",
+      "title": "Timezone Policy",
+      "type": "string"
+    },
+    "creator": {
+      "default": "operator",
+      "title": "Creator",
+      "type": "string"
+    },
+    "provenance": {
+      "additionalProperties": true,
+      "title": "Provenance",
+      "type": "object"
+    },
+    "transformations": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Transformations",
+      "type": "array"
+    },
+    "calendar_version": {
+      "default": "XNYS-2026-v1",
+      "title": "Calendar Version",
+      "type": "string"
+    },
+    "size_bytes": {
+      "title": "Size Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "dataset_version",
+    "symbols",
+    "start_time",
+    "end_time",
+    "row_count",
+    "source",
+    "mode",
+    "raw_sources",
+    "canonical_paths",
+    "checksum",
+    "file_checksums",
+    "quality_status",
+    "provenance",
+    "size_bytes"
+  ],
+  "title": "DatasetManifest",
+  "type": "object"
+}

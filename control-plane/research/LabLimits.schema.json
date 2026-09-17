@@ -1,0 +1,54 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "max_rows": {
+      "default": 5000,
+      "maximum": 20000,
+      "minimum": 10,
+      "title": "Max Rows",
+      "type": "integer"
+    },
+    "max_bytes": {
+      "default": 2000000,
+      "maximum": 10000000,
+      "minimum": 1000,
+      "title": "Max Bytes",
+      "type": "integer"
+    },
+    "memory_mb": {
+      "default": 128,
+      "maximum": 256,
+      "minimum": 32,
+      "title": "Memory Mb",
+      "type": "integer"
+    },
+    "runtime_seconds": {
+      "default": 30,
+      "maximum": 120,
+      "minimum": 1,
+      "title": "Runtime Seconds",
+      "type": "integer"
+    },
+    "max_combinations": {
+      "default": 8,
+      "maximum": 16,
+      "minimum": 1,
+      "title": "Max Combinations",
+      "type": "integer"
+    },
+    "parallel_backtests": {
+      "const": 1,
+      "default": 1,
+      "title": "Parallel Backtests",
+      "type": "integer"
+    },
+    "worker_count": {
+      "const": 1,
+      "default": 1,
+      "title": "Worker Count",
+      "type": "integer"
+    }
+  },
+  "title": "LabLimits",
+  "type": "object"
+}

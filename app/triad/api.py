@@ -247,3 +247,13 @@ app.include_router(day3_router)
 @app.get("/day2", include_in_schema=False)
 def day2_shell():
     return FileResponse(Path(__file__).parent / "static/index.html")
+
+
+from triad.lab.api import router as research_router
+
+app.include_router(research_router)
+
+
+@app.get("/research", include_in_schema=False)
+def research_shell():
+    return FileResponse(Path(__file__).parent / "static/research.html")

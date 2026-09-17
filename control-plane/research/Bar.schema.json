@@ -1,0 +1,137 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "symbol": {
+      "pattern": "^[A-Z0-9_-]{1,20}$",
+      "title": "Symbol",
+      "type": "string"
+    },
+    "open": {
+      "exclusiveMinimum": 0,
+      "title": "Open",
+      "type": "number"
+    },
+    "high": {
+      "exclusiveMinimum": 0,
+      "title": "High",
+      "type": "number"
+    },
+    "low": {
+      "exclusiveMinimum": 0,
+      "title": "Low",
+      "type": "number"
+    },
+    "close": {
+      "exclusiveMinimum": 0,
+      "title": "Close",
+      "type": "number"
+    },
+    "volume": {
+      "minimum": 0,
+      "title": "Volume",
+      "type": "number"
+    },
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "source_symbol": {
+      "title": "Source Symbol",
+      "type": "string"
+    },
+    "timezone": {
+      "title": "Timezone",
+      "type": "string"
+    },
+    "exchange": {
+      "default": "XNYS",
+      "title": "Exchange",
+      "type": "string"
+    },
+    "asset_class": {
+      "const": "equity",
+      "default": "equity",
+      "title": "Asset Class",
+      "type": "string"
+    },
+    "ingested_at": {
+      "format": "date-time",
+      "title": "Ingested At",
+      "type": "string"
+    },
+    "dataset_version": {
+      "title": "Dataset Version",
+      "type": "string"
+    },
+    "provenance_id": {
+      "title": "Provenance Id",
+      "type": "string"
+    },
+    "trade_count": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trade Count"
+    },
+    "vwap": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Vwap"
+    },
+    "adjustment_status": {
+      "const": "UNADJUSTED",
+      "default": "UNADJUSTED",
+      "title": "Adjustment Status",
+      "type": "string"
+    },
+    "session": {
+      "const": "REGULAR",
+      "default": "REGULAR",
+      "title": "Session",
+      "type": "string"
+    },
+    "currency": {
+      "const": "USD",
+      "default": "USD",
+      "title": "Currency",
+      "type": "string"
+    }
+  },
+  "required": [
+    "timestamp",
+    "symbol",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "source",
+    "source_symbol",
+    "timezone",
+    "ingested_at",
+    "dataset_version",
+    "provenance_id"
+  ],
+  "title": "Bar",
+  "type": "object"
+}

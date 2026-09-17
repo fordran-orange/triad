@@ -1,0 +1,78 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "hypothesis_id": {
+      "title": "Hypothesis Id",
+      "type": "string"
+    },
+    "statement": {
+      "title": "Statement",
+      "type": "string"
+    },
+    "created_by": {
+      "default": "operator",
+      "title": "Created By",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "origin": {
+      "default": "ENGINE_VALIDATION",
+      "title": "Origin",
+      "type": "string"
+    },
+    "rationale": {
+      "title": "Rationale",
+      "type": "string"
+    },
+    "expected_behavior": {
+      "title": "Expected Behavior",
+      "type": "string"
+    },
+    "falsification_condition": {
+      "title": "Falsification Condition",
+      "type": "string"
+    },
+    "status": {
+      "default": "TESTABLE",
+      "enum": [
+        "PROPOSED",
+        "TESTABLE",
+        "TESTING",
+        "SUPPORTED",
+        "NOT_SUPPORTED",
+        "INCONCLUSIVE",
+        "SUPERSEDED"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "evidence_for": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence For",
+      "type": "array"
+    },
+    "evidence_against": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Against",
+      "type": "array"
+    }
+  },
+  "required": [
+    "statement",
+    "rationale",
+    "expected_behavior",
+    "falsification_condition"
+  ],
+  "title": "Hypothesis",
+  "type": "object"
+}
