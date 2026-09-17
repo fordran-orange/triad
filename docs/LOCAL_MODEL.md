@@ -1,5 +1,11 @@
 # Local model support
 
+Day 2 adds explicit operator-driven `QwenProvider` execution and low-risk routing. Run `.venv\Scripts\python tools/day2.py local` for the bounded synthetic journal helper. The model is `qwen3:4b`; it receives context data and no direct OS tools. Results remain awaiting independent review because no cloud reviewer is connected. The legacy LOCAL_MODEL_ENABLED flag does not schedule work; real inference requires an explicit run.
+
+See DAY2_SETUP.md and AGENT_REGISTRY.md for current limits. The successful Day 2 smoke used 44 input tokens and 366 generated tokens (including thinking), finishing in 31.55 seconds. Full context JSON initially exhausted the output budget; a non-thinking attempt timed out. The final adapter extracts only supplied observations from the persisted packet and uses a 2,048-token context, 512-token smoke output budget and 120-second deadline with thinking enabled. Failed attempts remain in the journal. The following Day 1 installation and diagnostics are historical evidence.
+
+## Day 1 historical configuration
+
 Ollama is optional. `tools/health_check.py` probes its loopback `/api/tags` endpoint
 and records installed model names if reachable. `.env.example` supports
 `OLLAMA_URL`, `OLLAMA_MODEL=qwen3:4b` and `LOCAL_MODEL_ENABLED=false`.

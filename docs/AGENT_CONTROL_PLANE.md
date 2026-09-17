@@ -1,30 +1,11 @@
 # Agent Control Plane
 
-Humans configure intent. The Control Plane compiles intent into validated runtime
-policy. Agents may request greater authority but may never grant themselves authority.
+Humans configure intent; agents receive immutable bounded assignments. Day 2's operational policy is `app/triad/control.py` (version day2-v1), enforced by `gateway.py` and `orchestrator.py`. `work.py` defines runtime contracts, `store.py` persists decisions and transitions, and PostgreSQL triggers protect assignment authority.
 
-Contracts cover model selection, reasoning depth, tool access, data scope, execution
-permissions, risk limits, token/time budgets and live-trading authority. Day 1 allows
-only documented read tools and isolated scratch-write permissions. All trading risk
-limits are zero, live authority is false, and no broker execution exists.
+The retained Day 1 `policy.py` compiler and schemas document human intent compilation. Its legacy examples are not a second runtime authority or a promise that every example tool is implemented. Day 2 runs use registry.json, WorkItem validation and the operational ControlPlane; the only exposed broker tools are documented in PERMISSIONS.md.
 
-`app/triad/policy.py` supplies immutable intent and policy models, deterministic
-intent hashes, authority requests, compiler validation, and Protocol interfaces for
-the future policy store, request queue and tool authorizer. Generated JSON schemas
-live in `control-plane`. Unknown fields and unsupported tools are rejected. Local
-workers have narrower task and compute ceilings.
+Policy decisions answer who may work, which paths/tools are granted, what compute is bounded, whether review is required and whether money/trading/governance is affected. Unknown capabilities/tools, excessive authority, invalid paths and review bypasses are denied. Governance requires human authorization and remains blocked; live/money effects are denied outright.
 
-`compile_policy` rejects agent principals and revalidates even unchecked model copies.
-**This pure Python skeleton is not authentication or an OS security boundary.**
-`TrustedPrincipal` must eventually be created by an authenticated host adapter;
-an agent must never choose its own principal, call the compiler, edit policy files,
-or obtain database/admin credentials. No API exposes policy mutation or compilation.
-The present tests verify model behavior, not a production security boundary.
+Agents can submit an ElevationRequest but no Day 2 code approves it. API mutations require the operator token and there is no policy-mutation endpoint. A model cannot choose a privileged principal, see credentials, edit registry/control code, assign itself more compute or mark its own reviewed work complete.
 
-Future approval path: agent submits immutable request → human inspects policy diff,
-risk and resource impact → authenticated approval → compiler validates against
-organizational ceilings → host signs/stores version → isolated runtime consumes it.
-Policy changes must be append-only audited, revocable, scoped and time-limited.
-Runtime enforcement must validate each tool invocation and resolve filesystem paths
-within scoped roots, enforce budgets and reject stale policy. Those adapters are
-interfaces only on Day 1. Never run untrusted agents with this development account.
+This local broker protects against untrusted model outputs within trusted host adapters. It is not an OS sandbox for hostile plugins or a production multi-user authentication system. See PERMISSIONS.md, WORK_ITEMS.md and REVIEW_SYSTEM.md for concrete checks and limitations.
