@@ -65,11 +65,18 @@ class Orchestrator:
         return work
 
     def advance(
-        self, work: WorkItem, target: State, detail: str, records=(), review=None, **updates
+        self,
+        work: WorkItem,
+        target: State,
+        detail: str,
+        records=(),
+        review=None,
+        conn=None,
+        **updates,
     ):
         next_work = transition(work, target, approved_review=review)
         next_work = WorkItem.model_validate(next_work.model_dump() | updates)
-        self.store.step(work, next_work, detail, tuple(records))
+        self.store.step(work, next_work, detail, tuple(records), conn=conn)
         return next_work
 
     def journal(

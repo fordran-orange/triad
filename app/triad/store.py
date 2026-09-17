@@ -104,34 +104,42 @@ class Store:
             self.enqueue(conn, "WorkItem", work.work_item_id, work.model_dump(mode="json"))
 
     def step(
-        self, previous: WorkItem, updated: WorkItem, detail: str, records: tuple[Record, ...] = ()
+        self,
+        previous: WorkItem,
+        updated: WorkItem,
+        detail: str,
+        records: tuple[Record, ...] = (),
+        *,
+        conn=None,
     ):
         if (
             updated.revision != previous.revision + 1
             or updated.work_item_id != previous.work_item_id
         ):
             raise ValueError("Invalid revision")
-        with self.connect() as conn:
-            result = conn.execute(
-                "UPDATE triad.work_items SET status=%s,revision=%s,payload=%s,updated_at=now() "
-                "WHERE id=%s AND revision=%s RETURNING id",
-                (
-                    updated.status,
-                    updated.revision,
-                    Jsonb(updated.model_dump(mode="json")),
-                    previous.work_item_id,
-                    previous.revision,
-                ),
-            ).fetchone()
-            if not result:
-                raise ConcurrentUpdate("Stale work revision")
-            conn.execute(
-                "INSERT INTO triad.work_events(work_item_id,from_state,to_state,revision,detail) VALUES (%s,%s,%s,%s,%s)",
-                (updated.work_item_id, previous.status, updated.status, updated.revision, detail),
-            )
-            self.enqueue(conn, "WorkItem", updated.work_item_id, updated.model_dump(mode="json"))
-            for record in records:
-                self.add_record(record, conn=conn)
+        if conn is None:
+            with self.connect() as transaction:
+                return self.step(previous, updated, detail, records, conn=transaction)
+        result = conn.execute(
+            "UPDATE triad.work_items SET status=%s,revision=%s,payload=%s,updated_at=now() "
+            "WHERE id=%s AND revision=%s RETURNING id",
+            (
+                updated.status,
+                updated.revision,
+                Jsonb(updated.model_dump(mode="json")),
+                previous.work_item_id,
+                previous.revision,
+            ),
+        ).fetchone()
+        if not result:
+            raise ConcurrentUpdate("Stale work revision")
+        conn.execute(
+            "INSERT INTO triad.work_events(work_item_id,from_state,to_state,revision,detail) VALUES (%s,%s,%s,%s,%s)",
+            (updated.work_item_id, previous.status, updated.status, updated.revision, detail),
+        )
+        self.enqueue(conn, "WorkItem", updated.work_item_id, updated.model_dump(mode="json"))
+        for record in records:
+            self.add_record(record, conn=conn)
 
     def get(self, work_id: str) -> WorkItem:
         with self.connect() as conn:

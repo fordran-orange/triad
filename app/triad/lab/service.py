@@ -30,9 +30,28 @@ from triad.settings import ROOT
 from triad.work import Handoff, Review, State, WorkItem, WorkResult, now, uid
 
 
-def source_hash():
-    files = sorted((ROOT / "app/triad/lab").glob("*.py"))
-    return digest(b"".join(p.name.encode() + p.read_bytes() for p in files))
+def source_hash(directory=None):
+    files = sorted((directory or ROOT / "app/triad/lab").glob("*.py"))
+    return digest(b"".join(p.name.encode() + p.read_bytes().replace(b"\r\n", b"\n") for p in files))
+
+
+def write_run_status(path, run):
+    """Replace only mutable run status; completed result artifacts remain untouched."""
+    for target, payload in (
+        (
+            path / "logs/events.json",
+            {
+                "run_id": run.run_id,
+                "status": run.status,
+                "content_hash": run.content_hash,
+                "errors": run.errors,
+            },
+        ),
+        (path / "manifest.json", run.model_dump(mode="json")),
+    ):
+        temporary = target.with_name(target.name + ".tmp-" + uid())
+        save_json(temporary, payload)
+        temporary.replace(target)
 
 
 class Laboratory:
@@ -46,8 +65,8 @@ class Laboratory:
         )
         self.archive = Archive(root, self.limits)
 
-    def put(self, kind, payload, identifier=None, work_id=None):
-        return self.ledger.put(kind, payload, identifier=identifier, work_id=work_id)
+    def put(self, kind, payload, identifier=None, work_id=None, conn=None):
+        return self.ledger.put(kind, payload, identifier=identifier, work_id=work_id, conn=conn)
 
     def model(self, kind, identifier, cls):
         row = self.ledger.get(identifier)
@@ -180,6 +199,7 @@ class Laboratory:
                 "pandas": pd.__version__,
                 "pyarrow": pa.__version__,
                 "lab_source_sha256": source_hash(),
+                "lab_source_hash_format": "lf-v1",
             },
             acceptance_criteria=(
                 "Identical deterministic content hash on rerun",
@@ -213,11 +233,13 @@ class Laboratory:
         save_json(path / "parameters.json", experiment.parameters)
         return experiment
 
-    def run(self, experiment_id, parameters=None):
+    def run(self, experiment_id, parameters=None, *, run_id=None):
         with self.host.store.lease("lab-backtest"):
-            return self._run(experiment_id, parameters)
+            result = self._run(experiment_id, parameters, run_id=run_id)
+        Brain(self.host.store).flush()
+        return result
 
-    def _run(self, experiment_id, parameters=None):
+    def _run(self, experiment_id, parameters=None, *, run_id=None):
         experiment = self.model("Experiment", experiment_id, Experiment)
         if parameters is not None:
             experiment = Experiment.model_validate(
@@ -247,6 +269,7 @@ class Laboratory:
         )
         work, _policy = self.cycles.start_work(work, epoch)
         run = BacktestRun(
+            run_id=run_id or uid(),
             experiment_id=experiment.experiment_id,
             parameters=experiment.parameters,
             start_time=experiment.start_time,
@@ -257,8 +280,11 @@ class Laboratory:
         )
         self.put("BacktestRun", run.model_dump(mode="json"), run.run_id, work.work_item_id)
         start = time.monotonic()
+        path = self.root / f"research/experiments/{experiment_id}/runs/{run.run_id}"
         tracemalloc.start()
         try:
+            path.mkdir(parents=True, exist_ok=False)
+            write_run_status(path, run)
             frame = self.archive.load(dataset)
 
             def guard():
@@ -268,8 +294,6 @@ class Laboratory:
 
             result = run_engine(frame, experiment, self.limits, guard=guard)
             guard()
-            path = self.root / f"research/experiments/{experiment_id}/runs/{run.run_id}"
-            path.mkdir(parents=True, exist_ok=False)
             artifacts = {}
             # IDs are added to storage; deterministic content excludes incidental run UUID/time.
             for name in ("trades", "equity", "decisions"):
@@ -330,7 +354,7 @@ class Laboratory:
                     "completed_at": now(),
                     "runtime": time.monotonic() - start,
                     "peak_memory_bytes": peak,
-                    "storage_bytes": sum(p.stat().st_size for p in path.iterdir()),
+                    "storage_bytes": sum(p.stat().st_size for p in path.iterdir() if p.is_file()),
                     "result_artifacts": artifacts,
                     "metrics": result["metrics"],
                     "content_hash": result["content_hash"],
@@ -340,17 +364,6 @@ class Laboratory:
                     ),
                 }
             )
-            save_json(path / "manifest.json", finished.model_dump(mode="json"))
-            save_json(
-                path / "logs/events.json",
-                {
-                    "run_id": run.run_id,
-                    "status": "COMPLETED",
-                    "content_hash": result["content_hash"],
-                },
-            )
-            guard()
-            self.put("BacktestRun", finished.model_dump(mode="json"), run.run_id, work.work_item_id)
             evidence = tuple(a["sha256"] for a in artifacts.values())
             journal = self.host.journal(
                 work,
@@ -372,18 +385,31 @@ class Laboratory:
                 git_commit=experiment.code_commit,
                 review_request="Independent research-method review required; profitability is not a correctness verdict",
             )
-            self.host.advance(
-                work,
-                State.AWAITING_REVIEW,
-                "Research artifacts ready for independent review",
-                records=(journal, handoff),
-                result=WorkResult(
-                    summary="Fixture backtest complete; method review pending",
-                    evidence=evidence,
-                    execution_mode="deterministic_demo",
-                ),
-            )
-            Brain(self.host.store).flush()
+            guard()
+            with (
+                self.ledger.gate(work.assigned_agent, work.work_item_id, epoch),
+                self.host.store.connect() as conn,
+            ):
+                self.put(
+                    "BacktestRun",
+                    finished.model_dump(mode="json"),
+                    run.run_id,
+                    work.work_item_id,
+                    conn=conn,
+                )
+                self.host.advance(
+                    work,
+                    State.AWAITING_REVIEW,
+                    "Research artifacts ready for independent review",
+                    records=(journal, handoff),
+                    conn=conn,
+                    result=WorkResult(
+                        summary="Fixture backtest complete; method review pending",
+                        evidence=evidence,
+                        execution_mode="deterministic_demo",
+                    ),
+                )
+                write_run_status(path, finished)
             return finished
         except Exception as exc:
             failed = run.model_copy(
@@ -394,6 +420,13 @@ class Laboratory:
                     "runtime": time.monotonic() - start,
                 }
             )
+            try:
+                write_run_status(path, failed)
+            except OSError:
+                # A full/unavailable disk must not suppress the authoritative failure record.
+                failed = failed.model_copy(
+                    update={"errors": (*failed.errors, "StatusPublicationError")}
+                )
             self.put("BacktestRun", failed.model_dump(mode="json"), run.run_id, work.work_item_id)
             current = self.host.store.get(work.work_item_id)
             if current.status == State.IN_PROGRESS:
@@ -414,6 +447,34 @@ class Laboratory:
             raise
         finally:
             tracemalloc.stop()
+
+    def commit_review(self, work, review, record, epoch):
+        journal = self.host.journal(
+            work,
+            kind="review",
+            result=record["decision"],
+            evidence=review.evidence_checked,
+            tests=review.tests_repeated,
+            mode=review.execution_mode,
+        )
+        with (
+            self.ledger.gate(work.reviewer, work.work_item_id, epoch),
+            self.host.store.connect() as conn,
+        ):
+            accepted = review.decision == "APPROVE"
+            work = self.host.advance(
+                work,
+                State.APPROVED_BY_REVIEWER if accepted else State.CHANGES_REQUESTED,
+                "Research method review",
+                records=(review, journal),
+                review=review,
+                conn=conn,
+            )
+            self.put("ResearchReview", record, review.review_id, work.work_item_id, conn=conn)
+            if accepted:
+                self.host.advance(
+                    work, State.COMPLETED, "Research method accepted", review=review, conn=conn
+                )
 
     def review(self, run_id):
         """A distinct host verifier reruns original evidence; NOT a cloud-model review."""
@@ -458,56 +519,31 @@ class Laboratory:
                 "DATA_QUALITY_FAILURE",
                 ["Dataset/artifact or code verification failed"],
             )
-        with self.ledger.gate(work.reviewer, work.work_item_id, epoch):
-            review = Review(
-                reviewer=work.reviewer,
-                work_item_id=work.work_item_id,
-                decision="APPROVE" if decision == "ACCEPT_RESULT" else "REQUEST_CHANGES",
-                findings=tuple(findings),
-                severity="NONE" if decision == "ACCEPT_RESULT" else "HIGH",
-                evidence_checked=(run.content_hash,),
-                tests_repeated=("independent deterministic rerun", "artifact and dataset hashes"),
-                execution_mode="HOST_VERIFIER_NOT_MODEL",
-            )
-            record = {
-                "review_id": review.review_id,
-                "run_id": run_id,
-                "experiment_id": run.experiment_id,
-                "decision": decision,
-                "reviewer": work.reviewer,
-                "mode": "HOST_VERIFIER_NOT_MODEL",
-                "findings": findings,
-                "review_packet": {
-                    "experiment": experiment.model_dump(mode="json"),
-                    "dataset": dataset.model_dump(mode="json"),
-                    "run": run.model_dump(mode="json"),
-                },
-            }
-            self.put("ResearchReview", record, review.review_id, work.work_item_id)
-            journal = self.host.journal(
-                work,
-                kind="review",
-                result=decision,
-                evidence=(run.content_hash,),
-                tests=review.tests_repeated,
-                mode=review.execution_mode,
-            )
-            work = self.host.advance(
-                work,
-                State.APPROVED_BY_REVIEWER
-                if decision == "ACCEPT_RESULT"
-                else State.CHANGES_REQUESTED,
-                "Research method verification",
-                records=(review, journal),
-                review=review,
-            )
-            if decision == "ACCEPT_RESULT":
-                self.host.advance(
-                    work,
-                    State.COMPLETED,
-                    "Host reproducibility verification passed; no investment conclusion",
-                    review=review,
-                )
+        review = Review(
+            reviewer=work.reviewer,
+            work_item_id=work.work_item_id,
+            decision="APPROVE" if decision == "ACCEPT_RESULT" else "REQUEST_CHANGES",
+            findings=tuple(findings),
+            severity="NONE" if decision == "ACCEPT_RESULT" else "HIGH",
+            evidence_checked=(run.content_hash,),
+            tests_repeated=("independent deterministic rerun", "artifact and dataset hashes"),
+            execution_mode="HOST_VERIFIER_NOT_MODEL",
+        )
+        record = {
+            "review_id": review.review_id,
+            "run_id": run_id,
+            "experiment_id": run.experiment_id,
+            "decision": decision,
+            "reviewer": work.reviewer,
+            "mode": "HOST_VERIFIER_NOT_MODEL",
+            "findings": findings,
+            "review_packet": {
+                "experiment": experiment.model_dump(mode="json"),
+                "dataset": dataset.model_dump(mode="json"),
+                "run": run.model_dump(mode="json"),
+            },
+        }
+        self.commit_review(work, review, record, epoch)
         review_path = (
             self.root / f"research/experiments/{run.experiment_id}/runs/{run_id}/review.md"
         )
@@ -540,6 +576,7 @@ class Laboratory:
             "ranges": ranges,
             "variants_planned": combinations,
             "tests_attempted": 0,
+            "attempts": [],
             "runs": [],
             "status": "RUNNING",
             "selection_method": "NONE; all variants retained",
@@ -552,10 +589,30 @@ class Laboratory:
             for period, hold in itertools.product(ranges["period"], ranges["hold"]):
                 if time.monotonic() - start > self.limits.runtime_seconds:
                     raise TimeoutError("Sweep runtime ceiling")
+                attempt = {
+                    "attempt_id": uid(),
+                    "parameters": {"period": period, "hold": hold},
+                    "run_id": None,
+                    "status": "STARTING",
+                }
+                reserved_run_id = uid()
+                record["attempts"].append(attempt)
                 record["tests_attempted"] += 1
                 self.put("ParameterSweep", record, identifier)
-                run = self.run(experiment_id, {"period": period, "hold": hold})
-                record["runs"].append(run.run_id)
+                try:
+                    self.run(experiment_id, attempt["parameters"], run_id=reserved_run_id)
+                except Exception as exc:
+                    attempt["error_class"] = type(exc).__name__
+                    raise
+                finally:
+                    try:
+                        actual = self.ledger.get(reserved_run_id)
+                    except KeyError:
+                        attempt["status"] = "NOT_STARTED"
+                    else:
+                        attempt.update(run_id=reserved_run_id, status=actual["status"])
+                        record["runs"].append(reserved_run_id)
+                    self.put("ParameterSweep", record, identifier)
             record["status"] = "COMPLETED"
         except Exception as exc:
             record.update(status="BLOCKED", error_class=type(exc).__name__)

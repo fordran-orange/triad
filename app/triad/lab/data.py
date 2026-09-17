@@ -309,6 +309,14 @@ class Archive:
                     "low": min(r["low"] for r in rows),
                     "close": rows[-1]["close"],
                     "volume": sum(r["volume"] for r in rows),
+                    "trade_count": sum(r["trade_count"] for r in rows)
+                    if all(pd.notna(r.get("trade_count")) for r in rows)
+                    else None,
+                    "vwap": sum(r["vwap"] * r["volume"] for r in rows if r["volume"] > 0)
+                    / sum(r["volume"] for r in rows)
+                    if sum(r["volume"] for r in rows) > 0
+                    and all(pd.notna(r.get("vwap")) for r in rows if r["volume"] > 0)
+                    else None,
                     "base_bar_count": len(rows),
                     "partial_session_bucket": (end - start).total_seconds() < minutes * 60,
                 }

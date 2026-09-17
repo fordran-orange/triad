@@ -214,6 +214,11 @@ def run_engine(frame, experiment: Experiment, limits=None, guard=lambda: None, s
                     gross = sign * p["quantity"] * (row["open"] - p["raw_entry"])
                     slip = abs(fill - row["open"]) * p["quantity"] + p["entry_slippage"]
                     net = gross - slip - fee - p["entry_fee"]
+                    # The exit open is observable while the position is still held.
+                    # Do not include the exit bar's subsequent high/low.
+                    exit_return = sign * (row["open"] / p["fill"] - 1)
+                    p["mae"] = min(p["mae"], exit_return)
+                    p["mfe"] = max(p["mfe"], exit_return)
                     trades.append(
                         {
                             "trade_id": f"{direction}-{len(trades) + 1}",

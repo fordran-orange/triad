@@ -12,6 +12,7 @@ def validate(root, dataset_manifest, run_manifest):
     root = Path(root).resolve()
     dataset = json.loads(Path(dataset_manifest).read_text(encoding="utf-8"))
     run = json.loads(Path(run_manifest).read_text(encoding="utf-8"))
+    assert run["status"] == "COMPLETED", "Run is not a completed result"
     row_count = 0
     for relative in dataset["canonical_paths"]:
         path = (root / relative).resolve()

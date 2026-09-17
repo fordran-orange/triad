@@ -62,25 +62,7 @@ def record_method_review(lab: Laboratory, identifier: str, body: MethodReview):
             "run": run.model_dump(mode="json"),
         },
     }
-    with lab.ledger.gate(work.reviewer, work.work_item_id, epoch):
-        lab.put("ResearchReview", record, review.review_id, work.work_item_id)
-        journal = lab.host.journal(
-            work,
-            kind="review",
-            result=body.decision,
-            evidence=body.evidence_checked,
-            tests=body.tests_repeated,
-            mode=review.execution_mode,
-        )
-        work = lab.host.advance(
-            work,
-            State.APPROVED_BY_REVIEWER if accepted else State.CHANGES_REQUESTED,
-            "Operator-authored research method review",
-            records=(review, journal),
-            review=review,
-        )
-        if accepted:
-            lab.host.advance(work, State.COMPLETED, "Human method review accepted", review=review)
+    lab.commit_review(work, review, record, epoch)
     target = lab.root / f"research/experiments/{run.experiment_id}/runs/{identifier}/review.md"
     target.write_text(
         "# Research review\n\n"
