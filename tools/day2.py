@@ -66,6 +66,11 @@ def main():
                 title="Summarize a synthetic operational journal",
                 description="Return a short summary of the supplied synthetic observation.",
                 work_type="summarize_journal",
+                expected_outputs=("One-sentence summary of the supplied journal observation",),
+                acceptance_criteria=(
+                    "Preserve 120 processed records, 2 rejected records and missing timestamps as the cause",
+                    "Do not invent facts absent from the supplied observation",
+                ),
                 authority_tier=0,
                 allowed_tools=("read_file",),
                 allowed_paths=("docs",),
