@@ -8,6 +8,7 @@ def packet_for(
     journals: list[dict] | None = None,
     handoffs: list[dict] | None = None,
     graph: list[dict] | None = None,
+    decisions: list[dict] | None = None,
 ) -> ContextPacket:
     budget = work.compute_budget.max_input_chars
     relevant = [j for j in (journals or []) if j["mission_id"] == work.mission_id][:3]
@@ -53,6 +54,17 @@ def packet_for(
             ),
         ),
         recent_journal_entries=history,
+        relevant_decisions=tuple(
+            Provenance(
+                kind="DECISION",
+                text=f"{d['decision']}: {d['reason']}; {d['routing_reason']}",
+                source=f"postgres:PolicyDecision:{d['policy_decision_id']}",
+                timestamp=d["evaluated_at"],
+                agent="control_plane",
+                work_item=work.work_item_id,
+            )
+            for d in (decisions or [])[:2]
+        ),
         prior_handoff=prior,
         relevant_files=work.input_context,
         relevant_graph_relationships=tuple(

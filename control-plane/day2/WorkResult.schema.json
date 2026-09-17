@@ -1,0 +1,198 @@
+{
+  "$defs": {
+    "Artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "content": {
+          "maxLength": 64000,
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "title": "Artifact",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "provenance_id": {
+          "title": "Provenance Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "FACT",
+            "OBSERVATION",
+            "HYPOTHESIS",
+            "DECISION",
+            "EXTERNAL_CLAIM",
+            "TEST_RESULT",
+            "ASSUMPTION",
+            "RECOMMENDATION"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 8000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "agent": {
+          "title": "Agent",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "evidence": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "work_item": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Work Item"
+        }
+      },
+      "required": [
+        "kind",
+        "text",
+        "source",
+        "agent"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "summary": {
+      "maxLength": 16000,
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "artifacts": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Artifact"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "claims": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "actions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Actions",
+      "type": "array"
+    },
+    "tests": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Tests",
+      "type": "array"
+    },
+    "evidence": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "issues": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Issues",
+      "type": "array"
+    },
+    "input_tokens": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Input Tokens",
+      "type": "integer"
+    },
+    "output_tokens": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Output Tokens",
+      "type": "integer"
+    },
+    "elapsed_seconds": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Elapsed Seconds",
+      "type": "number"
+    },
+    "execution_mode": {
+      "enum": [
+        "deterministic_demo",
+        "ollama"
+      ],
+      "title": "Execution Mode",
+      "type": "string"
+    }
+  },
+  "required": [
+    "summary",
+    "execution_mode"
+  ],
+  "title": "WorkResult",
+  "type": "object"
+}

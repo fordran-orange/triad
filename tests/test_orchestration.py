@@ -216,3 +216,55 @@ def test_matching_review_required():
     )
     with pytest.raises(PermissionError):
         transition(item, State.APPROVED_BY_REVIEWER, approved_review=review)
+
+
+@pytest.mark.parametrize(
+    "done_reason,response,raises",
+    [("stop", "120 processed; 2 rejected.", False), ("length", "", True)],
+)
+def test_qwen_compact_prompt_and_truncation(monkeypatch, done_reason, response, raises):
+    import io
+    import json
+
+    from triad.providers import QwenProvider
+    from triad.settings import Settings
+
+    captured = {}
+
+    def reply(request, timeout):
+        captured.update(json.loads(request.data))
+        return io.BytesIO(
+            json.dumps(
+                {"done_reason": done_reason, "response": response, "eval_count": 50}
+            ).encode()
+        )
+
+    monkeypatch.setattr("triad.providers.urllib.request.urlopen", reply)
+    item = work(
+        input_context=(
+            Provenance(
+                kind="OBSERVATION",
+                text="120 processed; 2 rejected.",
+                source="synthetic:test",
+                agent="operator",
+            ),
+        )
+    )
+    provider = QwenProvider(Settings(postgres_password="synthetic", neo4j_password="synthetic"))
+    if raises:
+        with pytest.raises(RuntimeError):
+            provider.perform(item, packet_for(item), ToolGateway(item))
+    else:
+        result = provider.perform(item, packet_for(item), ToolGateway(item))
+        assert result.execution_mode == "ollama" and result.output_tokens == 50
+    assert "120 processed" in captured["prompt"]
+    assert "packet_id" not in captured["prompt"]
+    assert captured["options"]["num_predict"] <= item.compute_budget.max_output_tokens
+
+
+def test_context_includes_policy_decision_provenance():
+    item = work(assigned_agent="CODEX", reviewer="CLAUDE")
+    decision = ControlPlane().evaluate(item)
+    packet = packet_for(item, decisions=[decision.model_dump(mode="json")])
+    assert packet.relevant_decisions[0].kind == "DECISION"
+    assert decision.policy_decision_id in packet.relevant_decisions[0].source

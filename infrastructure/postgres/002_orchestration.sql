@@ -34,9 +34,9 @@ BEGIN
     'work_type','authority_tier','allowed_tools','allowed_paths','forbidden_paths',
     'reasoning_budget','compute_budget','execution_permissions','risk_class','review_required',
     'reviewer','affects_money','affects_trading','alters_permissions','acceptance_criteria',
-    'expected_outputs','input_context','parent_work_item_id','assigned_agent']
+    'expected_outputs','input_context','parent_work_item_id','assigned_agent','routing_reason']
   LOOP
-    IF OLD.payload->field IS DISTINCT FROM NEW.payload->field THEN
+    IF COALESCE(OLD.payload->field, 'null'::jsonb) IS DISTINCT FROM COALESCE(NEW.payload->field, 'null'::jsonb) THEN
       RAISE EXCEPTION 'Immutable assignment field: %', field;
     END IF;
   END LOOP;

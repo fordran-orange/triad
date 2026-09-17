@@ -1,0 +1,179 @@
+{
+  "$defs": {
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "provenance_id": {
+          "title": "Provenance Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "FACT",
+            "OBSERVATION",
+            "HYPOTHESIS",
+            "DECISION",
+            "EXTERNAL_CLAIM",
+            "TEST_RESULT",
+            "ASSUMPTION",
+            "RECOMMENDATION"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 8000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "agent": {
+          "title": "Agent",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "evidence": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "work_item": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Work Item"
+        }
+      },
+      "required": [
+        "kind",
+        "text",
+        "source",
+        "agent"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "packet_id": {
+      "title": "Packet Id",
+      "type": "string"
+    },
+    "work_item_id": {
+      "title": "Work Item Id",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "work_item": {
+      "title": "Work Item",
+      "type": "string"
+    },
+    "charter": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      },
+      "title": "Charter",
+      "type": "array"
+    },
+    "applicable_policies": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      },
+      "title": "Applicable Policies",
+      "type": "array"
+    },
+    "recent_journal_entries": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      },
+      "title": "Recent Journal Entries",
+      "type": "array"
+    },
+    "relevant_decisions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      },
+      "title": "Relevant Decisions",
+      "type": "array"
+    },
+    "relevant_files": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      },
+      "title": "Relevant Files",
+      "type": "array"
+    },
+    "prior_handoff": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      },
+      "title": "Prior Handoff",
+      "type": "array"
+    },
+    "relevant_graph_relationships": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      },
+      "title": "Relevant Graph Relationships",
+      "type": "array"
+    },
+    "required_acceptance_criteria": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Acceptance Criteria",
+      "type": "array"
+    }
+  },
+  "required": [
+    "work_item_id",
+    "work_item",
+    "required_acceptance_criteria"
+  ],
+  "title": "ContextPacket",
+  "type": "object"
+}

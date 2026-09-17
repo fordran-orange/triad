@@ -54,7 +54,9 @@ def main():
     assert tracked, "No tracked/staged project files"
     assert ".env" not in tracked and not any(f.startswith(".venv/") for f in tracked)
     credentials = dotenv_values(ROOT / ".env")
-    secrets = [credentials["POSTGRES_PASSWORD"], credentials["NEO4J_PASSWORD"]]
+    secrets = [
+        credentials[key] for key in ("POSTGRES_PASSWORD", "NEO4J_PASSWORD", "TRIAD_OPERATOR_TOKEN")
+    ]
     assert secrets[0] != secrets[1] and all(len(s) >= 32 for s in secrets)
     for name in tracked:
         data = (ROOT / name).read_bytes()

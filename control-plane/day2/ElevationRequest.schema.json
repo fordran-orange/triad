@@ -1,0 +1,55 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "agent_id": {
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "work_item_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Work Item Id"
+    },
+    "requested_tier": {
+      "maximum": 5,
+      "minimum": 0,
+      "title": "Requested Tier",
+      "type": "integer"
+    },
+    "reason": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "status": {
+      "const": "PENDING_HUMAN_REVIEW",
+      "default": "PENDING_HUMAN_REVIEW",
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "agent_id",
+    "requested_tier",
+    "reason"
+  ],
+  "title": "ElevationRequest",
+  "type": "object"
+}

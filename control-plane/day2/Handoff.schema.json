@@ -1,0 +1,99 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "handoff_id": {
+      "title": "Handoff Id",
+      "type": "string"
+    },
+    "from_agent": {
+      "title": "From Agent",
+      "type": "string"
+    },
+    "to_agent": {
+      "title": "To Agent",
+      "type": "string"
+    },
+    "work_item_id": {
+      "title": "Work Item Id",
+      "type": "string"
+    },
+    "completed_work": {
+      "title": "Completed Work",
+      "type": "string"
+    },
+    "files_changed": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Files Changed",
+      "type": "array"
+    },
+    "tests_performed": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tests Performed",
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "known_issues": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Known Issues",
+      "type": "array"
+    },
+    "unresolved_questions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Unresolved Questions",
+      "type": "array"
+    },
+    "assumptions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "recommended_checks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Recommended Checks",
+      "type": "array"
+    },
+    "git_commit": {
+      "title": "Git Commit",
+      "type": "string"
+    },
+    "review_request": {
+      "title": "Review Request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "from_agent",
+    "to_agent",
+    "work_item_id",
+    "completed_work",
+    "files_changed",
+    "tests_performed",
+    "evidence",
+    "recommended_checks",
+    "git_commit",
+    "review_request"
+  ],
+  "title": "Handoff",
+  "type": "object"
+}

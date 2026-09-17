@@ -70,8 +70,8 @@ def main():
                 allowed_tools=("read_file",),
                 allowed_paths=("docs",),
                 execution_permissions=("read",),
-                reasoning_budget=1024,
-                compute_budget=ComputeBudget(max_output_tokens=1024, timeout_seconds=120),
+                reasoning_budget=512,
+                compute_budget=ComputeBudget(max_output_tokens=512, timeout_seconds=120),
                 input_context=(
                     Provenance(
                         kind="OBSERVATION",

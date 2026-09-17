@@ -1,0 +1,536 @@
+{
+  "$defs": {
+    "Artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "content": {
+          "maxLength": 64000,
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "title": "Artifact",
+      "type": "object"
+    },
+    "ComputeBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "max_input_chars": {
+          "default": 12000,
+          "maximum": 32000,
+          "minimum": 100,
+          "title": "Max Input Chars",
+          "type": "integer"
+        },
+        "max_output_tokens": {
+          "default": 512,
+          "maximum": 2048,
+          "minimum": 1,
+          "title": "Max Output Tokens",
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "default": 90,
+          "maximum": 120,
+          "minimum": 1,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        },
+        "max_tool_calls": {
+          "default": 30,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Max Tool Calls",
+          "type": "integer"
+        }
+      },
+      "title": "ComputeBudget",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "provenance_id": {
+          "title": "Provenance Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "FACT",
+            "OBSERVATION",
+            "HYPOTHESIS",
+            "DECISION",
+            "EXTERNAL_CLAIM",
+            "TEST_RESULT",
+            "ASSUMPTION",
+            "RECOMMENDATION"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 8000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "agent": {
+          "title": "Agent",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "evidence": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "work_item": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Work Item"
+        }
+      },
+      "required": [
+        "kind",
+        "text",
+        "source",
+        "agent"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "State": {
+      "enum": [
+        "CREATED",
+        "VALIDATING",
+        "APPROVED",
+        "ASSIGNED",
+        "IN_PROGRESS",
+        "AWAITING_REVIEW",
+        "CHANGES_REQUESTED",
+        "APPROVED_BY_REVIEWER",
+        "REJECTED",
+        "FAILED",
+        "BLOCKED",
+        "COMPLETED",
+        "CANCELLED"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "WorkResult": {
+      "additionalProperties": false,
+      "properties": {
+        "summary": {
+          "maxLength": 16000,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "artifacts": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "claims": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "title": "Claims",
+          "type": "array"
+        },
+        "actions": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "tests": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Tests",
+          "type": "array"
+        },
+        "evidence": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "issues": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "input_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        },
+        "elapsed_seconds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Elapsed Seconds",
+          "type": "number"
+        },
+        "execution_mode": {
+          "enum": [
+            "deterministic_demo",
+            "ollama"
+          ],
+          "title": "Execution Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary",
+        "execution_mode"
+      ],
+      "title": "WorkResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "work_item_id": {
+      "title": "Work Item Id",
+      "type": "string"
+    },
+    "parent_work_item_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Work Item Id"
+    },
+    "mission_id": {
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 160,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "description": {
+      "maxLength": 8000,
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "created_by": {
+      "default": "operator",
+      "title": "Created By",
+      "type": "string"
+    },
+    "assigned_agent": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Assigned Agent"
+    },
+    "routing_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Routing Reason"
+    },
+    "status": {
+      "$ref": "#/$defs/State",
+      "default": "CREATED"
+    },
+    "priority": {
+      "default": 3,
+      "maximum": 5,
+      "minimum": 1,
+      "title": "Priority",
+      "type": "integer"
+    },
+    "work_type": {
+      "default": "documentation_audit",
+      "title": "Work Type",
+      "type": "string"
+    },
+    "authority_tier": {
+      "default": 1,
+      "maximum": 5,
+      "minimum": 0,
+      "title": "Authority Tier",
+      "type": "integer"
+    },
+    "allowed_tools": {
+      "default": [
+        "read_file",
+        "write_artifact"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Tools",
+      "type": "array"
+    },
+    "allowed_paths": {
+      "default": [
+        "docs",
+        "research/generated"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Paths",
+      "type": "array"
+    },
+    "forbidden_paths": {
+      "default": [
+        ".env",
+        ".git",
+        ".venv",
+        "control-plane"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden Paths",
+      "type": "array"
+    },
+    "reasoning_budget": {
+      "default": 512,
+      "maximum": 4096,
+      "minimum": 0,
+      "title": "Reasoning Budget",
+      "type": "integer"
+    },
+    "compute_budget": {
+      "$ref": "#/$defs/ComputeBudget"
+    },
+    "execution_permissions": {
+      "default": [
+        "read",
+        "write_research"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Execution Permissions",
+      "type": "array"
+    },
+    "risk_class": {
+      "default": "LOW",
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "GOVERNANCE",
+        "LIVE"
+      ],
+      "title": "Risk Class",
+      "type": "string"
+    },
+    "affects_money": {
+      "default": false,
+      "title": "Affects Money",
+      "type": "boolean"
+    },
+    "affects_trading": {
+      "default": false,
+      "title": "Affects Trading",
+      "type": "boolean"
+    },
+    "alters_permissions": {
+      "default": false,
+      "title": "Alters Permissions",
+      "type": "boolean"
+    },
+    "input_context": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      },
+      "title": "Input Context",
+      "type": "array"
+    },
+    "expected_outputs": {
+      "default": [
+        "Documentation consistency report"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Expected Outputs",
+      "type": "array"
+    },
+    "acceptance_criteria": {
+      "default": [
+        "Inspect required documentation independently",
+        "Preserve evidence and source hashes"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Acceptance Criteria",
+      "type": "array"
+    },
+    "review_required": {
+      "default": true,
+      "title": "Review Required",
+      "type": "boolean"
+    },
+    "reviewer": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reviewer"
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Started At"
+    },
+    "completed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Completed At"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "failure_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Reason"
+    },
+    "revision": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Revision",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "title",
+    "description"
+  ],
+  "title": "WorkItem",
+  "type": "object"
+}

@@ -41,12 +41,13 @@ class Orchestrator:
 
     def create(self, work: WorkItem) -> WorkItem:
         work = WorkItem.model_validate(work.model_dump())
-        agent, _ = self.registry.route(work)
+        agent, routing_reason = self.registry.route(work)
         reviewer = (
             (work.reviewer or self.registry.successor(agent)) if work.review_required else None
         )
         work = WorkItem.model_validate(
-            work.model_dump() | {"assigned_agent": agent, "reviewer": reviewer}
+            work.model_dump()
+            | {"assigned_agent": agent, "reviewer": reviewer, "routing_reason": routing_reason}
         )
         self.store.create(work)
         return work
@@ -198,8 +199,19 @@ class Orchestrator:
                         f"Bounded assignment to {work.assigned_agent}; mode={mode}",
                     )
                     try:
+                        graph = []
+                        if work.parent_work_item_id:
+                            try:
+                                graph = Brain(self.store).lineage(work.parent_work_item_id)
+                            except Exception:  # noqa: BLE001 - optional graph, canonical PG context survives
+                                # Relationship projection is optional; canonical PG context remains available.
+                                graph = []
                         packet = packet_for(
-                            work, self.store.records("JournalEntry"), self.store.records("Handoff")
+                            work,
+                            self.store.records("JournalEntry"),
+                            self.store.records("Handoff"),
+                            graph=graph,
+                            decisions=self.store.records("PolicyDecision", work_id),
                         )
                         work = self.advance(
                             work,

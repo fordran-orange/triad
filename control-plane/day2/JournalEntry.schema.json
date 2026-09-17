@@ -1,0 +1,152 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "journal_id": {
+      "title": "Journal Id",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "agent": {
+      "title": "Agent",
+      "type": "string"
+    },
+    "work_item_id": {
+      "title": "Work Item Id",
+      "type": "string"
+    },
+    "mission_id": {
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "objective": {
+      "title": "Objective",
+      "type": "string"
+    },
+    "context_received": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Context Received",
+      "type": "array"
+    },
+    "actions_taken": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Actions Taken",
+      "type": "array"
+    },
+    "files_changed": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Files Changed",
+      "type": "array"
+    },
+    "tests_run": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tests Run",
+      "type": "array"
+    },
+    "results": {
+      "title": "Results",
+      "type": "string"
+    },
+    "failures": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Failures",
+      "type": "array"
+    },
+    "open_questions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Open Questions",
+      "type": "array"
+    },
+    "assumptions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "decisions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Decisions",
+      "type": "array"
+    },
+    "evidence": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "recommended_next_step": {
+      "title": "Recommended Next Step",
+      "type": "string"
+    },
+    "handoff_to": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Handoff To"
+    },
+    "git_commit": {
+      "title": "Git Commit",
+      "type": "string"
+    },
+    "event_kind": {
+      "enum": [
+        "creation",
+        "review",
+        "failure"
+      ],
+      "title": "Event Kind",
+      "type": "string"
+    },
+    "execution_mode": {
+      "title": "Execution Mode",
+      "type": "string"
+    }
+  },
+  "required": [
+    "agent",
+    "work_item_id",
+    "mission_id",
+    "objective",
+    "context_received",
+    "actions_taken",
+    "files_changed",
+    "tests_run",
+    "results",
+    "recommended_next_step",
+    "handoff_to",
+    "git_commit",
+    "event_kind",
+    "execution_mode"
+  ],
+  "title": "JournalEntry",
+  "type": "object"
+}

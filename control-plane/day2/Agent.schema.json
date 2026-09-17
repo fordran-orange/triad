@@ -1,0 +1,109 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "agent_id": {
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "display_name": {
+      "title": "Display Name",
+      "type": "string"
+    },
+    "provider": {
+      "title": "Provider",
+      "type": "string"
+    },
+    "model": {
+      "title": "Model",
+      "type": "string"
+    },
+    "role": {
+      "enum": [
+        "member",
+        "helper"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "allowed_tools": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Tools",
+      "type": "array"
+    },
+    "default_reasoning_budget": {
+      "default": 512,
+      "title": "Default Reasoning Budget",
+      "type": "integer"
+    },
+    "maximum_reasoning_budget": {
+      "default": 2048,
+      "title": "Maximum Reasoning Budget",
+      "type": "integer"
+    },
+    "cost_class": {
+      "title": "Cost Class",
+      "type": "string"
+    },
+    "local_or_remote": {
+      "enum": [
+        "local",
+        "remote"
+      ],
+      "title": "Local Or Remote",
+      "type": "string"
+    },
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "review_eligible": {
+      "title": "Review Eligible",
+      "type": "boolean"
+    },
+    "execution_eligible": {
+      "title": "Execution Eligible",
+      "type": "boolean"
+    },
+    "authority_tier": {
+      "maximum": 3,
+      "minimum": 0,
+      "title": "Authority Tier",
+      "type": "integer"
+    },
+    "integration": {
+      "enum": [
+        "unconfigured",
+        "ollama"
+      ],
+      "title": "Integration",
+      "type": "string"
+    }
+  },
+  "required": [
+    "agent_id",
+    "display_name",
+    "provider",
+    "model",
+    "role",
+    "capabilities",
+    "allowed_tools",
+    "cost_class",
+    "local_or_remote",
+    "enabled",
+    "review_eligible",
+    "execution_eligible",
+    "authority_tier",
+    "integration"
+  ],
+  "title": "Agent",
+  "type": "object"
+}

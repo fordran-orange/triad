@@ -192,7 +192,7 @@ class ControlPlane:
             reason="; ".join(rules),
             rules_triggered=tuple(rules),
             routed_agent=agent_id,
-            routing_reason=routing_reason,
+            routing_reason=work.routing_reason or routing_reason,
         )
 
     def approve_elevation(self, *, actor: str):

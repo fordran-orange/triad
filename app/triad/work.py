@@ -98,6 +98,7 @@ class WorkItem(Record):
     created_at: datetime = Field(default_factory=now)
     created_by: str = "operator"
     assigned_agent: str | None = None
+    routing_reason: str | None = None
     status: State = State.CREATED
     priority: int = Field(default=3, ge=1, le=5)
     work_type: str = "documentation_audit"

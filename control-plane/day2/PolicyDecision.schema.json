@@ -1,0 +1,69 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "policy_decision_id": {
+      "title": "Policy Decision Id",
+      "type": "string"
+    },
+    "work_item_id": {
+      "title": "Work Item Id",
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "ALLOW",
+        "DENY",
+        "REQUIRE_REVIEW",
+        "REQUIRE_HUMAN_APPROVAL"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "policy_version": {
+      "default": "day2-v1",
+      "title": "Policy Version",
+      "type": "string"
+    },
+    "evaluated_at": {
+      "format": "date-time",
+      "title": "Evaluated At",
+      "type": "string"
+    },
+    "rules_triggered": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Rules Triggered",
+      "type": "array"
+    },
+    "routed_agent": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Routed Agent"
+    },
+    "routing_reason": {
+      "title": "Routing Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "work_item_id",
+    "decision",
+    "reason",
+    "rules_triggered",
+    "routed_agent",
+    "routing_reason"
+  ],
+  "title": "PolicyDecision",
+  "type": "object"
+}

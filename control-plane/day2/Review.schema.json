@@ -1,0 +1,94 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "review_id": {
+      "title": "Review Id",
+      "type": "string"
+    },
+    "reviewer": {
+      "title": "Reviewer",
+      "type": "string"
+    },
+    "work_item_id": {
+      "title": "Work Item Id",
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "APPROVE",
+        "REJECT",
+        "REQUEST_CHANGES"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "severity": {
+      "enum": [
+        "NONE",
+        "LOW",
+        "MEDIUM",
+        "HIGH"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "required_changes": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Changes",
+      "type": "array"
+    },
+    "optional_improvements": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Optional Improvements",
+      "type": "array"
+    },
+    "evidence_checked": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Checked",
+      "type": "array"
+    },
+    "tests_repeated": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tests Repeated",
+      "type": "array"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "execution_mode": {
+      "default": "deterministic_demo",
+      "title": "Execution Mode",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reviewer",
+    "work_item_id",
+    "decision",
+    "findings",
+    "severity",
+    "evidence_checked",
+    "tests_repeated"
+  ],
+  "title": "Review",
+  "type": "object"
+}
