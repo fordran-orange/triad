@@ -23,6 +23,8 @@ Assert-Exit 'Database services'
 Assert-Exit 'Graph constraints'
 & $VenvPython tools/day2.py init
 Assert-Exit 'Orchestration migration and projections'
+& $VenvPython tools/day3.py init
+Assert-Exit 'Autonomy runtime migration'
 & $VenvPython -m pytest
 Assert-Exit 'Automated tests'
 & $VenvPython tools/health_check.py

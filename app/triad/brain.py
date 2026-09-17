@@ -1,5 +1,6 @@
 """Idempotent graph and Markdown projections; retryable transactional outbox."""
 
+from itertools import pairwise
 from pathlib import Path
 
 from neo4j import GraphDatabase
@@ -8,6 +9,7 @@ from triad.settings import ROOT
 from triad.store import Store
 
 LABELS = {
+    "Day3Record",
     "Agent",
     "WorkItem",
     "Mission",
@@ -26,6 +28,9 @@ LABELS = {
     "ElevationRequest",
 }
 RELATIONSHIPS = {
+    "DISAGREES_WITH",
+    "CONTRADICTS",
+    "REVERTS",
     "AGENT_PERFORMED_WORK_ITEM",
     "WORK_ITEM_CHANGED_FILE",
     "WORK_ITEM_PRODUCED_DECISION",
@@ -116,6 +121,49 @@ class Brain:
                     "WorkItem",
                     entity_id,
                 )
+        elif kind == "Day3Record":
+            node(
+                tx,
+                kind,
+                entity_id,
+                record_kind=data["record_kind"],
+                status=data.get("status", ""),
+                mode=data.get("mode", ""),
+            )
+            if work_id:
+                edge(tx, "WorkItem", work_id, "SUPPORTED_BY", kind, entity_id)
+            if data.get("cycle_id") and entity_id != data["cycle_id"]:
+                edge(tx, kind, entity_id, "PART_OF", "Day3Record", data["cycle_id"])
+            metadata = data.get("git") or {}
+            for name in (
+                "base_commit",
+                "change_commit",
+                "review_commit",
+                "merge_commit",
+                "reverts_commit",
+            ):
+                if metadata.get(name):
+                    edge(
+                        tx,
+                        kind,
+                        entity_id,
+                        "REVERTS" if name == "reverts_commit" else "SUPPORTED_BY",
+                        "Commit",
+                        metadata[name],
+                    )
+            if work_id and metadata.get("change_commit"):
+                edge(tx, "WorkItem", work_id, "CREATED_COMMIT", "Commit", metadata["change_commit"])
+            if data["record_kind"] == "Disagreement":
+                reviews = data.get("review_ids", [])
+                for left, right in pairwise(reviews):
+                    edge(tx, "Day3Record", left, "DISAGREES_WITH", "Day3Record", right)
+                claims = data.get("claims_in_conflict", [])
+                for index, claim in enumerate(claims):
+                    claim_id = f"{entity_id}-claim-{index}"
+                    node(tx, "Claim", claim_id, text=claim[:1000], kind="EXTERNAL_CLAIM")
+                    edge(tx, kind, entity_id, "SUPPORTED_BY", "Claim", claim_id)
+                    if index:
+                        edge(tx, "Claim", f"{entity_id}-claim-0", "CONTRADICTS", "Claim", claim_id)
         elif kind == "Agent":
             node(
                 tx,
@@ -212,6 +260,25 @@ class Brain:
                             session.execute_write(
                                 self.project, row["kind"], row["entity_id"], row["payload"]
                             )
+                        if (
+                            row["kind"] == "Day3Record"
+                            and row["payload"].get("record_kind") == "CycleSummary"
+                        ):
+                            import json
+
+                            cycle_id = row["payload"]["cycle_id"]
+                            if any(c not in "0123456789abcdef-" for c in cycle_id):
+                                raise ValueError("Unsafe cycle ID")
+                            self.vault.mkdir(parents=True, exist_ok=True)
+                            target = self.vault / f"cycle-{cycle_id}.md"
+                            temporary = target.with_suffix(".tmp")
+                            temporary.write_text(
+                                "# Triad cycle summary\n\nCanonical data: PostgreSQL.\n\n```json\n"
+                                + json.dumps(row["payload"], indent=2)
+                                + "\n```\n",
+                                encoding="utf-8",
+                            )
+                            temporary.replace(target)
                         if row["kind"] == "JournalEntry":
                             self.export_markdown(row["payload"])
                     except Exception as exc:  # noqa: BLE001 - durable error type, never credentials

@@ -1,0 +1,110 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "agent": {
+      "title": "Agent",
+      "type": "string"
+    },
+    "provider": {
+      "title": "Provider",
+      "type": "string"
+    },
+    "model": {
+      "title": "Model",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "AVAILABLE",
+        "DEGRADED",
+        "RATE_LIMITED",
+        "AUTH_FAILED",
+        "UNAVAILABLE",
+        "DISABLED"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "mode": {
+      "default": "UNAVAILABLE",
+      "enum": [
+        "REAL",
+        "SIMULATED",
+        "UNAVAILABLE"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "checked_at": {
+      "format": "date-time",
+      "title": "Checked At",
+      "type": "string"
+    },
+    "last_success": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Success"
+    },
+    "last_failure": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Failure"
+    },
+    "latency": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Latency"
+    },
+    "error_class": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Class"
+    },
+    "recent_request_count": {
+      "default": 0,
+      "title": "Recent Request Count",
+      "type": "integer"
+    },
+    "estimated_cost": {
+      "default": 0,
+      "title": "Estimated Cost",
+      "type": "number"
+    }
+  },
+  "required": [
+    "agent",
+    "provider",
+    "model",
+    "status"
+  ],
+  "title": "ProviderHealth",
+  "type": "object"
+}

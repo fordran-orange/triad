@@ -1,0 +1,104 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "proposal_id": {
+      "title": "Proposal Id",
+      "type": "string"
+    },
+    "agent": {
+      "title": "Agent",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 160,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "problem": {
+      "title": "Problem",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "proposed_change": {
+      "title": "Proposed Change",
+      "type": "string"
+    },
+    "expected_benefit": {
+      "title": "Expected Benefit",
+      "type": "string"
+    },
+    "possible_downside": {
+      "title": "Possible Downside",
+      "type": "string"
+    },
+    "affected_components": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Affected Components",
+      "type": "array"
+    },
+    "risk_class": {
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "GOVERNANCE"
+      ],
+      "title": "Risk Class",
+      "type": "string"
+    },
+    "reversibility": {
+      "title": "Reversibility",
+      "type": "string"
+    },
+    "test_plan": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Test Plan",
+      "type": "array"
+    },
+    "rollback_plan": {
+      "title": "Rollback Plan",
+      "type": "string"
+    },
+    "estimated_cost": {
+      "minimum": 0,
+      "title": "Estimated Cost",
+      "type": "number"
+    },
+    "permissions_required": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Permissions Required",
+      "type": "array"
+    }
+  },
+  "required": [
+    "agent",
+    "title",
+    "problem",
+    "evidence",
+    "proposed_change",
+    "expected_benefit",
+    "possible_downside",
+    "affected_components",
+    "risk_class",
+    "reversibility",
+    "test_plan",
+    "rollback_plan",
+    "estimated_cost",
+    "permissions_required"
+  ],
+  "title": "ImprovementProposal",
+  "type": "object"
+}

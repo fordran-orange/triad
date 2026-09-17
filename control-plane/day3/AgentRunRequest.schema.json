@@ -1,0 +1,160 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "control_epoch": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Control Epoch",
+      "type": "integer"
+    },
+    "agent_id": {
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "work_item_id": {
+      "title": "Work Item Id",
+      "type": "string"
+    },
+    "mission_id": {
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "context_packet": {
+      "additionalProperties": true,
+      "title": "Context Packet",
+      "type": "object"
+    },
+    "role": {
+      "enum": [
+        "PROPOSE",
+        "IMPLEMENT",
+        "REVIEW",
+        "SUPPORT"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "objective": {
+      "title": "Objective",
+      "type": "string"
+    },
+    "allowed_tools": {
+      "default": [
+        "propose_file_change"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Tools",
+      "type": "array"
+    },
+    "allowed_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Paths",
+      "type": "array"
+    },
+    "forbidden_paths": {
+      "default": [
+        ".env",
+        ".git",
+        "agents",
+        "control-plane",
+        "app/triad",
+        "infrastructure",
+        "tools"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden Paths",
+      "type": "array"
+    },
+    "acceptance_criteria": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Acceptance Criteria",
+      "type": "array"
+    },
+    "reasoning_budget": {
+      "default": 1024,
+      "maximum": 2048,
+      "minimum": 0,
+      "title": "Reasoning Budget",
+      "type": "integer"
+    },
+    "token_budget": {
+      "default": 2048,
+      "maximum": 4096,
+      "minimum": 1,
+      "title": "Token Budget",
+      "type": "integer"
+    },
+    "cost_budget": {
+      "default": 0.25,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Cost Budget",
+      "type": "number"
+    },
+    "execution_permissions": {
+      "default": [
+        "write_docs"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Execution Permissions",
+      "type": "array"
+    },
+    "policy_decision": {
+      "additionalProperties": true,
+      "title": "Policy Decision",
+      "type": "object"
+    },
+    "required_output_schema": {
+      "additionalProperties": true,
+      "title": "Required Output Schema",
+      "type": "object"
+    },
+    "parent_work_item_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Work Item Id"
+    },
+    "delegation_depth": {
+      "default": 0,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Delegation Depth",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "agent_id",
+    "work_item_id",
+    "mission_id",
+    "context_packet",
+    "role",
+    "objective",
+    "allowed_paths",
+    "acceptance_criteria",
+    "policy_decision",
+    "required_output_schema"
+  ],
+  "title": "AgentRunRequest",
+  "type": "object"
+}

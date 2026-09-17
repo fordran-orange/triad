@@ -1,0 +1,71 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "candidate_id": {
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "problem": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Problem",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "impact": {
+      "title": "Impact",
+      "type": "string"
+    },
+    "risk": {
+      "default": "LOW",
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH"
+      ],
+      "title": "Risk",
+      "type": "string"
+    },
+    "estimated_effort": {
+      "title": "Estimated Effort",
+      "type": "string"
+    },
+    "confidence": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "status": {
+      "default": "OPEN",
+      "enum": [
+        "OPEN",
+        "SELECTED",
+        "DONE",
+        "BLOCKED"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "problem",
+    "evidence",
+    "impact",
+    "estimated_effort",
+    "confidence"
+  ],
+  "title": "Candidate",
+  "type": "object"
+}

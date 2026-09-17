@@ -1,0 +1,123 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "max_changes_day": {
+      "default": 3,
+      "maximum": 3,
+      "minimum": 0,
+      "title": "Max Changes Day",
+      "type": "integer"
+    },
+    "max_cloud_cost_day": {
+      "default": 0,
+      "maximum": 25,
+      "minimum": 0,
+      "title": "Max Cloud Cost Day",
+      "type": "number"
+    },
+    "max_tokens_day": {
+      "default": 160000,
+      "maximum": 500000,
+      "minimum": 0,
+      "title": "Max Tokens Day",
+      "type": "integer"
+    },
+    "max_compute_seconds_day": {
+      "default": 1800,
+      "maximum": 3600,
+      "minimum": 0,
+      "title": "Max Compute Seconds Day",
+      "type": "integer"
+    },
+    "max_repositories": {
+      "default": 1,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Max Repositories",
+      "type": "integer"
+    },
+    "max_migrations": {
+      "default": 0,
+      "maximum": 0,
+      "minimum": 0,
+      "title": "Max Migrations",
+      "type": "integer"
+    },
+    "max_high_risk": {
+      "default": 0,
+      "maximum": 0,
+      "minimum": 0,
+      "title": "Max High Risk",
+      "type": "integer"
+    },
+    "max_files": {
+      "default": 3,
+      "maximum": 5,
+      "minimum": 1,
+      "title": "Max Files",
+      "type": "integer"
+    },
+    "max_lines": {
+      "default": 180,
+      "maximum": 300,
+      "minimum": 1,
+      "title": "Max Lines",
+      "type": "integer"
+    },
+    "timeout_seconds": {
+      "default": 120,
+      "maximum": 120,
+      "minimum": 1,
+      "title": "Timeout Seconds",
+      "type": "integer"
+    },
+    "max_input_chars": {
+      "default": 24000,
+      "maximum": 32000,
+      "minimum": 1000,
+      "title": "Max Input Chars",
+      "type": "integer"
+    },
+    "max_output_tokens": {
+      "default": 2048,
+      "maximum": 4096,
+      "minimum": 256,
+      "title": "Max Output Tokens",
+      "type": "integer"
+    },
+    "max_cost_run": {
+      "default": 0.25,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Max Cost Run",
+      "type": "number"
+    },
+    "max_delegation_depth": {
+      "default": 1,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Max Delegation Depth",
+      "type": "integer"
+    },
+    "max_support_requests": {
+      "default": 1,
+      "maximum": 2,
+      "minimum": 0,
+      "title": "Max Support Requests",
+      "type": "integer"
+    },
+    "allowed_directories": {
+      "default": [
+        "docs/improvements",
+        "research/improvements"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Directories",
+      "type": "array"
+    }
+  },
+  "title": "Limits",
+  "type": "object"
+}

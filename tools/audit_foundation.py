@@ -58,6 +58,14 @@ def main():
         credentials[key] for key in ("POSTGRES_PASSWORD", "NEO4J_PASSWORD", "TRIAD_OPERATOR_TOKEN")
     ]
     assert secrets[0] != secrets[1] and all(len(s) >= 32 for s in secrets)
+    import os
+
+    provider_secrets = {**credentials, **os.environ}
+    secrets.extend(
+        provider_secrets[k]
+        for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY")
+        if provider_secrets.get(k)
+    )
     for name in tracked:
         data = (ROOT / name).read_bytes()
         assert all(secret.encode() not in data for secret in secrets), f"Secret found in {name}"

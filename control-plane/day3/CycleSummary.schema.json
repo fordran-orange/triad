@@ -1,0 +1,120 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cycle_id": {
+      "title": "Cycle Id",
+      "type": "string"
+    },
+    "date": {
+      "title": "Date",
+      "type": "string"
+    },
+    "agents_run": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Agents Run",
+      "type": "array"
+    },
+    "proposals": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Proposals",
+      "type": "array"
+    },
+    "changes_accepted": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changes Accepted",
+      "type": "array"
+    },
+    "changes_rejected": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changes Rejected",
+      "type": "array"
+    },
+    "changes_rolled_back": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Changes Rolled Back",
+      "type": "array"
+    },
+    "reviews": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reviews",
+      "type": "array"
+    },
+    "disagreements": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Disagreements",
+      "type": "array"
+    },
+    "tests": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tests",
+      "type": "array"
+    },
+    "cost": {
+      "title": "Cost",
+      "type": "number"
+    },
+    "failures": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Failures",
+      "type": "array"
+    },
+    "lessons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Lessons",
+      "type": "array"
+    },
+    "open_questions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Open Questions",
+      "type": "array"
+    },
+    "next_cycle_candidates": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Cycle Candidates",
+      "type": "array"
+    }
+  },
+  "required": [
+    "cycle_id",
+    "date",
+    "agents_run",
+    "proposals",
+    "changes_accepted",
+    "changes_rejected",
+    "reviews",
+    "disagreements",
+    "tests",
+    "cost",
+    "failures",
+    "lessons",
+    "open_questions",
+    "next_cycle_candidates"
+  ],
+  "title": "CycleSummary",
+  "type": "object"
+}

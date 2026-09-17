@@ -1,0 +1,402 @@
+{
+  "$defs": {
+    "FileChange": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "content": {
+          "maxLength": 32000,
+          "title": "Content",
+          "type": "string"
+        },
+        "original_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Original Sha256"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "title": "FileChange",
+      "type": "object"
+    },
+    "ImprovementProposal": {
+      "additionalProperties": false,
+      "properties": {
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "agent": {
+          "title": "Agent",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "problem": {
+          "title": "Problem",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "proposed_change": {
+          "title": "Proposed Change",
+          "type": "string"
+        },
+        "expected_benefit": {
+          "title": "Expected Benefit",
+          "type": "string"
+        },
+        "possible_downside": {
+          "title": "Possible Downside",
+          "type": "string"
+        },
+        "affected_components": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Affected Components",
+          "type": "array"
+        },
+        "risk_class": {
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "GOVERNANCE"
+          ],
+          "title": "Risk Class",
+          "type": "string"
+        },
+        "reversibility": {
+          "title": "Reversibility",
+          "type": "string"
+        },
+        "test_plan": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Test Plan",
+          "type": "array"
+        },
+        "rollback_plan": {
+          "title": "Rollback Plan",
+          "type": "string"
+        },
+        "estimated_cost": {
+          "minimum": 0,
+          "title": "Estimated Cost",
+          "type": "number"
+        },
+        "permissions_required": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Permissions Required",
+          "type": "array"
+        }
+      },
+      "required": [
+        "agent",
+        "title",
+        "problem",
+        "evidence",
+        "proposed_change",
+        "expected_benefit",
+        "possible_downside",
+        "affected_components",
+        "risk_class",
+        "reversibility",
+        "test_plan",
+        "rollback_plan",
+        "estimated_cost",
+        "permissions_required"
+      ],
+      "title": "ImprovementProposal",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "provenance_id": {
+          "title": "Provenance Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "FACT",
+            "OBSERVATION",
+            "HYPOTHESIS",
+            "DECISION",
+            "EXTERNAL_CLAIM",
+            "TEST_RESULT",
+            "ASSUMPTION",
+            "RECOMMENDATION"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 8000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "agent": {
+          "title": "Agent",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "evidence": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "work_item": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Work Item"
+        }
+      },
+      "required": [
+        "kind",
+        "text",
+        "source",
+        "agent"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "CODE_CHANGE",
+        "DOCUMENTATION_CHANGE",
+        "TEST_ADDITION",
+        "BUG_FIX",
+        "ARCHITECTURAL_IMPROVEMENT",
+        "RESEARCH_FINDING",
+        "PERFORMANCE_IMPROVEMENT",
+        "NO_CHANGE_JUSTIFIED",
+        "BLOCKED"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 8000,
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "analysis_artifacts": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Analysis Artifacts",
+      "type": "array"
+    },
+    "proposed_actions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Proposed Actions",
+      "type": "array"
+    },
+    "actions_taken": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Actions Taken",
+      "type": "array"
+    },
+    "files_changed": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/FileChange"
+      },
+      "title": "Files Changed",
+      "type": "array"
+    },
+    "commands_executed": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Commands Executed",
+      "type": "array"
+    },
+    "tests_run": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Tests Run",
+      "type": "array"
+    },
+    "evidence": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "claims": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "assumptions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "risks": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Risks",
+      "type": "array"
+    },
+    "open_questions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Open Questions",
+      "type": "array"
+    },
+    "recommended_next_step": {
+      "default": "Independent review",
+      "title": "Recommended Next Step",
+      "type": "string"
+    },
+    "handoff_request": {
+      "default": "Verify against original objective and source evidence",
+      "title": "Handoff Request",
+      "type": "string"
+    },
+    "permission_requests": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Permission Requests",
+      "type": "array"
+    },
+    "proposal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ImprovementProposal"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "review_decision": {
+      "anyOf": [
+        {
+          "enum": [
+            "APPROVE",
+            "REJECT",
+            "REQUEST_CHANGES"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Review Decision"
+    },
+    "findings": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Findings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "summary"
+  ],
+  "title": "AgentRunResult",
+  "type": "object"
+}

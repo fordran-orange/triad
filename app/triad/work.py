@@ -86,7 +86,7 @@ class WorkResult(Record):
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
     elapsed_seconds: float = Field(default=0, ge=0)
-    execution_mode: Literal["deterministic_demo", "ollama"]
+    execution_mode: Literal["deterministic_demo", "ollama", "cloud"]
 
 
 class WorkItem(Record):
@@ -282,7 +282,7 @@ TRANSITIONS = {
         State.FAILED,
     },
     State.CHANGES_REQUESTED: {State.VALIDATING, State.CANCELLED},
-    State.APPROVED_BY_REVIEWER: {State.COMPLETED},
+    State.APPROVED_BY_REVIEWER: {State.COMPLETED, State.BLOCKED, State.FAILED, State.CANCELLED},
     State.BLOCKED: {State.VALIDATING, State.CANCELLED},
     State.FAILED: {State.VALIDATING, State.CANCELLED},
     State.REJECTED: set(),

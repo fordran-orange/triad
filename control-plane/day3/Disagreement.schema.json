@@ -1,0 +1,79 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "disagreement_id": {
+      "title": "Disagreement Id",
+      "type": "string"
+    },
+    "work_item_id": {
+      "title": "Work Item Id",
+      "type": "string"
+    },
+    "agents": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Agents",
+      "type": "array"
+    },
+    "claims_in_conflict": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Claims In Conflict",
+      "type": "array"
+    },
+    "evidence_used": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Used",
+      "type": "array"
+    },
+    "severity": {
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "status": {
+      "default": "OPEN",
+      "enum": [
+        "OPEN",
+        "RESOLVED"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "resolution_method": {
+      "default": "Human review; no automatic majority vote",
+      "title": "Resolution Method",
+      "type": "string"
+    },
+    "human_review_required": {
+      "default": true,
+      "title": "Human Review Required",
+      "type": "boolean"
+    },
+    "review_ids": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Review Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "work_item_id",
+    "agents",
+    "claims_in_conflict",
+    "evidence_used",
+    "severity"
+  ],
+  "title": "Disagreement",
+  "type": "object"
+}

@@ -32,6 +32,18 @@ class Orchestrator:
         self.registry = registry or Registry()
         self.control = ControlPlane(self.registry)
 
+    def guard_runtime(self, work_id=None):
+        # Day 3 operator stop applies to retained Day 2 execution routes too.
+        with self.store.connect() as conn:
+            active = conn.execute(
+                "SELECT to_regclass('triad.autonomy_control') AS name"
+            ).fetchone()["name"]
+        if active:
+            from triad.day3.ledger import Ledger
+
+            agent = self.store.get(work_id).assigned_agent if work_id else None
+            Ledger(self.store).guard(agent=agent, work_id=work_id)
+
     def initialize(self):
         self.store.migrate()
         for agent in self.registry.agents.values():
@@ -152,6 +164,7 @@ class Orchestrator:
         mode: Literal["deterministic_demo", "real"] = "deterministic_demo",
         auto_review: bool = True,
     ) -> WorkItem:
+        self.guard_runtime(work_id)
         with self.store.lease(work_id):
             work = self.store.get(work_id)
             if work.status not in {
@@ -225,7 +238,9 @@ class Orchestrator:
                             if demo_available
                             else QwenProvider(self.store.settings)
                         )
+                        self.guard_runtime(work_id)
                         result = provider.perform(work, packet, gateway)
+                        self.guard_runtime(work_id)
                         work = self.submit_result(work, result, gateway)
                     except Exception as exc:
                         current = self.store.get(work_id)
@@ -253,6 +268,7 @@ class Orchestrator:
         return work
 
     def apply_review(self, work: WorkItem, review: Review) -> WorkItem:
+        self.guard_runtime(work.work_item_id)
         if (
             work.status != State.AWAITING_REVIEW
             or review.reviewer != work.reviewer
@@ -286,6 +302,7 @@ class Orchestrator:
         return work
 
     def review(self, work_id: str, *, mode: str = "deterministic_demo") -> WorkItem:
+        self.guard_runtime(work_id)
         with self.store.lease(work_id):
             work = self.store.get(work_id)
             if work.status != State.AWAITING_REVIEW:
