@@ -113,6 +113,11 @@ password rotation when needed.
 
 ## Reference documentation
 
+Follow-up on 2026-09-17: the earlier unavailable result records the initial check.
+Ollama 0.34.1 is now installed and its local API responds. No models are downloaded.
+Application: `%LOCALAPPDATA%\Programs\Ollama`; model storage: `C:\AI\Models\Ollama`.
+See `LOCAL_MODEL.md` for verified installation details.
+
 - [TimescaleDB Docker image](https://hub.docker.com/r/timescale/timescaledb)
 - [Neo4j Docker configuration](https://neo4j.com/docs/operations-manual/current/docker/configuration/)
 - [Docker stale-socket startup issue](https://github.com/docker/desktop-feedback/issues/448)
