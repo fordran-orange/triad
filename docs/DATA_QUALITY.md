@@ -7,3 +7,6 @@ Expected bars come only from the requested regular-session window. Calendar is r
 Calendar source: [NYSE official holidays and hours](https://www.nyse.com/trade/hours-calendars), consulted 2026-09-17. The local finite calendar snapshot is versioned XNYS-2026-v1. Exchange notices and coverage extension require an explicit reviewed update.
 
 Resampling groups within a session anchored at 09:30 local, left-closed/right-open. Open=first, high=max, low=min, close=last, volume=sum. No overnight blending. Terminal shorter hourly bars are retained and flagged; truncated input buckets retain actual coverage, are flagged partial_dataset_bucket and cannot be backtested. Full-session daily bars end at the calendar close.
+
+
+Optional derived fields: trade_count is summed only when every constituent count is present; otherwise it is null. VWAP is volume-weighted over positive-volume minutes only when their VWAPs are all present; zero total volume or missing required values yields null. It is never copied from the first minute.

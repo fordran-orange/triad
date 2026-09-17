@@ -33,7 +33,8 @@ Credentials live only in ignored `.env`. Never run `docker compose config` witho
 
 - [Day 4 research laboratory](docs/DAY4_SETUP.md)
 - [Supporting durable operations](docs/DAY4_DURABILITY_SETUP.md)
-- [Day 4 verification](docs/DAY4_VERIFICATION.md)
+- [Day 4 verification and review corrections](docs/DAY4_REVIEW_FIXES.md)
+- [Original Day 4 evidence](docs/DAY4_VERIFICATION.md)
 - [Day 3 operation](docs/DAY3_SETUP.md)
 - [Day 3 verification](docs/DAY3_VERIFICATION.md)
 - [Providers](docs/PROVIDERS.md)

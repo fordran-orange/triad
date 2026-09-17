@@ -7,3 +7,6 @@ Hypothesis records statement/origin/rationale/expected behavior/falsification an
 Partitions are aware nonoverlapping [start,end) training/validation/test intervals. Test windows cannot be used for parameter sweeps. The initial mission uses one explicit test partition and no fitting. walk_forward_windows provides a bounded train-then-test scheduling skeleton, labelled NOT_RUN with no parameter-selection implementation. It does not claim walk-forward validation.
 
 Sweeps take explicit period/hold ranges, max eight combinations, sequential execution and a runtime budget. Parameter count, planned variants, attempts, run IDs and selection_method=NONE are persisted, including failures. All variants are retained; no best-in-sample result is promoted as out-of-sample success.
+
+
+Each sweep now retains an explicit attempt record with parameters, status, error class and canonical run ID when created. Failed runs remain linked; validation failures before run creation are NOT_STARTED with no phantom run ID. The run list includes successful and failed canonical runs.

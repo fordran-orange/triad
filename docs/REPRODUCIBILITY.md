@@ -11,3 +11,6 @@ python tools/portable_research.py C:/Triad C:/Triad/data/manifests/<dataset-id>.
 ```
 
 Only Python and pyarrow are needed. The script imports no Triad modules, opens no network/database connections, verifies checksums, reads dataset Parquet, trade/equity/decision Parquet and metrics/configuration JSON. Relative artifact paths resolve inside the supplied bundle root. Portable does not mean malicious files are safe to execute; the reader only reads data.
+
+
+Review correction: new experiments record lab_source_hash_format=lf-v1. Source hashing normalizes CRLF to LF, matching Git checkout semantics while still detecting code edits. Pre-correction experiments/artifacts remain historical and are not rewritten to claim the corrected engine produced them. Use the corrected experiment listed in DAY4_REVIEW_FIXES.md.

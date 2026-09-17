@@ -1,4 +1,6 @@
-# Day 4 research laboratory — verification
+# Day 4 research laboratory — initial verification
+
+This is the original delivery evidence. The subsequent defect review found six issues; corrected implementation, regression tests and a new reproducibility mission are recorded in [DAY4_REVIEW_FIXES.md](DAY4_REVIEW_FIXES.md). Original artifacts and identifiers below remain unchanged.
 
 The authoritative Day 4 scope is market data, experiments and backtesting. Earlier queue/recovery work is retained as supporting infrastructure; its historical reports are archived as DAY4_DURABILITY_*.md. This report covers the supplied research brief.
 
