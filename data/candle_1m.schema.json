@@ -1,0 +1,111 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "symbol": {
+      "minLength": 1,
+      "title": "Symbol",
+      "type": "string"
+    },
+    "open": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,26}|(?=[\\d.]{1,39}0*$)\\d{0,26}\\.\\d{0,12}0*$)",
+          "type": "string"
+        }
+      ],
+      "title": "Open"
+    },
+    "high": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,26}|(?=[\\d.]{1,39}0*$)\\d{0,26}\\.\\d{0,12}0*$)",
+          "type": "string"
+        }
+      ],
+      "title": "High"
+    },
+    "low": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,26}|(?=[\\d.]{1,39}0*$)\\d{0,26}\\.\\d{0,12}0*$)",
+          "type": "string"
+        }
+      ],
+      "title": "Low"
+    },
+    "close": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,26}|(?=[\\d.]{1,39}0*$)\\d{0,26}\\.\\d{0,12}0*$)",
+          "type": "string"
+        }
+      ],
+      "title": "Close"
+    },
+    "volume": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,26}|(?=[\\d.]{1,39}0*$)\\d{0,26}\\.\\d{0,12}0*$)",
+          "type": "string"
+        }
+      ],
+      "title": "Volume"
+    },
+    "source": {
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    },
+    "ingested_at": {
+      "format": "date-time",
+      "title": "Ingested At",
+      "type": "string"
+    },
+    "data_version": {
+      "minLength": 1,
+      "title": "Data Version",
+      "type": "string"
+    },
+    "provenance_id": {
+      "minLength": 1,
+      "title": "Provenance Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "timestamp",
+    "symbol",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "source",
+    "ingested_at",
+    "data_version",
+    "provenance_id"
+  ],
+  "title": "Candle1m",
+  "type": "object"
+}

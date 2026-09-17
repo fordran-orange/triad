@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Triad · Operator workspace</title><style>
+:root{font:16px system-ui,sans-serif;color:#e8edf4;background:#10151d}*{box-sizing:border-box}
+body{margin:0}header{padding:30px 5%;border-bottom:1px solid #344151;display:flex;justify-content:space-between;gap:20px;align-items:center}
+h1{letter-spacing:.12em;margin:0;font-size:25px}small,p{color:#b6c5d6;line-height:1.6}
+main{max-width:1200px;margin:auto;padding:44px 5%}h2{font-size:32px;font-weight:500}
+.badge{border:1px solid #ba8e48;padding:9px 14px;border-radius:30px;color:#efc37d;font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}
+article{background:#19222f;border:1px solid #344151;border-radius:12px;padding:24px}
+h3{margin-top:0}a{color:#87c8ff}a:focus{outline:2px solid #efc37d}footer{margin-top:30px;color:#b6c5d6}
+#state{white-space:pre-wrap;font:14px ui-monospace,monospace;line-height:1.7}
+</style></head><body><header><div><h1>TRIAD</h1><small>Independent research · Operator workspace</small></div>
+<span class="badge">Day 1 · Execution disabled</span></header><main>
+<p>DRAW THE BOX FIRST, THEN DESIGN HOW WE INTERACT WITH IT.</p><h2>Platform before prediction.</h2>
+<p>Inspect evidence, understand authority, and trace every decision. This foundation contains no trading strategies.</p>
+<div class="grid"><article><h3>System overview</h3><div id="state" role="status">Reading foundation configuration…</div></article>
+<article><h3>Authority & policy</h3><p>Human intent → validated runtime policy. Authority requests remain pending human review.</p><p>Live trading and policy changes are unavailable in this shell.</p></article>
+<article><h3>Data & provenance</h3><p>One-minute OHLCV retained in Parquet. Higher timeframes derive from the base archive. Dataset manifests retain version and lineage.</p></article>
+<article><h3>Research & experiments</h3><p>No experiments or strategies loaded. Evidence, claims, results, and decisions will remain traceable.</p></article>
+<article><h3>Knowledge workspace</h3><p>Neo4j holds relationships. PostgreSQL holds structured facts. Open docs/vault in Obsidian for human notes.</p></article>
+<article><h3>Local helper</h3><p>Optional Qwen worker for summaries, tagging, and context preparation. It is not a fourth decision-maker.</p></article></div>
+<footer><a href="/docs">API contracts</a> · Database status requires the authenticated health-check script.</footer>
+</main><script>fetch('/api/foundation').then(r=>{if(!r.ok)throw Error();return r.json()}).then(d=>{
+document.querySelector('#state').textContent='Phase: '+d.phase+'\nLive authority: '+d.live_trading_authority+'\nExecution: '+d.execution_engine+'\nDatabase health: not checked here';
+}).catch(()=>{document.querySelector('#state').textContent='Foundation API unavailable';});</script></body></html>

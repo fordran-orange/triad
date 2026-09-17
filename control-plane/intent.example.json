@@ -1,0 +1,10 @@
+{
+  "agent_id": "local-helper", "role": "local_worker", "model": "ollama/qwen3:8b",
+  "reasoning_depth": "low", "tools": ["read_docs", "read_logs", "write_scratch"],
+  "data_scope": ["docs", "logs", "scratch"],
+  "execution_permissions": ["read", "write_scratch"],
+  "risk_limits": {"max_order_notional": 0, "max_gross_exposure": 0, "max_daily_loss": 0},
+  "compute_tokens": 4096, "compute_seconds": 60,
+  "live_trading_authority": false,
+  "tasks": ["summarization", "log_analysis", "classification", "tagging", "retrieval_preparation", "context_compression", "housekeeping"]
+}

@@ -1,0 +1,10 @@
+{
+  "dataset_id": "synthetic-example-v1", "provenance_id": "fixture-001",
+  "schema_version": "triad.candles.1m.v1", "base_resolution": "1m",
+  "format": "parquet", "compression": "zstd", "source": "synthetic_fixture",
+  "sha256": "EXAMPLE_ONLY_REPLACE_WITH_ACTUAL_FILE_HASH", "row_count": 1,
+  "min_timestamp": "2026-01-01T00:00:00Z", "max_timestamp": "2026-01-01T00:00:00Z",
+  "volume_units": "synthetic_units", "adjustment_policy": "none_synthetic",
+  "calendar": "synthetic_24x7", "timezone": "UTC", "parent_dataset_ids": [],
+  "transformation_git_commit": "REPLACE_WITH_ACTUAL_COMMIT", "example_only": true
+}

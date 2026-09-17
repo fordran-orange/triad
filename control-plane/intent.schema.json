@@ -1,0 +1,147 @@
+{
+  "$defs": {
+    "RiskLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_order_notional": {
+          "default": 0,
+          "maximum": 0,
+          "minimum": 0,
+          "title": "Max Order Notional",
+          "type": "number"
+        },
+        "max_gross_exposure": {
+          "default": 0,
+          "maximum": 0,
+          "minimum": 0,
+          "title": "Max Gross Exposure",
+          "type": "number"
+        },
+        "max_daily_loss": {
+          "default": 0,
+          "maximum": 0,
+          "minimum": 0,
+          "title": "Max Daily Loss",
+          "type": "number"
+        }
+      },
+      "title": "RiskLimits",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "agent_id": {
+      "minLength": 1,
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "role": {
+      "enum": [
+        "triad_member",
+        "local_worker"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "model": {
+      "minLength": 1,
+      "title": "Model",
+      "type": "string"
+    },
+    "reasoning_depth": {
+      "default": "low",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Reasoning Depth",
+      "type": "string"
+    },
+    "tools": {
+      "default": [],
+      "items": {
+        "enum": [
+          "read_docs",
+          "read_logs",
+          "read_canonical",
+          "write_scratch"
+        ],
+        "type": "string"
+      },
+      "title": "Tools",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "data_scope": {
+      "default": [],
+      "items": {
+        "enum": [
+          "docs",
+          "logs",
+          "canonical",
+          "scratch"
+        ],
+        "type": "string"
+      },
+      "title": "Data Scope",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "execution_permissions": {
+      "default": [
+        "read"
+      ],
+      "items": {
+        "enum": [
+          "read",
+          "write_scratch"
+        ],
+        "type": "string"
+      },
+      "title": "Execution Permissions",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "risk_limits": {
+      "$ref": "#/$defs/RiskLimits"
+    },
+    "compute_tokens": {
+      "default": 4096,
+      "maximum": 32768,
+      "minimum": 0,
+      "title": "Compute Tokens",
+      "type": "integer"
+    },
+    "compute_seconds": {
+      "default": 60,
+      "maximum": 300,
+      "minimum": 0,
+      "title": "Compute Seconds",
+      "type": "integer"
+    },
+    "live_trading_authority": {
+      "const": false,
+      "default": false,
+      "title": "Live Trading Authority",
+      "type": "boolean"
+    },
+    "tasks": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Tasks",
+      "type": "array",
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "agent_id",
+    "role",
+    "model"
+  ],
+  "title": "Intent",
+  "type": "object"
+}

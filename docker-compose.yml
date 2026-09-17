@@ -1,0 +1,47 @@
+name: triad
+services:
+  postgres:
+    image: timescale/timescaledb:2.25.2-pg17@sha256:ec9366355ee5a42282006095a8677a042f7d3b0567a31777d77a6e7c9d6e0fdf
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Run tools/init_env.py}
+      POSTGRES_USER: ${POSTGRES_USER:?Run tools/init_env.py}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run tools/init_env.py}
+      TIMESCALEDB_TELEMETRY: "off"
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/001_foundation.sql:/docker-entrypoint-initdb.d/001_foundation.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    mem_limit: 2g
+  neo4j:
+    image: neo4j:5.26-community@sha256:bb268a2f1b4f3c79e4bd1a00a82a6e63bbd4fcc4088da03c1b2380655f256cb2
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:?Run tools/init_env.py}/${NEO4J_PASSWORD:?Run tools/init_env.py}
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
+    ports:
+      - "127.0.0.1:${NEO4J_HTTP_PORT:-57474}:7474"
+      - "127.0.0.1:${NEO4J_BOLT_PORT:-57687}:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+    mem_limit: 2g
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
