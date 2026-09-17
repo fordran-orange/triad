@@ -114,7 +114,8 @@ password rotation when needed.
 ## Reference documentation
 
 Follow-up on 2026-09-17: the earlier unavailable result records the initial check.
-Ollama 0.34.1 is now installed and its local API responds. No models are downloaded.
+Ollama 0.34.1 is now installed and its local API responds. The operator subsequently
+selected `qwen3:4b`; it is downloaded, checksum-verified and selected in Triad configuration.
 Application: `%LOCALAPPDATA%\Programs\Ollama`; model storage: `C:\AI\Models\Ollama`.
 See `LOCAL_MODEL.md` for verified installation details.
 

@@ -1,5 +1,5 @@
 {
-  "agent_id": "local-helper", "role": "local_worker", "model": "ollama/qwen3:8b",
+  "agent_id": "local-helper", "role": "local_worker", "model": "ollama/qwen3:4b",
   "reasoning_depth": "low", "tools": ["read_docs", "read_logs", "write_scratch"],
   "data_scope": ["docs", "logs", "scratch"],
   "execution_permissions": ["read", "write_scratch"],
