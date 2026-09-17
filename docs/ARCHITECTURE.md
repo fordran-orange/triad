@@ -29,3 +29,7 @@ PostgreSQL/TimescaleDB and Neo4j run in persistent Docker volumes on loopback. O
 Operational transactions enqueue durable graph/Markdown projections. Git is not transactionally atomic with PostgreSQL; explicit checkpoints and blocked recovery preserve evidence. Scheduled/background tasks are not a durable queue. Kill serializes new dispatch/merge and invalidates in-flight authority, but cannot guarantee upstream HTTP computation stops. See AGENT_RUNTIME.md, KILL_SWITCH.md, SCHEDULER.md and ROLLBACK.md for exact limits.
 
 No broker execution, live capital, strategy seeding or model self-training exists. Process sandboxing, service identities, backups/recovery drills and credentialed cloud validation remain deployment work. Day 1/2 reports describe their historical checkpoints; DAY3_VERIFICATION.md describes the current build.
+
+## Day 4 durable cycle queue
+
+Dashboard cycle submissions and API scheduling persist in PostgreSQL cycle_jobs before execution. A single session-locked worker checks every five seconds; CLI workers share the same lock. Interrupted RUNNING jobs become UNCERTAIN and pause autonomy before reconciliation; they are not replayed. Day/mode uniqueness and cancellation epochs prevent duplicate or stale execution. Day 2 background routes and direct trusted Day 3 CLI calls retain their earlier semantics. See DAY4_SETUP.md for scope and failure limits. Provider readiness and review-evidence counts are separate from unmeasured model correctness.
