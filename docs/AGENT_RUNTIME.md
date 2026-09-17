@@ -1,0 +1,11 @@
+# Agent runtime and local support
+
+Frozen, extra-field-forbidden contracts in `contracts.py` and exported JSON schemas in `control-plane/day3` define canonical requests/results. Every request binds agent, WorkItem, mission, role, objective, source context, paths, allowed tools, acceptance criteria, budgets, execution permissions, saved policy decision and cancellation epoch. Runtime compares these against authoritative WorkItem/policy records, not a model's asserted permissions.
+
+Provider compilers preserve the logical envelope; vendor-specific schema placement is confined to adapters. JSON responses must validate, match run identity and stay within output/usage bounds. Truncation, malformed JSON, fabricated host-verified facts/tests, commands-executed assertions, secret output or permission requests do not advance work. Models return proposed file contents; a trusted host broker performs permitted writes and fixed checks. Models have no shell, environment-variable reader or direct database/Git tools.
+
+Reviewers get original objective, criteria, source excerpts, exact diff and host checks. Worker reasoning is not included. No chain-of-thought is requested or stored. Reasoning requests record justification and an ALLOW/DENY/REQUIRE_HUMAN_APPROVAL decision without rewriting WorkItem authority. Generation is capped by the smaller of reasoning/output limits; this bounds provider generation, not independently measurable internal thought.
+
+The LocalModelCapability manifest includes SUMMARY, CLASSIFICATION, TAGGING, CONTEXT_COMPRESSION, LOG_ANALYSIS, METADATA_EXTRACTION, DOCUMENT_ROUTING and DUPLICATE_DETECTION. A primary agent requests a capability through `/api/day3/support`, bound to its assigned parent WorkItem. The control plane validates parent, agent, text scope, budget and policy before invoking LOCAL_QWEN. The helper has read-only authority, maximum depth one and normally one support request per parent. Its result receives a journal/handoff and awaits review; it cannot delegate, merge, govern, approve itself or directly receive arbitrary commands from another provider.
+
+These are application boundaries for trusted local services, not an OS security sandbox against a hostile operator or compromised Python process. Credential isolation, durable workers and hardened process isolation remain deployment work.

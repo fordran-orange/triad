@@ -8,12 +8,12 @@ broker credentials, live execution, or preselected research are included.
 ```powershell
 Set-Location C:\Triad
 docker desktop start
-.\.venv\Scripts\python.exe tools/day2.py init
+.\.venv\Scripts\python.exe tools/day3.py init
 .\tools\start_backend.ps1
 ```
 
 If containers are stopped, first run `docker compose up -d --wait --wait-timeout 240`.
-Open <http://127.0.0.1:8000>. The UI shows real work, journals, independent reviews and lineage. Cloud roles use clearly labeled deterministic demo adapters; local Qwen uses Ollama.
+Open <http://127.0.0.1:8000>. The UI shows real work, journals, independent reviews and lineage. Day 3 adds provider adapters, daily cycles, proposal policy, reviewed Git changes, budgets and a kill switch. Cloud providers without credentials are UNAVAILABLE; explicit demo cycles are SIMULATED. Local Qwen uses real Ollama inference.
 Open `docs/vault` as an Obsidian vault; installing Obsidian is optional.
 
 ## Reproduce from a clean checkout
@@ -31,6 +31,9 @@ Credentials live only in ignored `.env`. Never run `docker compose config` witho
 
 ## Orientation
 
+- [Day 3 operation](docs/DAY3_SETUP.md)
+- [Day 3 verification](docs/DAY3_VERIFICATION.md)
+- [Providers](docs/PROVIDERS.md)
 - [Day 2 operation](docs/DAY2_SETUP.md)
 - [Day 2 verification](docs/DAY2_VERIFICATION.md)
 - [Architecture](docs/ARCHITECTURE.md)

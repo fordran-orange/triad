@@ -1,6 +1,8 @@
 """Local operator surface. Mutation requires an operator token; no agent authority API."""
 
 import hmac
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
@@ -13,7 +15,32 @@ from triad.orchestrator import Orchestrator
 from triad.status import system_status
 from triad.work import ElevationRequest, WorkItem
 
-app = FastAPI(title="Triad bounded orchestration", version="0.2.0")
+
+@asynccontextmanager
+async def lifespan(app):
+    stop = threading.Event()
+
+    def scheduled_loop():
+        from triad.day3.scheduler import tick
+
+        while not stop.wait(30):
+            try:
+                tick()
+            except Exception:  # noqa: BLE001 - scheduler must remain inspectable during outages
+                import logging
+
+                logging.getLogger("triad.scheduler").warning(
+                    "Scheduled tick failed; inspect canonical cycle state"
+                )
+
+    worker = threading.Thread(target=scheduled_loop, daemon=True)
+    worker.start()
+    yield
+    stop.set()
+    worker.join(timeout=1)
+
+
+app = FastAPI(title="Triad bounded orchestration", version="0.3.0", lifespan=lifespan)
 
 
 def service():
@@ -68,7 +95,7 @@ async def denied_operation(request, exc):
 
 @app.get("/", include_in_schema=False)
 def operator_shell():
-    return FileResponse(Path(__file__).parent / "static/index.html")
+    return FileResponse(Path(__file__).parent / "static/day3.html")
 
 
 @app.get("/health/live")
@@ -79,7 +106,7 @@ def liveness():
 @app.get("/api/foundation")
 def foundation():
     return {
-        "phase": "Day 2",
+        "phase": "Day 3",
         "live_trading_authority": False,
         "execution_engine": "bounded_research_only",
         "policy_mutation_api": False,
@@ -207,3 +234,13 @@ def elevation(request: ElevationRequest, engine: Orchestrator = ENGINE_DEPENDENC
 @app.post("/api/projections/retry", dependencies=[Depends(require_operator)])
 def retry_projection(engine: Orchestrator = ENGINE_DEPENDENCY):
     return Brain(engine.store).flush()
+
+
+from triad.day3.api import router as day3_router
+
+app.include_router(day3_router)
+
+
+@app.get("/day2", include_in_schema=False)
+def day2_shell():
+    return FileResponse(Path(__file__).parent / "static/index.html")
