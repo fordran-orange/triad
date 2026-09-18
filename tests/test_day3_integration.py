@@ -276,8 +276,9 @@ def test_no_change_justified_does_not_create_commits(engine, monkeypatch):
 
 
 def test_real_unavailable_cycle_never_substitutes_simulation(engine):
-    cycle = engine.run("REAL")
-    assert cycle["status"] == "BLOCKED" and not cycle["summary"]["changes_accepted"]
+    with pytest.raises(PermissionError, match="DAY5A_GATE_BLOCKED"):
+        engine.run("REAL")
+    assert not engine.ledger.records("Cycle")
     assert not engine.ledger.records("Usage")
 
 

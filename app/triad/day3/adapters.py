@@ -251,6 +251,7 @@ class HttpProvider:
             text = data.get("response", "")
             input_tokens = data.get("prompt_eval_count", 0)
             output_tokens = data.get("eval_count", 0)
+        self.actual_model = data.get("model") if isinstance(data.get("model"), str) else None
         try:
             decoded = json.loads(text)
             ensure_no_secret(decoded)
@@ -390,9 +391,12 @@ class Runtime:
         config = json.loads((ROOT / "agents/day3.json").read_text())["providers"]
         if agent not in config:
             raise ValueError("Unknown provider identity")
-        return (
-            SimulatedProvider(agent) if mode == "SIMULATED" else HttpProvider(agent, config[agent])
-        )
+        if mode == "SIMULATED":
+            return SimulatedProvider(agent)
+        from triad.day5a.control import ProviderControl
+
+        control = ProviderControl(self.ledger)
+        return control.transport(control.policy(agent).preferred_transport)
 
     def health(self):
         output = []
@@ -421,8 +425,9 @@ class Runtime:
             output.append(data)
         return output
 
-    def execute(self, request, *, mode="REAL", day=None, adapter=None):
+    def execute(self, request, *, mode="REAL", day=None, adapter=None, transport_id=None):
         request = AgentRunRequest.model_validate(request.model_dump())
+        select_transport = adapter is None and mode == "REAL"
         adapter = adapter or self.provider(request.agent_id, mode)
         expected_permissions = (
             ("read",) if request.role in {"REVIEW", "SUPPORT"} else ("write_docs",)
@@ -467,6 +472,12 @@ class Runtime:
         input_ceiling = (
             len(prompt.encode()) + len(json.dumps(request.required_output_schema).encode()) + 2048
         )
+        if select_transport:
+            from triad.day5a.control import ProviderControl, TransportRouter
+
+            adapter = TransportRouter(ProviderControl(self.ledger)).select(
+                request, input_ceiling, transport_id
+            )
         estimate = adapter.estimate_cost(input_ceiling, request.token_budget)
         if estimate > min(request.cost_budget, limits["max_cost_run"]):
             raise PermissionError("Per-run cost ceiling exceeded")
@@ -492,6 +503,26 @@ class Runtime:
         )
         started = time.monotonic()
         results = queue.Queue(maxsize=1)
+        transport_run = None
+        if select_transport:
+            transport_run = {
+                "run_id": request.run_id,
+                "agent": request.agent_id,
+                "provider": adapter.provider,
+                "work_item_id": request.work_item_id,
+                "authority_tier": canonical.authority_tier,
+                "status": "RUNNING",
+                "started_at": now().isoformat(),
+                "timeout": limits["timeout_seconds"],
+                "process_id": None,
+                **adapter.provenance(),
+            }
+            self.ledger.put(
+                "TransportRun",
+                transport_run,
+                identifier="transport-run-" + request.run_id,
+                work_id=request.work_item_id,
+            )
 
         def invoke():
             try:
@@ -536,6 +567,8 @@ class Runtime:
             status = "SUCCESS"
             error = None
         except Exception as exc:
+            if hasattr(adapter, "cancel"):
+                adapter.cancel()
             status = exc.status if isinstance(exc, ProviderError) else "FAILED"
             error = exc.error_class if isinstance(exc, ProviderError) else type(exc).__name__
             inputs = outputs = 0
@@ -550,6 +583,20 @@ class Runtime:
             )
             raise
         finally:
+            if transport_run:
+                self.ledger.put(
+                    "TransportRun",
+                    {
+                        **transport_run,
+                        **adapter.provenance(),
+                        "status": status,
+                        "error_class": error,
+                        "completed_at": now().isoformat(),
+                        "duration": time.monotonic() - started,
+                    },
+                    identifier="transport-run-" + request.run_id,
+                    work_id=request.work_item_id,
+                )
             self.ledger.put(
                 "Usage",
                 {
@@ -567,6 +614,16 @@ class Runtime:
                     "timestamp": now().isoformat(),
                     "status": status,
                     "error_class": error,
+                    **(
+                        adapter.provenance()
+                        if hasattr(adapter, "provenance")
+                        else {
+                            "transport": "simulation" if mode == "SIMULATED" else "legacy_adapter",
+                            "billing_source": "UNKNOWN",
+                            "requested_model": adapter.model,
+                            "actual_model": getattr(adapter, "actual_model", None),
+                        }
+                    ),
                 },
                 work_id=request.work_item_id,
             )

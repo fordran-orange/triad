@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from triad.brain import Brain
+from triad.day3.adapters import ProviderError
 from triad.orchestrator import Orchestrator
 from triad.status import system_status
 from triad.work import ElevationRequest, WorkItem
@@ -40,10 +42,22 @@ async def lifespan(app):
     worker.start()
     yield
     stop.set()
+    from triad.day5a.process import ManagedProcess
+
+    ManagedProcess.shutdown()
     worker.join(timeout=1)
 
 
 app = FastAPI(title="Triad bounded orchestration", version="0.4.0", lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(request, exc):
+    # Pydantic's default response includes the raw input; credential routes must
+    # never reflect secrets, even for malformed request bodies or extra fields.
+    return JSONResponse(
+        {"detail": [{"loc": e["loc"], "type": e["type"]} for e in exc.errors()]}, status_code=422
+    )
 
 
 def service():
@@ -84,6 +98,11 @@ async def local_headers(request: Request, call_next):
 @app.exception_handler(KeyError)
 async def not_found(request, exc):
     return JSONResponse({"detail": "Record not found"}, status_code=404)
+
+
+@app.exception_handler(ProviderError)
+async def unavailable_provider(request, exc):
+    return JSONResponse({"detail": exc.error_class, "status": exc.status}, status_code=503)
 
 
 @app.exception_handler(ValueError)
@@ -266,3 +285,13 @@ def method_review(identifier: str, body: MethodReview, lab: Laboratory = LAB_DEP
 @app.get("/research", include_in_schema=False)
 def research_shell():
     return FileResponse(Path(__file__).parent / "static/research.html")
+
+
+from triad.day5a.api import router as provider_router
+
+app.include_router(provider_router)
+
+
+@app.get("/settings/ai-providers", include_in_schema=False)
+def provider_shell():
+    return FileResponse(Path(__file__).parent / "static/providers.html")

@@ -247,7 +247,9 @@ class Cycles:
             evidence=evidence,
             files=checks.get("files", ()),
             tests=checks.get("checks", ()),
-            actions=("Provider proposed structured changes; host applied approved files",),
+            actions=("Provider proposed structured changes; host applied approved files",)
+            if checks.get("files")
+            else ("Validated structured provider output; no host files changed",),
             mode=mode,
         ).model_copy(update={"git_commit": commit})
         handoff = Handoff(
@@ -612,6 +614,10 @@ class Cycles:
             raise
 
     def run(self, mode="REAL", scheduled=False, expected_epoch=None):
+        if mode == "REAL":
+            from triad.day5a.control import ProviderControl
+
+            ProviderControl(self.ledger).require_gate()
         if mode not in {"REAL", "SIMULATED"}:
             raise ValueError("Explicit REAL or SIMULATED mode required")
         with self.host.store.lease("day3-cycle"):

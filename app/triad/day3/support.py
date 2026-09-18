@@ -25,7 +25,7 @@ def manifest():
     ]
 
 
-def support(cycles, parent_id, requester, capability, text):
+def support(cycles, parent_id, requester, capability, text, *, objective=None):
     ledger = cycles.ledger
     parent = cycles.host.store.get(parent_id)
     ensure_no_secret(text)
@@ -53,7 +53,8 @@ def support(cycles, parent_id, requester, capability, text):
         work = cycles.host.create(
             WorkItem(
                 title=f"{capability}: bounded local support",
-                description=f"{capability}: Process only the supplied observation. Return a concise summary and explicit assumptions. Do not add facts.",
+                description=objective
+                or f"{capability}: Process only the supplied observation. Return a concise summary and explicit assumptions. Do not add facts.",
                 parent_work_item_id=parent_id,
                 mission_id=parent.mission_id,
                 work_type="summarize_journal",

@@ -1,5 +1,11 @@
 # Triad
 
+Day 5A provider setup is **in progress; strategy discovery is gated**.
+Open [Settings → AI Providers](http://127.0.0.1:8000/settings/ai-providers).
+CLI-first policy, optional secure API credentials and explicit fallback controls are
+implemented. Native CLI isolation/execution and the frontier relay remain incomplete.
+See [current verification](docs/DAY5A_VERIFICATION.md).
+
 A bounded research and development work system. Day 4 adds portable market data and deterministic backtesting. Only trivial engine-test fixtures are included; no broker credentials or live execution.
 
 ## Start on this machine

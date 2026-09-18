@@ -23,7 +23,8 @@ def readiness(cycles=None, probe=False):
         except ProviderError:
             estimate = None
             reasons.append("PRICING_NOT_CONFIGURED")
-        if agent != "LOCAL_QWEN" and control["limits"]["max_cloud_cost_day"] <= 0:
+        billing = adapter.billing_source() if hasattr(adapter, "billing_source") else "UNKNOWN"
+        if billing == "API" and control["limits"]["max_cloud_cost_day"] <= 0:
             reasons.append("CLOUD_BUDGET_NOT_AUTHORIZED")
         if control["paused"] or control["killed"]:
             reasons.append("CONTROL_PAUSED")
@@ -41,7 +42,8 @@ def readiness(cycles=None, probe=False):
                 "checked_at": observed.get("checked_at"),
                 "configuration_ready": not reasons,
                 "blockers": reasons,
-                "illustrative_8000_input_1024_output_usd": estimate,
+                "illustrative_8000_input_1024_output_usd": estimate if billing == "API" else None,
+                "billing_source": billing,
                 "observed_real_successes": len(successes),
                 "last_real_run": successes[0]["run_id"] if successes else None,
                 "quality": "NOT_EVALUATED",

@@ -34,6 +34,10 @@ class Jobs:
     def submit(self, mode="REAL", scheduled=False):
         if mode not in {"REAL", "SIMULATED"}:
             raise ValueError("Explicit cycle mode required")
+        if mode == "REAL":
+            from triad.day5a.control import ProviderControl
+
+            ProviderControl(self.ledger).require_gate()
         date.fromisoformat(self.cycles.day)
         with self.store.connect() as conn:
             control = self.ledger.control(conn, lock=True)

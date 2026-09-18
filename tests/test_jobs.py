@@ -31,11 +31,11 @@ def test_concurrent_submission_is_durable_and_idempotent(jobs):
 
 
 def test_worker_records_real_blockers_without_simulation(jobs):
-    job = jobs.submit("REAL")["job"]
-    assert jobs.once()["status"] == "BLOCKED"
-    row = Jobs(jobs.cycles).list()[0]
-    assert row["id"] == job["id"] and row["result"]["mode"] == "REAL"
-    assert row["result"]["agents_run"] == []
+    # Day 5A blocks before enqueueing; the worker must never receive this run.
+    with pytest.raises(PermissionError, match="DAY5A_GATE_BLOCKED"):
+        jobs.submit("REAL")
+    assert not Jobs(jobs.cycles).list()
+    assert not jobs.ledger.records("Usage")
     assert jobs.once()["status"] == "IDLE"
 
 
@@ -127,7 +127,9 @@ def test_readiness_does_not_equate_review_agreement_with_quality(jobs):
     report = readiness(jobs.cycles, probe=True)
     assert report["cloud_validation"] == "BLOCKED"
     for provider in report["providers"][:3]:
-        assert "CLOUD_BUDGET_NOT_AUTHORIZED" in provider["blockers"]
+        assert provider["blockers"]
+        assert "CLOUD_BUDGET_NOT_AUTHORIZED" not in provider["blockers"]
+        assert provider["illustrative_8000_input_1024_output_usd"] is None
         assert provider["quality"] == "NOT_EVALUATED"
         assert provider["observed_real_successes"] == 0
     assert all(m["reviews"] == 0 for m in report["review_evidence"])

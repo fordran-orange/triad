@@ -1,5 +1,19 @@
 # Providers
 
+## Day 5A supersedes the API-only setup below
+
+Open [Settings → AI Providers](http://127.0.0.1:8000/settings/ai-providers).
+CODEX, CLAUDE and GROK are logical agents with subscription CLI transports preferred
+and APIs optional. LOCAL_QWEN remains an Ollama helper. Production API credentials
+now use Windows Credential Manager; model/pricing/fallback settings use the UI.
+No normal provider setup requires editing `.env`. Fallback defaults to NEVER.
+Explicit operator UI authorization can set the global API daily ceiling up to $25;
+agents cannot raise it. CLI WorkItems remain blocked pending outer isolation.
+See [provider control](AI_PROVIDER_CONTROL.md), [transports](AGENT_TRANSPORTS.md)
+and [current verification](DAY5A_VERIFICATION.md).
+
+## Historical Day 3 adapter contract (retained for legacy scripts/tests)
+
 `app/triad/day3/adapters.py` owns transport, provider prompt compilation, health, capabilities, metadata and cost estimates. Orchestration consumes the AgentProvider interface. CODEX is the logical OpenAI API role; a Codex desktop subscription is not an API credential.
 
 | Agent | Provider / endpoint | Required configuration |
