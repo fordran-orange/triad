@@ -689,7 +689,22 @@ class Development(ExecutionServices):
         return metadata
 
     def run(self, mission=None, *, operator_authorized=False):
+        from products.triad.cycle_history import CycleHistory
+
         mission = mission or uid()
+        history = CycleHistory(self.host.store)
+        history.parent(mission)
+        try:
+            result = self._run(mission, operator_authorized=operator_authorized)
+        except Exception as exc:
+            history.capture(
+                mission, status="BLOCKED", error=getattr(exc, "error_class", type(exc).__name__)
+            )
+            raise
+        history.capture(mission)
+        return result
+
+    def _run(self, mission, *, operator_authorized=False):
         with self.host.store.lease("triad-product-development"):
             self.ledger.guard()
             if self.rows("ProductMerge", mission):

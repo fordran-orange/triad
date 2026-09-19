@@ -427,7 +427,9 @@ class Cycles(ExecutionServices):
 
     def stage(self, agent, cycle_id, mode, candidate, parent=None):
         if mode == "REAL":
-            raise PermissionError("Use the Day 6 product workflow with separate build and QA WorkItems")
+            raise PermissionError(
+                "Use the Day 6 product workflow with separate build and QA WorkItems"
+            )
         work = self.make_work(agent, cycle_id, parent)
         epoch = self.ledger.reserve(agent, work.work_item_id, improvement=True, day=self.day)
         work, policy = self.start_work(work, epoch)
@@ -584,6 +586,25 @@ class Cycles(ExecutionServices):
             raise PermissionError("Triad relay acceptance required")
 
     def run(self, mode="REAL", scheduled=False, expected_epoch=None):
+        from products.triad.cycle_history import CycleHistory
+
+        try:
+            result = self._run(mode, scheduled, expected_epoch)
+        except PermissionError as exc:
+            if self.host.store.scope == "triad":
+                CycleHistory(self.host.store).blocked(
+                    mode=mode,
+                    scheduled=scheduled,
+                    code="TRIAD_PROVIDER_GATE_FAILED"
+                    if "GATE" in str(exc) or "relay" in str(exc)
+                    else "GOVERNANCE_BLOCKED",
+                )
+            raise
+        if self.host.store.scope == "triad":
+            CycleHistory(self.host.store).capture(result["cycle_id"])
+        return result
+
+    def _run(self, mode="REAL", scheduled=False, expected_epoch=None):
         if mode == "REAL":
             self.require_execution_gate()
         if mode not in {"REAL", "SIMULATED"}:

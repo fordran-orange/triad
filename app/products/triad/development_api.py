@@ -37,3 +37,20 @@ def dashboard(service=DEP):
 @router.get("/triad/api/development/artifact")
 def artifact(path: str, service=DEP):
     return service.artifact(path)
+
+
+@router.get("/triad/cycles")
+def cycle_shell():
+    return FileResponse(Path(__file__).parent / "static/cycles.html")
+
+
+@router.get("/triad/assets/cycles.js")
+def cycle_script():
+    return FileResponse(Path(__file__).parent / "static/cycles.js", media_type="text/javascript")
+
+
+@router.get("/triad/api/cycles")
+def cycle_history(service=DEP):
+    from products.triad.cycle_history import CycleHistory
+
+    return {"cycles": CycleHistory(service.host.store).list()}

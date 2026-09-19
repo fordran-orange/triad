@@ -36,7 +36,14 @@ class Jobs:
         if mode not in {"REAL", "SIMULATED"}:
             raise ValueError("Explicit cycle mode required")
         if mode == "REAL":
-            self.cycles.require_execution_gate()
+            try:
+                self.cycles.require_execution_gate()
+            except PermissionError:
+                if self.store.scope == "triad":
+                    from products.triad.cycle_history import CycleHistory
+
+                    CycleHistory(self.store).blocked(mode=mode, scheduled=scheduled)
+                raise
         date.fromisoformat(self.cycles.day)
         with self.store.connect() as conn:
             control = self.ledger.control(conn, lock=True)
