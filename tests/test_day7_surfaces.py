@@ -48,5 +48,7 @@ def test_launcher_and_honest_product_shell():
         assert "EARLY PRODUCT SHELL" in page.text
     client = TestClient(product_app)
     page = client.get("/triad/product")
-    assert page.status_code == 200 and "EARLY PRODUCT SHELL" in page.text
+    assert page.status_code == 200 and "EARLY PRODUCT" in page.text
+    assert "There is no live account" in page.text
+    assert "do not establish real-market readiness or strategy performance" in page.text
     assert 'href="/core' not in page.text and 'href="/settings' not in page.text
