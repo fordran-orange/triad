@@ -1,0 +1,18 @@
+{
+  "revision": "108acfe56e297dfbc40153223606a2b33b26c036",
+  "decision": "CHANGES_REQUIRED",
+  "raw_git_blob_sha256": {
+    "app/trading_core/integrations/readiness.py": "e0617f45da074a1a65b23b59420990de8e20e863796b3b6f5c488928121d5fe4",
+    "app/trading_core/integrations/api.py": "54ff49129d127b4cd3fc98ed261ea1503583a06da43eec59b946d1262ec38889",
+    "app/trading_core/intelligence/contracts.py": "8a6a86b17a86010613a817ed28131d8e4d1c094fa0873d00d6d6c56c1f7e73ef",
+    "tests/test_readiness.py": "c718a58dac7e026f3c13654f75f0cb689149672d67b9c49b4d597f75c56bba18"
+  },
+  "evidence_sha256": {
+    "docs/qa/DAY8_READINESS_CORRECTION2_QA.md": "13427ae762ae9cc7c8915a105918fcb7839156ac45a35e6615cd41eda663ec8a",
+    "logs/day8-readiness-108acfe/tests/test_day8_readiness_qa.py": "58760ccc4a3815b486f19c11e53cedd8369d6f558287270703a4399705bf978e",
+    "logs/day8-readiness-independent-108acfe.log": "b19e2cc7fbd08a52fa3e557d9fcd2f5472359e3c67c7e4a84f87586509700f51",
+    "logs/day8-readiness-independent-108acfe.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day8-readiness-outlier-108acfe.log": "d451e87f5592c3160135b7a4f0b4308f0b1275ef29330d713c68aec81a8f5d0a",
+    "logs/day8-readiness-outlier-108acfe.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04"
+  }
+}

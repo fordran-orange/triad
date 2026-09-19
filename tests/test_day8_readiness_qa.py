@@ -108,7 +108,7 @@ def test_product_cannot_append_canonical_readiness_attestation(owner):
         Records(Store(settings=SimpleNamespace(),scope=owner)).append("ReadinessEvidence",{},owner=owner)
 
 
-@pytest.mark.parametrize("defect", ["missing_session", "wrong_session", "missing_symbol", "missing_check", "failed_check", "future_time", "naive_time", "unresolved_outlier", "critical_finding", "blank_evidence", "blank_normalizer", "blank_outlier_reference", "blank_outlier_disposition"])
+@pytest.mark.parametrize("defect", ["missing_session", "wrong_session", "missing_symbol", "missing_check", "failed_check", "future_time", "naive_time", "unresolved_outlier", "critical_finding", "blank_evidence", "blank_normalizer", "blank_outlier_reference", "blank_outlier_disposition", "blank_resolved_outlier_evidence"])
 def test_incomplete_session_or_check_evidence_is_rejected(tmp_path,monkeypatch,defect):
     ready,req,_,manifest=service(tmp_path,monkeypatch)
     def modify(payload):
@@ -125,6 +125,7 @@ def test_incomplete_session_or_check_evidence_is_rejected(tmp_path,monkeypatch,d
         elif defect=="blank_normalizer": payload["normalizer_version"]="   "
         elif defect=="blank_outlier_reference": payload["outlier_reference_evidence"]=[""]
         elif defect=="blank_outlier_disposition": payload["outlier_disposition"]="   "
+        elif defect=="blank_resolved_outlier_evidence": payload["outlier_findings"]=[{"resolved":True,"evidence":"   "}]
         elif defect=="blank_evidence":
             payload["checks"]["independent_reproduction"]["evidence"]=[""]
             sessions["2026-09-14"]["independent_reproduction"]["evidence"]=[""]
