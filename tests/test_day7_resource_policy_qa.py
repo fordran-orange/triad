@@ -18,9 +18,11 @@ from trading_core.work import uid
 pytestmark = pytest.mark.integration
 
 
-def test_product_scoped_service_cannot_mint_resource_truth(engine):
+@pytest.mark.parametrize("scope", ["triad", "aegis", "p2p", "core"])
+def test_product_scoped_service_cannot_mint_resource_truth(engine, scope):
     run = session(engine)
-    scoped = Ledger(Store(run.ledger.store.settings, scope=run.work.owner))
+    scoped = Ledger(Store(run.ledger.store.settings, scope=scope))
+    before = run.host.list("ResourceAllocation")
     request = run.request.model_copy(update={"run_id": uid()})
     with pytest.raises(PermissionError, match="Core|host|trusted"):
         forged = ResourceSession(
@@ -28,6 +30,7 @@ def test_product_scoped_service_cannot_mint_resource_truth(engine):
         )
         forged.observe("authorized_read", "caller-claimed-operation-without-host-evidence")
         forged.ensure(ResourceType.TOOLS, 61)
+    assert run.host.list("ResourceAllocation") == before
 
 
 def test_existing_budget_denial_is_durable_and_terminal(engine):

@@ -1,0 +1,56 @@
+{
+  "implementation_revision": "289c79787fe9181a07d0c29b98c51ffc06fce60d",
+  "committed_blob_hashes": [
+    {
+      "path": "app/trading_core/resource_policy.py",
+      "sha256": "e4c5e2eea017a5147239539705eacee37d249fa79943fd0b110c228d3ed33c1c"
+    },
+    {
+      "path": "app/trading_core/intelligence/contracts.py",
+      "sha256": "b10d37e02af09b76830bec9617d02c7f9e9ad7cf8a618d4f679e362011e3277e"
+    },
+    {
+      "path": "tests/test_resource_policy.py",
+      "sha256": "87c5f49c113651745f70b7eef2c63962cc06fd6f42a9e7a3315ba365ca56d659"
+    }
+  ],
+  "host_record_kinds_unchanged": true,
+  "host_record_kinds": [
+    "AgentCreationDecision",
+    "AgentCreationRequest",
+    "AgentDefinition",
+    "AgentDelegation",
+    "AgentLifecycle",
+    "AgentPromotion",
+    "AgentRunReservation",
+    "CapabilityRoutingDecision",
+    "CapabilityVersion",
+    "ImplementationRun",
+    "QARun",
+    "QualityDebt",
+    "QualityDebtResolution",
+    "ResourceAllocation",
+    "ResourceExtensionDecision",
+    "ResourceExtensionRequest",
+    "ResourceProgress",
+    "ResourceRunState"
+  ],
+  "working_evidence_raw_hashes": [
+    {
+      "path": "tests/test_day7_resource_policy_qa.py",
+      "sha256": "ebb914c83b439c231f2ec726cbf1eef30f84d524186dbec71bb29b2f731599dd"
+    },
+    {
+      "path": "logs/day7-b1-correction-independent-tests.log",
+      "sha256": "8aa97a60e147bf7f552c8251bdeba7496d73de7dd9f4ba379798d99b24af1ccb"
+    },
+    {
+      "path": "logs/day7-b1-correction-independent-tests.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "logs/day7-b1-correction-independent-lint.log",
+      "sha256": "a4443afdcfb6d7363adb285762515ccf7cf50473b1a05c20c1a50f6bed4d26b0"
+    }
+  ]
+}
