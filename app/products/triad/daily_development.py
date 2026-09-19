@@ -67,6 +67,10 @@ class DailyDevelopment(Development):
         )
         return super().start_work(work, epoch=cycle["control_epoch"])
 
+    def transition(self, mission, state, evidence, **updates):
+        self.daily.refresh(mission)
+        return self.daily.transition(mission, state, evidence, **updates)
+
     def inspect(self, mission):
         current = Readiness().catalog()
         context = {
@@ -415,6 +419,7 @@ class DailyDevelopment(Development):
         return checks
 
     def debrief(self, mission, corrections=()):
+        self.daily.refresh(mission)
         cycle = self.daily.current(mission)
         context = {
             "schema": Debrief.model_json_schema(),
@@ -437,6 +442,9 @@ class DailyDevelopment(Development):
         # Avoid resending every candidate source/diff in a strategic explanation.
         for row in context["builds"] + context["qa"]:
             row.pop("checks", None)
+        for key in ("implementation_runs", "qa_runs", "correction_runs", "reviews"):
+            for row in context["cycle"].get(key, []):
+                row.pop("checks", None)
         _, _result, document, usage = self.call(
             mission,
             "CLAUDE",
@@ -551,15 +559,15 @@ class DailyDevelopment(Development):
                 )
             mission = cycle.cycle_id
             try:
-                self.daily.transition(mission, "INSPECTING", ["Current service/product inspection"])
+                self.transition(mission, "INSPECTING", ["Current service/product inspection"])
                 self.inspect(mission)
-                self.daily.transition(
+                self.transition(
                     mission,
                     "SELECTING",
                     ["Three independent frontier inspections and local synthesis"],
                 )
                 proposal = self.select(mission)
-                self.daily.transition(
+                self.transition(
                     mission,
                     "BUILDING",
                     [proposal.proposal_id],
@@ -567,7 +575,7 @@ class DailyDevelopment(Development):
                 )
                 build = self.build(mission, proposal)
                 for attempt in range(3):
-                    self.daily.transition(mission, "AWAITING_QA", [build["implementation_id"]])
+                    self.transition(mission, "AWAITING_QA", [build["implementation_id"]])
                     qa = self.qa(mission, proposal, build)
                     if qa.decision in {"PASS", "PASS_WITH_OBSERVATIONS"}:
                         break
@@ -575,9 +583,9 @@ class DailyDevelopment(Development):
                         raise PermissionError(
                             "Independent QA did not pass; candidate stays unmerged"
                         )
-                    self.daily.transition(mission, "CORRECTING", [qa.qa_run_id])
+                    self.transition(mission, "CORRECTING", [qa.qa_run_id])
                     build = self.build(mission, proposal, correction=qa.required_changes)
-                self.daily.transition(
+                self.transition(
                     mission,
                     "MERGING",
                     [qa.qa_run_id],
@@ -585,7 +593,7 @@ class DailyDevelopment(Development):
                     qa_runs=(qa.model_dump(mode="json"),),
                 )
                 merged = self.merge(mission, proposal, build, qa, operator_authorized=True)
-                self.daily.transition(
+                self.transition(
                     mission,
                     "VERIFYING",
                     [merged["merge_commit"]],
@@ -604,7 +612,7 @@ class DailyDevelopment(Development):
                 )
                 if verification.get("status") != "PASS":
                     raise PermissionError("Post-merge verification failed")
-                self.daily.transition(mission, "DEBRIEFING", ["Post-merge verification passed"])
+                self.transition(mission, "DEBRIEFING", ["Post-merge verification passed"])
                 corrections = ()
                 for _attempt in range(3):
                     debrief = self.debrief(mission, corrections)
@@ -613,7 +621,7 @@ class DailyDevelopment(Development):
                     corrections = debrief["required_changes"]
                 else:
                     raise PermissionError("Debrief independent review did not pass")
-                self.daily.transition(
+                self.transition(
                     mission,
                     "COMPLETED",
                     ["Reviewed debrief published and post-merge checks passed"],
@@ -622,7 +630,7 @@ class DailyDevelopment(Development):
             except Exception as exc:
                 current = self.daily.current(mission)
                 if current["status"] not in {"COMPLETED", "BLOCKED", "FAILED", "CANCELLED"}:
-                    self.daily.transition(
+                    self.transition(
                         mission,
                         "BLOCKED",
                         [type(exc).__name__],

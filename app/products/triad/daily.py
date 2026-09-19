@@ -224,6 +224,48 @@ class Daily:
             raise KeyError(cycle_id)
         return rows[-1]
 
+    def refresh(self, cycle_id):
+        """Append actual evidence while preserving every lifecycle authority field."""
+        snapshot = self.history.capture(cycle_id, snapshot_only=True)
+        fields = {
+            "agents_run",
+            "work_items",
+            "provider_runs",
+            "candidate_improvements",
+            "proposals",
+            "implementation_runs",
+            "qa_runs",
+            "correction_runs",
+            "reviews",
+            "disagreements",
+            "changes_accepted",
+            "changes_rejected",
+            "changes_rolled_back",
+            "tests",
+            "failures",
+            "quality_debt",
+            "billing_sources",
+            "api_cost",
+            "subscription_usage",
+            "local_usage",
+            "product_state_before",
+            "product_state_after",
+            "evidence_ids",
+            "provenance_notes",
+        }
+        with self.host.store.connect() as conn:
+            conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (cycle_id,))
+            prior = self.current(cycle_id, conn)
+            if prior["status"] in TERMINAL:
+                raise PermissionError("Terminal daily evidence cannot be replaced")
+            payload = {k: v for k, v in prior.items() if k in CycleRecord.model_fields}
+            payload.update({k: snapshot[k] for k in fields}, recorded_at=now())
+            record = CycleRecord.model_validate(payload)
+            self.host.append(
+                "CycleRecord", record.model_dump(mode="json"), owner="triad", conn=conn
+            )
+        return record
+
     def transition(self, cycle_id, state, evidence, **updates):
         if not evidence:
             raise ValueError("A transition requires actual evidence")

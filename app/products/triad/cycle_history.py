@@ -140,7 +140,16 @@ class CycleHistory:
                 "CycleRecord", payload, owner="triad", identifier=identifier, conn=conn
             )
 
-    def capture(self, cycle_id, *, status=None, error=None, cycle_type=None, execution_mode=None):
+    def capture(
+        self,
+        cycle_id,
+        *,
+        status=None,
+        error=None,
+        cycle_type=None,
+        execution_mode=None,
+        snapshot_only=False,
+    ):
         prior = next((r for r in self.list() if r["cycle_id"] == cycle_id), {})
         with self.store.connect() as conn:
             works = [
@@ -382,7 +391,12 @@ class CycleHistory:
                 "Subscription usage is tokens, not an invented monetary charge.",
             ),
         )
-        self._save(record)
+        # Daily lifecycle owns its status/authority/timestamps. A rollup must
+        # never bypass debrief QA by inferring completion from a merge alone.
+        if prior.get("cycle_type") == "DAILY_PRODUCT" and not snapshot_only:
+            raise PermissionError("Daily evidence must be refreshed through its lifecycle")
+        if not snapshot_only:
+            self._save(record)
         return record.model_dump(mode="json")
 
     def backfill(self):

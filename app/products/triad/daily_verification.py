@@ -57,7 +57,16 @@ def verify(merged):
         )
     )
     return {
-        "status": "PASS" if passed else "FAILED",
+        "status": "PASS"
+        if passed
+        and (
+            subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+            == merged["merge_commit"]
+            and not subprocess.check_output(
+                ["git", "status", "--porcelain"], cwd=ROOT, text=True
+            ).strip()
+        )
+        else "FAILED",
         "tests": command[3:],
         "test_exit": result.returncode,
         "test_output": result.stdout[-12000:],
