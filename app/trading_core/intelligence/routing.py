@@ -21,7 +21,7 @@ class Requirements(Record):
     capabilities: tuple[str, ...] = ("structured_output",)
     role: Literal["REVIEW", "PROPOSE", "IMPLEMENT", "SUPPORT"]
     privacy: Literal["local_only", "approved_remote"] = "approved_remote"
-    context_chars: int = Field(ge=0, le=32000)
+    context_chars: int = Field(ge=0, le=1000000)
     billing_sources: tuple[Literal["LOCAL", "SUBSCRIPTION", "API"], ...] = ("LOCAL", "SUBSCRIPTION")
     max_cost_usd: float = Field(default=0, ge=0, le=1)
     preferred_agent: str | None = None
@@ -127,10 +127,8 @@ class Routing:
         ):
             reasons.append("Assignment exceeds configured run budget")
         control = self.host.ledger.control()
-        if requirements.context_chars > min(
-            work.compute_budget.max_input_chars, control["limits"]["max_input_chars"]
-        ):
-            reasons.append("Context exceeds the enforced host envelope")
+        if requirements.context_chars > 1000000:
+            reasons.append("Context exceeds the physical serialization ceiling")
         cost = 0.0
         if billing == "API":
             cost = (

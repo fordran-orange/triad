@@ -203,7 +203,9 @@ class ResourceSession:
             self.tool_calls += 1
             return self.ensure(ResourceType.TOOLS, self.tool_calls)
 
-    def ensure(self, resource_type, required, *, reason="Initial allocation reached"):
+    def ensure(
+        self, resource_type, required, *, reason="Initial allocation reached", review_reason=None
+    ):
         resource_type = ResourceType(resource_type)
         if type(required) is not int or required < 0:
             raise ValueError("Resource measurement must be a nonnegative integer")
@@ -278,8 +280,11 @@ class ResourceSession:
                     "REQUIRE_HUMAN_APPROVAL",
                     "Additional cost requires an explicit cost reservation",
                 )
-            elif self.review_reason:
-                decision, explanation = "REQUIRE_HUMAN_APPROVAL", self.review_reason
+            elif self.review_reason or review_reason:
+                decision, explanation = (
+                    "REQUIRE_HUMAN_APPROVAL",
+                    self.review_reason or review_reason,
+                )
             if decision == "ALLOW":
                 try:
                     self.ledger.reserve(

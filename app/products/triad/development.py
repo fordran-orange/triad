@@ -67,7 +67,8 @@ class Development(ExecutionServices):
         keep_open=False,
     ):
         write = role == "IMPLEMENT"
-        reasoning = 256 if agent == "LOCAL_QWEN" else 2048
+        reasoning = 256 if agent == "LOCAL_QWEN" else 8192
+        output_tokens = 256 if agent == "LOCAL_QWEN" else 6144
         caps = (
             ("structured_output", "isolated_text_proposal")
             if write
@@ -78,8 +79,8 @@ class Development(ExecutionServices):
             )
         )
         size = len(json.dumps(context)) + len(objective)
-        if size > 18000:
-            raise ValueError("Product context exceeds the bounded cycle envelope")
+        if size > 1000000:
+            raise ValueError("Product context exceeds the physical serialization ceiling")
         work = self.routing.create(
             WorkItem(
                 owner="triad",
@@ -98,7 +99,7 @@ class Development(ExecutionServices):
                 execution_permissions=("read", "write_research") if write else ("read",),
                 reasoning_budget=reasoning,
                 compute_budget=ComputeBudget(
-                    max_input_chars=24000, max_output_tokens=2048, timeout_seconds=120
+                    max_input_chars=24000, max_output_tokens=output_tokens, timeout_seconds=480
                 ),
                 review_required=write,
                 reviewer="CODEX" if write and agent != "CODEX" else None,
@@ -142,7 +143,7 @@ class Development(ExecutionServices):
             allowed_paths=paths,
             acceptance_criteria=work.acceptance_criteria,
             reasoning_budget=reasoning,
-            token_budget=2048,
+            token_budget=output_tokens,
             cost_budget=0,
             execution_permissions=("write_docs",) if write else ("read",),
             policy_decision=policy.model_dump(mode="json"),

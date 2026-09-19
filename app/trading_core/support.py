@@ -67,7 +67,7 @@ def support(cycles, parent_id, requester, capability, text, *, objective=None):
                 allowed_paths=("docs",),
                 execution_permissions=("read",),
                 reasoning_budget=512,
-                compute_budget=ComputeBudget(max_output_tokens=1024, timeout_seconds=120),
+                compute_budget=ComputeBudget(max_output_tokens=512, timeout_seconds=480),
                 input_context=(
                     Provenance(
                         kind="OBSERVATION",
@@ -109,7 +109,7 @@ def support(cycles, parent_id, requester, capability, text, *, objective=None):
             allowed_paths=work.allowed_paths,
             acceptance_criteria=work.acceptance_criteria,
             reasoning_budget=512,
-            token_budget=1024,
+            token_budget=512,
             cost_budget=0,
             execution_permissions=("read",),
             policy_decision=policy.model_dump(mode="json"),

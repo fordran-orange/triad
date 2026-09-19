@@ -20,9 +20,9 @@ class Limits(Record):
     max_high_risk: int = Field(default=0, ge=0, le=0)
     max_files: int = Field(default=3, ge=1, le=5)
     max_lines: int = Field(default=180, ge=1, le=300)
-    timeout_seconds: int = Field(default=120, ge=1, le=120)
-    max_input_chars: int = Field(default=24000, ge=1000, le=32000)
-    max_output_tokens: int = Field(default=2048, ge=256, le=4096)
+    timeout_seconds: int = Field(default=480, ge=1, le=86400)
+    max_input_chars: int = Field(default=24000, ge=1000, le=1000000)
+    max_output_tokens: int = Field(default=6144, ge=256, le=1000000)
     max_cost_run: float = Field(default=0.25, ge=0, le=1)
     max_delegation_depth: int = Field(default=1, ge=0, le=1)
     max_support_requests: int = Field(default=1, ge=0, le=2)
@@ -78,8 +78,8 @@ class AgentRunRequest(Record):
         "tools",
     )
     acceptance_criteria: tuple[str, ...]
-    reasoning_budget: int = Field(default=1024, ge=0, le=2048)
-    token_budget: int = Field(default=2048, ge=1, le=4096)
+    reasoning_budget: int = Field(default=8192, ge=0, le=1000000)
+    token_budget: int = Field(default=6144, ge=1, le=1000000)
     cost_budget: float = Field(default=0.25, ge=0, le=1)
     execution_permissions: tuple[str, ...] = ("write_docs",)
     policy_decision: dict
@@ -95,8 +95,6 @@ class AgentRunRequest(Record):
             raise ValueError("Qwen is an observe-only support worker")
         if self.delegation_depth and not self.parent_work_item_id:
             raise ValueError("Delegation requires a parent assignment")
-        if self.reasoning_budget > self.token_budget:
-            raise ValueError("Reasoning exceeds output budget")
         return self
 
 

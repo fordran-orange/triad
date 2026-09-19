@@ -125,7 +125,7 @@ def test_route_persists_evidence_and_excludes_local_qa(engine):
 
 @pytest.mark.parametrize(
     "failure",
-    ["capability", "privacy", "disabled", "model_change", "context", "tools", "independence"],
+    ["capability", "privacy", "disabled", "model_change", "tools", "independence"],
 )
 def test_unsuitable_provider_cannot_be_routed(engine, failure):
     router, _ = setup_routing(engine)
@@ -138,8 +138,6 @@ def test_unsuitable_provider_cannot_be_routed(engine, failure):
         engine.ledger.operate("disable", agent="CODEX")
     if failure == "model_change":
         router.control.changed = True
-    if failure == "context":
-        need = requirements(context_chars=30000)
     if failure == "tools":
         task = work(allowed_tools=("shell",))
     if failure == "independence":
@@ -190,3 +188,11 @@ def test_provider_policy_is_rechecked_at_dispatch(engine):
     router.control.changed = True
     with pytest.raises(PermissionError, match="no longer eligible"):
         router.validate_execution(request, adapter)
+
+
+def test_context_above_initial_allocation_can_reach_governed_dispatch(engine):
+    router, _ = setup_routing(engine)
+    assigned = router.create(work(), requirements(context_chars=30000))
+    assert assigned.assigned_agent == "CODEX"
+    with pytest.raises(ValueError):
+        requirements(context_chars=1000001)

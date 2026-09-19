@@ -72,7 +72,7 @@ def test_review_cannot_be_bypassed():
         ({"allowed_paths": ("../outside",)}, "DENY"),
         ({"allowed_paths": ("control-plane",)}, "DENY"),
         ({"assigned_agent": "LOCAL_QWEN"}, "DENY"),
-        ({"reasoning_budget": 4096}, "DENY"),
+        ({"reasoning_budget": 8193}, "DENY"),
     ],
 )
 def test_policy_denials(changes, expected):
@@ -162,8 +162,11 @@ def test_context_provenance_relevance_and_size():
     packet = packet_for(item, [other_journal])
     assert not packet.recent_journal_entries
     assert packet.charter[0].source and packet.charter[0].timestamp
-    with pytest.raises(ValueError):
-        packet_for(work(compute_budget=ComputeBudget(max_input_chars=100)))
+    # Context assembly preserves evidence; dispatch requests a governed extension.
+    assert (
+        len(packet_for(work(compute_budget=ComputeBudget(max_input_chars=100))).model_dump_json())
+        > 100
+    )
 
 
 def test_fact_requires_evidence():

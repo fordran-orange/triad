@@ -96,7 +96,7 @@
         "read_file"
       ],
       "default_reasoning_budget": 512,
-      "maximum_reasoning_budget": 1024,
+      "maximum_reasoning_budget": 8192,
       "cost_class": "local",
       "local_or_remote": "local",
       "enabled": true,

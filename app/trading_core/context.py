@@ -11,7 +11,6 @@ def packet_for(
     graph: list[dict] | None = None,
     decisions: list[dict] | None = None,
 ) -> ContextPacket:
-    budget = work.compute_budget.max_input_chars
     relevant = [
         j
         for j in (journals or [])
@@ -90,6 +89,6 @@ def packet_for(
         ),
         required_acceptance_criteria=work.acceptance_criteria,
     )
-    if len(packet.model_dump_json()) > budget:
-        raise ValueError("Relevant context exceeds assignment budget; operator must narrow inputs")
+    if len(packet.model_dump_json()) > 1000000:
+        raise ValueError("Context exceeds the physical serialization ceiling")
     return packet

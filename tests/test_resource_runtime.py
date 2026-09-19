@@ -20,7 +20,7 @@ def test_runtime_continues_after_initial_time_with_progress(engine):
 
         def execute(self, request):
             self.resources.observe("test_result", "fixture-host-check-completed")
-            self.resources.started -= 121
+            self.resources.started -= self.resources.initial[ResourceType.TIME] + 1
             return (
                 AgentRunResult(
                     run_id=request.run_id,
@@ -50,7 +50,7 @@ def test_runtime_continues_after_initial_time_with_progress(engine):
 def test_runtime_records_resource_denial_instead_of_generic_failure(engine):
     class Idle(SimulatedProvider):
         def execute(self, request):
-            self.resources.started -= 121
+            self.resources.started -= self.resources.initial[ResourceType.TIME] + 1
             return (
                 AgentRunResult(
                     run_id=request.run_id, status="NO_CHANGE_JUSTIFIED", summary="No progress"

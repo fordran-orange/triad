@@ -34,6 +34,9 @@ class Ledger:
             conn.execute(resource("infrastructure/postgres/010_intelligence.sql").read_text())
             conn.execute(resource("infrastructure/postgres/011_agent_lifecycle.sql").read_text())
             conn.execute(resource("infrastructure/postgres/012_aegis_lineage.sql").read_text())
+            conn.execute(
+                resource("infrastructure/postgres/013_resource_allocations.sql").read_text()
+            )
             initial = {
                 "paused": False,
                 "killed": False,

@@ -73,10 +73,10 @@ class Provenance(Record):
 
 
 class ComputeBudget(Record):
-    max_input_chars: int = Field(default=12000, ge=100, le=32000)
-    max_output_tokens: int = Field(default=512, ge=1, le=2048)
-    timeout_seconds: int = Field(default=90, ge=1, le=120)
-    max_tool_calls: int = Field(default=30, ge=1, le=100)
+    max_input_chars: int = Field(default=24000, ge=100, le=1000000)
+    max_output_tokens: int = Field(default=6144, ge=1, le=1000000)
+    timeout_seconds: int = Field(default=480, ge=1, le=86400)
+    max_tool_calls: int = Field(default=60, ge=1, le=1000)
 
 
 class Artifact(Record):
@@ -117,7 +117,7 @@ class WorkItem(Record):
     allowed_tools: tuple[str, ...] = ("read_file", "write_artifact")
     allowed_paths: tuple[str, ...] = ("docs", "research/generated")
     forbidden_paths: tuple[str, ...] = (".env", ".git", ".venv", "control-plane")
-    reasoning_budget: int = Field(default=512, ge=0, le=4096)
+    reasoning_budget: int = Field(default=8192, ge=0, le=1000000)
     compute_budget: ComputeBudget = Field(default_factory=ComputeBudget)
     execution_permissions: tuple[str, ...] = ("read", "write_research")
     risk_class: Literal["LOW", "MEDIUM", "HIGH", "GOVERNANCE", "LIVE"] = "LOW"
@@ -170,8 +170,8 @@ class Agent(Record):
     role: Literal["member", "helper"]
     capabilities: tuple[str, ...]
     allowed_tools: tuple[str, ...]
-    default_reasoning_budget: int = 512
-    maximum_reasoning_budget: int = 2048
+    default_reasoning_budget: int = 8192
+    maximum_reasoning_budget: int = 8192
     cost_class: str
     local_or_remote: Literal["local", "remote"]
     enabled: bool

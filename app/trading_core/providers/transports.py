@@ -468,6 +468,17 @@ class HTTPTransport(BaseTransport):
 
     def execute(self, request):
         adapter = self.adapter()
-        result = adapter.execute(request)
-        self.actual_model = getattr(adapter, "actual_model", None)
-        return result
+        self.active_adapter = adapter
+        adapter.resources = getattr(self, "resources", None)
+        try:
+            result = adapter.execute(request)
+            self.actual_model = getattr(adapter, "actual_model", None)
+            self.reasoning_tokens = getattr(adapter, "reasoning_tokens", None)
+            return result
+        finally:
+            self.active_adapter = None
+
+    def cancel(self):
+        active = getattr(self, "active_adapter", None)
+        if active:
+            active.cancel()

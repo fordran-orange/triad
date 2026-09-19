@@ -16,10 +16,10 @@ from trading_core.work import Record, WorkItem, now, uid
 
 
 class AgentBudget(Record):
-    max_output_tokens: int = Field(default=512, ge=1, le=2048)
-    total_output_tokens: int = Field(default=512, ge=1, le=8192)
+    max_output_tokens: int = Field(default=512, ge=1, le=1000000)
+    total_output_tokens: int = Field(default=512, ge=1, le=1000000)
     max_runs: int = Field(default=1, ge=1, le=4)
-    timeout_seconds: int = Field(default=90, ge=1, le=120)
+    timeout_seconds: int = Field(default=90, ge=1, le=86400)
     max_cost_usd: float = Field(default=0, ge=0, le=0)
 
     @model_validator(mode="after")
@@ -46,7 +46,7 @@ class AgentDefinition(Record):
     allowed_paths: tuple[str, ...]
     forbidden_paths: tuple[str, ...] = PROTECTED
     budget: AgentBudget
-    reasoning_budget: int = Field(ge=0, le=2048)
+    reasoning_budget: int = Field(ge=0, le=1000000)
     review_eligible: bool
     execution_eligible: bool = True
     persistent_or_temporary: Literal["persistent", "temporary"]
@@ -74,7 +74,7 @@ class AgentCreationRequest(Record):
     required_paths: tuple[str, ...]
     requested_authority: int = Field(default=0, ge=0, le=5)
     budget: AgentBudget = Field(default_factory=AgentBudget)
-    reasoning_budget: int = Field(default=512, ge=0, le=2048)
+    reasoning_budget: int = Field(default=512, ge=0, le=1000000)
     lifetime_seconds: int = Field(default=900, ge=1, le=3600)
     persistent_or_temporary: Literal["persistent", "temporary"] = "temporary"
     reason: str = Field(min_length=1, max_length=2000)
@@ -149,10 +149,10 @@ class Agents:
                     else ("read",),
                     allowed_paths=("docs", "research", "products/triad/docs", "app/products/triad"),
                     budget=AgentBudget(
-                        max_output_tokens=2048,
-                        total_output_tokens=8192,
+                        max_output_tokens=6144,
+                        total_output_tokens=24576,
                         max_runs=4,
-                        timeout_seconds=120,
+                        timeout_seconds=480,
                     ),
                     reasoning_budget=base.maximum_reasoning_budget,
                     review_eligible=base.review_eligible,
@@ -205,8 +205,47 @@ class Agents:
             ).fetchone()
             if (not parent or parent["status"] in TERMINAL_WORK) and status == "ACTIVE":
                 status = "TERMINATED"
+        definition = dict(row["definition"])
+        if definition["agent_type"] == "static" and identifier in {
+            "CODEX",
+            "CLAUDE",
+            "GROK",
+            "LOCAL_QWEN",
+        }:
+            table = conn.execute("SELECT to_regclass('core.resource_policies') AS name").fetchone()
+            policy = (
+                conn.execute(
+                    "SELECT payload FROM core.resource_policies WHERE version='day7-v1'"
+                ).fetchone()
+                if table["name"]
+                else None
+            )
+            if policy:
+                initial = policy["payload"]
+                recorded = definition["budget"]
+                effective = dict(recorded)
+                for key, old in (("max_output_tokens", 2048), ("timeout_seconds", 120)):
+                    if recorded[key] == old:
+                        effective[key] = initial[key]
+                if (
+                    recorded["total_output_tokens"] == 8192
+                    and recorded["max_output_tokens"] == 2048
+                ):
+                    effective["total_output_tokens"] = (
+                        initial["max_output_tokens"] * recorded["max_runs"]
+                    )
+                old_reasoning = 1024 if identifier == "LOCAL_QWEN" else 2048
+                definition.update(
+                    recorded_budget=definition["budget"],
+                    recorded_reasoning_budget=definition["reasoning_budget"],
+                    resource_policy_version="day7-v1",
+                    budget=effective,
+                    reasoning_budget=initial["reasoning_budget"]
+                    if definition["reasoning_budget"] == old_reasoning
+                    else definition["reasoning_budget"],
+                )
         return {
-            **row["definition"],
+            **definition,
             "owner": row["owner"],
             "status": status,
             "runs_reserved": row["runs_reserved"],
@@ -282,8 +321,7 @@ class Agents:
                 > min(work.compute_budget.max_output_tokens, parent["budget"]["max_output_tokens"])
                 or budget.timeout_seconds
                 > min(work.compute_budget.timeout_seconds, parent["budget"]["timeout_seconds"])
-                or request.reasoning_budget
-                > min(work.reasoning_budget, parent["reasoning_budget"], budget.max_output_tokens)
+                or request.reasoning_budget > min(work.reasoning_budget, parent["reasoning_budget"])
             ):
                 rules.append("budget_ceiling")
             # A per-parent delegation pool is bounded separately from its own run.

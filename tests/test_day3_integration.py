@@ -195,17 +195,21 @@ def test_runtime_rejects_raised_budget_and_wrong_identity(engine):
     req = engine.request(work, policy, "PROPOSE", {})
     with pytest.raises(PermissionError):
         engine.runtime.execute(
-            req.model_copy(update={"token_budget": 4096}), mode="SIMULATED", day=engine.day
+            req.model_copy(update={"token_budget": work.compute_budget.max_output_tokens + 1}),
+            mode="SIMULATED",
+            day=engine.day,
         )
     with pytest.raises(PermissionError):
         engine.runtime.execute(
             req.model_copy(update={"agent_id": "GROK"}), mode="SIMULATED", day=engine.day
         )
     assert (
-        engine.request_reasoning(work.work_item_id, "CODEX", 2048, "Need more analysis")["decision"]
+        engine.request_reasoning(
+            work.work_item_id, "CODEX", work.reasoning_budget + 1, "Need more analysis"
+        )["decision"]
         == "REQUIRE_HUMAN_APPROVAL"
     )
-    assert engine.host.store.get(work.work_item_id).reasoning_budget == 1024
+    assert engine.host.store.get(work.work_item_id).reasoning_budget == work.reasoning_budget
 
 
 def test_provider_output_cannot_print_secrets_or_claim_shell_execution(engine, monkeypatch):

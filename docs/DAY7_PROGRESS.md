@@ -1,20 +1,16 @@
-# Day7 current checkpoint
-User brief: C:/Users/fordr/.codex/attachments/5a684021-ebdb-4090-9ce2-e578dcf49764/pasted-text.txt
-User says start and work until usage zero, then they manually reset. DO NOT consume reset credit. Last check99%used/1%remaining. Work continues.
-Branch codex/day7-hardening. Day6 main/tag preserved at f1835049aeb4778ec682f0c684d8cec12234a28c.
-Phase0 independently PASS: fresh396tests/714.48sec, services/data/package/browser; docs/qa/DAY7_PRECHECK.md and DAY7_PRECHECK_QA.md committed4450b2e. Projection queue explicitlydrained21->0/0; no continuousprojectionworkerclaim.
-A1 lineagefoundation implementationac351eb+format59f53e1 independentlyPASS13tests. docs/qa/DAY7_A1_QA.md createdbyagentA. Additive012SQL preservesimmutableowners andmetadata; namespaceaegis,aliasp2p->aegis, conservativecontrols.
-A2 consumerintegration now built, details docs/qa/DAY7_A2_BUILD.md.19targetedtestsPASS, RuffchangedfilesPASS, cleanpackagePASS. Extra regression session32573 running logs/day7-a2-regression.log/.exit (failureisolation+intelligence+product). Package session81339 finishedPASS (check.exit). Earlier targetedsession68074 finished19PASS. First17testattempt1fixturefail retained, correctedfixture.
-DO NOT restartproduction until independentA2QA. Live currentprocesses still oldDay6 usingp2pworker; filesrenamedbutloadedcodecontinues. Runtime migration012 wired on nextstartup. Sourcebranchunmerged. Need independentA2QA, resolvefindings, runlivebackups/migration/restart/service/browserproof and QA before markingPhase1complete.
-Pending Day7 Phases2-7: resource defaults8192/24000/6144/480/60 plus governedprogress extensions; UTClifecycle timestamps; canonicalCycleRecord+readablecycles; genericexternalregistry/contracts/vendortruthfulshells+marketdata/localstore+CoreUI; launcherclarity; Day6qualitydebt definitions. No scheduledautonomy/liveexecution/featuresAegis.
-Officialvendorresearch saved logs/day7-integration-research.md: Robinhood officialTradingMCP nowequities/options/crypto, separatecryptoREST. Do NOT claimnoofficialequityinterface. Schwabofficialportalnolinesextractedyet. ShellsremainUNVERIFIED/NOT_CONFIGURED, nolivecredentialsneeded.
-Desktopshortcut existing C:/Users/fordr/Desktop/Triad Launchpad.lnk targets C:/Users/fordr/AppData/Local/Triad/Launch.html; Phase6updatepending. file://browserblocked, do not workaround. LocalhostbrowserQAallowed.
-Root browser via cua tab4 browser1; aftercompactionrewriteDocumentation. Agent /root/day6_qa_a availableforindependentQA. B/C idle. Delegation only QAexplicitlyrequired byAGENTS/user. Donotspawnimplementationagents.
+# Day 7 current checkpoint
 
-## Updated after user reset and continue
+Authorized: complete Day 7; save operator questions for end. No automatic usage reset.
+Branch: codex/day7-hardening. Day 6 base/main retained at f1835049aeb4778ec682f0c684d8cec12234a28c.
 
-Usage reset verified: 0% consumed, ordinary use available, zero reset credits remaining. Continue the whole authorized Day7 build; do not ask to restart.
-A2 additional regression completed49pass/175.46sec. Independent QA found shared-context ValueError and one invalidUTF8 newlabel; historical CHANGES_REQUIRED report docs/qa/DAY7_A2_QA.md is preserved. Both fixed;24targeted/adversarialtests nowPASS/20.01sec, RuffPASS. Corrected independent QA next, then liveactivation/service/browseracceptance. Backup created C:/Triad/backups/day7-before-aegis-20260919T181620Z with PostgreSQL dump,228verifiedartifactfiles andNeo4jlogical snapshot4972nodes2552edges; restore rehearsal notclaimed. Evidence logs/day7-preserve-live.log.
-Phase2 planning finding: runtime/contracts.py AgentRunRequest currently enforces reasoning_budget<=token_budget, incompatible with requested8192reasoning/6144output. Treat these as distinct envelopes; update every runtime/adapter/inference/nativeexecutor/agent-budget consumer, not only defaults. Actual runtime currently uses min(global,work,agent) timeout and generation capmin(output,reasoning), plus fixedschemas/clamps. Resource extension needs centrally persisted governed grant and progress/authority/kill checks throughout, not just new data types.
+- Phase 0 independently PASS: 396 tests, services/data/package/browser. DAY7_PRECHECK reports.
+- Phase 1 Aegis independently live PASS: explicit migration 012 applied, immutable records/artifact hashes preserved. DAY7_PHASE1_FINAL_ACCEPTANCE.md. Runtime backend e2b44d4, explicit upgrade1038016. No B3 production deployment yet.
+- B1 resource policy foundation corrected and independently PASS. Original failures preserved.
+- B2 resource/native runtime 9bd28ad: QA found uncounted metadata/directory reads and failed UTF8 progress. Corrected27cda29; fresh agentA QA in progress. Original DAY7_B2_QA.md CHANGES_REQUIRED retained.
+- Lifecycle timestamps correctedb10a7ff independently PASS_WITH_OBSERVATIONS (11 tests); event_id test fixturecleanup observation fixed9bd28ad, agentB verifying.
+- B3 resource defaults/migration013 and HTTP handling built, targeted tests in progress. Not deployed. Records preserve old static grants with versioned effective allocation overlay; operator-lowered controls preserved. Reasoning/output independent. Resource denials explicit; HTTP cannot resume partial structured output, so governed block/review rather than silent billable retry. Native vendor reasoning measurements remain unknown when not reported.
+- Remaining: canonical CycleRecord + Cycles UI; external registry/contracts/broker shells/local canonical data integration; Core Integrations UI; launcher; Day6 quality debt definitions; final regression/package/live/browser/independentQA/report/tag.
 
-Phase1 final livePASS after1038016 explicitupgrade; production012 nowverifiedwith168intelligence/91artifactowners/101workidentities/228artifacthashespreserved. ReportDAY7_PHASE1_FINAL_ACCEPTANCE.md retainsoriginalCHANGES_REQUIRED. RuntimeAegis e2b44d4 plusmigration1038016; no restartonto B1. B1resourcepolicyfoundation isnewunwiredmodule;tests/QA pending. NoPhase2completeclaim.
+Production backup: backups/day7-before-aegis-20260919T181620Z. Retained restored DB day7_aegis_restore_20260919_181620. Historical failures remain preserved. Four providers previously ONLINE; schedule/autonomy/live orders remain disabled; API ceiling0, fallbackNEVER, Aegis inactive and exchangeclosed.
+
+Desktop shortcut targets C:/Users/fordr/AppData/Local/Triad/Launch.html. file:// browser access was blocked; do not work around. Use localhost app for authorized browser QA.

@@ -84,6 +84,30 @@ class HttpProvider:
             "xai": "https://api.x.ai/v1",
             "ollama": self.values.get("OLLAMA_URL", "http://127.0.0.1:11434"),
         }[self.provider]
+        self.cancelled = threading.Event()
+        self.active_response = None
+
+    def cancel(self):
+        self.cancelled.set()
+        response = self.active_response
+        if response is not None:
+            # A socket read may own the buffered response lock. Cancellation must
+            # never hold up the host kill switch while waiting for that lock.
+            threading.Thread(target=response.close, daemon=True).start()
+
+    def billing_source(self):
+        return "LOCAL" if self.provider == "ollama" else "API"
+
+    def output_threshold(self, request):
+        resources = getattr(self, "resources", None)
+        if resources:
+            resources.ensure(
+                ResourceType.OUTPUT,
+                request.token_budget + 1,
+                reason="Provider stopped at its output allocation; a new invocation needs review",
+                review_reason="This transport cannot resume an incomplete structured response",
+            )
+        raise ProviderError("BLOCKED_RESOURCE_LIMIT", "OutputAllocationReached")
 
     def provider_metadata(self):
         return {
@@ -109,6 +133,8 @@ class HttpProvider:
         return (input_tokens * a + output_tokens * b) / 1000000
 
     def transport(self, path, payload=None, timeout=10):
+        if self.cancelled.is_set():
+            raise ProviderError("UNAVAILABLE", "RunCancelled")
         headers = {"Content-Type": "application/json"}
         if self.provider == "anthropic":
             headers.update({"x-api-key": self.key, "anthropic-version": "2023-06-01"})
@@ -121,7 +147,10 @@ class HttpProvider:
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout) as response:
+                self.active_response = response
                 data = response.read(512001)
+                if self.cancelled.is_set():
+                    raise ProviderError("UNAVAILABLE", "RunCancelled")
                 if len(data) > 512000:
                     raise ProviderError("DEGRADED", "ResponseTooLarge")
                 return json.loads(data)
@@ -136,6 +165,8 @@ class HttpProvider:
             raise ProviderError(status, f"HTTP_{exc.code}") from None
         except (OSError, ValueError):
             raise ProviderError("UNAVAILABLE", "TransportUnavailable") from None
+        finally:
+            self.active_response = None
 
     def health_check(self):
         status = "AVAILABLE"
@@ -171,7 +202,9 @@ class HttpProvider:
             raise ProviderError("UNAVAILABLE", "CredentialsOrModelNotConfigured")
         system, prompt = compile_prompt(request)
         schema = strict_schema(request.required_output_schema)
-        generation_cap = min(request.token_budget, max(1, request.reasoning_budget))
+        generation_cap = request.token_budget
+        resources = getattr(self, "resources", None)
+        transport_timeout = resources.initial[ResourceType.TIME] * 9 if resources else 480
         if self.provider == "openai":
             body = {
                 "model": self.model,
@@ -188,8 +221,10 @@ class HttpProvider:
                     }
                 },
             }
-            data = self.transport("/responses", body, 120)
+            data = self.transport("/responses", body, transport_timeout)
             if data.get("status") != "completed":
+                if data.get("incomplete_details", {}).get("reason") == "max_output_tokens":
+                    self.output_threshold(request)
                 raise ProviderError("DEGRADED", "IncompleteResponse")
             text = "".join(
                 c.get("text", "")
@@ -200,6 +235,7 @@ class HttpProvider:
             usage = data.get("usage", {})
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
+            self.reasoning_tokens = usage.get("output_tokens_details", {}).get("reasoning_tokens")
         elif self.provider == "anthropic":
             body = {
                 "model": self.model,
@@ -208,8 +244,10 @@ class HttpProvider:
                 "max_tokens": generation_cap,
                 "output_config": {"format": {"type": "json_schema", "schema": schema}},
             }
-            data = self.transport("/messages", body, 120)
+            data = self.transport("/messages", body, transport_timeout)
             if data.get("stop_reason") != "end_turn":
+                if data.get("stop_reason") == "max_tokens":
+                    self.output_threshold(request)
                 raise ProviderError("DEGRADED", "IncompleteResponse")
             text = "".join(
                 c.get("text", "") for c in data.get("content", []) if c.get("type") == "text"
@@ -230,15 +268,31 @@ class HttpProvider:
                     "json_schema": {"name": "triad_result", "strict": True, "schema": schema},
                 },
             }
-            data = self.transport("/chat/completions", body, 120)
+            data = self.transport("/chat/completions", body, transport_timeout)
             choice = data["choices"][0]
             if choice.get("finish_reason") != "stop":
+                if choice.get("finish_reason") == "length":
+                    self.output_threshold(request)
                 raise ProviderError("DEGRADED", "IncompleteResponse")
             text = choice["message"]["content"]
             usage = data.get("usage", {})
             input_tokens = usage.get("prompt_tokens", 0)
             output_tokens = usage.get("completion_tokens", 0)
+            self.reasoning_tokens = usage.get("completion_tokens_details", {}).get(
+                "reasoning_tokens"
+            )
         else:
+            # Bytes are a conservative token bound. Reserve schema and output too;
+            # reject an unsupported context instead of silently truncating input.
+            context_size = max(
+                4096, len((system + prompt + json.dumps(schema)).encode()) + generation_cap + 512
+            )
+            info = self.transport("/api/show", {"model": self.model}).get("model_info", {})
+            capacities = [
+                v for k, v in info.items() if k.endswith(".context_length") and type(v) is int
+            ]
+            if not capacities or context_size > max(capacities):
+                raise ProviderError("BLOCKED_RESOURCE_LIMIT", "ModelContextCapacityUnavailable")
             body = {
                 "model": self.model,
                 "system": system,
@@ -247,14 +301,21 @@ class HttpProvider:
                 "think": False,
                 "stream": False,
                 "keep_alive": 0,
-                "options": {"num_ctx": 4096, "num_predict": generation_cap, "temperature": 0},
+                "options": {
+                    "num_ctx": context_size,
+                    "num_predict": generation_cap,
+                    "temperature": 0,
+                },
             }
-            data = self.transport("/api/generate", body, 120)
+            data = self.transport("/api/generate", body, transport_timeout)
             if data.get("done_reason") != "stop":
+                if data.get("done_reason") == "length":
+                    self.output_threshold(request)
                 raise ProviderError("DEGRADED", "IncompleteResponse")
             text = data.get("response", "")
             input_tokens = data.get("prompt_eval_count", 0)
             output_tokens = data.get("eval_count", 0)
+            self.reasoning_tokens = 0  # think=False is explicit for the local helper.
         self.actual_model = data.get("model") if isinstance(data.get("model"), str) else None
         try:
             decoded = json.loads(text)
@@ -309,6 +370,9 @@ class SimulatedProvider:
 
     def estimate_cost(self, input_tokens, output_tokens):
         return 0
+
+    def billing_source(self):
+        return "LOCAL"  # Explicitly local deterministic computation, always mode SIMULATED.
 
     def health_check(self):
         return ProviderHealth(
@@ -684,6 +748,9 @@ class Runtime:
             result = AgentRunResult.model_validate(result.model_dump())
             ensure_no_secret(result.model_dump(mode="json"))
             resources.ensure(ResourceType.OUTPUT, outputs)
+            reasoning = getattr(adapter, "reasoning_tokens", None)
+            if type(reasoning) is int and reasoning >= 0:
+                resources.ensure(ResourceType.REASONING, reasoning)
             if (
                 result.run_id != request.run_id
                 or inputs > input_ceiling
@@ -765,6 +832,7 @@ class Runtime:
                     "mode": mode,
                     "input_tokens": inputs,
                     "output_tokens": outputs,
+                    "reasoning_tokens": getattr(adapter, "reasoning_tokens", None),
                     "usage_known": usage_known,
                     "estimated_cost": actual,
                     "reserved_cost": estimate,
@@ -777,7 +845,9 @@ class Runtime:
                         if hasattr(adapter, "provenance")
                         else {
                             "transport": "simulation" if mode == "SIMULATED" else "legacy_adapter",
-                            "billing_source": "UNKNOWN",
+                            "billing_source": adapter.billing_source()
+                            if hasattr(adapter, "billing_source")
+                            else "UNKNOWN",
                             "requested_model": adapter.model,
                             "actual_model": getattr(adapter, "actual_model", None),
                         }

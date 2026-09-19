@@ -26,7 +26,12 @@ def upgrade(store=None):
         ).fetchone()
         if not alias or alias["canonical_product"] != "aegis":
             raise RuntimeError("Aegis lineage verification failed")
-    return "Core database upgrade verified: 012_aegis_lineage"
+        conn.execute(
+            resource("infrastructure/postgres/013_resource_allocations.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+    return "Core database upgrade verified: 012_aegis_lineage, 013_resource_allocations"
 
 
 if __name__ == "__main__":

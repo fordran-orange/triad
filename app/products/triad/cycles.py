@@ -137,7 +137,7 @@ class Cycles(ExecutionServices):
                 work_type="development",
                 authority_tier=2,
                 allowed_paths=tuple(dict.fromkeys(("docs", *limits.allowed_directories))),
-                reasoning_budget=1024,
+                reasoning_budget=8192,
                 compute_budget=ComputeBudget(
                     max_input_chars=limits.max_input_chars,
                     max_output_tokens=limits.max_output_tokens,
@@ -168,7 +168,7 @@ class Cycles(ExecutionServices):
             allowed_paths=work.allowed_paths,
             acceptance_criteria=work.acceptance_criteria,
             token_budget=work.compute_budget.max_output_tokens,
-            reasoning_budget=min(work.reasoning_budget, work.compute_budget.max_output_tokens),
+            reasoning_budget=work.reasoning_budget,
             execution_permissions=("read",) if read else ("write_docs",),
             policy_decision=policy.model_dump(mode="json"),
             required_output_schema=AgentRunResult.model_json_schema(),
