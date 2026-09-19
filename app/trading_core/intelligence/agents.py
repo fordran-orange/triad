@@ -9,7 +9,7 @@ from trading_core.control import PROTECTED, Registry, beneath, relative_path
 from trading_core.intelligence.quality import Quality
 from trading_core.intelligence.records import Records
 from trading_core.ownership import require_owner
-from trading_core.product_identity import same_product
+from trading_core.product_identity import canonical_product, same_product
 from trading_core.providers.contracts import PREFERRED
 from trading_core.store import Store
 from trading_core.work import Record, WorkItem, now, uid
@@ -557,8 +557,9 @@ class Agents:
             ):
                 raise PermissionError("Promotion must belong to an eligible temporary specialist")
             self.records.ledger.guard(old["executor_identity"])
+            current_owner = canonical_product(old["owner"])
             product = conn.execute(
-                "SELECT paused FROM core.product_controls WHERE product=%s", (old["owner"],)
+                "SELECT paused FROM core.product_controls WHERE product=%s", (current_owner,)
             ).fetchone()
             if product and product["paused"]:
                 raise PermissionError("Product is paused")
@@ -596,7 +597,7 @@ class Agents:
                     "status": "ACTIVE",
                 }
             )
-            self._insert(definition, old["owner"], conn)
+            self._insert(definition, current_owner, conn)
             self.host.append(
                 "AgentPromotion",
                 {
@@ -605,7 +606,7 @@ class Agents:
                     "promotion_request": request_id,
                     "qa_run_id": qa["id"],
                 },
-                owner=old["owner"],
+                owner=current_owner,
                 conn=conn,
             )
         return definition

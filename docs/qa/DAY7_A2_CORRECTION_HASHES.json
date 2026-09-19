@@ -1,0 +1,42 @@
+{
+  "revision": "fc104a5e20e10b97b377f80cb310967dd16a7f2a",
+  "hash_kind": "Git committed blob bytes; independent of checkout line endings",
+  "files": [
+    {
+      "path": "app/trading_core/context.py",
+      "committed_blob_sha256": "36eafa6941ad4f50f8951bcb1a2ae317444c32b33b9c29ac851c77a204b2ce96"
+    },
+    {
+      "path": "app/products/aegis/static/index.html",
+      "committed_blob_sha256": "8cd6bda8abee9884616b2c727bf90c5fe273f6f4c2bd4598b2ef41eb6388c15c"
+    },
+    {
+      "path": "app/trading_core/intelligence/agents.py",
+      "committed_blob_sha256": "54f57e04007a5c5819dfbb020c95ad87201d89d31bc1ac362b3f491bf330df5c"
+    },
+    {
+      "path": "app/trading_core/ledger.py",
+      "committed_blob_sha256": "1aafc89cf9f6116253694652c6d40883518de30e0a7f0052a8605683d0fcdefa"
+    },
+    {
+      "path": "app/trading_core/store.py",
+      "committed_blob_sha256": "6ffac8b303ce7d04b65acd9d3ec7e62182f4e733d15c83e271ad53fe398b1f71"
+    },
+    {
+      "path": "app/trading_core/product_identity.py",
+      "committed_blob_sha256": "b7a0a4a4a377f9698fb32a6176de3c1fe5ebcdb772dbf044b7aeb4c48d0dc4c3"
+    },
+    {
+      "path": "infrastructure/postgres/012_aegis_lineage.sql",
+      "committed_blob_sha256": "1ec9c60ea64b2b33c22ac872502f836527ca64eb4f13565082add3457e15c4b9"
+    },
+    {
+      "path": "app/trading_core/resources/sql/012_aegis_lineage.sql",
+      "committed_blob_sha256": "1ec9c60ea64b2b33c22ac872502f836527ca64eb4f13565082add3457e15c4b9"
+    },
+    {
+      "path": "tests/test_day7_a2_qa.py",
+      "committed_blob_sha256": "f773479c377237b3930a9ad5ca82684a4d2104db8877775baf7ae241bb10e3af"
+    }
+  ]
+}
