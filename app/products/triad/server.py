@@ -19,12 +19,18 @@ async def lifespan(app):
     stop = threading.Event()
 
     def loop():
+        from products.triad.daily_development import DailyDevelopment
+        from products.triad.daily_scheduler import tick as daily_tick
+        from products.triad.daily_verification import verify
         from products.triad.jobs import Jobs
         from products.triad.scheduler import tick
 
         while not stop.is_set():
             try:
                 jobs = Jobs()
+                daily_tick(
+                    run=lambda **kwargs: DailyDevelopment().run_daily(verify=verify, **kwargs)
+                )
                 tick(jobs.cycles, submit=jobs.submit)
                 jobs.once()
             except Exception:  # noqa: BLE001 - retryable worker boundary

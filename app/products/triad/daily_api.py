@@ -35,7 +35,10 @@ def debriefs(service=DEP):
 
 @router.get("/triad/api/daily-schedule")
 def schedule(service=DEP):
-    return service.schedule()
+    from products.triad.daily_scheduler import next_cycle
+
+    config = service.schedule()
+    return {**config, "next_cycle": next_cycle(config)}
 
 
 @router.post("/triad/api/daily-schedule", dependencies=[Depends(require_operator)])
