@@ -25,6 +25,7 @@ def test_packaged_upgrade_applies_missing_lineage_and_preserves_resume(engine):
         env={**os.environ, "POSTGRES_DB": store.settings.postgres_db},
         text=True,
         capture_output=True,
+        check=False,
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
