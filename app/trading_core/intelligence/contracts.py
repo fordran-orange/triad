@@ -35,6 +35,7 @@ HOST_RECORD_KINDS = frozenset(
         "ResourceExtensionRequest",
         "ResourceExtensionDecision",
         "ResourceRunState",
+        "ReadinessEvidence",
     }
 )
 

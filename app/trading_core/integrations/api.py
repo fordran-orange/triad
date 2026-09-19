@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 from trading_core.api import ENGINE_DEPENDENCY, require_operator
 from trading_core.integrations.contracts import CATEGORIES, DataRequest, IntegrationCandidate
 from trading_core.integrations.data import DataAccess
+from trading_core.integrations.readiness import ReadinessRequest
 
 router = APIRouter()
 AUTH = [Depends(require_operator)]
@@ -20,6 +21,20 @@ def access(engine=ENGINE_DEPENDENCY):
 
 
 DEP = Depends(access)
+
+
+@router.get("/api/core/research-readiness")
+def readiness_catalog(service=DEP):
+    from trading_core.integrations.readiness import Readiness
+
+    return Readiness(service).catalog()
+
+
+@router.post("/api/core/research-readiness/evaluate")
+def readiness_evaluate(body: ReadinessRequest, service=DEP):
+    from trading_core.integrations.readiness import Readiness
+
+    return Readiness(service).evaluate(body)
 
 
 @router.get("/core/integrations")
