@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from trading_core.api import denied_operation, invalid_operation, local_headers, not_found
 
 from products.triad.api import router
+from products.triad.daily_api import router as daily_router
 from products.triad.development_api import router as development_router
 
 
@@ -48,6 +49,7 @@ app.add_exception_handler(ValueError, invalid_operation)
 app.add_exception_handler(PermissionError, denied_operation)
 app.include_router(router)
 app.include_router(development_router)
+app.include_router(daily_router)
 
 
 @app.get("/triad")
