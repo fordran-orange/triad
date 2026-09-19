@@ -1,0 +1,24 @@
+{
+  "revision": "8eb62ce20c3a8ef03ba649a81288176dd70abeb4",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "CHANGES_REQUIRED",
+  "implementation_files": {
+    "app/trading_core/engineering.py": "e06d130fefc46626abd953ea12da68fc993a2e4362f5c3edcccd6112cf0becd1",
+    "app/trading_core/intelligence/contracts.py": "33d8917fd62fa737a95bf0036f815d537acd1220a7d8db9326b8bdf521b51529",
+    "app/trading_core/intelligence/agents.py": "aabb199f3eef5fe145f4743040cc879cffd366b2e231012bc08b0d53c5290143",
+    "app/trading_core/intelligence/capabilities.py": "ea60ce54c28309118e5c674db1d080b09c7e74f53089792cd0e276f73d519f22",
+    "app/trading_core/intelligence/quality.py": "0c3aa7df28a30e584d9ff43bda787c5c4c86cccb305fbb790ca66e6afe5e4db5",
+    "app/trading_core/intelligence/routing.py": "314dfdde645041773d274723e4b6aa05581568d9eecafb3c970d9bc5f43d0e20",
+    "infrastructure/postgres/011_agent_lifecycle.sql": "44b51f857ff3cab9e5fe14c4796e47cdb5bcfcb36a3df8939b7c8ee8e9a8810e",
+    "app/trading_core/resources/sql/011_agent_lifecycle.sql": "44b51f857ff3cab9e5fe14c4796e47cdb5bcfcb36a3df8939b7c8ee8e9a8810e",
+    "tools/day8_engineering_probe.py": "2c47bb252991b761f4a2d9e4d6f40a5f4094b51f8d738eb03a75702cf6329ff3"
+  },
+  "qa_evidence": {
+    "docs/qa/DAY8_ROLE_PROBE_QA.md": "de505b764cb330e95a513b2110321f42936fc7e7652892153325ff3bc342ffa9",
+    "tests/test_day8_role_qa.py": "310f5e99384976e07f9929155994b47d46be6451b22658d8c06cc037e2a09961",
+    "logs/day8_role_qa_runner.py": "b235c176af576e840d5f9825cf04ea152c01360c5ee89b2b50a0930ead84c1e5",
+    "logs/day8-role-independent-8eb62ce.log": "a500a7b86a383819705f701422d781d3414126c3129d3042704cffa46551ec65",
+    "logs/day8-role-immutability-proof.log": "86343ada91e295d1d3ddf535fd2f8e494713ef4a2d5c79cb7cfeaa401b2233c6",
+    "logs/day8-role-qa-initial.py": "e2b09626ca48f2f3461f3a1a5c9a45730d21e0792f3a81f6d05fa7e4b92c42bf"
+  }
+}
