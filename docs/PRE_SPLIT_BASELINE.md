@@ -40,3 +40,5 @@ Local recovery bundle: `C:/Triad/backups/day5a-20260919/` (excluded from Git).
 
 Current architecture documents and inventory describe the authorized extraction;
 no product module movement preceded this baseline.
+
+Verified implementation commit: 4e643611aa5d1d2552118d9b4a1a0b8b4f774fca. The tag targets the following documentation-only commit that records this hash.
