@@ -50,7 +50,7 @@ def main():
         + path
         + "').read_text(encoding='utf-8'); assert '<h1>Isolated engineering probe</h1>' in s; assert '<script' not in s; print('PASS: actual isolated staged UI asset')"
     )
-    objective = "Stage one HTML file at the exact granted path containing <h1>Isolated engineering probe</h1>. No JavaScript. Use propose_file_change. Return CODE_CHANGE with exact staged contents, empty actions/commands/tests/claims/permission_requests. This is a capability test; no file is merged or deployed."
+    objective = "Stage one HTML file at the exact granted path containing <h1>Isolated engineering probe</h1>. No JavaScript. Use propose_file_change. Return CODE_CHANGE with EMPTY files_changed: Core reconstructs exact observed files. Empty actions/commands/tests/claims/permission_requests. This is a capability test; no file is merged or deployed."
     proposal = Capability(
         provider="anthropic",
         model=model,

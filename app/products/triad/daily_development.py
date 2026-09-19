@@ -264,7 +264,8 @@ class DailyDevelopment(Development):
             "Support loading/empty/error; API errors must remain readable. No automatic fetch beyond Core discovery/read-only evaluation, no paid calls, no accounts or trading. "
             "All untrusted strings via textContent; no innerHTML/eval/storage/inline handlers. Required IDs/API contract supplied. HTML uses only one external script supplied route. "
             "Include Product/Development/Cycles/Daily Debrief links. Max600changedlines and32000combinedbytes; keep eachfile below12000bytes. "
-            "Return CODE_CHANGE with exact staged files_changed and concise summary; no tests/commands/actions/claims. Host runs checks, Codex independently reviews."
+            "Return CODE_CHANGE with files_changed EMPTY and concise summary: Core reconstructs the exact files from your observed tool writes. "
+            "Do not repeat file contents in the final JSON. No tests/commands/actions/claims. Host runs checks, Codex independently reviews."
         )
         work = self.routing.create(
             WorkItem(

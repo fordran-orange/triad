@@ -77,8 +77,12 @@ class NativeRun:
             "Read every supplied file before reviewing it. File writes are proposals, not host changes. "
             "Return the requested JSON result with this run_id. Keep claims, commands_executed, "
             "actions_taken, tests_run and permission_requests empty; the host records tool evidence. "
-            "For a review keep files_changed empty. For implementation report staged file contents. "
-            "Never invoke a slash command, plugin, skill, network tool or another agent.\n"
+            + (
+                "Keep files_changed empty: Core reconstructs the exact implementation from observed isolated tool writes. "
+                if getattr(self, "observed_asset_output", False)
+                else "For a review keep files_changed empty. For implementation report staged file contents. "
+            )
+            + "Never invoke a slash command, plugin, skill, network tool or another agent.\n"
             + "Supplied files: "
             + json.dumps(list(files))
             + "\n"
@@ -108,7 +112,14 @@ class NativeRun:
             self.evidence["rejected_result_summary"] = result.summary[:1000]
             raise ProviderError("DEGRADED", "NativeReadEvidenceMissing")
         changes = self.broker.changes()
-        if {c.path: c.content for c in result.files_changed} != {
+        if getattr(self, "observed_asset_output", False):
+            # Exact-file engineering tools already own the only writable snapshot.
+            # Avoid asking the model to reproduce executable assets a second time.
+            # A second, competing payload is rejected rather than silently ignored.
+            if result.files_changed:
+                raise ProviderError("DEGRADED", "NativeDuplicateAssetPayload")
+            self.evidence["finalization"] = "HOST_OBSERVED_ASSETS"
+        elif {c.path: c.content for c in result.files_changed} != {
             c.path: c.content for c in changes
         }:
             raise ProviderError("DEGRADED", "NativeProposalEvidenceMismatch")
@@ -493,6 +504,7 @@ def claude_initialize(app, guard, expected):
 
 class ClaudeRun(NativeRun):
     def execute(self, request, files, model="Auto", writable=(), *, exact_files=None):
+        self.observed_asset_output = exact_files is not None
         self.broker = BoundedTools(
             files,
             writable=writable,
