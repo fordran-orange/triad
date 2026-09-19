@@ -1,0 +1,19 @@
+{
+  "reviewer": "/root/day6_qa_c",
+  "deployed_application": "56e4f96cd9ab43a319302edb694897d75143237a",
+  "deployed_helper": "120f3289f6a9425f624d027c69397aef25dd4bf5",
+  "scope": "Read-only live acceptance; later335a8f4 correction and integrated regression excluded",
+  "files": {
+    "docs/qa/DAY7_LIVE_ACCEPTANCE_QA.md": "e18c418defbd8c08808f189b71b6adc05d18178f7bcab50fcaa42c05e6a05e48",
+    "docs/qa/DAY7_LIVE_BROWSER.md": "982b567636d29f1dd74d1b30159fb7bec7361c378e05d4bde628c4b36e2ec2ca",
+    "logs/day7-final-independent-live.py": "f6dcd3083d8e50c123f67c0216cae72a0ff23817aa712d6d1da0334c0bf021e8",
+    "logs/day7-final-independent-live.log": "f2a91b8cf5595fe18f6c6290a155e2944ea6db33eaaa0f208a29134e60e1d555",
+    "logs/day7-final-independent-live.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day7-final-independent-launcher.json": "daf5c30edc219585716d9a2104f4c27213d4940753f62e1428f454c233509582",
+    "logs/day7-deployed-evidence.json": "160dbe1eef9782ae2bc23a2f5c78035db9f095cb40273e5e5a0e0f5050058e0a",
+    "logs/day7-final-services.log": "2f5f14ad3556ae7873085d64371df6d7500f74f61933f4e6029828620e12554a",
+    "logs/day7-final-services-settled.log": "5d5399e90fa75befee0d83c070c13e318bbfaffd1546f457873aea92f53f7f56",
+    "logs/day7-final-services-settled.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day7-desktop-launch-actual.json": "8f5288bcc91b8258dd145a912580bcc715f821472a6f3616afddb1e852fb68fa"
+  }
+}

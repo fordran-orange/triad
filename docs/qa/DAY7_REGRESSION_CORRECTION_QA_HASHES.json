@@ -1,0 +1,22 @@
+{
+  "revision": "335a8f4dd3148c20eb4131800918b7ac1a0479dd",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "CHANGES_REQUIRED",
+  "implementation_files": {
+    "app/products/triad/cycles.py": "87cdb0f088345b73ec47dd8f03969044646ecf8984b460bf70323f7167d744fd",
+    "app/products/triad/development.py": "5fb4dd05a19686ef59712ac4d4200633b7c1bd1858fd3e61e9a0bc3ac3492651",
+    "app/trading_core/runtime.py": "b3b3a5dd3893c145dfc1083be6dd8e92488bac0188af935cf1e42b67ac1b287e",
+    "app/trading_core/resource_policy.py": "e89bdf84b3e760ec45430a923b35a9a5833a35d6e6d1f9f508bca2b727945490",
+    "tests/test_day3_integration.py": "813027e1bbbd6063a699aa96a7910a18012b1b89d757e1afcb9cfd44d0ae5adb",
+    "tests/test_day6_product_framework_qa.py": "427ffbd74524eaa3513a16d768be2b9c4643a65b6582a1a4001f153094f2a241",
+    "tests/test_day6_qa_b.py": "4b06e0d90ba623e7b06e0d6225b5f406d69ac4ccd7bf370b126072a7f943d9ab",
+    "docs/qa/DAY7_REGRESSION_CORRECTION.md": "3f40bfe49bc1711eb33ac38b49933483c971ad1ba0dc2b19ffc2d66d22ef1b16"
+  },
+  "qa_evidence": {
+    "docs/qa/DAY7_REGRESSION_CORRECTION_QA.md": "8f8002beb5407306e7b5bf25ffda263d3102f0830eb6ad75f812beff8e81cb1a",
+    "tests/test_day7_regression_qa.py": "a7b7fdaf2bfa197503a6cab7c5af9c9cf88f97c80593b94b801874d96d87ad88",
+    "logs/day7_regression_qa_runner.py": "d2414eff1d8f0972136a9f55e9cc8f2f5a0ed7ebdf08c905ee4ed21578ec50de",
+    "logs/day7-regression-independent-335a8f4.log": "3d079377dffaaa075c3f6a211d7db777b9baa7f0e8eddf63f0b472cca2016e8b",
+    "logs/day7-full-regression.log": "ae2dfbe7216eecf792c890ba274a8738a1c22fc4bd2d09fedbbf30860e107037"
+  }
+}

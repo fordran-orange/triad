@@ -1,0 +1,25 @@
+{
+  "revision": "eea65d393efc644f4b443914b26ce9023e4bec2e",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "PASS",
+  "implementation_files": {
+    "app/products/triad/cycles.py": "87cdb0f088345b73ec47dd8f03969044646ecf8984b460bf70323f7167d744fd",
+    "app/products/triad/development.py": "5fb4dd05a19686ef59712ac4d4200633b7c1bd1858fd3e61e9a0bc3ac3492651",
+    "app/trading_core/runtime.py": "b3b3a5dd3893c145dfc1083be6dd8e92488bac0188af935cf1e42b67ac1b287e",
+    "app/trading_core/resource_policy.py": "e89bdf84b3e760ec45430a923b35a9a5833a35d6e6d1f9f508bca2b727945490",
+    "app/trading_core/providers/control.py": "d849099c579efac5c02c2ec8a9828081615057957e2ef4ec17fad83e2e8c2f6f",
+    "tests/test_day3_integration.py": "813027e1bbbd6063a699aa96a7910a18012b1b89d757e1afcb9cfd44d0ae5adb",
+    "tests/test_day6_product_framework_qa.py": "46441c6d179a8a7fce20c1852852b3c44be5887e622bf03ba88dcd2745277cfe",
+    "tests/test_day6_qa_b.py": "4b06e0d90ba623e7b06e0d6225b5f406d69ac4ccd7bf370b126072a7f943d9ab",
+    "tests/test_provider_integration.py": "7245ae0841bf13ceb85d82f242c9574aba26d3309baa5473ce36a50b55db03a5"
+  },
+  "qa_evidence": {
+    "docs/qa/DAY7_REGRESSION_FINAL_QA.md": "4d13b16e8bcb99679e54545b2feabcaad64d7dc2fdf83c8060a4e52b80cb14ff",
+    "tests/test_day7_regression_qa.py": "a7b7fdaf2bfa197503a6cab7c5af9c9cf88f97c80593b94b801874d96d87ad88",
+    "logs/day7_regression_final_qa_runner.py": "ac04cd27074937c3eb8faa8219a4708138978d493fb402c803daaffc317f53ed",
+    "logs/day7-regression-final-eea65d3.log": "83657d470c693134697cee0670982d74955d5eb9f06b33e4f4f951dc3ea4af4a",
+    "logs/day7-full-regression.log": "ae2dfbe7216eecf792c890ba274a8738a1c22fc4bd2d09fedbbf30860e107037",
+    "docs/qa/DAY7_REGRESSION_CORRECTION_QA.md": "8f8002beb5407306e7b5bf25ffda263d3102f0830eb6ad75f812beff8e81cb1a",
+    "docs/qa/DAY7_REGRESSION_CORRECTION_QA_HASHES.json": "5a741b9541484a30ba9801267d233fadc3081f6b8ed9ed343b2730d2ef5db7ad"
+  }
+}

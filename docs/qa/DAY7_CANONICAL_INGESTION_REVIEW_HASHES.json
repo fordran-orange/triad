@@ -1,0 +1,13 @@
+{
+  "verdict": "PASS",
+  "frozen_plan_sha256": "abb2cd6816abf688c91e6de60b9c55764a5869443a26a27a268593cd75d38a41",
+  "importer_sha256": "1fb4fff2677b34213395db2348f03a647c7433aa787f21b4ae11d10c32c781a5",
+  "files": {
+    "logs/day7-ingest-frozen-qa.py": "1fb4fff2677b34213395db2348f03a647c7433aa787f21b4ae11d10c32c781a5",
+    "logs/day7-canonical-frozen-plan.json": "abb2cd6816abf688c91e6de60b9c55764a5869443a26a27a268593cd75d38a41",
+    "logs/day7-canonical-ingestion-independent-review.json": "60dec6aab046ac5728b34b032fa58512569c44387fc404579b2ce0c5cca63385",
+    "docs/qa/DAY7_CANONICAL_INGESTION_REVIEW.md": "453e6f7e3f8889b39e5c010a238c59fafe921b46a132545f0b64656010f90261",
+    "logs/day7-ingestion-initial-day7-record-segment-qa.py": "b4001b81ccef81e04369b4be34579ba7ba88c8240286b5bf39f8779bf969a4ab",
+    "logs/day7-ingestion-initial-day7-canonical-segments-plan.json": "c53ec8a6529db6bf3d9414be76007023741f50b72e59718560f929c31b928924"
+  }
+}
