@@ -7,10 +7,10 @@ No provider acquisition, ownership change or repair is performed here.
 
 import hashlib
 import json
-from typing import Literal
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, Field, StringConstraints, model_validator
 
 from trading_core.integrations.contracts import DataRequest
 from trading_core.integrations.data import DataAccess, licensed
@@ -38,10 +38,13 @@ CHECKS = (
 )
 
 
+Nonblank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
 class CompletedCheck(Record):
     status: Literal["COMPLETED"]
     result: Literal["PASS"]
-    evidence: tuple[str, ...] = Field(min_length=1)
+    evidence: tuple[Nonblank, ...] = Field(min_length=1)
 
 
 class ReadinessAttestation(Record):
@@ -49,12 +52,12 @@ class ReadinessAttestation(Record):
     dataset_hash: str
     policy: Literal["day7-readiness-definitions-v2"]
     executed_at: AwareDatetime
-    normalizer_version: str = Field(min_length=1)
-    outlier_method: str = Field(min_length=1)
+    normalizer_version: Nonblank
+    outlier_method: Nonblank
     outlier_parameters: dict = Field(min_length=1)
-    outlier_reference_evidence: tuple[str, ...] = Field(min_length=1)
+    outlier_reference_evidence: tuple[Nonblank, ...] = Field(min_length=1)
     outlier_findings: tuple[dict, ...]
-    outlier_disposition: str = Field(min_length=1)
+    outlier_disposition: Nonblank
     critical_findings: tuple[dict, ...] = Field(max_length=0)
     checks: dict[str, CompletedCheck]
     session_checks: dict[str, dict[str, dict[str, CompletedCheck]]]
