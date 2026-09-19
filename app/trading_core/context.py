@@ -1,6 +1,6 @@
 """Relevant bounded context with provenance; never load unrestricted history or secrets."""
 
-from trading_core.product_identity import canonical_product
+from trading_core.product_identity import lineage_owners
 from trading_core.work import ContextPacket, Provenance, WorkItem
 
 
@@ -16,7 +16,7 @@ def packet_for(
         j
         for j in (journals or [])
         if j["mission_id"] == work.mission_id
-        and canonical_product(j.get("owner", work.owner)) == canonical_product(work.owner)
+        and j.get("owner", work.owner) in lineage_owners(work.owner)
     ][:3]
     history = tuple(
         Provenance(
@@ -39,7 +39,7 @@ def packet_for(
         )
         for h in (handoffs or [])
         if h["work_item_id"] == work.parent_work_item_id
-        and canonical_product(h.get("owner", work.owner)) == canonical_product(work.owner)
+        and h.get("owner", work.owner) in lineage_owners(work.owner)
     )[:1]
     packet = ContextPacket(
         work_item_id=work.work_item_id,
@@ -71,7 +71,7 @@ def packet_for(
                 work_item=work.work_item_id,
             )
             for d in (decisions or [])[:2]
-            if canonical_product(d.get("owner", work.owner)) == canonical_product(work.owner)
+            if d.get("owner", work.owner) in lineage_owners(work.owner)
         ),
         prior_handoff=prior,
         relevant_files=work.input_context,
@@ -85,7 +85,7 @@ def packet_for(
             for r in (graph or [])[:5]
             if (
                 r.get("owner", work.owner) in {"shared", "core"}
-                or canonical_product(r.get("owner", work.owner)) == canonical_product(work.owner)
+                or r.get("owner", work.owner) in lineage_owners(work.owner)
             )
         ),
         required_acceptance_criteria=work.acceptance_criteria,
