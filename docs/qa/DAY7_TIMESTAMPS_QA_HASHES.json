@@ -1,0 +1,38 @@
+{
+  "revision": "99dd242c6f9c4d32326ace76440f5d9b4748152e",
+  "decision": "CHANGES_REQUIRED",
+  "reviewer": "/root/day6_qa_b",
+  "implementation_files": {
+    "app/trading_core/brain.py": "e1d7367153b6ac696a7d9009cd37b1a97308911a0fae22047488fada23c4e637",
+    "app/trading_core/intelligence/agents.py": "bfe1e708c7562d7bd18abffae093c19226509f332f40c94ada42a251f8b58fe7",
+    "app/trading_core/intelligence/contracts.py": "e5ff6fe9f6c1413819c99797dea4886e0b9d1de10105ebb1c3a14f72103f5bfa",
+    "app/trading_core/intelligence/quality.py": "0c3aa7df28a30e584d9ff43bda787c5c4c86cccb305fbb790ca66e6afe5e4db5",
+    "app/trading_core/orchestrator.py": "bbce73d934d2b5aa7e8b95d6aa587d72b37c79564da14a97b93f35755da8ec29",
+    "app/trading_core/research/service.py": "1f821952f59d42afa1635023149f349ceef2a4c6bb77fa9aa07b8ea1769793fb",
+    "app/trading_core/runtime.py": "270fa7aee413bbe3d589b3b63d221a8c28a0e3e22193c0f64d87b185ab21d47e",
+    "app/trading_core/static/record-view.js": "9e9d9aa41593b3b78187c7e23234a42a16dbaeb1485e7844f4f1f214128e71a1",
+    "app/trading_core/store.py": "98f0c761b47b4eb084da8b6febd86a78aeca96615b4311332dd5818dd322c0d2",
+    "app/trading_core/work.py": "427580c9319ebf3530cdc7c2002ab1893402457de5879401b113f5d85d01462f",
+    "docs/qa/DAY7_TIMESTAMPS_BUILD.md": "ee46b28d79f69a654fb2177208eb7a55ef99b1e76eecd9f32a29a72b4b51051f",
+    "tests/test_lifecycle_times.py": "196139981a82e532595c9d914fc99e7473a951e2caf38df4d3d307897e60dd69"
+  },
+  "qa_evidence": {
+    "tests/test_day7_timestamps_qa.py": "8cf88ec78700ca6540441e9b0b8ad528c3cc56ba7d3df500d32b4956de8c7f11",
+    "docs/qa/DAY7_TIMESTAMPS_QA.md": "3b80a84cce0a79bfe36651f8f6223490612c00cde96be6a9e08c96bfb2a0367a",
+    "logs/day7-timestamps-independent-99dd242.log": "808c3fe6d9a6d176276d218e91eef96ae654f7e39d022704a7340930b03e98e9",
+    "logs/day7-timestamps-overlay-proof.log": "b60369c6a5b830af131e17ab7ec1b904fab8dac3c4a8046930eb1da8e3d24526",
+    "logs/day7-timestamps-ui-independent.json": "bc04ec8e289819032ca46e02869d886ba1330ac597fcc32f83aa51a2f27d57cb",
+    "logs/day7-timestamps-qa-initial.py": "54eb1e8d4b632633df0160a413400156ec01b0f4f1cacd4a3a089a635c17dd07"
+  },
+  "concurrent_checkout_status": [
+    " M app/trading_core/gateway.py",
+    " M app/trading_core/providers/bounded_tools.py",
+    " M app/trading_core/providers/codex_executor.py",
+    " M app/trading_core/providers/native_agents.py",
+    " M app/trading_core/providers/transports.py",
+    " M app/trading_core/resource_policy.py",
+    " M app/trading_core/runtime.py",
+    "?? docs/qa/DAY7_TIMESTAMPS_QA.md",
+    "?? tests/test_day7_timestamps_qa.py"
+  ]
+}

@@ -87,6 +87,8 @@ class Store:
                 self.add_record(record, conn=transaction)
             return
         kind = type(record).__name__
+        if kind == "HandoffLifecycle":
+            raise PermissionError("Handoff lifecycle evidence requires validated host ingestion")
         data = record.model_dump(mode="json")
         if kind == "Handoff":
             timestamp = now().isoformat()
@@ -141,7 +143,14 @@ class Store:
             phase=phase,
             actor=actor,
         )
-        self.add_record(event, conn=conn)
+        data = event.model_dump(mode="json")
+        inserted = conn.execute(
+            "INSERT INTO core.orchestration_records(id,kind,work_item_id,payload,owner) "
+            "VALUES (%s,'HandoffLifecycle',%s,%s,%s) ON CONFLICT(id) DO NOTHING RETURNING id",
+            (event.event_id, work_id, Jsonb(data), row["owner"]),
+        ).fetchone()
+        if inserted:
+            self.enqueue(conn, "HandoffLifecycle", event.event_id, data)
 
     def receive_handoff(self, work_id, actor):
         with self.connect() as conn:
@@ -260,8 +269,15 @@ class Store:
         if handoffs:
             with self.connect() as conn:
                 events = conn.execute(
-                    "SELECT payload FROM core.orchestration_records WHERE kind='HandoffLifecycle' "
-                    "AND payload->>'handoff_id'=ANY(%s) ORDER BY created_at",
+                    "SELECT event.payload FROM core.orchestration_records event "
+                    "JOIN core.orchestration_records original ON original.id=event.payload->>'handoff_id' "
+                    "AND original.kind='Handoff' AND original.owner=event.owner "
+                    "AND original.work_item_id=event.work_item_id "
+                    "AND event.payload->>'work_item_id'=original.work_item_id "
+                    "AND event.payload->>'actor'=original.payload->>'to_agent' "
+                    "AND event.payload->>'phase' IN ('received_at','acknowledged_at','completed_at') "
+                    "WHERE event.kind='HandoffLifecycle' AND event.payload->>'handoff_id'=ANY(%s) "
+                    "ORDER BY event.created_at",
                     (list(handoffs),),
                 ).fetchall()
             for event in events:
