@@ -4,7 +4,6 @@ import hashlib
 from types import SimpleNamespace
 
 import pytest
-
 from trading_core.contracts import AgentRunResult, FileChange
 from trading_core.providers.bounded_tools import BoundedTools
 from trading_core.providers.native_agents import NativeRun
