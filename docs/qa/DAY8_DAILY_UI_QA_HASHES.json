@@ -1,0 +1,38 @@
+{
+  "revision": "264cd8d12223598942b0781b6952a9243120c4d4",
+  "decision": "CHANGES_REQUIRED",
+  "raw_git_blob_sha256": {
+    "app/products/triad/daily_api.py": "5778bf210dcff0bcd8cc697be80f1a4687bdde995b5604e12b2c57267ffee068",
+    "app/products/triad/server.py": "29540f7ae45c50c70c2578e51b54adda084f550e766de36b76ee4dc4868734b5",
+    "app/products/triad/static/cycles.html": "b8eee13280384b25ca2985c883edc4d0d4da20057a60be20efe98202c98acd49",
+    "app/products/triad/static/daily.html": "0e1915b7c66b035146a00988fb2e47326f3c40f0a315a9be6eb63462af7f5d1f",
+    "app/products/triad/static/daily.js": "bb810939af45195c6de67b1dd1ec5d9a8af1c563e0cb4d372d0bc43ff051541b",
+    "app/products/triad/static/development.html": "ca09c5a4c8d7f35bd1136254fb7366836adb29c980d9234d944b02476a6c10e7",
+    "app/products/triad/static/product.html": "3c565e593014e5e8dee1341eb8cf0b006b47b64848fd730816af8b7d7ad6a753",
+    "pyproject.toml": "eda1b06f6d03f65ed919984eb96d8d870bc8b4fabfc6db7c9eff0668b80a2e0f"
+  },
+  "frozen_archive_sha256": {
+    "app/products/triad/daily_api.py": "5778bf210dcff0bcd8cc697be80f1a4687bdde995b5604e12b2c57267ffee068",
+    "app/products/triad/server.py": "29540f7ae45c50c70c2578e51b54adda084f550e766de36b76ee4dc4868734b5",
+    "app/products/triad/static/cycles.html": "9b855390446c39010f30b582e232bcd02cdb2ee448456677be930532f4a411f8",
+    "app/products/triad/static/daily.html": "e92ef266a6bc1f3a796c7ea8bfca4a7880a31833bbad911a6b7a113f85615a33",
+    "app/products/triad/static/daily.js": "9104d6163667eca26cac663d82c64caf6921ef6791c9cd30840e2c36b469412f",
+    "app/products/triad/static/development.html": "855d2826d4eefa5ef089a2bb296b1f4cf478735e825c38e49f989cd98db82534",
+    "app/products/triad/static/product.html": "3c565e593014e5e8dee1341eb8cf0b006b47b64848fd730816af8b7d7ad6a753",
+    "pyproject.toml": "f6c8d43604fd894ece5efb39d7f082b904cbfc5e70f4c73a0f873bd5e44a96fd"
+  },
+  "evidence_sha256": {
+    "docs/qa/DAY8_DAILY_UI_QA.md": "e7c3e1cdc81d40309bc67b5e82524e6ec07d697ae6b858263c8c00d477d375b0",
+    "logs/day8-daily-ui-264cd8d/tests/test_day8_daily_ui_qa.py": "085c84c838d86c913bb9aff691d315c0dacd6d8e1062fd1ea47352245d52403a",
+    "logs/day8-daily-ui-independent-final-264cd8d.log": "69931939920097dd47e0ef7676c1332c3dda8adb81aafbb703bfa821e01ae903",
+    "logs/day8-daily-ui-independent-final-264cd8d.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04",
+    "logs/day8-daily-ui-dom-qa.js": "15567a2c322b9f6e50dc51934861fa2c017239f308dd72c539d225309c0888df",
+    "logs/day8-daily-ui-dom-264cd8d.log": "5b6804b78c9accf5b7e4376b0b8d52b47529a459b060e0991ca6f4411b625ebe",
+    "logs/day8-daily-ui-dom-264cd8d.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04",
+    "logs/day8-daily-ui-package-264cd8d.log": "d002cf79c7b2672a1b3b192d0af8d1b4e7cafeecdfe5b7c56570312194d5c764",
+    "logs/day8-daily-ui-package-264cd8d.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day8-daily-installed-qa.py": "1399ed3b8b59966d4bc9faca2ef2893f377f4616e392c74fb8b4ceedd31ea076",
+    "logs/day8-daily-installed-264cd8d.log": "fbfa0d5af1a70ba31d44141c16eacdbd7bf9adf573ad1ad51c01ca380d611559",
+    "logs/day8-daily-installed-264cd8d.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+  }
+}
