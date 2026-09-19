@@ -47,6 +47,12 @@ class CompletedCheck(Record):
     evidence: tuple[Nonblank, ...] = Field(min_length=1)
 
 
+class ResolvedFinding(Record):
+    resolved: Literal[True]
+    evidence: tuple[Nonblank, ...] = Field(min_length=1)
+    description: Nonblank | None = None
+
+
 class ReadinessAttestation(Record):
     request_hash: str
     dataset_hash: str
@@ -56,7 +62,7 @@ class ReadinessAttestation(Record):
     outlier_method: Nonblank
     outlier_parameters: dict = Field(min_length=1)
     outlier_reference_evidence: tuple[Nonblank, ...] = Field(min_length=1)
-    outlier_findings: tuple[dict, ...]
+    outlier_findings: tuple[ResolvedFinding, ...]
     outlier_disposition: Nonblank
     critical_findings: tuple[dict, ...] = Field(max_length=0)
     checks: dict[str, CompletedCheck]
@@ -66,10 +72,6 @@ class ReadinessAttestation(Record):
     def complete(self):
         if self.executed_at > now() or set(self.checks) != set(CHECKS):
             raise ValueError("Exact completed checks and an observed execution time required")
-        if any(
-            f.get("resolved") is not True or not f.get("evidence") for f in self.outlier_findings
-        ):
-            raise ValueError("Unresolved outlier finding")
         return self
 
 
