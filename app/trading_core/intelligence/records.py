@@ -2,6 +2,7 @@
 
 from psycopg.types.json import Jsonb
 
+from trading_core.intelligence.contracts import HOST_RECORD_KINDS
 from trading_core.ledger import Ledger
 from trading_core.ownership import require_owner
 from trading_core.resources import resource
@@ -22,12 +23,7 @@ class Records:
     def append(self, kind, payload, *, owner="core", identifier=None, conn=None):
         from trading_core.ownership import require_write
 
-        if self.store.scope is not None and kind in {
-            "ImplementationRun",
-            "QARun",
-            "QualityDebt",
-            "CapabilityVersion",
-        }:
+        if self.store.scope is not None and kind in HOST_RECORD_KINDS:
             raise PermissionError("Canonical build and QA evidence requires trusted Core ingestion")
         require_write(self.store.scope, owner)
         ensure_no_secret(payload)

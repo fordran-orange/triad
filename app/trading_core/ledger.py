@@ -32,6 +32,7 @@ class Ledger:
                 resource("infrastructure/postgres/009_product_audit_ownership.sql").read_text()
             )
             conn.execute(resource("infrastructure/postgres/010_intelligence.sql").read_text())
+            conn.execute(resource("infrastructure/postgres/011_agent_lifecycle.sql").read_text())
             initial = {
                 "paused": False,
                 "killed": False,
@@ -59,6 +60,10 @@ class Ledger:
         return row["payload"]
 
     def put(self, kind, payload, identifier=None, work_id=None, conn=None):
+        from trading_core.intelligence.contracts import HOST_RECORD_KINDS
+
+        if self.store.scope is not None and kind in HOST_RECORD_KINDS:
+            raise PermissionError("Canonical intelligence truth requires trusted Core ingestion")
         if conn is None:
             with self.store.connect() as c:
                 return self.put(kind, payload, identifier, work_id, c)
@@ -154,7 +159,7 @@ class Ledger:
             raise Stopped("Run cancelled or autonomy paused")
 
     def guard(self, agent=None, work_id=None, epoch=None):
-        if self.store.scope:
+        if self.store.scope or agent or work_id:
             from trading_core.ownership import require_owner
 
             # Streaming protocols check this for every frame. Read one current
@@ -164,14 +169,27 @@ class Ledger:
                 row = conn.execute(
                     "SELECT payload, "
                     "(SELECT owner FROM core.work_items WHERE id=%s) AS work_owner, "
-                    "COALESCE((SELECT paused FROM core.product_controls WHERE product=%s),false) AS product_paused, "
-                    "EXISTS(SELECT 1 FROM core.product_stops WHERE product=%s AND work_id=%s) AS product_stopped "
+                    "COALESCE((SELECT paused FROM core.product_controls WHERE product=COALESCE(%s,(SELECT owner FROM core.work_items WHERE id=%s))),false) AS product_paused, "
+                    "EXISTS(SELECT 1 FROM core.product_stops WHERE product=COALESCE(%s,(SELECT owner FROM core.work_items WHERE id=%s)) AND work_id=%s) AS product_stopped, "
+                    "EXISTS(SELECT 1 FROM core.agent_instances a LEFT JOIN core.work_items p ON p.id=a.parent_work_id "
+                    "WHERE (a.id=%s OR a.id=(SELECT agent_id FROM core.agent_work_bindings WHERE work_id=%s)) "
+                    "AND (a.status<>'ACTIVE' OR a.definition->>'execution_eligible'='false' OR a.expires_at<=now() "
+                    "OR (a.definition->>'persistent_or_temporary'='temporary' AND (p.id IS NULL OR p.status IN ('COMPLETED','CANCELLED','FAILED','REJECTED','BLOCKED'))))) AS agent_stopped "
                     "FROM core.autonomy_control WHERE id=1",
-                    (work_id, self.store.scope, self.store.scope, work_id),
+                    (
+                        work_id,
+                        self.store.scope,
+                        work_id,
+                        self.store.scope,
+                        work_id,
+                        work_id,
+                        agent,
+                        work_id,
+                    ),
                 ).fetchone()
             if not row:
                 raise Stopped("Initialize Day 3 before dispatch")
-            if work_id:
+            if work_id and self.store.scope:
                 if row["work_owner"] is None:
                     raise KeyError(work_id)
                 require_owner(self.store.scope, row["work_owner"])
@@ -179,6 +197,8 @@ class Ledger:
                 raise Stopped("Product is paused")
             if row["product_stopped"]:
                 raise Stopped("Product assignment stopped")
+            if row["agent_stopped"]:
+                raise Stopped("Agent disabled, expired or parent assignment closed")
             control = row["payload"]
         else:
             control = self.control()

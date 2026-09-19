@@ -128,11 +128,15 @@ def test_runtime_admission_is_one_run_per_agent(engine, monkeypatch):
 
     calls = []
     monkeypatch.setattr(engine.runtime, "_execute", lambda *a, **k: calls.append("executed"))
-    request = SimpleNamespace(agent_id="CODEX")
+    request = SimpleNamespace(agent_id="CODEX", work_item_id="admission-fixture", token_budget=512)
     with engine.host.store.lease("provider-execution-CODEX"):
         with pytest.raises(ConcurrentUpdate):
             engine.runtime.execute(request)
-        engine.runtime.execute(SimpleNamespace(agent_id="LOCAL_QWEN"))
+        engine.runtime.execute(
+            SimpleNamespace(
+                agent_id="LOCAL_QWEN", work_item_id="admission-fixture", token_budget=512
+            )
+        )
     assert calls == ["executed"]
     engine.runtime.execute(request)
     assert len(calls) == 2

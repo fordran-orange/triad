@@ -7,6 +7,22 @@ from pydantic import Field, model_validator
 
 from trading_core.work import Record, now, uid
 
+HOST_RECORD_KINDS = frozenset(
+    {
+        "ImplementationRun",
+        "QARun",
+        "QualityDebt",
+        "CapabilityVersion",
+        "AgentDefinition",
+        "AgentCreationRequest",
+        "AgentCreationDecision",
+        "AgentDelegation",
+        "AgentRunReservation",
+        "AgentLifecycle",
+        "AgentPromotion",
+    }
+)
+
 
 class Capability(Record):
     capability_id: str = Field(default_factory=uid)

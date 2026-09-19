@@ -46,6 +46,10 @@ LABELS = {
     "Handoff",
     "ContextPacket",
     "ElevationRequest",
+    "ConfiguredAgent",
+    "AgentCreationRequest",
+    "ImplementationRun",
+    "QARun",
 }
 RELATIONSHIPS = {
     "NORMALIZED_INTO",
@@ -71,6 +75,11 @@ RELATIONSHIPS = {
     "HAS_POLICY",
     "HAS_REVIEW",
     "HAS_CONTEXT",
+    "REQUESTED",
+    "CREATED_AGENT",
+    "DELEGATED_TO",
+    "PERFORMED",
+    "VERIFIED_BY",
 }
 
 
@@ -165,7 +174,101 @@ class Brain:
             if data.get("cycle_id") and entity_id != data["cycle_id"]:
                 edge(tx, kind, entity_id, "PART_OF", "Day3Record", data["cycle_id"])
             record_kind = data["record_kind"]
-            if record_kind == "RawDataset":
+            if record_kind == "AgentDefinition":
+                configured_id = data["agent_id"]
+                node(
+                    tx,
+                    "ConfiguredAgent",
+                    configured_id,
+                    display_name=data["display_name"],
+                    status=data["status"],
+                    provider=data["provider"],
+                    model=data["model"],
+                )
+                if data.get("creation_request"):
+                    edge(
+                        tx,
+                        "AgentCreationRequest",
+                        data["creation_request"],
+                        "CREATED_AGENT",
+                        "ConfiguredAgent",
+                        entity_id,
+                    )
+            elif record_kind == "AgentCreationRequest":
+                node(tx, "AgentCreationRequest", entity_id, purpose=data["purpose"])
+                edge(
+                    tx,
+                    "WorkItem",
+                    data["parent_work_item"],
+                    "REQUESTED",
+                    "AgentCreationRequest",
+                    entity_id,
+                )
+                edge(
+                    tx,
+                    "ConfiguredAgent",
+                    data["parent_agent"],
+                    "REQUESTED",
+                    "AgentCreationRequest",
+                    entity_id,
+                )
+            elif record_kind == "AgentDelegation":
+                edge(
+                    tx,
+                    "ConfiguredAgent",
+                    data["agent_id"],
+                    "DELEGATED_TO",
+                    "WorkItem",
+                    data["child_work_item"],
+                )
+                edge(
+                    tx,
+                    "WorkItem",
+                    data["child_work_item"],
+                    "DERIVED_FROM",
+                    "WorkItem",
+                    data["parent_work_item"],
+                )
+            elif record_kind == "ImplementationRun":
+                node(
+                    tx,
+                    "ImplementationRun",
+                    entity_id,
+                    change_commit=data["change_commit"],
+                    status=data["status"],
+                )
+                edge(
+                    tx,
+                    "ConfiguredAgent",
+                    data["builder"],
+                    "PERFORMED",
+                    "ImplementationRun",
+                    entity_id,
+                )
+            elif record_kind == "QARun":
+                node(
+                    tx,
+                    "QARun",
+                    entity_id,
+                    decision=data["decision"],
+                    reviewed_commit=data["reviewed_commit"],
+                )
+                edge(
+                    tx,
+                    "ImplementationRun",
+                    data["implementation_run_id"],
+                    "VERIFIED_BY",
+                    "QARun",
+                    entity_id,
+                )
+                edge(tx, "ConfiguredAgent", data["qa_agent"], "PERFORMED", "QARun", entity_id)
+            elif record_kind == "AgentLifecycle":
+                tx.run(
+                    "MATCH (a:ConfiguredAgent {id:$id}) SET a.status=$status",
+                    id=data["agent_id"],
+                    status=data["status"],
+                ).consume()
+            elif record_kind == "RawDataset":
                 node(tx, "RawDataset", data["raw_id"], mode=data["mode"], checksum=data["checksum"])
                 edge(
                     tx, "DataSource", data["provider"], "SUPPORTED_BY", "RawDataset", data["raw_id"]
@@ -380,12 +483,32 @@ class Brain:
                             f"SELECT owner FROM core.{table} WHERE id=%s", (row["entity_id"],)
                         ).fetchone()
                         owner = owned["owner"] if owned else "triad"
+                        from trading_core.intelligence.contracts import HOST_RECORD_KINDS
+
+                        projection = row["payload"]
+                        if (
+                            row["kind"] == "Day3Record"
+                            and projection.get("record_kind") in HOST_RECORD_KINDS
+                        ):
+                            canonical = conn.execute(
+                                "SELECT kind,owner,payload FROM core.intelligence_records WHERE id=%s",
+                                (row["entity_id"],),
+                            ).fetchone()
+                            if (
+                                not canonical
+                                or canonical["kind"] != projection["record_kind"]
+                                or canonical["owner"] != owner
+                            ):
+                                raise PermissionError(
+                                    "Intelligence projection requires canonical evidence"
+                                )
+                            projection = {**canonical["payload"], "record_kind": canonical["kind"]}
                         with driver.session() as session:
                             session.execute_write(
                                 self.project,
                                 row["kind"],
                                 row["entity_id"],
-                                {**row["payload"], "owner": owner},
+                                {**projection, "owner": owner},
                             )
                             session.run(
                                 "MATCH (n {id:$id}) SET n.owner=$owner",

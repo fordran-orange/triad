@@ -433,14 +433,36 @@ class Runtime:
         return output
 
     def execute(self, request, *, mode="REAL", day=None, adapter=None, transport_id=None):
+        from trading_core.intelligence.agents import Agents
+        from trading_core.intelligence.records import Records
+
+        agents = Agents(Records(self.ledger.store))
         # One in-flight run per agent across workers, tests and direct API calls.
         # Advisory locks are released even when the owning process exits.
         with self.ledger.store.lease("provider-execution-" + request.agent_id):
-            return self._execute(
-                request, mode=mode, day=day, adapter=adapter, transport_id=transport_id
-            )
+            reservation = agents.reserve_run(request.work_item_id, request.token_budget)
+            try:
+                return self._execute(
+                    request,
+                    mode=mode,
+                    day=day,
+                    adapter=adapter,
+                    transport_id=transport_id,
+                    configured_agent=agents.get(reservation) if reservation else None,
+                )
+            finally:
+                agents.release_run(reservation)
 
-    def _execute(self, request, *, mode="REAL", day=None, adapter=None, transport_id=None):
+    def _execute(
+        self,
+        request,
+        *,
+        mode="REAL",
+        day=None,
+        adapter=None,
+        transport_id=None,
+        configured_agent=None,
+    ):
         request = AgentRunRequest.model_validate(request.model_dump())
         select_transport = adapter is None and mode == "REAL"
         adapter = adapter or self.provider(request.agent_id, mode)
@@ -460,6 +482,23 @@ class Runtime:
         ):
             raise PermissionError("Runtime permissions exceed the role grant")
         canonical = self.ledger.store.get(request.work_item_id)
+        # Transport tool names are narrower implementations of host grants.
+        # Choosing an IMPLEMENT role never creates a write_artifact grant.
+        host_tools = {
+            "write_artifact" if t == "propose_file_change" else t for t in request.allowed_tools
+        }
+        if (
+            not host_tools <= set(canonical.allowed_tools)
+            or (
+                request.execution_permissions == ("write_docs",)
+                and not ({"write_research", "write_code"} & set(canonical.execution_permissions))
+            )
+            or (
+                request.execution_permissions == ("read",)
+                and "read" not in canonical.execution_permissions
+            )
+        ):
+            raise PermissionError("Runtime tools or permissions exceed immutable assignment")
         identity = canonical.reviewer if request.role == "REVIEW" else canonical.assigned_agent
         if (
             identity != request.agent_id
@@ -481,9 +520,12 @@ class Runtime:
         limits = self.ledger.guard(request.agent_id, request.work_item_id, request.control_epoch)[
             "limits"
         ]
+        timeout = min(limits["timeout_seconds"], canonical.compute_budget.timeout_seconds)
+        if configured_agent:
+            timeout = min(timeout, configured_agent["budget"]["timeout_seconds"])
         _, prompt = compile_prompt(request)
         if (
-            len(prompt) > limits["max_input_chars"]
+            len(prompt) > min(limits["max_input_chars"], canonical.compute_budget.max_input_chars)
             or request.token_budget > limits["max_output_tokens"]
         ):
             raise PermissionError("Runtime envelope exceeds host limits")
@@ -504,14 +546,20 @@ class Runtime:
             # this overhead rather than pretending the user prompt is the whole input.
             input_ceiling += 48000
         estimate = adapter.estimate_cost(input_ceiling, request.token_budget)
-        if estimate > min(request.cost_budget, limits["max_cost_run"]):
+        if estimate > min(
+            request.cost_budget,
+            limits["max_cost_run"],
+            configured_agent["budget"]["max_cost_usd"]
+            if configured_agent
+            else limits["max_cost_run"],
+        ):
             raise PermissionError("Per-run cost ceiling exceeded")
         epoch = self.ledger.reserve(
             request.agent_id,
             request.work_item_id,
             cost=estimate,
             tokens=input_ceiling + request.token_budget,
-            seconds=limits["timeout_seconds"],
+            seconds=timeout,
             day=day,
             billing_source=adapter.billing_source()
             if hasattr(adapter, "billing_source")
@@ -541,7 +589,7 @@ class Runtime:
                 "authority_tier": canonical.authority_tier,
                 "status": "RUNNING",
                 "started_at": now().isoformat(),
-                "timeout": limits["timeout_seconds"],
+                "timeout": timeout,
                 "process_id": None,
                 **adapter.provenance(),
             }
@@ -564,10 +612,12 @@ class Runtime:
                 threading.Thread(target=invoke, daemon=True).start()
             while True:
                 self.ledger.guard(request.agent_id, request.work_item_id, epoch)
-                if time.monotonic() - started > limits["timeout_seconds"]:
+                if time.monotonic() - started > timeout:
                     raise ProviderError("DEGRADED", "DeadlineExceeded")
                 try:
                     okay, value = results.get(timeout=0.2)
+                    if time.monotonic() - started > timeout:
+                        raise ProviderError("DEGRADED", "DeadlineExceeded")
                     break
                 except queue.Empty:
                     continue
@@ -655,6 +705,9 @@ class Runtime:
                 {
                     "run_id": request.run_id,
                     "agent": request.agent_id,
+                    "configured_agent": configured_agent["agent_id"]
+                    if configured_agent
+                    else request.agent_id,
                     "provider": adapter.provider,
                     "model": adapter.model,
                     "mode": mode,
