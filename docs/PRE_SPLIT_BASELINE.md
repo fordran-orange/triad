@@ -5,7 +5,7 @@ The implementation commit hash is recorded below after preservation. Previous
 HEAD was `61357f5`; that commit alone did not contain the completed isolated
 executors, provider monitoring and readable UI work.
 
-Verified on Windows / Python 3.13, PostgreSQL 17 with TimescaleDB 2.25.2,
+Verified on Windows / Python 3.12.10, PostgreSQL 17 with TimescaleDB 2.25.2,
 Neo4j 5.26 Community, Ollama with qwen3:4b, subscription Codex/Claude/Grok.
 
 - Unit/default suite: 239 passed, 69 integration tests skipped.

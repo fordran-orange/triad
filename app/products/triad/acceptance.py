@@ -21,7 +21,10 @@ MISSION = "Review the current Triad operator documentation and identify one boun
 
 
 def run_relay(control):
-    ledger = control.ledger
+    from trading_core.ledger import Ledger
+    from trading_core.store import Store
+
+    ledger = Ledger(Store(control.ledger.store.settings, scope="triad"))
     cycles = ExecutionServices(store=ledger.store)
     proof = {
         "relay_id": uid(),

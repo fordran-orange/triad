@@ -29,8 +29,6 @@ class Limits(Record):
     allowed_directories: tuple[str, ...] = ("docs/improvements", "research/improvements")
 
 
-
-
 class ImprovementProposal(Record):
     proposal_id: str = Field(default_factory=uid)
     agent: str
@@ -163,5 +161,3 @@ class Disagreement(Record):
     resolution_method: str = "Human review; no automatic majority vote"
     human_review_required: bool = True
     review_ids: tuple[str, ...] = ()
-
-

@@ -4,8 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
-from test_day3_integration import engine  # noqa: F401 - reuse isolated infrastructure fixture
 from platform_host.legacy import app, service
+from test_day3_integration import engine  # noqa: F401 - reuse isolated infrastructure fixture
 from triad.day3.api import cycles_service
 from triad.day3.scheduler import tick
 from triad.jobs import Jobs

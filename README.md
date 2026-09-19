@@ -1,12 +1,17 @@
-# Triad
+# Trading Core, Triad and P2P
 
 Day 5A provider acceptance **passed on 2026-09-18**: real isolated frontier
 WorkItems, local Qwen, and the independently reviewed four-agent documentation relay.
 Open [Settings → AI Providers](http://127.0.0.1:8000/settings/ai-providers) for current
-readiness; connection proofs expire and paid API fallback remains disabled.
+readiness; successful verification has no time-only expiry. Paid API fallback remains disabled.
 See [verification evidence and tested scope](docs/DAY5A_VERIFICATION.md).
 
 A bounded research and development work system. Day 4 adds portable market data and deterministic backtesting. Only trivial engine-test fixtures are included; no broker credentials or live execution.
+
+The post-5A extraction separates shared infrastructure from both product lineages.
+Use [Core](http://127.0.0.1:8000/core), [Triad](http://127.0.0.1:8000/triad), and
+[P2P](http://127.0.0.1:8000/p2p). See the [operations and ownership guide](docs/CORE_EXTRACTION_OPERATIONS.md)
+and [extraction verification](docs/CORE_EXTRACTION_VERIFICATION.md).
 
 ## Start on this machine
 
@@ -56,5 +61,6 @@ Credentials live only in ignored `.env`. Never run `docker compose config` witho
 
 Use `docker compose stop` to stop databases. `docker compose down` preserves named
 volumes; `docker compose down -v` destroys retained database state and is not a routine reset.
-This is a local development setup; backup, multi-user identity and process
-isolation are required before broader deployment. Mutations already require a local operator token.
+This is a local single-user setup with verified backups and separate product processes.
+Multi-user identity and service-level database identities remain future deployment work.
+Mutations require a local operator token.

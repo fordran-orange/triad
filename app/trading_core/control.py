@@ -27,6 +27,7 @@ TIER_TOOLS = {
     3: {"read_file", "write_artifact", "verify_docs"},
 }
 PROTECTED = (
+    "app/triad",
     "app/trading_core",
     "app/platform_host",
     "config",

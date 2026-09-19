@@ -1,6 +1,8 @@
 # Operator dashboard
 
-The Day 3 dashboard is served at http://127.0.0.1:8000; the retained Day 2 WorkItem explorer is at /day2. Navigation covers overview, rotation, backlog, proposals, reviews/disagreements, journal, cost, policy and change lineage. Agent cards show actual provider status/model, authority, current/last work, review and usage. Cycle controls always distinguish REAL and SIMULATED.
+Current entry points: [Core](http://127.0.0.1:8000/core), [Triad](http://127.0.0.1:8000/triad), and [P2P](http://127.0.0.1:8000/p2p). The root URL opens Core. Core owns provider setup, global controls, work records, usage and diagnostics. Triad owns rotation, backlog, proposals, product reviews, journals, change lineage and jobs. P2P is a sparse human-directed shell. The retained WorkItem explorer is at `/day2`; generic research is at `/research`. See [current operations](CORE_EXTRACTION_OPERATIONS.md).
+
+Agent summaries show observed provider status and models. Cycle controls distinguish REAL and SIMULATED and require both Core provider readiness and Triad's relay acceptance for real execution.
 
 Git changes expose proposal, exact commit metadata, independent review and rollback preparation. Record inspectors show labeled sections, readable lists and local dates; identifiers and technical details remain available in expandable sections. The shared presentation covers the workspace, research, provider settings and older work-item explorer. WorkItem inspectors link lifecycle and graph relationships. Cycle summaries and timeline events come from persisted records, not sample UI activity. Provider health is persisted by probes; service health is queried live. Empty states remain explicit.
 

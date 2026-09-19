@@ -1,4 +1,5 @@
 """Triad backlog and autonomous cycle contracts."""
+
 from typing import Literal
 
 from pydantic import Field

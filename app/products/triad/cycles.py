@@ -552,15 +552,19 @@ class Cycles(ExecutionServices):
             )
             raise
 
+    def require_execution_gate(self):
+        from trading_core.providers.control import ProviderControl
+
+        from products.triad.acceptance import relay_proven
+
+        control = ProviderControl(self.ledger)
+        control.require_gate()
+        if not relay_proven(control.read("day5a-relay")):
+            raise PermissionError("Triad relay acceptance required")
+
     def run(self, mode="REAL", scheduled=False, expected_epoch=None):
         if mode == "REAL":
-            from trading_core.providers.control import ProviderControl
-
-            ProviderControl(self.ledger).require_gate()
-            from products.triad.acceptance import relay_proven
-
-            if not relay_proven(ProviderControl(self.ledger).read("day5a-relay")):
-                raise PermissionError("Triad relay acceptance required")
+            self.require_execution_gate()
         if mode not in {"REAL", "SIMULATED"}:
             raise ValueError("Explicit REAL or SIMULATED mode required")
         with self.host.store.lease("day3-cycle"):

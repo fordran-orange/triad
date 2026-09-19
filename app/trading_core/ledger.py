@@ -64,7 +64,9 @@ class Ledger:
 
         owner = self.store.scope or "core"
         if work_id:
-            assigned = conn.execute("SELECT owner FROM core.work_items WHERE id=%s", (work_id,)).fetchone()
+            assigned = conn.execute(
+                "SELECT owner FROM core.work_items WHERE id=%s", (work_id,)
+            ).fetchone()
             if assigned:
                 owner = assigned["owner"]
             elif self.store.scope is not None:

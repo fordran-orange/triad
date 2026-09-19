@@ -9,8 +9,8 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from psycopg import sql
 from platform_host.legacy import app, service
+from psycopg import sql
 from triad.brain import Brain
 from triad.day3.adapters import SimulatedProvider
 from triad.day3.api import cycles_service

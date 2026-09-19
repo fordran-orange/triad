@@ -65,7 +65,9 @@ class ToolGateway:
                     owner = product
             if self.work.owner != owner:
                 raise PermissionError("Cross-product artifact access denied")
-        if beneath(relative, "docs/vault") and not beneath(relative, "docs/vault/02_Journal/generated"):
+        if beneath(relative, "docs/vault") and not beneath(
+            relative, "docs/vault/02_Journal/generated"
+        ):
             raise PermissionError("Operator notes are not agent context")
         if any(
             p.casefold() in {".git", ".venv", ".env"} or p.casefold().startswith(".env.")

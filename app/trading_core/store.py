@@ -91,10 +91,13 @@ class Store:
         work_id = data.get("work_item_id") or data.get("work_item")
         owner = "core" if kind == "Agent" else self.scope or "core"
         if work_id:
-            owned = conn.execute("SELECT owner FROM core.work_items WHERE id=%s", (work_id,)).fetchone()
+            owned = conn.execute(
+                "SELECT owner FROM core.work_items WHERE id=%s", (work_id,)
+            ).fetchone()
             if not owned:
                 raise KeyError(work_id)
             from trading_core.ownership import require_write
+
             require_write(self.scope, owned["owner"])
             owner = owned["owner"]
         record_id = data[ID_FIELDS[kind]]
@@ -146,6 +149,7 @@ class Store:
         if updated.owner != previous.owner:
             raise PermissionError("Work ownership is immutable")
         from trading_core.ownership import require_write
+
         require_write(self.scope, previous.owner)
         if (
             updated.revision != previous.revision + 1

@@ -350,7 +350,10 @@ class Brain:
         temporary.replace(target)
         if target.is_relative_to(ROOT):
             with self.store.connect() as conn:
-                conn.execute("INSERT INTO core.artifact_owners VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", (target.relative_to(ROOT).as_posix(), data.get('owner','triad'), identifier))
+                conn.execute(
+                    "INSERT INTO core.artifact_owners VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                    (target.relative_to(ROOT).as_posix(), data.get("owner", "triad"), identifier),
+                )
 
     def flush(self, limit: int = 500) -> dict:
         delivered = 0

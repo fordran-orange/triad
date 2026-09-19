@@ -5,8 +5,8 @@ import os
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
-from psycopg.types.json import Jsonb
 from platform_host.legacy import app, service
+from psycopg.types.json import Jsonb
 from triad.brain import Brain
 from triad.gateway import ToolGateway
 from triad.orchestrator import Orchestrator

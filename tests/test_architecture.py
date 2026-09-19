@@ -48,6 +48,9 @@ class BlockProducts(importlib.abc.MetaPathFinder):
             raise ImportError('Products deliberately unavailable')
 sys.meta_path.insert(0, BlockProducts())
 from trading_core.api import app
+import importlib, pkgutil, trading_core
+for module in pkgutil.walk_packages(trading_core.__path__, 'trading_core.'):
+    importlib.import_module(module.name)
 from fastapi.testclient import TestClient
 client=TestClient(app)
 assert client.get('/health/live').status_code==200

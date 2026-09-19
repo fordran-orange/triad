@@ -36,9 +36,7 @@ class Jobs:
         if mode not in {"REAL", "SIMULATED"}:
             raise ValueError("Explicit cycle mode required")
         if mode == "REAL":
-            from trading_core.providers.control import ProviderControl
-
-            ProviderControl(self.ledger).require_gate()
+            self.cycles.require_execution_gate()
         date.fromisoformat(self.cycles.day)
         with self.store.connect() as conn:
             control = self.ledger.control(conn, lock=True)

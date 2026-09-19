@@ -64,8 +64,15 @@ class ReasoningInput(Input):
 
 @router.get("/dashboard")
 def dashboard(engine: Cycles = DEP):
+    from products.triad.acceptance import relay_proven
+
+    try:
+        relay = engine.ledger.get("day5a-relay")
+    except KeyError:
+        relay = {}
     records = engine.ledger.records(limit=1000)
     return {
+        "relay_accepted": relay_proven(relay),
         "control": engine.ledger.control(),
         "product_control": engine.ledger.product_control(),
         "rotation": engine.rotation,

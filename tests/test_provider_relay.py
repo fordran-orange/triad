@@ -5,7 +5,7 @@ import pytest
 from test_day3_integration import engine  # noqa: F401
 from triad.day3.contracts import AgentRunResult
 from triad.day5a.control import ProviderControl
-from triad.day5a.relay import run_relay, relay_proven
+from triad.day5a.relay import relay_proven, run_relay
 from triad.work import State
 
 pytestmark = pytest.mark.integration
