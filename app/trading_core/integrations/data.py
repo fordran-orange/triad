@@ -1,11 +1,14 @@
 """Neutral historical data routing and ingestion. No silent source or paid fallback."""
 
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 
+import pyarrow.parquet as pq
+
 from trading_core.integrations.adapters import CapabilityUnavailable, MarketDataAdapter
 from trading_core.integrations.contracts import DataRequest, IntegrationRecord
-from trading_core.integrations.registry import ExternalIntegrationRegistry
+from trading_core.integrations.registry import ExternalIntegrationRegistry, definition_fingerprint
 from trading_core.intelligence.records import Records
 from trading_core.research.calendar import Calendar
 from trading_core.research.contracts import DatasetManifest
@@ -87,15 +90,27 @@ class LocalCanonicalStore(MarketDataAdapter):
                 continue
             licenses = [r.get("license_use_notes") for r in manifest.raw_sources]
             if request.mode == "REAL" and (
-                not licenses
-                or any(
-                    not item or request.license_use not in item.get("allowed_uses", [])
-                    for item in licenses
-                )
+                not licenses or any(not licensed(item, request.license_use) for item in licenses)
             ):
                 continue
             try:
+                if not manifest.raw_sources:
+                    continue
+                for source in manifest.raw_sources:
+                    target = (self.archive.root / source["path"]).resolve()
+                    if (
+                        source.get("mode") != manifest.mode
+                        or source.get("provider") != manifest.source
+                        or not target.is_relative_to(self.archive.root / "data/raw")
+                        or target.stat().st_size > self.archive.limits.max_bytes
+                        or hashlib.sha256(target.read_bytes()).hexdigest() != source["checksum"]
+                    ):
+                        raise ValueError("Retained raw provenance mismatch")
                 frame = self.archive.load(manifest)
+                for path in manifest.canonical_paths:
+                    mode = (pq.read_schema(self.archive.root / path).metadata or {}).get(b"mode")
+                    if mode != manifest.mode.encode():
+                        raise ValueError("Canonical file mode contradicts manifest")
                 expected = set(Calendar().expected(request.start, request.end))
                 if not expected:
                     continue
@@ -230,6 +245,9 @@ class DataAccess:
             not configured
             or configured["status"] != "AVAILABLE"
             or not configured["connected"]
+            or not configured["enabled"]
+            or not configured["configured"]
+            or definition_fingerprint(configured) != definition_fingerprint(definition)
             or configured["capabilities"].get("HISTORICAL_BARS") != "IMPLEMENTED"
         ):
             raise CapabilityUnavailable("A reviewed configured historical adapter is required")
@@ -239,12 +257,45 @@ class DataAccess:
                 "Paid data needs a separate reviewed cost reservation; no fallback"
             )
         license_notes = adapter.license_notes(request)
-        if request.license_use not in license_notes.get("allowed_uses", ()):
+        if not licensed(license_notes, request.license_use):
             raise PermissionError("Requested use is not licensed")
         host = Records(self.store)
+        if request.mode == "REAL":
+            from trading_core.intelligence.quality import Quality
+
+            candidate = next(
+                (
+                    r
+                    for r in self.registry.candidates()
+                    if r["candidate_id"] == configured.get("candidate_id")
+                ),
+                None,
+            )
+            if (
+                not candidate
+                or candidate["status"] != "IMPLEMENTED"
+                or not configured.get("implementation_run_id")
+                or not configured.get("implementation_commit")
+            ):
+                raise PermissionError(
+                    "Real external acquisition requires the adopted reviewed Core adapter build"
+                )
+            build = host.get(configured["implementation_run_id"])
+            if (
+                build["owner"] != "core"
+                or "integration-definition-sha256:" + definition_fingerprint(configured)
+                not in build["evidence"]
+            ):
+                raise PermissionError(
+                    "Real acquisition definition differs from reviewed implementation"
+                )
+            Quality(host).require_pass(
+                configured["implementation_run_id"], configured["implementation_commit"]
+            )
         epoch = host.ledger.guard()["epoch"]
         identifier = uid()
         manifests = []
+        raw_artifacts = []
         provenance = {
             "integration": definition["integration_id"],
             "provider": definition["provider"],
@@ -258,6 +309,19 @@ class DataAccess:
         }
         try:
             for symbol in request.symbols:
+                host.ledger.guard(epoch=epoch)
+                current = next(
+                    (
+                        r
+                        for r in self.registry.catalog()
+                        if r["integration_id"] == definition["integration_id"]
+                    ),
+                    None,
+                )
+                if not current or definition_fingerprint(current) != definition_fingerprint(
+                    definition
+                ):
+                    raise PermissionError("Integration configuration changed before acquisition")
                 single = request.model_copy(update={"symbols": (symbol,)})
                 raw = adapter.fetch_historical_bars(single)
                 host.ledger.guard(epoch=epoch)
@@ -270,6 +334,7 @@ class DataAccess:
                 metadata = self.local.archive.preserve(
                     raw, provider, symbol, request.start, request.end, uid()
                 )
+                raw_artifacts.append(metadata)
                 rows = adapter.normalize_raw(raw, metadata)
                 report, bars = quality(rows, symbol, request.start, request.end)
                 if report["status"] != "PASS" or report["expected_bars"] <= 0 or not bars:
@@ -316,9 +381,25 @@ class DataAccess:
                     "acquisition_id": identifier,
                     "status": "FAILED",
                     "error_class": type(exc).__name__,
+                    "raw_artifact": raw_artifacts[-1] if raw_artifacts else None,
+                    "raw_artifacts": raw_artifacts,
                     "completed_dataset_ids": [m.dataset_id for m in manifests],
                     "completed_at": now().isoformat(),
                 },
                 owner="core",
             )
             raise
+
+
+def licensed(notes, requested_use):
+    if not isinstance(notes, dict):
+        return False
+    uses = notes.get("allowed_uses")
+    return (
+        isinstance(uses, (list, tuple))
+        and bool(uses)
+        and all(type(value) is str and value for value in uses)
+        and requested_use in uses
+        and type(notes.get("notes")) is str
+        and bool(notes["notes"].strip())
+    )
