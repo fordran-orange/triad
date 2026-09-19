@@ -38,6 +38,27 @@ def test_current_aegis_pause_blocks_promotion_of_legacy_p2p_specialist(engine):
     agent = manager.request(request(parent))["agent_id"]
     assert manager.get(agent)["owner"] == "p2p"
     host, proposal, governance = reviewed_promotion(engine, manager, agent, evidence_owner="p2p")
+    with engine.host.store.connect() as conn:
+        original = conn.execute(
+            "SELECT * FROM core.agent_instances WHERE id=%s", (agent,)
+        ).fetchone()
     current.ledger.operate("pause")
     with pytest.raises((Stopped, PermissionError), match="[Pp]roduct.*paused"):
         host.promote(proposal, governance.implementation_run_id, governance.change_commit)
+
+    current.ledger.operate("resume")
+    promoted = host.promote(proposal, governance.implementation_run_id, governance.change_commit)
+    assert promoted.persistent_or_temporary == "persistent"
+    assert host.get(promoted.agent_id)["owner"] == "aegis"
+    assert manager.get(promoted.agent_id)["owner"] == "aegis"
+    assert manager.get(agent)["owner"] == "p2p"
+    assert promoted.budget.model_dump(mode="json") == original["definition"]["budget"]
+    promotions = [
+        r for r in host.records.list("AgentPromotion") if r["promotion_request"] == proposal
+    ]
+    assert len(promotions) == 1
+    assert promotions[0]["owner"] == "aegis"
+    assert promotions[0]["previous_agent"] == agent
+    with engine.host.store.connect() as conn:
+        after = conn.execute("SELECT * FROM core.agent_instances WHERE id=%s", (agent,)).fetchone()
+    assert after == original

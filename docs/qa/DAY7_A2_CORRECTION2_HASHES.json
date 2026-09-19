@@ -1,0 +1,127 @@
+{
+  "revision": "07453222c8f892bc8fc4d9a7093e87ee0b510183",
+  "committed_blob_hashes": [
+    {
+      "path": "app/platform_host/api.py",
+      "sha256": "8796f4e0182afbda473a052c839346b6c3f13b4537770711c84dc534d19bf31c"
+    },
+    {
+      "path": "app/products/aegis/__init__.py",
+      "sha256": "61febd50f9196e2fd177f7f88718248e7106878651cd86e78df64bc71459d313"
+    },
+    {
+      "path": "app/products/aegis/resources/product.json",
+      "sha256": "e782d50a404650b1c38d812441166a442c2754bf2cd82db8a786b3ec3e80a139"
+    },
+    {
+      "path": "app/products/aegis/server.py",
+      "sha256": "b8c02da448fce5e74a12a4688f8b40f97d96456283a7d3cc819f4e7a7c11c20f"
+    },
+    {
+      "path": "app/products/aegis/static/index.html",
+      "sha256": "8cd6bda8abee9884616b2c727bf90c5fe273f6f4c2bd4598b2ef41eb6388c15c"
+    },
+    {
+      "path": "app/products/triad/static/day3.html",
+      "sha256": "9e1c1687da69a69f19a4657a8f93370a3cf4c8f9b307a03fdc47a1154439c67e"
+    },
+    {
+      "path": "app/products/triad/static/development.html",
+      "sha256": "7e59c62141412510f615093b0d7f1520fb530d8ad0178470ac78be3d84786473"
+    },
+    {
+      "path": "app/trading_core/brain.py",
+      "sha256": "a4edcf52be7215c681d84305aee1a7c0132c3ba2f8b66d74de800311428c70ab"
+    },
+    {
+      "path": "app/trading_core/context.py",
+      "sha256": "36eafa6941ad4f50f8951bcb1a2ae317444c32b33b9c29ac851c77a204b2ce96"
+    },
+    {
+      "path": "app/trading_core/exchange.py",
+      "sha256": "7db486cba1cdb7964ae1355ba00a274e5d3d2b7410160411caea17920df7995c"
+    },
+    {
+      "path": "app/trading_core/gateway.py",
+      "sha256": "7b06b83b76b54029d1539605fdb12b516d09882babf9fd68e9a5c64c7264e72f"
+    },
+    {
+      "path": "app/trading_core/intelligence/agents.py",
+      "sha256": "4ad3c8278202bd346d873364c3513ee87d87f957fada04abe2be0ebe01fe07b5"
+    },
+    {
+      "path": "app/trading_core/intelligence/contracts.py",
+      "sha256": "49c07cf537efa0c8be88d474aefbcf0397b291f668d1fc3ada285409612d7d3c"
+    },
+    {
+      "path": "app/trading_core/intelligence/records.py",
+      "sha256": "b4c3f2ddba311c9e40723951041b4ac277bd810c04e2991326c470835e113d00"
+    },
+    {
+      "path": "app/trading_core/ledger.py",
+      "sha256": "1aafc89cf9f6116253694652c6d40883518de30e0a7f0052a8605683d0fcdefa"
+    },
+    {
+      "path": "app/trading_core/ownership.py",
+      "sha256": "eb6f5e52c66939e182ef1052e0f85034c22894b27e79380e5ef905d1f1958e2f"
+    },
+    {
+      "path": "app/trading_core/static/core.html",
+      "sha256": "091d3a533a317f6b411092b91dcb372d86946f7e0b85207854dc0dfb40d17592"
+    },
+    {
+      "path": "app/trading_core/static/intelligence.html",
+      "sha256": "6555c23515eeb03086f8e4b189d01ba206bd3aba759a0f87986e0ec059e6e563"
+    },
+    {
+      "path": "app/trading_core/store.py",
+      "sha256": "6ffac8b303ce7d04b65acd9d3ec7e62182f4e733d15c83e271ad53fe398b1f71"
+    },
+    {
+      "path": "app/trading_core/work.py",
+      "sha256": "c13ef78af74bff98a76848b0fe77bfb55d14d4ec829d8c433f086571dfadd606"
+    },
+    {
+      "path": "config/aegis/product.json",
+      "sha256": "e782d50a404650b1c38d812441166a442c2754bf2cd82db8a786b3ec3e80a139"
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "a2b6f2f622ece25eeaa78cc16cb19642b4ef2aacf889c502d478ba2acd13aa25"
+    },
+    {
+      "path": "tools/check_extraction_services.py",
+      "sha256": "df896061d3bc32802df3728e7f10923ce0d95c0e0ace8970cf0796b88980d129"
+    },
+    {
+      "path": "tools/check_package.py",
+      "sha256": "01fd7d37be59dd26928c9c5ce6098fae09969e696240c737af7212e54fe67932"
+    },
+    {
+      "path": "tools/start_backend.ps1",
+      "sha256": "e04d9b95b10a8d5c895a489c5232fb829abafaf50595184fc71ab4952a85a333"
+    },
+    {
+      "path": "tools/start_product.ps1",
+      "sha256": "03bfc10d2158962ab0e3cd6a0668812e8e0ba24007ca9a06e3848611fd33d790"
+    }
+  ],
+  "working_evidence_raw_hashes": [
+    {
+      "path": "tests/test_day7_a2_controls_qa.py",
+      "sha256": "8c9bfd945390a4b6de298bcf1b20ed2755860dc5f6eb687c8e5fe7173fc33d93"
+    },
+    {
+      "path": "logs/day7-a2-correction2-independent-tests.log",
+      "sha256": "b48ebc17867974aa838951454a954a0dfb13c230459bf8414fde496ad2a29ac5"
+    },
+    {
+      "path": "logs/day7-a2-correction2-independent-tests.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "logs/day7-a2-correction2-independent-lint.log",
+      "sha256": "a4443afdcfb6d7363adb285762515ccf7cf50473b1a05c20c1a50f6bed4d26b0"
+    }
+  ]
+}
