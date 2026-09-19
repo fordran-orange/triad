@@ -3,7 +3,6 @@ import hashlib
 import json
 import subprocess
 import zipfile
-from pathlib import Path
 
 from psycopg import sql
 from triad.settings import ROOT

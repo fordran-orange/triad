@@ -368,19 +368,18 @@ class Brain:
                     if not row:
                         break
                     try:
-                        owner = row["payload"].get("owner")
-                        if not owner:
-                            table = (
-                                "work_items"
-                                if row["kind"] == "WorkItem"
-                                else "day3_records"
-                                if row["kind"] == "Day3Record"
-                                else "orchestration_records"
-                            )
-                            owned = conn.execute(
-                                f"SELECT owner FROM core.{table} WHERE id=%s", (row["entity_id"],)
-                            ).fetchone()
-                            owner = owned["owner"] if owned else "triad"
+                        # Payload content cannot assign graph or exported-note ownership.
+                        table = (
+                            "work_items"
+                            if row["kind"] == "WorkItem"
+                            else "day3_records"
+                            if row["kind"] == "Day3Record"
+                            else "orchestration_records"
+                        )
+                        owned = conn.execute(
+                            f"SELECT owner FROM core.{table} WHERE id=%s", (row["entity_id"],)
+                        ).fetchone()
+                        owner = owned["owner"] if owned else "triad"
                         with driver.session() as session:
                             session.execute_write(
                                 self.project,
