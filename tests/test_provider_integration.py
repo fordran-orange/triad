@@ -352,7 +352,10 @@ def test_ask_each_time_missing_key_and_budget(engine, monkeypatch):
 
 
 def test_budget_fallback_is_atomic_and_kill_enable_override_routes(engine, monkeypatch):
-    host, request = setup(engine, monkeypatch, "ALLOW_WITHIN_BUDGET", budget=0.03)
+    host, request = setup(engine, monkeypatch, "ALLOW_WITHIN_BUDGET", budget=0.09)
+    # The fixture's $10/M rates and Day 7 output reservation admit exactly one run.
+    estimate = (100 + request.token_budget) * 10 / 1_000_000
+    assert estimate <= 0.09 < 2 * estimate
     host.secrets.set_secret("openai_api", "fixture-never-networked")
     router = TransportRouter(host)
 

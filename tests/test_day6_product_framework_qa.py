@@ -29,7 +29,10 @@ def test_qwen_support_uses_compact_adapter_schema_and_256_generation_cap(engine,
     )
     requests, bodies = [], []
 
-    def transport(path, body, timeout):
+    def transport(path, body, timeout=480):
+        if path == "/api/show":
+            assert body == {"model": "fixture-model"}
+            return {"model_info": {"fixture.context_length": 262144}}
         assert path == "/api/generate" and timeout == 480
         bodies.append(body)
         # Behave like a schema-following model; this also demonstrates why the

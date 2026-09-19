@@ -15,3 +15,10 @@ no successful Usage and a bounded observed duration.
 
 The initial full-run failure evidence remains in logs/day7-full-regression.log.
 Fresh independent affected QA and the final full regression are required.
+
+The completed first run had5failed/524passed in1208.59s. Full traces additionally
+showed that the Qwen mock needs to implement `/api/show` context introspection,
+and the atomic API-budget fixture's old$0.03 cannot admit even one6144-token
+reservation. The fixture now supplies explicit262144 context capacity and uses
+$0.09 with an assertion that this admits exactly one request at its$10/M rates.
+No production budget, pricing or authority changed.
