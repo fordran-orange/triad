@@ -16,7 +16,16 @@ from trading_core.security import ensure_no_secret
 
 
 class BoundedTools:
-    def __init__(self, files, *, writable=(), guard=lambda: None, max_calls=30, resources=None):
+    def __init__(
+        self,
+        files,
+        *,
+        writable=(),
+        guard=lambda: None,
+        max_calls=30,
+        resources=None,
+        exact_files=None,
+    ):
         if (
             not isinstance(files, dict)
             or len(files) > 64
@@ -29,6 +38,9 @@ class BoundedTools:
         self.files = {safe_path(k): v for k, v in files.items()}
         self.original = dict(self.files)
         self.writable = tuple(safe_path(p) for p in writable)
+        self.exact_files = (
+            None if exact_files is None else frozenset(safe_path(p) for p in exact_files)
+        )
         self.guard = guard
         self.max_calls = max_calls
         self.resources = resources
@@ -64,6 +76,7 @@ class BoundedTools:
                         or not isinstance(content, str)
                         or len(content.encode()) > 12000
                         or not any(path.startswith(p + "/") for p in self.writable)
+                        or (self.exact_files is not None and path not in self.exact_files)
                         or (path not in self.files and len(self.files) >= 3)
                     ):
                         raise PermissionError("Proposal exceeds the write grant")

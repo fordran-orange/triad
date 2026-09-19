@@ -349,7 +349,7 @@ class CLITransport(BaseTransport):
         work = self.control.ledger.store.get(request.work_item_id)
         resources = getattr(self, "resources", None)
         gateway = ToolGateway(work, resources=resources)
-        files, writable = {}, ()
+        files, writable, engineering = {}, (), None
         if request.role == "REVIEW":
             if request.execution_permissions != ("read",) or set(request.allowed_tools) - {
                 "read_file"
@@ -361,14 +361,29 @@ class CLITransport(BaseTransport):
                     if (ROOT / path).is_file():
                         files[path] = gateway.read(path)
         else:
-            if request.execution_permissions != ("write_docs",) or set(request.allowed_tools) != {
-                "propose_file_change"
-            }:
+            if request.execution_permissions == ("write_code",):
+                from trading_core.engineering import grant_for
+
+                engineering = grant_for(self.control.ledger, request)
+                for path in engineering.writable_files:
+                    if (ROOT / path).is_file():
+                        files[path] = gateway.read(path)
+                writable = tuple(
+                    sorted(
+                        {str(Path(p).parent).replace("\\", "/") for p in engineering.writable_files}
+                    )
+                )
+            elif request.execution_permissions != ("write_docs",):
                 raise PermissionError("Implementation supports reviewed text proposals only")
+            if set(request.allowed_tools) != {"propose_file_change"}:
+                raise PermissionError("Only staging tools are granted")
             limits = self.control.ledger.guard(request.agent_id)["limits"]
-            if not set(request.allowed_paths) <= set(limits["allowed_directories"]):
+            if not engineering and not set(request.allowed_paths) <= set(
+                limits["allowed_directories"]
+            ):
                 raise PermissionError("Proposal directories must be explicitly governed")
-            writable = request.allowed_paths
+            if not engineering:
+                writable = request.allowed_paths
         guard = lambda: self.control.ledger.guard(
             request.agent_id, request.work_item_id, request.control_epoch
         )
@@ -377,7 +392,12 @@ class CLITransport(BaseTransport):
             self.command(), guard, work.compute_budget.max_tool_calls, resources=resources
         )
         try:
-            result = self.native_run.execute(request, files, self.model, writable)
+            if engineering:
+                result = self.native_run.execute(
+                    request, files, self.model, writable, exact_files=engineering.writable_files
+                )
+            else:
+                result = self.native_run.execute(request, files, self.model, writable)
             self.actual_model = self.native_run.actual_model
             return result
         finally:

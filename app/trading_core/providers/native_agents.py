@@ -491,13 +491,14 @@ def claude_initialize(app, guard, expected):
 
 
 class ClaudeRun(NativeRun):
-    def execute(self, request, files, model="Auto", writable=()):
+    def execute(self, request, files, model="Auto", writable=(), *, exact_files=None):
         self.broker = BoundedTools(
             files,
             writable=writable,
             guard=self.check,
             max_calls=self.max_tool_calls,
             resources=self.resources,
+            exact_files=exact_files,
         )
         with (
             native_workspace(prefix="triad-claude-run-") as cwd,

@@ -547,8 +547,17 @@ class Runtime:
         request = AgentRunRequest.model_validate(request.model_dump())
         select_transport = adapter is None and mode == "REAL"
         adapter = adapter or self.provider(request.agent_id, mode)
+        engineering = request.execution_permissions == ("write_code",)
+        if engineering:
+            from trading_core.engineering import grant_for
+
+            grant_for(self.ledger, request)
         expected_permissions = (
-            ("read",) if request.role in {"REVIEW", "SUPPORT"} else ("write_docs",)
+            ("write_code",)
+            if engineering
+            else ("read",)
+            if request.role in {"REVIEW", "SUPPORT"}
+            else ("write_docs",)
         )
         expected_tools = (
             {"read_file"}
@@ -578,6 +587,7 @@ class Runtime:
                 request.execution_permissions == ("read",)
                 and "read" not in canonical.execution_permissions
             )
+            or (engineering and "write_code" not in canonical.execution_permissions)
         ):
             raise PermissionError("Runtime tools or permissions exceed immutable assignment")
         identity = (

@@ -42,6 +42,8 @@ HOST_RECORD_KINDS = frozenset(
         "DailyDebriefPublication",
         "DailySchedule",
         "DailyScheduleClaim",
+        "EngineeringGrant",
+        "EngineeringTestRun",
     }
 )
 
