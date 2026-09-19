@@ -1,0 +1,14 @@
+{
+  "reviewer": "/root/day6_qa_c",
+  "head": "120f3289f6a9425f624d027c69397aef25dd4bf5",
+  "application_revision": "56e4f96cd9ab43a319302edb694897d75143237a",
+  "scope": "Source/evidence and read-only backup audit; overall operational acceptance pending",
+  "files": {
+    "docs/qa/DAY7_FINAL_EVIDENCE_AUDIT.md": "9ce24ec36dc1dc013f932fd2fd260051ce03b346ab804456e3697b9ef640484f",
+    "logs/day7-final-independent-backup.json": "2027bc7ca614bc5ad817459fae4aef51baeb2781ac4ea02eb87dbab80d38812a",
+    "logs/day7-final-reviewed-byte-map.json": "a1363edd3a9917169067b20da3d783ab823bce9d242eab3bd1f3c8fc8417cae8",
+    "logs/day7-final-independent-evidence-audit.json": "2e12ced1f5cfa16949f29eb60d3cc183daf1b5432daa96b97bd0467ed0c4c0c9",
+    "docs/qa/DAY7_DEPLOY_EVIDENCE_QA.md": "10a07d02237e8fe081b4673cd776dd6f4f04200dcbc3c77e7b1cd8556e516fe9",
+    "docs/qa/DAY7_DEPLOY_EVIDENCE_QA_HASHES.json": "2312f70251a3579b8ba3d83cbe665796d476d57f4a986ec52094070fa0e6f441"
+  }
+}

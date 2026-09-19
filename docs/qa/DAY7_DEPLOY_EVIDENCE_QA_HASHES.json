@@ -1,0 +1,44 @@
+{
+  "initial_revision": "58ef0992b4d790fab66621e336c899eec3748761",
+  "initial_verdict": "CHANGES_REQUIRED",
+  "implementation_revision": "120f3289f6a9425f624d027c69397aef25dd4bf5",
+  "verdict": "PASS",
+  "evidence_raw_hashes": [
+    {
+      "path": "logs/day7-deploy-58ef099.py",
+      "sha256": "cf5fef9bb66091fae7b57ed2e34f42a24895389e83edf35075e7e41dbab708b7"
+    },
+    {
+      "path": "logs/day7-deploy-120f328.py",
+      "sha256": "be2d4f2f962d63d42f3a3cf3056447d67d639ddc2e19f5808a4fb31feae5fb82"
+    },
+    {
+      "path": "tests/test_day7_deploy_qa.py",
+      "sha256": "cf15d04d03d44e659308d55943deac61fc495f869572fc8739d2967140e98b77"
+    },
+    {
+      "path": "docs/qa/DAY7_DEPLOY_EVIDENCE_QA.md",
+      "sha256": "10a07d02237e8fe081b4673cd776dd6f4f04200dcbc3c77e7b1cd8556e516fe9"
+    },
+    {
+      "path": "logs/day7-deploy-original-qa.log",
+      "sha256": "771976856b0943185a60e7a93116cde9b5ce4a18bbf42e51119ea17db6d1ed10"
+    },
+    {
+      "path": "logs/day7-deploy-original-qa.exit",
+      "sha256": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04"
+    },
+    {
+      "path": "logs/day7-deploy-correction-qa.log",
+      "sha256": "2e1debf76b7d0a6f7fb857c73d8eb1ddae6842fc3a9a37aee807dd402d02d627"
+    },
+    {
+      "path": "logs/day7-deploy-correction-qa.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "logs/day7-deploy-definitions-preflight.json",
+      "sha256": "12a494586623a8a9c256a8122bb45af505773d95fd7765da54990d643a16fcef"
+    }
+  ]
+}

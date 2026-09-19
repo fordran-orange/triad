@@ -280,12 +280,18 @@ def test_exact_reviewed_core_adapter_adopts_once_and_deprecates(engine):
     )
     assert registry.host.get(decision)["status"] == "IMPLEMENTED"
     assert registry.candidates()[0]["status"] == "IMPLEMENTED"
+    adopted = next(r for r in registry.catalog() if r["integration_id"] == "fixture-vendor")
+    registry.require_adopted(adopted)
+    with pytest.raises(PermissionError):
+        registry.require_adopted(adopted | {"notes": ["Unreviewed revision"]})
     with pytest.raises(PermissionError):
         registry.mark_implemented(
             identifier, "fixture-vendor", run.implementation_run_id, run.change_commit
         )
     registry.decide(identifier, "DEPRECATED", "Retired test adapter")
     assert registry.candidates()[0]["status"] == "DEPRECATED"
+    with pytest.raises(PermissionError):
+        registry.require_adopted(adopted)
 
 
 @pytest.mark.integration

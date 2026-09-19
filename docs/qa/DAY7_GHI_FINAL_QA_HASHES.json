@@ -1,0 +1,109 @@
+{
+  "implementation_revision": "56e4f96cd9ab43a319302edb694897d75143237a",
+  "verdict": "PASS",
+  "snapshot_app_files_verified_equal_archive": 172,
+  "committed_blob_hashes": [
+    {
+      "path": "app/products/triad/server.py",
+      "sha256": "161f1bc729863a8b962b58540e0fe5ef43cde6a80b796d22f80c310ff4e648fd"
+    },
+    {
+      "path": "app/products/triad/static/day3.html",
+      "sha256": "bf92b90542ab78a7aea97ca301584260307ff0284e373c44dfef5d333fb199ce"
+    },
+    {
+      "path": "app/products/triad/static/development.html",
+      "sha256": "5177e959fa962a9bb3cf655dce06558e0ac2ce458e4ef56d12685bc9ef7a162f"
+    },
+    {
+      "path": "app/products/triad/static/product.html",
+      "sha256": "3a23c528af0509998002ea9d0685ee430d29088de075557952118aed10e84857"
+    },
+    {
+      "path": "app/trading_core/api.py",
+      "sha256": "21a5b6a693d99ca905af3c3e888429eba8ce3c0752d10092e4191367c6f3938a"
+    },
+    {
+      "path": "app/trading_core/integrations/api.py",
+      "sha256": "0cb769459ef0b7a1888fc5440a289f1b0b63b3a5c3c69d25b684ac73fbd48764"
+    },
+    {
+      "path": "app/trading_core/static/core.html",
+      "sha256": "82464bb0df7a5f28f6bf2ef43b2ca2637efa12866b71b7f33bdd6b892979e176"
+    },
+    {
+      "path": "app/trading_core/static/integrations.html",
+      "sha256": "a0cd39a5e270991ad7661af467bb9d5277becd4074ef9c0a4e9f9de2b6e28d0c"
+    },
+    {
+      "path": "app/trading_core/static/integrations.js",
+      "sha256": "9a49b3710a3c648554a88e79f25113b17d779fb4816f65b069d4c08367f0a91c"
+    },
+    {
+      "path": "app/trading_core/static/launch.html",
+      "sha256": "f67667a9690a573c416b6d1aa52072107e87afa173bb0fd13d0b4aed21a075a3"
+    },
+    {
+      "path": "docs/improvements/real-market-readiness-definitions-v2.md",
+      "sha256": "9542a822398e252302dc3a79358732675d30f24c15429cc9e1611c9cc8d32fba"
+    },
+    {
+      "path": "tools/check_package.py",
+      "sha256": "aa48650ce0268076b26631a334bff1ca7b882917c53bc14ce7b547f81ae0a2d8"
+    },
+    {
+      "path": "docs/improvements/real-market-readiness-criteria.md",
+      "sha256": "d5d1f6d00dc93a5e569b2e73bbed2ae1629c47ce372d403e15503aa7097e84f9"
+    }
+  ],
+  "evidence_raw_hashes": [
+    {
+      "path": "logs/day7-ghi-final-exact-56e4f96.zip",
+      "sha256": "86a91910d7164226da5c1cdaa7dd7af4e2f3b42509f66084c1a110e9f3a71789"
+    },
+    {
+      "path": "logs/day7-ghi-final-qa-run.py",
+      "sha256": "4784dac60c719ea6101c77f60cb12502bad6427b030b3fb99fa71ef7f8996db0"
+    },
+    {
+      "path": "logs/day7-ghi-final-exact-56e4f96/tests/test_day7_ghi_qa.py",
+      "sha256": "069ccefe04caf35d117f5f86ec3d7b02378bfc04087476745b591bff05a514ce"
+    },
+    {
+      "path": "logs/day7-ghi-final-exact-56e4f96/docs/improvements/real-market-readiness-criteria.md",
+      "sha256": "d5d1f6d00dc93a5e569b2e73bbed2ae1629c47ce372d403e15503aa7097e84f9"
+    },
+    {
+      "path": "logs/day7-ghi-final-installed-bytes.json",
+      "sha256": "d0c9345c7aef84199ee37edc4d9b8dc1ad46e53cca6c3b75aef026d87904b8ce"
+    },
+    {
+      "path": "docs/qa/DAY7_GHI_FINAL_QA.md",
+      "sha256": "2576e5000f675bf2cb1c82617f66019261d1d0fb722f694d2ddc73a3ecb572bc"
+    },
+    {
+      "path": "logs/day7-ghi-final-nondb.log",
+      "sha256": "06db72c22476a74fd6ce60a98ab3f58db91082a8a9edffa16b8a91be41eb1bc8"
+    },
+    {
+      "path": "logs/day7-ghi-final-nondb.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "logs/day7-ghi-final-db.log",
+      "sha256": "b6b1d017f1e0e55dcf6c0964eaaf25bcca46fb384846a5743bc0219925a42c21"
+    },
+    {
+      "path": "logs/day7-ghi-final-db.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "logs/day7-ghi-final-package.log",
+      "sha256": "908fd75162511165020b3dceb36c2814a181a9a0f7e19b82de40e31ee50d941c"
+    },
+    {
+      "path": "logs/day7-ghi-final-package.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    }
+  ]
+}

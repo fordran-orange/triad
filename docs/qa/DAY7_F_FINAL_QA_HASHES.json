@@ -1,0 +1,27 @@
+{
+  "revision": "56e4f96cd9ab43a319302edb694897d75143237a",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "PASS",
+  "implementation_files": {
+    "app/trading_core/integrations/data.py": "64f8163d0b27f045bb5e17ac109cb22f4ba668582b9f64791d2ecd4340232f72",
+    "app/trading_core/integrations/registry.py": "7716015a48d31023e94d6e90d6d403e97d842c4057a4214aa389ebda2b579493",
+    "app/trading_core/integrations/contracts.py": "3d89e39b10561bc8b108d872f7907df0395d8f8caf5341f03ba4cb11dd797a74",
+    "app/trading_core/research/data.py": "440999bc893c30efdad1f9ef4d5096dc3a6acaad841b1c3b4881a60cec0ae6a8",
+    "app/trading_core/intelligence/quality.py": "0c3aa7df28a30e584d9ff43bda787c5c4c86cccb305fbb790ca66e6afe5e4db5",
+    "app/trading_core/intelligence/records.py": "54d3868e8babcea0eeb68ad8cadafbc35fd4e8fa1fcdf28152a69b6d31d82a9c",
+    "tests/test_integration_data.py": "332452410b9a39cafc32ab62198e52eb4fd74c6b74cd8c9e9269c9553a866a7e",
+    "tests/test_day7_f_qa.py": "278b1bb6c5a5306cded689d8c01684682a7ee5500d1a78e51253443c09d3b54d",
+    "tests/test_day7_f_correction_qa.py": "576f7910befb5e7f4477c121510f6a8afed05889af8e6d4fb7de7b47c1fd7fd1",
+    "tests/test_day3_integration.py": "e844808cbe11d9f2685814e5aef206a2a745f91765ed52e2818c1da6e07652cc"
+  },
+  "qa_evidence": {
+    "docs/qa/DAY7_F_FINAL_QA.md": "3b15e0fdc49ab512792ab6ae6c403829ccaa2871358b55a473c44f77990513fd",
+    "tests/test_day7_f_final_qa.py": "29dedc5e2ce4b5b0cb495a3914532c9d161930261ba02616e2c2d5d1750ac76b",
+    "logs/day7-f-final-56e4f96.log": "199bd9f2e937b53d840c0d2c46827f4077c98010940195e33bcb93edefe34b23",
+    "logs/day7_f_final_qa_runner.py": "28ffbd51de3621fe1b15897fcd2de29bc1b6abd495c42c5f3ef66c41c612a1e7",
+    "docs/qa/DAY7_F_QA.md": "dfb1fe8699feeaba0afec2636234c3b901b7793ff756404dbab6dc5a6a879678",
+    "docs/qa/DAY7_F_QA_HASHES.json": "6d842be6c341d0e1eb67d5dc7fe5835cb0f0726f39e675181196e098d5faa540",
+    "docs/qa/DAY7_F_CORRECTION_QA.md": "526730774473c5dd762f7ea6f611b7c0fa7ba0683f4e6ea3d6c661b05b635d89",
+    "docs/qa/DAY7_F_CORRECTION_QA_HASHES.json": "17f97b46532e7e621dbfaf8955c2ba40c4b25cad9c1321a4b2d8660ca0f248de"
+  }
+}
