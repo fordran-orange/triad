@@ -93,11 +93,16 @@ def test_concurrent_ticks_claim_once_and_do_not_repeat_failed_slot(engine):
     assert tick(service=service, instant=due, run=fail)["status"] == "ALREADY_CLAIMED"
     assert len(calls) == 1
     assert any(o["status"] == "BLOCKED" for o in outcomes)
+    result = next(o for o in outcomes if o["status"] == "BLOCKED")
+    cycle = service.current(result["cycle_id"])
+    assert cycle["cycle_type"] == "DAILY_PRODUCT" and cycle["scheduled"] is True
+    assert cycle["failure_code"] == "RuntimeError" and cycle["finished_at"]
+    assert cycle["control_epoch"] == service.schedule()["control_epoch"]
 
 
 @pytest.mark.integration
 @pytest.mark.parametrize("action", ["pause", "kill", "stale_epoch", "product_pause"])
-def test_existing_control_restriction_prevents_any_claim(engine, action):
+def test_existing_control_restriction_records_blocked_daily_without_execution(engine, action):
     service, due = enabled(engine)
     if action == "product_pause":
         service.product.ledger.operate("pause")
@@ -106,10 +111,23 @@ def test_existing_control_restriction_prevents_any_claim(engine, action):
         if action == "stale_epoch":
             service.host.ledger.operate("resume")
     calls = []
-    with pytest.raises(Stopped):
-        tick(service=service, instant=due, run=lambda **kw: calls.append(kw))
+    original_epoch = service.schedule()["control_epoch"]
+    result = tick(service=service, instant=due, run=lambda **kw: calls.append(kw))
+    assert result["status"] == "BLOCKED"
     assert not calls
-    assert service.product.list("DailyScheduleClaim") == []
+    claims = service.product.list("DailyScheduleClaim")
+    assert len(claims) == 1 and claims[0]["cycle_id"] == result["cycle_id"]
+    cycle = service.current(result["cycle_id"])
+    assert cycle["status"] == "BLOCKED" and cycle["cycle_type"] == "DAILY_PRODUCT"
+    assert cycle["scheduled"] is True and cycle["control_epoch"] == original_epoch
+    assert cycle["failure_code"] == "Stopped" and cycle["finished_at"]
+    assert service.host.store.get(cycle["parent_work_item_id"]).status.value == "BLOCKED"
+    assert (
+        tick(service=service, instant=due, run=lambda **kw: calls.append(kw))["status"]
+        == "ALREADY_CLAIMED"
+    )
+    assert not calls
+    assert len(service.product.list("DailyScheduleClaim")) == 1
 
 
 @pytest.mark.integration
@@ -191,3 +209,24 @@ def test_spring_gap_dispatch_skips_same_day_as_preview():
     )
     assert result["status"] == "NOT_DUE"
     assert result["next_cycle"].startswith("2026-03-09T02:30")
+
+
+@pytest.mark.integration
+def test_revoked_manual_prerequisite_records_daily_failure_once(engine, monkeypatch):
+    service, due = enabled(engine)
+    calls = []
+
+    def reject(_):
+        raise PermissionError("Manual acceptance revoked fixture")
+
+    monkeypatch.setattr(service, "require_complete", reject)
+    result = tick(service=service, instant=due, run=lambda **kw: calls.append(kw))
+    assert result["status"] == "BLOCKED" and calls == []
+    cycle = service.current(result["cycle_id"])
+    assert cycle["cycle_type"] == "DAILY_PRODUCT" and cycle["status"] == "BLOCKED"
+    assert cycle["failure_code"] == "PermissionError"
+    assert (
+        tick(service=service, instant=due, run=lambda **kw: calls.append(kw))["status"]
+        == "ALREADY_CLAIMED"
+    )
+    assert calls == []

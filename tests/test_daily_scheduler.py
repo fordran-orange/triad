@@ -9,7 +9,6 @@ from products.triad.daily_scheduler import next_cycle, tick
 from test_daily_lifecycle import daily
 from test_day3_integration import engine  # noqa: F401
 from test_day8_daily_qa import reviewed
-from trading_core.ledger import Stopped
 
 
 def test_next_cycle_timezone_days_and_activation():
@@ -48,6 +47,5 @@ def test_scheduler_only_after_manual_acceptance_and_once_even_when_failed(engine
     assert tick(service=service, instant=due, run=fail)["status"] == "ALREADY_CLAIMED"
     assert len(calls) == 1
     service.host.ledger.operate("kill")
-    with pytest.raises(Stopped):
-        tick(service=service, instant=due, run=fail)
+    assert tick(service=service, instant=due, run=fail)["status"] == "ALREADY_CLAIMED"
     assert len(calls) == 1
