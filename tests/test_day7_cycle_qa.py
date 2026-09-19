@@ -236,3 +236,6 @@ def test_terminal_product_work_does_not_become_active_history(engine, terminal):
         )
     row = history.capture("terminal-work")
     assert row["status"] in {"CANCELLED", "REJECTED", "FAILED", "BLOCKED"}
+    terminal_work = store.get(work.work_item_id)
+    assert terminal_work.completed_at is not None
+    assert row["finished_at"] == terminal_work.model_dump(mode="json")["completed_at"]

@@ -235,7 +235,10 @@ class CycleHistory:
         )
         finished = merges[-1].get("recorded_at") if merges else max(ends, default=None)
         finished = finished or prior.get("finished_at")
-        if final_status == "BLOCKED" and not finished:
+        if (
+            final_status in {"BLOCKED", "FAILED", "CANCELLED", "REJECTED", "COMPLETED"}
+            and not finished
+        ):
             finished = max(
                 (
                     w["completed_at"]
