@@ -27,6 +27,21 @@ def main():
     control = ProviderControl(host.ledger)
     control.require_gate()
     model = control.snapshot("claude_code_cli")["workitem"]["actual_model"]
+    versions = Capabilities(host).current()
+    substrate = [
+        v
+        for v in versions
+        if (
+            v["capability"]["provider"] == "anthropic"
+            and v["capability"]["model"] == model
+            and v["capability"]["transport"] == "claude_code_cli"
+            and v["capability"]["capability"] == "isolated_text_proposal"
+            and v["capability"]["verification_status"] == "VERIFIED"
+            and v["capability"]["status"] == "AVAILABLE"
+        )
+    ]
+    if not substrate:
+        raise PermissionError("Current verified Claude text proposal substrate is required")
     base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     mission = "day8-capability-probe-" + uid()
     path = "app/products/triad/features/engineering_probe.html"
@@ -86,7 +101,9 @@ def main():
             "required_capability": "isolated_product_ui_edit",
             "candidate_providers": ["CLAUDE", "CODEX", "GROK"],
             "selected_provider": "CLAUDE",
-            "reason": "Verified text proposal substrate; evaluating narrowly bounded UI edit extension. Codex is read-only; Grok write is degraded.",
+            "reason": "Selected current verified Claude text proposal substrate to evaluate the narrow UI edit extension; other models remain eligible only for their current verified capabilities.",
+            "substrate_versions": [v["id"] for v in substrate],
+            "comparison": versions,
             "base_commit": base,
             "created_at": now().isoformat(),
         },

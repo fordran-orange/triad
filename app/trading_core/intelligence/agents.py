@@ -206,6 +206,9 @@ class Agents:
             if (not parent or parent["status"] in TERMINAL_WORK) and status == "ACTIVE":
                 status = "TERMINATED"
         definition = dict(row["definition"])
+        from trading_core.engineering import effective_ui_role
+
+        definition = effective_ui_role(self.host, definition, conn=conn)
         if definition["agent_type"] == "static" and identifier in {
             "CODEX",
             "CLAUDE",

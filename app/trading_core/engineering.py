@@ -56,7 +56,8 @@ def checked_paths(owner, paths):
 def issue_grant(records, work, *, base_commit, files, test_id, test_script):
     if records.store.scope is not None:
         raise PermissionError("Only Core host can issue engineering grants")
-    control = records.ledger.guard(work_id=work.work_item_id)
+    authority = records.ledger.get("authority-" + work.work_item_id)
+    control = records.ledger.guard(work_id=work.work_item_id, epoch=authority["epoch"])
     if (
         work.authority_tier != 2
         or work.work_type != "development"
@@ -208,9 +209,7 @@ def adopt_ui_role(records, implementation_id, commit):
     Keeps the existing member's tier/tools/paths/budgets. New write_code use still
     requires a separate immutable exact-file EngineeringGrant on every run.
     """
-    from psycopg.types.json import Jsonb
-
-    from trading_core.intelligence.capabilities import Capabilities
+    from trading_core.intelligence.capabilities import Capabilities, fingerprint
     from trading_core.intelligence.quality import Quality
 
     if records.store.scope is not None:
@@ -232,36 +231,67 @@ def adopt_ui_role(records, implementation_id, commit):
         definition = row["definition"]
         if definition["authority_tier"] != 2:
             raise PermissionError("Never raise a configured authority tier")
-        versions = Capabilities(records).current()
-        if not any(
-            v["capability"]["capability"] == "isolated_product_ui_edit"
-            and v["capability"]["verification_status"] == "VERIFIED"
-            and v["capability"]["status"] == "AVAILABLE"
-            and all(v["capability"][k] == definition[k] for k in ("provider", "model"))
-            and v["capability"]["transport"] == definition["preferred_transport"]
+        versions = Capabilities(records).current(conn=conn)
+        eligible = [
+            v
             for v in versions
-        ):
+            if (
+                v["capability"]["capability"] == "isolated_product_ui_edit"
+                and v["capability"]["verification_status"] == "VERIFIED"
+                and v["capability"]["status"] == "AVAILABLE"
+                and all(v["capability"][k] == definition[k] for k in ("provider", "model"))
+                and v["capability"]["transport"] == definition["preferred_transport"]
+            )
+        ]
+        if not eligible:
             raise PermissionError("Real verified capability adoption must precede role update")
-        updated = {
-            **definition,
-            "capabilities": sorted(set(definition["capabilities"]) | {"isolated_product_ui_edit"}),
-            "execution_permissions": sorted(
-                set(definition["execution_permissions"]) | {"write_code"}
-            ),
-        }
-        records.append("AgentDefinition", updated, owner="core", conn=conn)
-        conn.execute(
-            "UPDATE core.agent_instances SET definition=%s WHERE id='CLAUDE'", (Jsonb(updated),)
-        )
-        records.append(
+        return records.append(
             "EngineeringRoleAdoption",
             {
                 "agent": "CLAUDE",
                 "implementation_id": implementation_id,
                 "commit": commit,
                 "qa_id": qa["id"],
+                "base_definition_digest": fingerprint(definition),
+                "capability_version": eligible[-1]["id"],
                 "adopted_at": now().isoformat(),
             },
             owner="core",
             conn=conn,
         )
+
+
+def effective_ui_role(records, definition, *, conn):
+    """Resolve a revocable reviewed extension without mutating its base grant."""
+    from trading_core.intelligence.capabilities import Capabilities, fingerprint
+    from trading_core.intelligence.quality import Quality
+
+    if definition.get("agent_id") != "CLAUDE":
+        return definition
+    rows = records.list("EngineeringRoleAdoption", conn=conn)
+    rows = [r for r in rows if r["owner"] == "core" and r.get("agent") == "CLAUDE"]
+    if not rows:
+        return definition
+    adoption = rows[-1]
+    if adoption["base_definition_digest"] != fingerprint(definition):
+        return definition
+    try:
+        qa = Quality(records).require_pass(
+            adoption["implementation_id"], adoption["commit"], conn=conn
+        )
+    except (PermissionError, KeyError, ValueError):
+        return definition
+    current = Capabilities(records).current(conn=conn)
+    if qa["id"] != adoption["qa_id"] or not any(
+        v["id"] == adoption["capability_version"]
+        and v["capability"]["verification_status"] == "VERIFIED"
+        and v["capability"]["status"] == "AVAILABLE"
+        for v in current
+    ):
+        return definition
+    return {
+        **definition,
+        "capabilities": sorted(set(definition["capabilities"]) | {"isolated_product_ui_edit"}),
+        "execution_permissions": sorted(set(definition["execution_permissions"]) | {"write_code"}),
+        "engineering_role_adoption": adoption["id"],
+    }

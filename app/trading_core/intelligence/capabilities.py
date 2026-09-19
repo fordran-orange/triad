@@ -20,9 +20,9 @@ class Capabilities:
     def __init__(self, records=None):
         self.records = records or Records()
 
-    def current(self):
+    def current(self, *, conn=None):
         versions = {}
-        for row in self.records.list("CapabilityVersion", shared=True):
+        for row in self.records.list("CapabilityVersion", shared=True, conn=conn):
             if row["owner"] == "core":
                 capability = row["capability"]
                 # IDs identify proposals, not separate grants for the same fact.
