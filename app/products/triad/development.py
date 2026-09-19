@@ -6,6 +6,8 @@ never silently replays a build whose filesystem/database outcome is uncertain.
 
 import hashlib
 import json
+import stat
+from pathlib import Path
 
 from trading_core.brain import Brain
 from trading_core.contracts import AgentRunRequest, AgentRunResult, Limits
@@ -756,7 +758,33 @@ class Development(ExecutionServices):
         match = next((r for r in reversed(merges) if path in r["hashes"]), None)
         if not match:
             raise KeyError("No reviewed merged artifact")
-        target = self.git.path(self.git.root, path, ("docs/improvements", "research/improvements"))
+        if path.startswith("app/products/triad/features/"):
+            # This is a read-only viewer for an exact, reviewed merge entry. Do
+            # not widen the generic Git writer's text-only path permissions.
+            from trading_core.engineering import checked_paths
+
+            checked_paths("triad", (path,))
+            root = Path(self.git.root).resolve()
+            target = root / path
+            for entry in (target, *target.parents):
+                if entry == root:
+                    break
+                if entry.is_symlink() or (
+                    entry.exists()
+                    and getattr(entry.lstat(), "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024)
+                ):
+                    raise PermissionError("Reparse point rejected")
+            if not target.resolve().is_relative_to(root) or (
+                target.exists() and target.stat().st_nlink > 1
+            ):
+                raise PermissionError("Aliased or escaping artifact")
+            if target.stat().st_size > 32000:
+                raise PermissionError("Reviewed UI asset exceeds size ceiling")
+        else:
+            target = self.git.path(
+                self.git.root, path, ("docs/improvements", "research/improvements")
+            )
         self.check_ownership([type("PathRecord", (), {"path": path})])
         data = target.read_bytes()
         if hashlib.sha256(data).hexdigest() != match["hashes"][path]:
