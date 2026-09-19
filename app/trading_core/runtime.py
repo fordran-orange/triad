@@ -252,7 +252,6 @@ class HttpProvider:
             usage = data.get("usage", {})
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
-            self.reasoning_tokens = usage.get("output_tokens_details", {}).get("reasoning_tokens")
         elif self.provider == "anthropic":
             body = {
                 "model": self.model,
@@ -297,9 +296,6 @@ class HttpProvider:
             usage = data.get("usage", {})
             input_tokens = usage.get("prompt_tokens", 0)
             output_tokens = usage.get("completion_tokens", 0)
-            self.reasoning_tokens = usage.get("completion_tokens_details", {}).get(
-                "reasoning_tokens"
-            )
         else:
             # Bytes are a conservative token bound. Reserve schema and output too;
             # reject an unsupported context instead of silently truncating input.
@@ -359,8 +355,8 @@ class HttpProvider:
         except (ValueError, TypeError, PermissionError):
             raise ProviderError("DEGRADED", "MalformedOrUnsafeResponse") from None
         if (
-            not isinstance(input_tokens, int)
-            or not isinstance(output_tokens, int)
+            type(input_tokens) is not int
+            or type(output_tokens) is not int
             or input_tokens <= 0
             or output_tokens <= 0
         ):
@@ -756,10 +752,7 @@ class Runtime:
             ):
                 raise ProviderError("DEGRADED", "CapabilityRouteModelMismatch")
             usage_known = (
-                isinstance(inputs, int)
-                and isinstance(outputs, int)
-                and inputs >= 0
-                and outputs >= 0
+                type(inputs) is int and type(outputs) is int and inputs >= 0 and outputs >= 0
             )
             if not usage_known:
                 raise ProviderError("DEGRADED", "InvalidUsageMetadata")

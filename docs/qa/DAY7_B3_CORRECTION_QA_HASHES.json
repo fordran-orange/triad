@@ -1,0 +1,20 @@
+{
+  "revision": "711477196e2f24892b728c6d9e4f05e9bf32f3b4",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "CHANGES_REQUIRED",
+  "implementation_files": {
+    "app/trading_core/runtime.py": "c5935f51457db51e35730559de4d2ac5b3b5bdb7ef29c9401f19083129bc7e9c",
+    "app/trading_core/providers/transports.py": "80fe7c3545fba026b5b54938b2f913b209482a248d01b0750c76846c4d4fc439",
+    "app/trading_core/resource_policy.py": "e89bdf84b3e760ec45430a923b35a9a5833a35d6e6d1f9f508bca2b727945490",
+    "tests/test_day7_b3_qa.py": "7ada3a794c5884853e11a6f6d5b5daa19756ec44872977221618862d2b97cb94",
+    "tests/test_resource_http.py": "1e68610980c2cd5b97ebaeb67c25585515695411e341d47f7cd3137dec449ec8"
+  },
+  "qa_evidence": {
+    "docs/qa/DAY7_B3_CORRECTION_QA.md": "229a171810fc1523eab2d71a107cb157ac4945ab668ffa818854832e16c5152f",
+    "tests/test_day7_b3_correction_qa.py": "b659ccec0f068d363c05985000c90feb35187616e17a9b7ed8fe3306e2b78552",
+    "logs/day7-b3-independent-7114771.log": "78257a5b53b186cc9d811b26a76fd45a342dcaae73483fdae3ae31e9ee323705",
+    "logs/day7-b3-invalid-measurement-proof.log": "e8d81838849b13c2794b51d09fedaf9aa49bdb88d498eb0b68ab7ccd1f84a351",
+    "logs/day7-b3-correction-qa-initial.py": "7a50db8eb6ab6813f5ab9480cb3860116d465ce1cf796ccf99899d1bc5896bea",
+    "logs/day7_b3_correction_qa_runner.py": "38067761fdf5363f17079406050f4f892e7a381d9275f14345353c17d49588f4"
+  }
+}
