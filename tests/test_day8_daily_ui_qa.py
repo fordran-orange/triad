@@ -26,9 +26,7 @@ def client():
         schedule.update(body.model_dump())
         return "test-schedule"
 
-    stub = SimpleNamespace(
-        debriefs=list, schedule=lambda: dict(schedule), configure=configure
-    )
+    stub = SimpleNamespace(debriefs=list, schedule=lambda: dict(schedule), configure=configure)
     token = "offline-test-key-" + "x" * 32
     server.app.dependency_overrides[daily_api.daily] = lambda: stub
     server.app.dependency_overrides[core_api.service] = lambda: SimpleNamespace(
@@ -81,12 +79,25 @@ def test_invalid_schedule_no_write(client):
     assert calls == []
 
 
-def test_feature_placeholder_is_explicit_not_missing_page(client):
+def test_feature_placeholder_is_explicit_not_missing_page(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(daily_api, "__file__", str(tmp_path / "daily_api.py"))
     c, _, _, _ = client
     for path in ["/triad/product/research-readiness", "/triad/assets/research-readiness.js"]:
         r = c.get(path)
         assert r.status_code == 503
         assert "review" in r.json()["detail"]
+
+
+def test_reviewed_feature_assets_are_served_when_present(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(daily_api, "__file__", str(tmp_path / "daily_api.py"))
+    feature = tmp_path / "features"
+    feature.mkdir()
+    (feature / "research_readiness.html").write_text("<h1>Fixture readiness</h1>", encoding="utf-8")
+    (feature / "research_readiness.js").write_text("// Fixture asset", encoding="utf-8")
+    c, _, _, _ = client
+    assert c.get("/triad/product/research-readiness").text == "<h1>Fixture readiness</h1>"
+    response = c.get("/triad/assets/research-readiness.js")
+    assert response.status_code == 200 and "javascript" in response.headers["content-type"]
 
 
 def test_service_failure_is_readable_and_does_not_write(client):
