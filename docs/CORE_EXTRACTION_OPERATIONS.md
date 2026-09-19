@@ -125,4 +125,13 @@ does not relax that check. Decide when to integrate it into `main` after review.
 
 ## Day 7 lineage migration
 
+For an existing Day 6 installation, preserve a tested database/artifact backup,
+then deploy with `./tools/start_backend.ps1 -UpgradeDatabase`. The explicit
+upgrade runs before any existing listener is stopped and fails the deployment
+on error. The equivalent packaged command is
+`python -m trading_core.upgrade`. It applies the additive migration transactionally
+and verifies the canonical alias. It is safe to repeat after an explicit resume.
+Ordinary startup does not migrate: this keeps Core diagnostics startable when
+the database is unavailable. A new installation still uses `tools/bootstrap.ps1`.
+
 Migration 012 records p2p as a historical alias of aegis. Historical record owners, payloads, hashes and timestamps remain unchanged. New assignments use aegis. The /p2p route redirects to /aegis. Aegis remains inactive and preserved; exchange is closed. Legacy pause/stop controls transfer conservatively. Keep historical migrations and artifacts intact.

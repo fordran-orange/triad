@@ -1,7 +1,14 @@
-param([int]$Port = 8000, [switch]$CoreOnly)
+param([int]$Port = 8000, [switch]$CoreOnly, [switch]$UpgradeDatabase)
 $ErrorActionPreference = 'Stop'
 $TriadRoot = Split-Path $PSScriptRoot -Parent
 $TriadPython = Join-Path $TriadRoot '.venv/Scripts/python.exe'
+if ($UpgradeDatabase) {
+    Push-Location $TriadRoot
+    try {
+        & $TriadPython -m trading_core.upgrade
+        if ($LASTEXITCODE -ne 0) { throw 'Database upgrade failed; existing services were not stopped' }
+    } finally { Pop-Location }
+}
 $existing = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
 foreach ($listener in $existing) {
     $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)"
