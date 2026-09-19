@@ -1,0 +1,35 @@
+{
+  "reviewer": "/root/day6_qa_c",
+  "decision": "PASS",
+  "candidate": "eeaa2520284e8be6e2d498c6f0f7a735227632d7",
+  "candidate_tree": "070c2ba6063f172b0f07069b27696afcc4e83e71",
+  "application_revision": "eea65d393efc644f4b443914b26ce9023e4bec2e",
+  "independently_verified_source_files": 290,
+  "independently_verified_evidence_files": 119,
+  "full_regression": {
+    "executed_by": "/root",
+    "independently_reviewed_by": "/root/day6_qa_c",
+    "passed": 535,
+    "failed": 0,
+    "skipped": 0,
+    "warnings": 5,
+    "seconds": 1145.97,
+    "exit": 0
+  },
+  "files": {
+    "docs/qa/DAY7_FINAL_ACCEPTANCE.md": "495df3d9dca97cd5513a8d90e8943ab1aaa577ac001e9ee56c5082594838697b",
+    "docs/qa/DAY7_ACCEPTANCE_MANIFEST.json": "05852123d4f87b1fd0bd03872f5515941cbe9bf29b9e0aece2fc6c290222ec99",
+    "docs/DAY7_REPORT.md": "6f80a68a5790bea4b2eba82c14a80084485759910aa57717e5880947ad755446",
+    "logs/day7-final-source-snapshot.json": "e1e870af571c00959e332f95851af0b078f8aabd0c002b9f1fee94c1dd110574",
+    "logs/day7-final-full-regression.log": "0e56148971c88f7b9f13758f40866fa4470def810ed32f5a32d169bc60c806a1",
+    "logs/day7-final-full-regression.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "backups/day7-final-evidence-20260919T2154.zip": "f115858be0c1ed39a0721516f1b3ad867501b8805e445958cf45ad10f92ad673",
+    "logs/day7-release-governance.py": "a23a9e952497b811c9563692d3d8dc2fd94dca9acfb6439971d22c27b867d8e3",
+    "docs/qa/DAY7_FINAL_EVIDENCE_AUDIT.md": "9ce24ec36dc1dc013f932fd2fd260051ce03b346ab804456e3697b9ef640484f",
+    "docs/qa/DAY7_LIVE_ACCEPTANCE_QA.md": "e18c418defbd8c08808f189b71b6adc05d18178f7bcab50fcaa42c05e6a05e48",
+    "docs/qa/DAY7_RELEASE_PRECHECK_QA.md": "47c681a469ce616978e9e23e704e9824862230fe798ed11d4cf714e4ee057931",
+    "docs/qa/DAY7_REGRESSION_FINAL_QA.md": "4d13b16e8bcb99679e54545b2feabcaad64d7dc2fdf83c8060a4e52b80cb14ff",
+    "docs/qa/DAY7_LIVE_BROWSER.md": "982b567636d29f1dd74d1b30159fb7bec7361c378e05d4bde628c4b36e2ec2ca"
+  },
+  "release_governance_and_git_actions": "Not executed by reviewer; pending builder execution after this exact-candidate PASS."
+}
