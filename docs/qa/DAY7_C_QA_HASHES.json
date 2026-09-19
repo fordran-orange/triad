@@ -1,0 +1,81 @@
+{
+  "implementation_revision": "7f560ee13169b58d805c5e9c9ba23aba0b55ae84",
+  "verdict": "CHANGES_REQUIRED",
+  "snapshot_app_files_verified_equal_archive": 162,
+  "committed_blob_hashes": [
+    {
+      "path": "app/products/triad/cycle_history.py",
+      "sha256": "c9c607fa51f635e9c81461d14d8ae9a5b3ed202833953906b604f67580d811da"
+    },
+    {
+      "path": "app/products/triad/cycles.py",
+      "sha256": "aa2baeaa35dcc8db0b20c5b76dd704beae9c6ecd5c388b2c605dd55b01f7a366"
+    },
+    {
+      "path": "app/products/triad/development.py",
+      "sha256": "71cb34ecf216dade004b61e954d2584a9ff7a11518d970d0a92500fdaefd151f"
+    },
+    {
+      "path": "app/products/triad/development_api.py",
+      "sha256": "cc6592bcde40684fcffc2814ef6b85dbefbbe782708279fa88fb92dbdc4913b4"
+    },
+    {
+      "path": "app/products/triad/jobs.py",
+      "sha256": "63a838219229a1780fda099f06845ca72f4b0090aa9790d1744d6ad6ea651c9f"
+    },
+    {
+      "path": "app/products/triad/static/cycles.html",
+      "sha256": "719f969a4cba7f83cd99d087e7a7ab7c3a9c65879a2cd5eebee87df3f7c0c5f9"
+    },
+    {
+      "path": "app/products/triad/static/cycles.js",
+      "sha256": "d70d1a147ee207fb8941c5b8cf85a28bdcf77ad40927611fc8da2d12cb6a0f11"
+    },
+    {
+      "path": "app/trading_core/cycle_records.py",
+      "sha256": "54d607f6a1764330a2de03e86f01d3da275890433e60a4a474b3435bd251494e"
+    },
+    {
+      "path": "app/trading_core/intelligence/contracts.py",
+      "sha256": "8683b3b3cf9ef6e30bfd0464f499ee1095701fa1216dfeec7f4850c9f842c6ce"
+    }
+  ],
+  "evidence_raw_hashes": [
+    {
+      "path": "logs/day7-c-qa-exact-7f560ee.zip",
+      "sha256": "465b56b01b2ddb1152b8e7d7b339d8f2e30c3d28c8d2820d00e82e50e3c96192"
+    },
+    {
+      "path": "logs/day7-c-qa-run.py",
+      "sha256": "2d7077d74e12f9da2d708da657437e119f274de57319a36fa0c2194f872c1dd6"
+    },
+    {
+      "path": "tests/test_day7_cycle_qa.py",
+      "sha256": "620c5e234195953d261827025db0c47591c1f312779032e29a6fea9ecb2560fe"
+    },
+    {
+      "path": "logs/day7-c-qa-exact-7f560ee/tests/test_day7_cycle_qa.py",
+      "sha256": "620c5e234195953d261827025db0c47591c1f312779032e29a6fea9ecb2560fe"
+    },
+    {
+      "path": "docs/qa/DAY7_C_QA.md",
+      "sha256": "a88441c578e1eb5c5ec1a7ffc81d7f93f36b0a3993538c841eb0f11ab540dca2"
+    },
+    {
+      "path": "logs/day7-c-independent.log",
+      "sha256": "6d8ab58b100ff5bd7a6629c6ee7b34e3a17988d626cd4f6921456e9256af545f"
+    },
+    {
+      "path": "logs/day7-c-independent.exit",
+      "sha256": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04"
+    },
+    {
+      "path": "logs/day7-c-qa-lint.log",
+      "sha256": "a4443afdcfb6d7363adb285762515ccf7cf50473b1a05c20c1a50f6bed4d26b0"
+    },
+    {
+      "path": "logs/day7-c-qa-lint.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    }
+  ]
+}

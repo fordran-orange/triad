@@ -140,7 +140,8 @@ class CycleHistory:
                 "CycleRecord", payload, owner="triad", identifier=identifier, conn=conn
             )
 
-    def capture(self, cycle_id, *, status=None, error=None):
+    def capture(self, cycle_id, *, status=None, error=None, cycle_type=None, execution_mode=None):
+        prior = next((r for r in self.list() if r["cycle_id"] == cycle_id), {})
         with self.store.connect() as conn:
             works = [
                 r["payload"]
@@ -151,7 +152,7 @@ class CycleHistory:
             ]
             ids = [w["work_item_id"] for w in works]
             rows = conn.execute(
-                "SELECT id,kind,payload,created_at FROM core.day3_records WHERE owner='triad' AND kind NOT IN ('CycleRecord','CycleRelationship') AND (payload->>'mission_id'=%s OR payload->>'cycle_id'=%s OR work_item_id=ANY(%s) OR payload->>'work_item_id'=ANY(%s)) ORDER BY created_at",
+                "SELECT id,kind,payload,created_at,work_item_id FROM core.day3_records WHERE owner='triad' AND kind NOT IN ('CycleRecord','CycleRelationship') AND (payload->>'mission_id'=%s OR payload->>'cycle_id'=%s OR work_item_id=ANY(%s) OR payload->>'work_item_id'=ANY(%s)) ORDER BY created_at",
                 (cycle_id, cycle_id, ids, ids),
             ).fetchall()
         if not rows and not works:
@@ -161,6 +162,7 @@ class CycleHistory:
                 **r["payload"],
                 "id": r["id"],
                 "kind": r["kind"],
+                "work_item_id": r["work_item_id"] or r["payload"].get("work_item_id"),
                 "stored_at": r["created_at"].isoformat(),
             }
             for r in rows
@@ -177,6 +179,7 @@ class CycleHistory:
         qa = kinds("ProductQA", "QARun")
         # QA and debt may refer to build IDs rather than mission/work directly.
         build_ids = {r.get("implementation_id") or r.get("implementation_run_id") for r in builds}
+        build_ids.discard(None)
         for row in self.records.list("QARun"):
             if row.get("implementation_run_id") in build_ids and row["id"] not in {
                 r["id"] for r in qa
@@ -195,7 +198,8 @@ class CycleHistory:
             if legacy
             else "BLOCKED"
             if kinds("ProductBuildFailure")
-            else "IN_PROGRESS"
+            or any(w["status"] in {"FAILED", "BLOCKED"} for w in works)
+            else prior.get("status", "IN_PROGRESS")
         )
         failures = [{"code": f, "source": summary.get("id")} for f in summary.get("failures", ())]
         failures += [
@@ -211,6 +215,9 @@ class CycleHistory:
             for w in works
             if w["status"] in {"FAILED", "BLOCKED"} and w["work_type"] != "cycle_record"
         ]
+        for failure in prior.get("failures", ()):
+            if failure not in failures:
+                failures.append(failure)
         if error:
             failures.append({"code": error})
         events = kinds("Event")
@@ -222,6 +229,16 @@ class CycleHistory:
             else min((w["started_at"] for w in works if w.get("started_at")), default=None)
         )
         finished = merges[-1].get("recorded_at") if merges else max(ends, default=None)
+        finished = finished or prior.get("finished_at")
+        if final_status == "BLOCKED" and not finished:
+            finished = max(
+                (
+                    w["completed_at"]
+                    for w in works
+                    if w.get("completed_at") and w["work_type"] != "cycle_record"
+                ),
+                default=None,
+            )
         if error:
             finished = now().isoformat()
         epochs = [
@@ -229,8 +246,14 @@ class CycleHistory:
             for r in records
             if r["kind"] == "RunAuthority" and r.get("epoch") is not None
         ]
-        proposal_rows = kinds("ProductProposal", "ImprovementProposal")
-        selected = proposal_rows[-1].get("proposal", proposal_rows[-1]) if proposal_rows else None
+        proposal_rows = kinds("ProductProposal", "ImprovementProposal", "Proposal")
+        product_proposals = kinds("ProductProposal")
+        selected = product_proposals[-1].get("proposal") if product_proposals else None
+        if not selected:
+            selected_ids = {r.get("proposal_id") for r in kinds("Change")}
+            selected = next(
+                (r for r in reversed(proposal_rows) if r.get("proposal_id") in selected_ids), None
+            )
         product_cycle = kinds("ProductCycle")
         created = min([r["stored_at"] for r in records] + [w["created_at"] for w in works])
         mode = (
@@ -240,6 +263,7 @@ class CycleHistory:
             if legacy
             else "UNKNOWN"
         )
+        mode = execution_mode or prior.get("execution_mode") or mode
         gate_failed = any(
             "CredentialsOrModelNotConfigured" in str(f) or "PROVIDER_GATE" in str(f)
             for f in failures
@@ -247,7 +271,7 @@ class CycleHistory:
         blocked_code = (
             "TRIAD_PROVIDER_GATE_FAILED"
             if gate_failed
-            else (failures[-1]["code"] if failures else None)
+            else (failures[-1]["code"] if failures else prior.get("failure_code"))
         )
         parent = next(
             (w["work_item_id"] for w in works if w["work_type"] == "cycle_record"), None
@@ -255,14 +279,16 @@ class CycleHistory:
         record = CycleRecord(
             cycle_id=cycle_id,
             product="triad",
-            cycle_type="PRODUCT_BUILD" if product_cycle or merges else "ROTATION",
+            cycle_type=cycle_type
+            or prior.get("cycle_type")
+            or ("PRODUCT_BUILD" if product_cycle or merges else "ROTATION"),
             execution_mode=mode,
             status=final_status,
             created_at=created,
             started_at=started,
             finished_at=finished,
             parent_work_item_id=parent,
-            control_epoch=epochs[0] if epochs else None,
+            control_epoch=epochs[0] if epochs else prior.get("control_epoch"),
             scheduled=product_cycle[0].get("schedule_enabled")
             if product_cycle
             else legacy[-1].get("scheduled")
@@ -328,14 +354,14 @@ class CycleHistory:
             else {"status": final_status},
             next_cycle_candidates=tuple(summary.get("next_cycle_candidates", ())),
             failure_code=blocked_code if final_status == "BLOCKED" else None,
-            blocked_at=finished if final_status == "BLOCKED" else None,
+            blocked_at=(prior.get("blocked_at") or finished) if final_status == "BLOCKED" else None,
             provider_gate_result={
                 "status": "FAILED",
                 "source": "historical failure evidence",
                 "failures": failures,
             }
             if gate_failed
-            else None,
+            else prior.get("provider_gate_result"),
             recovery_action="Resolve recorded failure and explicitly submit a new cycle; original failure remains preserved."
             if final_status == "BLOCKED"
             else None,

@@ -698,7 +698,11 @@ class Development(ExecutionServices):
             result = self._run(mission, operator_authorized=operator_authorized)
         except Exception as exc:
             history.capture(
-                mission, status="BLOCKED", error=getattr(exc, "error_class", type(exc).__name__)
+                mission,
+                status="BLOCKED",
+                error=getattr(exc, "error_class", type(exc).__name__),
+                cycle_type="PRODUCT_BUILD",
+                execution_mode="REAL",
             )
             raise
         history.capture(mission)
