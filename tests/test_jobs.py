@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from fastapi.testclient import TestClient
 from test_day3_integration import engine  # noqa: F401 - reuse isolated infrastructure fixture
-from triad.api import app, service
+from platform_host.legacy import app, service
 from triad.day3.api import cycles_service
 from triad.day3.scheduler import tick
 from triad.jobs import Jobs
@@ -32,7 +32,7 @@ def test_concurrent_submission_is_durable_and_idempotent(jobs):
 
 def test_worker_records_real_blockers_without_simulation(jobs):
     # Day 5A blocks before enqueueing; the worker must never receive this run.
-    with pytest.raises(PermissionError, match="DAY5A_GATE_BLOCKED"):
+    with pytest.raises(PermissionError, match="PROVIDER_GATE_BLOCKED"):
         jobs.submit("REAL")
     assert not Jobs(jobs.cycles).list()
     assert not jobs.ledger.records("Usage")

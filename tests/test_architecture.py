@@ -1,0 +1,96 @@
+"""Executable extraction boundaries, including dynamic imports and installed resources."""
+
+import ast
+import subprocess
+import sys
+
+from trading_core.settings import ROOT
+
+
+def test_dependency_directions():
+    rules = {
+        "trading_core": ("products", "triad", "platform_host"),
+        "products/p2p": ("products.triad", "triad", "platform_host"),
+        "products/triad": ("products.p2p", "platform_host"),
+    }
+    violations = []
+    for package, forbidden in rules.items():
+        for path in (ROOT / "app" / package).rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            imports = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imports.extend(a.name for a in node.names)
+                elif isinstance(node, ast.ImportFrom):
+                    imports.append(node.module or "")
+                elif (
+                    isinstance(node, ast.Call)
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                ):
+                    func = node.func
+                    if (isinstance(func, ast.Name) and func.id == "__import__") or (
+                        isinstance(func, ast.Attribute) and func.attr == "import_module"
+                    ):
+                        imports.append(str(node.args[0].value))
+            for name in imports:
+                if any(name == p or name.startswith(p + ".") for p in forbidden):
+                    violations.append((str(path.relative_to(ROOT)), name))
+    assert not violations
+
+
+def test_core_startup_with_product_imports_blocked():
+    code = """
+import importlib.abc, sys
+class BlockProducts(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, *args):
+        if fullname.split('.')[0] in {'products','triad','platform_host'}:
+            raise ImportError('Products deliberately unavailable')
+sys.meta_path.insert(0, BlockProducts())
+from trading_core.api import app
+from fastapi.testclient import TestClient
+client=TestClient(app)
+assert client.get('/health/live').status_code==200
+assert client.get('/core').status_code==200
+assert client.get('/assets/record-view.js').status_code==200
+assert client.post('/api/core/control', json={'action':'kill'}).status_code==401
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=30, check=False
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_packaged_defaults_match_maintained_config():
+    for name in ("agents", "runtime", "research"):
+        assert (ROOT / f"config/core/{name}.json").read_bytes() == (
+            ROOT / f"app/trading_core/resources/config/{name}.json"
+        ).read_bytes()
+    for path in (ROOT / "app/trading_core/resources/sql").glob("*.sql"):
+        assert path.read_bytes() == (ROOT / "infrastructure/postgres" / path.name).read_bytes()
+
+
+def test_no_authority_added_and_exchange_closed():
+    import pytest
+    from trading_core.exchange import ExchangeCandidate, import_candidate
+    from trading_core.gateway import ToolGateway
+    from trading_core.work import WorkItem
+
+    work = WorkItem(
+        title="boundary",
+        description="boundary",
+        owner="triad",
+        allowed_paths=("app/trading_core", "config", "app/products/p2p", "docs/vault/operator"),
+    )
+    for path in (
+        "app/trading_core/ledger.py",
+        "config/core/runtime.json",
+        "app/products/p2p/server.py",
+        "docs/vault/operator/private.md",
+    ):
+        with pytest.raises(PermissionError):
+            ToolGateway(work).check("read_file", path)
+    with pytest.raises(PermissionError):
+        import_candidate(
+            ExchangeCandidate(source_product="triad", destination_product="p2p", record_ids=("x",))
+        )

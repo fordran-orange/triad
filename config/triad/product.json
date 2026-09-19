@@ -1,0 +1,13 @@
+{
+  "rotation": [
+    "CODEX",
+    "CLAUDE",
+    "GROK"
+  ],
+  "scheduler": {
+    "enabled": false,
+    "timezone": "UTC",
+    "time": "14:30",
+    "mode": "REAL"
+  }
+}

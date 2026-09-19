@@ -1,0 +1,39 @@
+{
+  "providers": {
+    "CODEX": {
+      "provider": "openai",
+      "model_env": "OPENAI_MODEL",
+      "key_env": "OPENAI_API_KEY",
+      "input_rate_env": "OPENAI_INPUT_USD_PER_MILLION",
+      "output_rate_env": "OPENAI_OUTPUT_USD_PER_MILLION"
+    },
+    "CLAUDE": {
+      "provider": "anthropic",
+      "model_env": "ANTHROPIC_MODEL",
+      "key_env": "ANTHROPIC_API_KEY",
+      "input_rate_env": "ANTHROPIC_INPUT_USD_PER_MILLION",
+      "output_rate_env": "ANTHROPIC_OUTPUT_USD_PER_MILLION"
+    },
+    "GROK": {
+      "provider": "xai",
+      "model_env": "XAI_MODEL",
+      "key_env": "XAI_API_KEY",
+      "input_rate_env": "XAI_INPUT_USD_PER_MILLION",
+      "output_rate_env": "XAI_OUTPUT_USD_PER_MILLION"
+    },
+    "LOCAL_QWEN": {
+      "provider": "ollama",
+      "model_env": "OLLAMA_MODEL"
+    }
+  },
+  "local_capabilities": [
+    "SUMMARY",
+    "CLASSIFICATION",
+    "TAGGING",
+    "CONTEXT_COMPRESSION",
+    "LOG_ANALYSIS",
+    "METADATA_EXTRACTION",
+    "DOCUMENT_ROUTING",
+    "DUPLICATE_DETECTION"
+  ]
+}

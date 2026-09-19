@@ -1,0 +1,114 @@
+{
+  "agents": [
+    {
+      "agent_id": "CODEX",
+      "display_name": "Codex",
+      "provider": "openai",
+      "model": "not_configured",
+      "role": "member",
+      "capabilities": [
+        "documentation_audit",
+        "development",
+        "review",
+        "research_artifact"
+      ],
+      "allowed_tools": [
+        "read_file",
+        "write_artifact",
+        "verify_docs"
+      ],
+      "cost_class": "remote",
+      "local_or_remote": "remote",
+      "enabled": true,
+      "review_eligible": true,
+      "execution_eligible": true,
+      "authority_tier": 2,
+      "integration": "unconfigured"
+    },
+    {
+      "agent_id": "CLAUDE",
+      "display_name": "Claude",
+      "provider": "anthropic",
+      "model": "not_configured",
+      "role": "member",
+      "capabilities": [
+        "documentation_audit",
+        "development",
+        "review",
+        "research_artifact"
+      ],
+      "allowed_tools": [
+        "read_file",
+        "write_artifact",
+        "verify_docs"
+      ],
+      "cost_class": "remote",
+      "local_or_remote": "remote",
+      "enabled": true,
+      "review_eligible": true,
+      "execution_eligible": true,
+      "authority_tier": 2,
+      "integration": "unconfigured"
+    },
+    {
+      "agent_id": "GROK",
+      "display_name": "Grok",
+      "provider": "xai",
+      "model": "not_configured",
+      "role": "member",
+      "capabilities": [
+        "documentation_audit",
+        "development",
+        "review",
+        "research_artifact"
+      ],
+      "allowed_tools": [
+        "read_file",
+        "write_artifact",
+        "verify_docs"
+      ],
+      "cost_class": "remote",
+      "local_or_remote": "remote",
+      "enabled": true,
+      "review_eligible": true,
+      "execution_eligible": true,
+      "authority_tier": 2,
+      "integration": "unconfigured"
+    },
+    {
+      "agent_id": "LOCAL_QWEN",
+      "display_name": "Local Qwen",
+      "provider": "ollama",
+      "model": "qwen3:4b",
+      "role": "helper",
+      "capabilities": [
+        "summarize_journal",
+        "classify_logs",
+        "extract_metadata",
+        "tag_documents",
+        "prepare_context",
+        "compress_history",
+        "duplicate_notes",
+        "search_keywords",
+        "organize_material"
+      ],
+      "allowed_tools": [
+        "read_file"
+      ],
+      "default_reasoning_budget": 512,
+      "maximum_reasoning_budget": 1024,
+      "cost_class": "local",
+      "local_or_remote": "local",
+      "enabled": true,
+      "review_eligible": false,
+      "execution_eligible": true,
+      "authority_tier": 0,
+      "integration": "ollama"
+    }
+  ],
+  "review_order": [
+    "CODEX",
+    "CLAUDE",
+    "GROK"
+  ]
+}

@@ -65,7 +65,7 @@ def test_qwen_alert_uses_actual_daily_usage_without_blocking(engine, tokens, sec
 
 def test_qwen_alert_threshold_endpoint_is_operator_only(engine):
     from fastapi.testclient import TestClient
-    from triad.api import app
+    from platform_host.legacy import app
     from triad.day5a.api import service
 
     app.dependency_overrides[service] = lambda: ProviderControl(engine.ledger)
@@ -140,7 +140,7 @@ def test_runtime_admission_is_one_run_per_agent(engine, monkeypatch):
 
 def test_daily_caps_endpoint_requires_operator_and_cannot_disable_api_caps(engine):
     from fastapi.testclient import TestClient
-    from triad.api import app
+    from platform_host.legacy import app
     from triad.day5a.api import service
 
     app.dependency_overrides[service] = lambda: ProviderControl(engine.ledger)
@@ -375,7 +375,7 @@ def test_budget_fallback_is_atomic_and_kill_enable_override_routes(engine, monke
 def test_production_gate_cannot_pass_on_installation_or_fake_proofs(engine):
     host = ProviderControl(engine.ledger, MemorySecrets())
     assert host.dashboard()["gate"] == "BLOCKED"
-    with pytest.raises(PermissionError, match="DAY5A_GATE_BLOCKED"):
+    with pytest.raises(PermissionError, match="PROVIDER_GATE_BLOCKED"):
         host.require_gate()
-    with pytest.raises(PermissionError, match="DAY5A_GATE_BLOCKED"):
+    with pytest.raises(PermissionError, match="PROVIDER_GATE_BLOCKED"):
         engine.run(mode="REAL")

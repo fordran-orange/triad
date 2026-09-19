@@ -1,0 +1,1 @@
+"""Explicit package ownership boundary."""

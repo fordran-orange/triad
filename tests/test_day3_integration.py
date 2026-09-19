@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from psycopg import sql
-from triad.api import app, service
+from platform_host.legacy import app, service
 from triad.brain import Brain
 from triad.day3.adapters import SimulatedProvider
 from triad.day3.api import cycles_service
@@ -276,7 +276,7 @@ def test_no_change_justified_does_not_create_commits(engine, monkeypatch):
 
 
 def test_real_unavailable_cycle_never_substitutes_simulation(engine):
-    with pytest.raises(PermissionError, match="DAY5A_GATE_BLOCKED"):
+    with pytest.raises(PermissionError, match="PROVIDER_GATE_BLOCKED"):
         engine.run("REAL")
     assert not engine.ledger.records("Cycle")
     assert not engine.ledger.records("Usage")

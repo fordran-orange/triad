@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from triad.api import app
+from platform_host.legacy import app
 
 client = TestClient(app)
 

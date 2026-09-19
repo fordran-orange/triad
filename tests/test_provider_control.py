@@ -12,7 +12,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from triad.api import app, require_operator
+from platform_host.legacy import app, require_operator
 from triad.day3.adapters import ProviderError
 from triad.day3.security import ensure_no_secret, redact
 from triad.day5a.api import service

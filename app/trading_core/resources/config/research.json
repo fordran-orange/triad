@@ -1,0 +1,9 @@
+{
+  "max_rows": 5000,
+  "max_bytes": 2000000,
+  "memory_mb": 128,
+  "runtime_seconds": 30,
+  "max_combinations": 8,
+  "parallel_backtests": 1,
+  "worker_count": 1
+}

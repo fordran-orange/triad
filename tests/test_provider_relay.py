@@ -5,7 +5,7 @@ import pytest
 from test_day3_integration import engine  # noqa: F401
 from triad.day3.contracts import AgentRunResult
 from triad.day5a.control import ProviderControl
-from triad.day5a.relay import run_relay
+from triad.day5a.relay import run_relay, relay_proven
 from triad.work import State
 
 pytestmark = pytest.mark.integration
@@ -54,13 +54,13 @@ def test_relay_independent_verdicts_and_durable_lineage(engine, monkeypatch, gro
     assert engine.ledger.get(proof["git_record_id"])["files_changed"] == []
     if grok_verdict == "APPROVE":
         assert proof["success"] is True, proof
-        assert proof["graph_verified"] and ProviderControl.relay_proven(proof)
+        assert proof["graph_verified"] and relay_proven(proof)
         assert main.status == State.COMPLETED
-        assert not ProviderControl.relay_proven({**proof, "mode": "SIMULATED"})
-        assert not ProviderControl.relay_proven({**proof, "reviews": proof["reviews"][:1]})
+        assert not relay_proven({**proof, "mode": "SIMULATED"})
+        assert not relay_proven({**proof, "reviews": proof["reviews"][:1]})
     else:
         assert not proof["success"] and main.status == State.BLOCKED
         assert proof["disagreement_check"] == "OPEN"
         assert engine.ledger.records("Disagreement")[0]["status"] == "OPEN"
-        assert not ProviderControl.relay_proven(proof)
+        assert not relay_proven(proof)
 

@@ -100,7 +100,7 @@ def test_sweep_records_every_variant_and_no_test_optimization(engine, tmp_path):
 
 def test_research_api_requires_auth(engine, tmp_path):  # noqa: F811
     from fastapi.testclient import TestClient
-    from triad.api import app, service
+    from platform_host.legacy import app, service
     from triad.lab.api import laboratory
 
     lab = Laboratory(engine, tmp_path)

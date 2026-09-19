@@ -1,0 +1,12 @@
+.record-view{font:14px/1.65 'Segoe UI',sans-serif;min-width:0;color:#18353b;overflow-wrap:anywhere}
+.record-view .rv-field{padding:12px 0;border-bottom:1px solid #e0e8e4;margin:0}
+.record-view h3{font:600 12px/1.5 'Segoe UI',sans-serif;color:#536e70;margin:0 0 5px}
+.record-view .rv-text{font:inherit;white-space:pre-wrap;margin:0;color:inherit}
+.record-view .rv-empty{color:#718185;margin:0;font-size:13px}
+.record-view .rv-list{padding-left:22px;margin:5px 0}
+.record-view .rv-list>li{padding:7px 0}
+.record-view .rv-field .rv-field{margin-left:12px;padding:8px 0}
+.record-view .rv-identifiers{margin:16px 0 6px;padding:12px;background:#f3f6f5;border:1px solid #dce5e2;border-radius:8px}
+.record-view summary{cursor:pointer;font-weight:600;color:#35645b}
+.record-view summary:focus-visible{outline:3px solid #64baab;outline-offset:3px}
+@media(max-width:600px){.record-view .rv-field .rv-field{margin-left:6px}.record-view{font-size:13px}}

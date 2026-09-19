@@ -11,7 +11,7 @@ dependencies = [
   "pandas>=2.2,<3", "pyarrow>=19,<24", "psycopg[binary]>=3.2,<4",
   "neo4j>=5.28,<7", "pydantic>=2.10,<3", "pydantic-settings>=2.7,<3",
   "python-dotenv>=1,<2", "fastapi>=0.115,<1", "uvicorn>=0.34,<1",
-  "websockets==15.0.1",
+  "websockets==15.0.1", "httpx>=0.28,<1",
 ]
 
 [project.optional-dependencies]
@@ -21,7 +21,9 @@ dev = ["pytest>=8,<10", "httpx>=0.28,<1", "ruff>=0.11,<1"]
 where = ["app"]
 
 [tool.setuptools.package-data]
-triad = ["static/*.html", "static/*.js", "static/*.css"]
+trading_core = ["static/*.html", "static/*.js", "static/*.css", "resources/**/*"]
+"products.triad" = ["static/*.html", "resources/*"]
+"products.p2p" = ["static/*.html", "resources/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
