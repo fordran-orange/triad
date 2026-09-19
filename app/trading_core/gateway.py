@@ -122,10 +122,11 @@ class ToolGateway:
         if target.stat().st_size > 64000:
             raise PermissionError("File exceeds bounded read size")
         data = target.read_bytes()
+        text = data.decode("utf-8-sig")
         self.evidence.append(f"sha256:{hashlib.sha256(data).hexdigest()}:{path}")
         if self.resources:
             self.resources.observe("authorized_read", path + ":" + hashlib.sha256(data).hexdigest())
-        return data.decode("utf-8-sig")
+        return text
 
     def write(self, path: str, content: str) -> None:
         if len(content.encode()) > 64000:

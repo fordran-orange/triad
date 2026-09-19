@@ -1,0 +1,80 @@
+{
+  "implementation_revision": "9bd28ade3628f695e924d58331e4cc851f9b8b9c",
+  "committed_blob_hashes": [
+    {
+      "path": "app/products/triad/cycles.py",
+      "sha256": "548079aacaf19f49cfdeb146840f8ac8cb12db7c56113db6d40bcf5537f97cce"
+    },
+    {
+      "path": "app/products/triad/development.py",
+      "sha256": "e9cf526fe622e822c46365fd4eda0a942fc634c0c11ad714a6d85d49bb99bdee"
+    },
+    {
+      "path": "app/trading_core/gateway.py",
+      "sha256": "8259289380b2b70218a4bfd770734579de25d681d81d735c162b135b0524bd8e"
+    },
+    {
+      "path": "app/trading_core/intelligence/contracts.py",
+      "sha256": "3821c29c2575a89fce31daf93132ebfcdbe88b43d4ca70628b886c79e4d7b069"
+    },
+    {
+      "path": "app/trading_core/providers/bounded_tools.py",
+      "sha256": "8cd4427e758988f1da2ed8622fdbebe4f4b8582acd7b839142bbc61e0da2ed97"
+    },
+    {
+      "path": "app/trading_core/providers/codex_executor.py",
+      "sha256": "3da4b105870e6c8a1a3cccb77498acb228be178e44581d48d7598fe3e105d8ed"
+    },
+    {
+      "path": "app/trading_core/providers/native_agents.py",
+      "sha256": "e08137fc7c560969bf0464b90134c532cda9ed45680a6a5d8e7f5e222ca4d64f"
+    },
+    {
+      "path": "app/trading_core/providers/transports.py",
+      "sha256": "b1c5ce9610ca5da00d95e0ae82b0e4947ee482cf93c83935a47bf2b3eac3a766"
+    },
+    {
+      "path": "app/trading_core/resource_policy.py",
+      "sha256": "baf9db3a714b46e99fd80c2b82190bce5fee3830448a88b4ce230a3e3ab5e9f5"
+    },
+    {
+      "path": "app/trading_core/runtime.py",
+      "sha256": "3eb06530577376c6a810e984144830acecfc8f7fef8f4602950eee159209739c"
+    }
+  ],
+  "evidence_raw_hashes": [
+    {
+      "path": "tests/test_day7_b2_qa.py",
+      "sha256": "525bdba7e136aaad91bbfc770e518582f369a3747631e1f2239ca2b8c48fda96"
+    },
+    {
+      "path": "logs/day7-b2-qa-exact-9bd28ad.zip",
+      "sha256": "2449c71dd30b9e8787c65fa4281505e11fd9223e38161a530a75481f8472d6e6"
+    },
+    {
+      "path": "logs/day7-b2-qa-run.py",
+      "sha256": "633b7ffed556a3762a4c11e6e7f263fb08ab58b74279ff1cf75829b6df7982c8"
+    },
+    {
+      "path": "logs/day7-b2-independent-tests.log",
+      "sha256": "c5003b2c0d482759395fd9ea48a749a2cdf96add9f62136135b2478e608a04df"
+    },
+    {
+      "path": "logs/day7-b2-independent-adversarial.log",
+      "sha256": "3035ecaeffb11560cb2744f76a12857d39416021eff7b5ad8cf8f23234fbc740"
+    },
+    {
+      "path": "logs/day7-b2-independent-boundaries.log",
+      "sha256": "6a0e1c605ffa5ac63a59ca90c02b2d9aa943bb48a9c0e989fbaeda6100ecb111"
+    },
+    {
+      "path": "logs/day7-b2-independent-kill.log",
+      "sha256": "bee0f4485fce1cffe924f6bf74751218cbfb4b3738fe011e403388d3e3187821"
+    },
+    {
+      "path": "logs/day7-b2-qa-exact-9bd28ad/tests/test_day7_b2_qa.py",
+      "sha256": "28ed3de958dc9ffbeb11072e55fd7dab16d0afa4c98fe19aa75a611d8db16d8a",
+      "note": "Executed snapshot test before import-order-only Ruff cleanup of retained root test"
+    }
+  ]
+}

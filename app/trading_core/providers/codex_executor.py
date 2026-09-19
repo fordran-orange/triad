@@ -159,7 +159,7 @@ class CodexExecutor:
         if method is None:
             return message
         ensure_no_secret(params)
-        if method in {"process/start", "fs/readFile"}:
+        if method in {"process/start", "fs/readFile", "fs/getMetadata", "fs/readDirectory"}:
             self.tool_calls += 1
             if self.resources:
                 self.resources.consume_tool()
