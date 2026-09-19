@@ -148,7 +148,10 @@ class EngineeringGit(GitChanges):
             raise PermissionError("Grant baseline differs")
         # Parent verifies diff/files, bounded content, secrets and whitespace using
         # this exact-file path method. No proposed code executes on the host.
-        return super().verify(metadata, self.grant_limits(), staged)
+        checks = super().verify(metadata, self.grant_limits(), staged)
+        if sum(len(text.encode()) for text in checks["sources"].values()) > self.grant.max_bytes:
+            raise PermissionError("Engineering byte ceiling exceeded at verification")
+        return checks
 
     def grant_limits(self):
         from types import SimpleNamespace

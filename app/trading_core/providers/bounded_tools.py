@@ -122,7 +122,13 @@ class BoundedTools:
 
     def changes(self):
         return tuple(
-            FileChange(path=p, content=v)
+            FileChange(
+                path=p,
+                content=v,
+                original_sha256=hashlib.sha256(self.original[p].encode()).hexdigest()
+                if p in self.original
+                else None,
+            )
             for p, v in self.files.items()
             if self.original.get(p) != v
         )

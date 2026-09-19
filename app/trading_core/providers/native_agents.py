@@ -113,7 +113,8 @@ class NativeRun:
         }:
             raise ProviderError("DEGRADED", "NativeProposalEvidenceMismatch")
         self.check()
-        return result, inputs, outputs
+        # Original hashes come from the observed immutable input, never model arithmetic.
+        return result.model_copy(update={"files_changed": changes}), inputs, outputs
 
 
 class GrokSession:
