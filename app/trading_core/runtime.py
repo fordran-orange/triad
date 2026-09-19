@@ -109,6 +109,23 @@ class HttpProvider:
             )
         raise ProviderError("BLOCKED_RESOURCE_LIMIT", "OutputAllocationReached")
 
+    def measured_response(self, data):
+        """Retain reported usage even when the completed body fails validation."""
+        usage = data.get("usage", {})
+        self.actual_model = data.get("model") if isinstance(data.get("model"), str) else None
+        if self.provider == "ollama":
+            inputs, outputs = data.get("prompt_eval_count"), data.get("eval_count")
+            reasoning = 0  # The local request explicitly disables thinking.
+        elif self.provider == "xai":
+            inputs, outputs = usage.get("prompt_tokens"), usage.get("completion_tokens")
+            reasoning = usage.get("completion_tokens_details", {}).get("reasoning_tokens")
+        else:
+            inputs, outputs = usage.get("input_tokens"), usage.get("output_tokens")
+            reasoning = usage.get("output_tokens_details", {}).get("reasoning_tokens")
+        self.evidence = {"input_tokens": inputs, "output_tokens": outputs}
+        self.reasoning_tokens = reasoning if type(reasoning) is int and reasoning >= 0 else None
+        return data
+
     def provider_metadata(self):
         return {
             "agent": self.agent,
@@ -221,7 +238,7 @@ class HttpProvider:
                     }
                 },
             }
-            data = self.transport("/responses", body, transport_timeout)
+            data = self.measured_response(self.transport("/responses", body, transport_timeout))
             if data.get("status") != "completed":
                 if data.get("incomplete_details", {}).get("reason") == "max_output_tokens":
                     self.output_threshold(request)
@@ -244,7 +261,7 @@ class HttpProvider:
                 "max_tokens": generation_cap,
                 "output_config": {"format": {"type": "json_schema", "schema": schema}},
             }
-            data = self.transport("/messages", body, transport_timeout)
+            data = self.measured_response(self.transport("/messages", body, transport_timeout))
             if data.get("stop_reason") != "end_turn":
                 if data.get("stop_reason") == "max_tokens":
                     self.output_threshold(request)
@@ -268,7 +285,9 @@ class HttpProvider:
                     "json_schema": {"name": "triad_result", "strict": True, "schema": schema},
                 },
             }
-            data = self.transport("/chat/completions", body, transport_timeout)
+            data = self.measured_response(
+                self.transport("/chat/completions", body, transport_timeout)
+            )
             choice = data["choices"][0]
             if choice.get("finish_reason") != "stop":
                 if choice.get("finish_reason") == "length":
@@ -307,7 +326,7 @@ class HttpProvider:
                     "temperature": 0,
                 },
             }
-            data = self.transport("/api/generate", body, transport_timeout)
+            data = self.measured_response(self.transport("/api/generate", body, transport_timeout))
             if data.get("done_reason") != "stop":
                 if data.get("done_reason") == "length":
                     self.output_threshold(request)
@@ -777,10 +796,12 @@ class Runtime:
                 if isinstance(exc, (ProviderError, ResourceBlocked))
                 else type(exc).__name__
             )
-            if not usage_known and getattr(adapter, "transport_type", None) == "CLI":
+            if not usage_known:
                 # The native harness may finish inference but reject the returned
                 # schema or tool evidence. Preserve measured usage on that path.
-                measured = getattr(getattr(adapter, "native_run", None), "evidence", {})
+                measured = getattr(adapter, "evidence", None) or getattr(
+                    getattr(adapter, "native_run", None), "evidence", {}
+                )
                 native_inputs, native_outputs = (
                     measured.get("input_tokens"),
                     measured.get("output_tokens"),

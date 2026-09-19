@@ -1,0 +1,47 @@
+{
+  "revision": "862e59aca92bb6de313861d581fa2df21b007a84",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "CHANGES_REQUIRED",
+  "implementation_files": {
+    "app/products/triad/cycles.py": "50456bd670afb6fdeb1aac2c3c6e803d323a83c472c2c809170b0762176d2ae1",
+    "app/products/triad/development.py": "1bd1f60bb18e636a622bb9a8b0fadc1205e4c610a2bba3e699b583e484389e69",
+    "app/trading_core/context.py": "c3d66b38ff21235dec24d58936a310fad3a8f16b6e187864e93e5e79e13d66b2",
+    "app/trading_core/contracts.py": "eae0b259fecd13a9d1a52d31d218cd2d1861fc8c972c6f7614fe5267c6973621",
+    "app/trading_core/intelligence/agents.py": "aabb199f3eef5fe145f4743040cc879cffd366b2e231012bc08b0d53c5290143",
+    "app/trading_core/intelligence/routing.py": "314dfdde645041773d274723e4b6aa05581568d9eecafb3c970d9bc5f43d0e20",
+    "app/trading_core/ledger.py": "1e5db1993464e692818df817dacbfc592098039d2e55a91a3f1af859861ba4b6",
+    "app/trading_core/providers/transports.py": "6fcf96d9ec5c2dbc844212eaf16d9ca01e405a908033960da7b3aa04e3ad435f",
+    "app/trading_core/resource_policy.py": "e89bdf84b3e760ec45430a923b35a9a5833a35d6e6d1f9f508bca2b727945490",
+    "app/trading_core/resources/config/agents.json": "52ab8b5cdd52e97eb0d16783ab9b57dde4a92ce097036a9bbb2fc8dc9f964d44",
+    "app/trading_core/resources/sql/013_resource_allocations.sql": "37b2fe371111aca539116f543b8c4f68edf8d7e70536e3be5486e33b377ab4d1",
+    "app/trading_core/runtime.py": "310f50518b5145039cbcd5e8d09ae9cb3c941dc39c3e2bc22550d0a9f3a3f926",
+    "app/trading_core/support.py": "63c47c6e77869efd13c1ba3bece12fca6250078d99d9fe707692d1edfb7acd76",
+    "app/trading_core/upgrade.py": "209df934379c196a57f41dd374da438356e9f31d90674984291f82bd4b3a8c98",
+    "app/trading_core/work.py": "b09b624df9ff69774a0482e604df4b76fbd23990a270e3ef1e52673726d01466",
+    "config/core/agents.json": "52ab8b5cdd52e97eb0d16783ab9b57dde4a92ce097036a9bbb2fc8dc9f964d44",
+    "docs/DAY7_PROGRESS.md": "2a6d477e6087253f655324718aeb2cccb137ee736f8fe673dceb92781356767f",
+    "docs/qa/DAY7_B3_BUILD.md": "ee449208dc00ef76ac624772a0550bdc49631a852cb8a538ae58729fa3534a25",
+    "infrastructure/postgres/013_resource_allocations.sql": "37b2fe371111aca539116f543b8c4f68edf8d7e70536e3be5486e33b377ab4d1",
+    "tests/test_day3_integration.py": "e844808cbe11d9f2685814e5aef206a2a745f91765ed52e2818c1da6e07652cc",
+    "tests/test_intelligence_routing.py": "740529d71b51338e12434e30f1d26b4dc1b45299e66be91d01f2c7e7146188ee",
+    "tests/test_orchestration.py": "d8dfc247b6a0a9a85605c068cefe23f3baf789356cce61da33ac0acb4a1a6454",
+    "tests/test_resource_defaults.py": "0cb9422cd6d521484845145e1a4c28f248cc160bd793d9d72520250b31821970",
+    "tests/test_resource_http.py": "1e68610980c2cd5b97ebaeb67c25585515695411e341d47f7cd3137dec449ec8",
+    "tests/test_resource_runtime.py": "1e6bea7babd9ef5c0d1fc2f30f9290f435f78575ebc2a9565ea65f50d189756e"
+  },
+  "qa_evidence": {
+    "docs/qa/DAY7_B3_QA.md": "10463eefdda942bb207d1a5013d36ff160b7404020b7d1dbab1da063da610295",
+    "tests/test_day7_b3_qa.py": "7ada3a794c5884853e11a6f6d5b5daa19756ec44872977221618862d2b97cb94",
+    "logs/day7-b3-independent-862e59a.log": "9719920ee8442d066aa410e1b60a6acbd6a20f6853e4e0b7b2069d9678c6cf8b",
+    "logs/day7-b3-http-evidence-probe.log": "6b8f0afa6e1439f3a577e6c4a192061269e0918aa9a2e8a0a988bfd9be49ac5a",
+    "logs/day7-b3-http-evidence-values.log": "65349c1dbfb16845c9e8f6caddf86fc5854de60dbd3622d02b719ca131bd8719",
+    "logs/day7-b3-qa-initial.py": "0aea3d921dc3d703383c7ea28c6c253ff8271425bef5adae5a3513388ec4bcf9",
+    "logs/day7_b3_qa_runner.py": "65a19aea411af3ce2d1a66828b356004dd801718a95890cab43759d792f586be"
+  },
+  "concurrent_checkout_status": [
+    " M app/trading_core/providers/transports.py",
+    " M app/trading_core/runtime.py",
+    "?? docs/qa/DAY7_B3_QA.md",
+    "?? tests/test_day7_b3_qa.py"
+  ]
+}

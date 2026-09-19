@@ -472,10 +472,11 @@ class HTTPTransport(BaseTransport):
         adapter.resources = getattr(self, "resources", None)
         try:
             result = adapter.execute(request)
-            self.actual_model = getattr(adapter, "actual_model", None)
-            self.reasoning_tokens = getattr(adapter, "reasoning_tokens", None)
             return result
         finally:
+            self.actual_model = getattr(adapter, "actual_model", None)
+            self.reasoning_tokens = getattr(adapter, "reasoning_tokens", None)
+            self.evidence = getattr(adapter, "evidence", {})
             self.active_adapter = None
 
     def cancel(self):
