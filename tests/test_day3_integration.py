@@ -460,6 +460,9 @@ def test_unsafe_proposal_and_runtime_permissions_are_denied(engine):
 
 
 def test_cycle_reports_budget_stop_without_reset(engine):
+    # Simulation is explicitly local; exercise a deliberately enabled local cap.
+    assert engine.ledger.control()["daily_execution_caps"]["LOCAL"] is False
+    engine.ledger.configure_non_api_daily_caps(local=True)
     engine.ledger.operate("lower_limits", limits={"max_tokens_day": 0})
     cycle = engine.run("SIMULATED")
     assert cycle["status"] == "BLOCKED"

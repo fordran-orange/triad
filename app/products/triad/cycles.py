@@ -754,7 +754,7 @@ class Cycles(ExecutionServices):
         if agent != work.assigned_agent:
             raise PermissionError("Request identity mismatch")
         decision = "ALLOW" if 0 <= requested <= work.reasoning_budget else "REQUIRE_HUMAN_APPROVAL"
-        if requested < 0 or requested > 2048:
+        if requested < 0:
             decision = "DENY"
         payload = {
             "work_item_id": work_id,

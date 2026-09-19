@@ -14,7 +14,7 @@ from trading_core.intelligence.agents import AgentBudget, Agents
 from trading_core.intelligence.quality import Quality
 from trading_core.intelligence.records import Records
 from trading_core.ledger import Stopped
-from trading_core.runtime import ProviderError
+from trading_core.resource_policy import ResourceBlocked, ResourceType
 from trading_core.store import ConcurrentUpdate
 from trading_core.work import ComputeBudget, WorkItem
 
@@ -200,8 +200,22 @@ def test_runtime_honors_child_timeout_not_global_timeout(engine):
     envelope = runtime_request(
         services, work, role="SUPPORT", allowed_tools=(), execution_permissions=("read",)
     )
-    with pytest.raises(ProviderError, match="DeadlineExceeded"):
+    started = time.monotonic()
+    with pytest.raises(ResourceBlocked) as blocked:
         services.runtime.execute(envelope, mode="SIMULATED", adapter=BoundedFakeAdapter(delay=1.4))
+    assert blocked.value.status == "BLOCKED_RESOURCE_LIMIT"
+    assert blocked.value.decision["resource_type"] == ResourceType.TIME
+    assert blocked.value.decision["granted_amount"] == 0
+    assert time.monotonic() - started < 10
+    allocations = [
+        row for row in Records(services.ledger.store).list("ResourceAllocation")
+        if row["run_id"] == envelope.run_id
+    ]
+    assert allocations[0]["allocations"][ResourceType.TIME] == 1
+    assert not any(
+        row.get("status") == "SUCCESS" and row["run_id"] == envelope.run_id
+        for row in services.ledger.records("Usage")
+    )
 
 
 def test_runtime_honors_zero_cost_specialist_grant(engine):

@@ -30,7 +30,7 @@ def test_qwen_support_uses_compact_adapter_schema_and_256_generation_cap(engine,
     requests, bodies = [], []
 
     def transport(path, body, timeout):
-        assert path == "/api/generate" and timeout == 120
+        assert path == "/api/generate" and timeout == 480
         bodies.append(body)
         # Behave like a schema-following model; this also demonstrates why the
         # old full AgentRunResult format is incompatible with SUPPORT decoding.
