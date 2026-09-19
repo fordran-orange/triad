@@ -1,0 +1,21 @@
+{
+  "revision": "6dba1093d07ef303c3203b64756b2ff8f43992bd",
+  "reviewer": "/root/day6_qa_c",
+  "decision": "CHANGES_REQUIRED",
+  "snapshot": "C:\\Triad\\logs\\day8-daily-6dba109",
+  "source_test_hashes": {
+    "app/products/triad/daily.py": "bbfa42df46b57b9bd64800c09bae2ff73aaca816c4381536ddb465f26884f328",
+    "app/trading_core/store.py": "41352e10a5f612129fcadcc1654303deaecddd0f2b3a8c4138d7c1b48715e311",
+    "app/trading_core/intelligence/contracts.py": "8a6a86b17a86010613a817ed28131d8e4d1c094fa0873d00d6d6c56c1f7e73ef",
+    "tests/test_daily_lifecycle.py": "0e6a9a5e4afab92ef8512c7c7d5bfeafd89fffa0b02eddd7a0ec7066d39f75a1",
+    "tests/test_day8_daily_qa.py": "3a4717cb0c7f389224f54cc119c3d7d4f97c3a01c5467c9ed9902630b4d8a19a",
+    "tests/test_day8_daily_correction_qa.py": "37d2def2931e91c427af7c79488937d0c19d9bb150c79119c2071a2654a043f7"
+  },
+  "evidence_hashes": {
+    "docs/qa/DAY8_DAILY_CORRECTION_QA.md": "bdb70d85165b856850d12cf3ed4a869fa99ce04b77e6148200625826ab1a68e4",
+    "logs/day8-daily-6dba109.zip": "42d074d054da5699528f8362f025502b2881b781380992b04f61584be1764276",
+    "logs/day8-daily-correction-runner.py": "bb0accfdd6dba49dc1af54feb3b72258141ac1393c96d4929a1c6bc1f9b148fd",
+    "logs/day8-daily-qa-correction.log": "8726e0054c5b26092fb919de03d755a4d168ea6223d851bbb532eb3710279bb9",
+    "logs/day8-daily-qa-correction.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04"
+  }
+}

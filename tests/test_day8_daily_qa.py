@@ -2,7 +2,7 @@
 # ruff: noqa: F811
 
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from threading import Barrier, BrokenBarrierError
 
 import pytest
 from products.triad.daily import DailySchedule, digest
@@ -192,7 +192,13 @@ def test_duplicate_concurrent_create_has_single_evidence_parent(engine, monkeypa
 
     def synchronized_create(store, work, *args, **kwargs):
         if work.mission_id == cycle_id and work.work_type == "cycle_record":
-            barrier.wait(timeout=10)
+            # A correct implementation holds the per-cycle lock before creation,
+            # so its peer cannot arrive here. The timeout permits that serialized
+            # path while still aligning both calls in the original unsafe path.
+            try:
+                barrier.wait(timeout=1)
+            except BrokenBarrierError:
+                pass
         return original(store, work, *args, **kwargs)
 
     monkeypatch.setattr(Store, "create", synchronized_create)

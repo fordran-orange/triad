@@ -1,0 +1,26 @@
+{
+  "revision": "00dc247c9aab511eded403dc1f19b9d6a9914182",
+  "reviewer": "/root/day6_qa_c",
+  "decision": "CHANGES_REQUIRED",
+  "source_snapshot": "C:\\Triad\\logs\\day8-daily-00dc247",
+  "source_hashes": {
+    "app/products/triad/daily.py": "e7c8c3fc029fc200cd1f11781829094e96a8c901dce550750e4c857458b038f5",
+    "app/trading_core/intelligence/contracts.py": "8a6a86b17a86010613a817ed28131d8e4d1c094fa0873d00d6d6c56c1f7e73ef",
+    "app/products/triad/cycle_history.py": "67c985139970d15a54f75fdafb07c8b2a52ad9f5f348e8dd76b75fe22ac0b87e",
+    "app/trading_core/intelligence/quality.py": "0c3aa7df28a30e584d9ff43bda787c5c4c86cccb305fbb790ca66e6afe5e4db5",
+    "app/trading_core/ledger.py": "1e5db1993464e692818df817dacbfc592098039d2e55a91a3f1af859861ba4b6",
+    "tests/test_daily_lifecycle.py": "0e6a9a5e4afab92ef8512c7c7d5bfeafd89fffa0b02eddd7a0ec7066d39f75a1"
+  },
+  "evidence_hashes": {
+    "docs/qa/DAY8_DAILY_QA.md": "737f9678e3cb8dc98118174517ca508b8cae1de4feaf6226db25bd32462563c0",
+    "docs/qa/DAY8_DAILY_QA_INITIAL_HASHES.json": "5bf56d14f1210e07937837fc5188f94f6de84d09f82c6247c4cbdef04df4ece4",
+    "tests/test_day8_daily_qa.py": "158170401b4df1d6e1aa9e693bbb1ce55794beb7095fb66a5abcfef0c74b24bd",
+    "logs/day8-daily-qa-initial-test.py": "37cdee149b4119b14d16cf082d1e9bde8811d8f23f4df24e94ab0e9c7194bb84",
+    "logs/day8-daily-qa-initial.log": "b70483c3f83c077e9cc67a241fd7e83e38786ee69489557fca031ec19aceec48",
+    "logs/day8-daily-qa-initial.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04",
+    "logs/day8-daily-qa-pause.log": "25403f533cb38ebace472573e53c3f919e2d1478a24a9142a13fd431b93a8216",
+    "logs/day8-daily-qa-pause.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04",
+    "logs/day8-daily-qa-runner.py": "5f036c6356808c68d1dbfadbf0912f218a243ef0d55dac9570ba8567c5bed198",
+    "logs/day8-daily-00dc247.zip": "ddfa3dcf4d62afaafac22a01badd7e67f90de493c55e41b25af029e83b2ffe49"
+  }
+}
