@@ -2,6 +2,7 @@
 
 # ruff: noqa: F811
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -15,9 +16,83 @@ from trading_core.contracts import AgentRunResult, FileChange
 from trading_core.intelligence.capabilities import Capabilities
 from trading_core.intelligence.contracts import Capability
 from trading_core.intelligence.quality import Quality
+from trading_core.runtime import HttpProvider, ProviderError
 from trading_core.work import State, WorkItem, now
 
 pytestmark = pytest.mark.integration
+
+
+def test_qwen_support_uses_compact_adapter_schema_and_256_generation_cap(engine, monkeypatch):
+    dev, _ = ready(engine, monkeypatch)
+    adapter = HttpProvider(
+        "LOCAL_QWEN", {"provider": "ollama", "model_env": "QA_MODEL"}, {"QA_MODEL": "fixture-model"}
+    )
+    requests, bodies = [], []
+
+    def transport(path, body, timeout):
+        assert path == "/api/generate" and timeout == 120
+        bodies.append(body)
+        # Behave like a schema-following model; this also demonstrates why the
+        # old full AgentRunResult format is incompatible with SUPPORT decoding.
+        if set(body["format"]["properties"]) == {"summary", "assumptions"}:
+            response = {"summary": "Independent findings summarized.", "assumptions": []}
+        else:
+            response = AgentRunResult(
+                run_id=requests[-1].run_id,
+                status="RESEARCH_FINDING",
+                summary="Full-schema response",
+            ).model_dump(mode="json")
+        return {
+            "response": json.dumps(response),
+            "done_reason": "stop",
+            "model": "fixture-model",
+            "prompt_eval_count": 100,
+            "eval_count": 20,
+        }
+
+    monkeypatch.setattr(adapter, "transport", transport)
+
+    def execute(request):
+        requests.append(request)
+        result, inputs, outputs = adapter.execute(request)
+        dev.ledger.put(
+            "Usage",
+            {
+                "run_id": request.run_id,
+                "work_item_id": request.work_item_id,
+                "provider": "ollama",
+                "actual_model": "fixture-model",
+                "transport": "ollama",
+                "billing_source": "LOCAL",
+                "status": "SUCCESS",
+                "mode": "INDEPENDENT_QA_FIXTURE",
+                "input_tokens": inputs,
+                "output_tokens": outputs,
+            },
+            work_id=request.work_item_id,
+        )
+        return result
+
+    monkeypatch.setattr(dev.runtime, "execute", execute)
+    work, result, _, usage = dev.call(
+        "support-codec",
+        "LOCAL_QWEN",
+        "SUPPORT",
+        "Summarize briefly with no assumptions",
+        {"findings": [{"agent": "CODEX", "summary": "Fixture evidence"}]},
+    )
+    assert work.status == State.COMPLETED and work.reasoning_budget == 256
+    assert result.summary == "Independent findings summarized." and not result.assumptions
+    assert usage["billing_source"] == "LOCAL"
+    assert requests[0].execution_permissions == ("read",) and not requests[0].allowed_tools
+    assert bodies[0]["options"]["num_predict"] == 256 and bodies[0]["think"] is False
+    assert set(bodies[0]["format"]["required"]) == {"summary", "assumptions"}
+    assert bodies[0]["format"]["additionalProperties"] is False
+    old_request = requests[0].model_copy(
+        update={"required_output_schema": AgentRunResult.model_json_schema()}
+    )
+    with pytest.raises(ProviderError, match="MalformedOrUnsafeResponse"):
+        adapter.execute(old_request)
 
 
 def ready(engine, monkeypatch):

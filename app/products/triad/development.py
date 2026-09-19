@@ -67,7 +67,7 @@ class Development(ExecutionServices):
         keep_open=False,
     ):
         write = role == "IMPLEMENT"
-        reasoning = 1024 if agent == "LOCAL_QWEN" else 2048
+        reasoning = 256 if agent == "LOCAL_QWEN" else 2048
         caps = (
             ("structured_output", "isolated_text_proposal")
             if write
@@ -146,7 +146,17 @@ class Development(ExecutionServices):
             cost_budget=0,
             execution_permissions=("write_docs",) if write else ("read",),
             policy_decision=policy.model_dump(mode="json"),
-            required_output_schema=AgentRunResult.model_json_schema(),
+            required_output_schema={
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string"},
+                    "assumptions": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["summary", "assumptions"],
+                "additionalProperties": False,
+            }
+            if role == "SUPPORT"
+            else AgentRunResult.model_json_schema(),
             control_epoch=self.ledger.get("authority-" + work.work_item_id)["epoch"],
         )
         self.journal_event(
@@ -296,7 +306,6 @@ class Development(ExecutionServices):
                 {
                     "agent": r["agent"],
                     "summary": r["summary"],
-                    "candidate_titles": [c["title"] for c in r["candidates"]],
                 }
                 for r in inspections
             ]
@@ -304,8 +313,8 @@ class Development(ExecutionServices):
                 mission,
                 "LOCAL_QWEN",
                 "SUPPORT",
-                "Summarize these independent product findings and disagreements in at most 100 words. "
-                "Return only a short summary and at most one assumption. "
+                "Summarize these independent product findings and disagreements in at most 35 words. "
+                "Return a short summary and an empty assumptions list. "
                 "Observe only; do not choose, approve or grant authority.",
                 {"findings": findings},
             )
