@@ -1,0 +1,10 @@
+{
+  "reviewer": "/root/day6_qa_b",
+  "decision": "PASS",
+  "candidate_digest": "ed98a219b9256fbedb3e0402d7c43caf1349815188f846ef430c3c1b49fab924",
+  "qa_evidence": {
+    "docs/qa/DAY8_ENGINEERING_ADOPTION_QA.md": "5841a0307e7ab5c8605a0a6b3c5c435f180e9bd77a302c0f457268c441dee939",
+    "logs/day8-adoption-independent.json": "3c6193ae7063a564ee1f5e3a892534ebf47261cd8abc4d413e53ee91b196e938",
+    "logs/day8-capability-adopted.json": "35604e65566632d6ae863c1bc37250113c5981a7b3a801cabc41b1d64d54e5ca"
+  }
+}
