@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "triad-foundation"
-version = "0.1.0"
-description = "Independent Triad research platform — Day 1 foundation"
+version = "0.2.0"
+description = "Shared trading infrastructure with independent Triad and P2P products"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "pandas>=2.2,<3", "pyarrow>=19,<24", "psycopg[binary]>=3.2,<4",

@@ -98,3 +98,23 @@ def test_owner_column_and_shared_writes_are_protected(engine):
     assert triad.ledger.get(identifier)["test"]
     with pytest.raises(PermissionError):
         triad.ledger.put("DatasetManifest", {"test": False}, identifier)
+
+
+def test_graph_traversal_cannot_cross_product_knowledge(engine):
+    from trading_core.brain import Brain
+    triad, p2p = scoped(engine, "triad"), scoped(engine, "p2p")
+    a = triad.host.create(WorkItem(title="Triad graph", description="own work"))
+    b = p2p.host.create(WorkItem(title="P2P graph", description="private", mission_id=a.mission_id))
+    journal = p2p.host.journal(b, kind="creation", result="PRIVATE_GRAPH_MARKER", mode="deterministic_demo")
+    p2p.host.store.add_record(journal)
+    graph = Brain(triad.host.store)
+    assert graph.flush()["error"] is None
+    with graph.driver() as driver, driver.session() as session:
+        # Even a bad historical edge must not expose the foreign record.
+        session.run("MATCH (a:WorkItem {id:$a}), (b:JournalEntry {id:$b}) MERGE (a)-[:SUPPORTED_BY]->(b)", a=a.work_item_id, b=journal.journal_id).consume()
+    lineage = graph.lineage(a.work_item_id)
+    assert journal.journal_id not in {row['id'] for row in lineage}
+    assert 'triad:' + a.mission_id in {row['id'] for row in lineage}
+    with pytest.raises(PermissionError):
+        graph.lineage(b.work_item_id)
+    assert journal.journal_id in {row['id'] for row in Brain(p2p.host.store).lineage(b.work_item_id)}

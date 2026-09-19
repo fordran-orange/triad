@@ -63,6 +63,19 @@ class Cycles(ExecutionServices):
             .isoformat()
         )
         self.rotation = tuple(json.loads(product_resource("product.json").read_text())["rotation"])
+        if (
+            len(self.rotation) < 2
+            or len(set(self.rotation)) != len(self.rotation)
+            or any(
+                name not in self.host.registry.agents
+                or not self.host.registry.agents[name].review_eligible
+                for name in self.rotation
+            )
+        ):
+            raise ValueError("Triad rotation requires distinct review-eligible members")
+
+    def next_agent(self, agent):
+        return self.rotation[(self.rotation.index(agent) + 1) % len(self.rotation)]
 
     def initialize(self):
         self.host.initialize()
@@ -116,7 +129,7 @@ class Cycles(ExecutionServices):
                 mission_id=cycle_id,
                 parent_work_item_id=parent,
                 assigned_agent=agent,
-                reviewer=self.host.registry.successor(agent),
+                reviewer=self.next_agent(agent),
                 work_type="development",
                 authority_tier=2,
                 allowed_paths=tuple(dict.fromkeys(("docs", *limits.allowed_directories))),
@@ -638,7 +651,7 @@ class Cycles(ExecutionServices):
                             "mode": mode,
                             "status": "RUNNING",
                             "stage": agent,
-                            "next_agent": self.host.registry.successor(agent),
+                            "next_agent": self.next_agent(agent),
                         },
                         identifier=cycle_id,
                     )

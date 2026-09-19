@@ -28,7 +28,7 @@ Inspected Python imports and primary service implementations before movement. Mi
 | `app/triad/day5a/isolation.py` | triad.day3.security, triad.day5a.process, triad.settings | Legacy namespace; preserve storage IDs and evidence | CORE | `app/trading_core/providers/isolation.py` | Medium |
 | `app/triad/day5a/native_agents.py` | triad.day3.adapters, triad.day3.contracts, triad.day5a.bounded_tools, triad.day5a.codex_executor, triad.day5a.isolation, triad.day5a.process | Legacy namespace; preserve storage IDs and evidence | CORE | `app/trading_core/providers/native_agents.py` | Medium |
 | `app/triad/day5a/process.py` | triad.day3.security | Legacy namespace; preserve storage IDs and evidence | CORE | `app/trading_core/providers/process.py` | Medium |
-| `app/triad/day5a/relay.py` | triad.brain, triad.day3.adapters, triad.day3.contracts, triad.day3.cycles, triad.day3.support, triad.day5a.contracts, triad.gateway, triad.work | Cycles dependency: replace with generic ExecutionServices | CORE | `app/products/triad/acceptance.py` | High |
+| `app/triad/day5a/relay.py` | triad.brain, triad.day3.adapters, triad.day3.contracts, triad.day3.cycles, triad.day3.support, triad.day5a.contracts, triad.gateway, triad.work | Cycles dependency: replace with generic ExecutionServices | TRIAD | `app/products/triad/acceptance.py` | High |
 | `app/triad/day5a/secrets.py` | Python / third-party libraries | Legacy namespace; preserve storage IDs and evidence | CORE | `app/trading_core/providers/secrets.py` | Medium |
 | `app/triad/day5a/transports.py` | triad.day3.adapters, triad.day3.contracts, triad.day5a.codex_executor, triad.day5a.contracts, triad.day5a.isolation, triad.day5a.native_agents, triad.day5a.process, triad.gateway, triad.settings, triad.work | Legacy namespace; preserve storage IDs and evidence | CORE | `app/trading_core/providers/transports.py` | Medium |
 | `app/triad/day5a/verification.py` | triad.brain, triad.day3.adapters, triad.day3.contracts, triad.day3.cycles, triad.day3.support, triad.day5a.contracts, triad.work | Cycles dependency: replace with generic ExecutionServices | CORE | `app/trading_core/providers/verification.py` | High |
@@ -69,7 +69,7 @@ Inspected Python imports and primary service implementations before movement. Mi
 - Core UI: provider controls, work/evidence, diagnostics, data-engine inspection. Triad UI: cycles, backlog, proposals, evolution. P2P: new empty human-directed shell.
 - Shared UI: renderer and presentation primitives only; no merged product navigation.
 
-Counts (existing source/static components): {'CORE': 43, 'TRIAD': 6, 'CORE_UI': 3, 'SHARED_UTILITY': 2}
+Counts (existing source/static components, final classification): {'CORE': 42, 'TRIAD': 7, 'CORE_UI': 3, 'SHARED_UTILITY': 2}. UNCLEAR: 0; P2P existing: 0.
 P2P existing components: 0. New P2P shell is deliberately sparse. No unresolved ownership is silently treated as shared.
 
 Migration order: baseline -> generic execution -> ownership contracts -> modules and compatibility aliases -> independently bootable surfaces -> migrations and regression.

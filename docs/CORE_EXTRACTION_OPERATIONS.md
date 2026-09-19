@@ -94,7 +94,8 @@ WorkItem and filter neighbors. Operator views can inspect all products deliberat
 `base/day5a-complete` and the private local bundle
 `backups/day5a-20260919` preserve the predecessor. SQL 005 moves generic tables
 to Core and retains legacy views. 006 adds ownership and product controls; 007
-belongs to Triad; 008 registers artifact ownership. The `core_baseline_restore`
+belongs to Triad; 008 registers artifact ownership; 009 classifies relay audit
+envelopes as Triad-owned. The `core_baseline_restore`
 database proves up/down/up without touching production.
 
 Rollback requires a maintenance window and a fresh backup. The ownership down

@@ -97,3 +97,11 @@ def test_no_authority_added_and_exchange_closed():
         import_candidate(
             ExchangeCandidate(source_product="triad", destination_product="p2p", record_ids=("x",))
         )
+
+
+def test_product_rotation_is_independent_of_core_review_defaults():
+    from products.triad.cycles import Cycles
+    cycle = Cycles.__new__(Cycles)
+    cycle.rotation = ("GROK", "CLAUDE", "CODEX")
+    assert cycle.next_agent("GROK") == "CLAUDE"
+    assert cycle.next_agent("CODEX") == "GROK"

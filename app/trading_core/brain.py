@@ -336,6 +336,7 @@ class Brain:
             + "\n---",
             f"# {data['objective']}",
             f"Canonical journal: `{identifier}`",
+            f"[Inspect canonical work](http://127.0.0.1:8000/core?work={data['work_item_id']})",
             f"Agent: {data['agent']} · Mode: {data['execution_mode']} · {data['timestamp']}",
             "This Markdown is a projection. PostgreSQL is authoritative.",
         ]
