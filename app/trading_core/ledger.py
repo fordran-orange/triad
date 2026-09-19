@@ -28,6 +28,9 @@ class Ledger:
             conn.execute(resource("infrastructure/postgres/003_autonomy.sql").read_text())
             conn.execute(resource("infrastructure/postgres/006_record_ownership.sql").read_text())
             conn.execute(resource("infrastructure/postgres/008_artifact_ownership.sql").read_text())
+            conn.execute(
+                resource("infrastructure/postgres/009_product_audit_ownership.sql").read_text()
+            )
             initial = {
                 "paused": False,
                 "killed": False,

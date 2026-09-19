@@ -83,3 +83,18 @@ def test_product_controls_cannot_relax_global_governance(engine):
     triad.ledger.operate("stop", work_id=work.work_item_id)
     with pytest.raises(Stopped):
         triad.ledger.guard(work_id=work.work_item_id)
+
+
+def test_owner_column_and_shared_writes_are_protected(engine):
+    import psycopg
+
+    triad = scoped(engine, "triad")
+    work = triad.host.create(WorkItem(title="ownership", description="immutable"))
+    with pytest.raises(psycopg.errors.RaiseException), engine.host.store.connect() as conn:
+        conn.execute("UPDATE core.work_items SET owner='p2p' WHERE id=%s", (work.work_item_id,))
+    identifier = engine.ledger.put("DatasetManifest", {"test": True})
+    with engine.host.store.connect() as conn:
+        conn.execute("UPDATE core.day3_records SET owner='shared' WHERE id=%s", (identifier,))
+    assert triad.ledger.get(identifier)["test"]
+    with pytest.raises(PermissionError):
+        triad.ledger.put("DatasetManifest", {"test": False}, identifier)

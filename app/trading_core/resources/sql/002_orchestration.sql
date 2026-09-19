@@ -29,9 +29,15 @@ CREATE TABLE IF NOT EXISTS core.projection_outbox (
   delivered_at timestamptz, attempts integer NOT NULL DEFAULT 0, last_error text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE OR REPLACE FUNCTION triad.protect_work_authority() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION core.protect_work_authority() RETURNS trigger AS $$
 DECLARE field text;
 BEGIN
+  IF OLD.owner IS DISTINCT FROM NEW.owner THEN
+    RAISE EXCEPTION 'Immutable assignment owner';
+  END IF;
+  IF NEW.payload ? 'owner' AND NEW.payload->>'owner' IS DISTINCT FROM NEW.owner THEN
+    RAISE EXCEPTION 'Assignment payload owner does not match canonical owner';
+  END IF;
   FOREACH field IN ARRAY ARRAY['work_item_id','mission_id','created_by','title','description',
     'work_type','authority_tier','allowed_tools','allowed_paths','forbidden_paths',
     'reasoning_budget','compute_budget','execution_permissions','risk_class','review_required',
@@ -47,7 +53,7 @@ END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS protect_work_authority ON core.work_items;
 CREATE TRIGGER protect_work_authority BEFORE UPDATE ON core.work_items
-  FOR EACH ROW EXECUTE FUNCTION triad.protect_work_authority();
+  FOR EACH ROW EXECUTE FUNCTION core.protect_work_authority();
 INSERT INTO core.schema_migrations(version) VALUES ('002_orchestration') ON CONFLICT DO NOTHING;
 
 CREATE OR REPLACE VIEW triad.schema_migrations AS SELECT * FROM core.schema_migrations;

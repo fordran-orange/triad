@@ -1,5 +1,6 @@
 """Run real subscription/local acceptance; never enables API fallback or raises budgets."""
 
+import argparse
 import json
 
 from triad.day5a.contracts import PREFERRED
@@ -9,8 +10,11 @@ from triad.day5a.verification import verify
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--relay-only", action="store_true")
+    args = parser.parse_args()
     control = ProviderControl()
-    for transport in PREFERRED.values():
+    for transport in () if args.relay_only else PREFERRED.values():
         control.refresh(transport)
         for acceptance in (False, True):
             proof = verify(control, transport, acceptance=acceptance)
