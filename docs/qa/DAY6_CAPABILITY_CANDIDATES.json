@@ -1,0 +1,998 @@
+[
+  {
+    "proposal_id": "2526c06e-79f2-4ae5-a32a-cd76919c4ff5",
+    "digest": "268969c49205e059082fa6fa7ff9aff5873ffb9d3820cd7844e02399a0f380f5",
+    "capability": {
+      "capability_id": "codex_cli:gpt-6-astra:structured_output",
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "transport": "codex_cli",
+      "capability": "structured_output",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "transport-proof:1f3effa8-3ba5-4ceb-be39-ae830517f66c",
+        "run:ff847fea-77d9-4da2-9532-f9e1ed87fd10"
+      ],
+      "verified_at": "2026-09-19T05:52:09.619162Z",
+      "verified_by": "Core runtime verifier",
+      "limitations": [
+        "Only the bounded tested transport path; no broader native tool authority"
+      ],
+      "permissions_required": [
+        "read"
+      ],
+      "cost_characteristics": {
+        "billing_source": "SUBSCRIPTION"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 24.875
+      },
+      "notes": "",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "06f3cbad-995b-406a-8ad1-a794fd302db2",
+    "digest": "1c0450c1ab2caa4328a09b27fca56e6e8cd6516b76e2f32f66a8a511ec32435f",
+    "capability": {
+      "capability_id": "codex_cli:gpt-6-astra:isolated_text_read",
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "transport": "codex_cli",
+      "capability": "isolated_text_read",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "transport-proof:1f3effa8-3ba5-4ceb-be39-ae830517f66c",
+        "run:ff847fea-77d9-4da2-9532-f9e1ed87fd10"
+      ],
+      "verified_at": "2026-09-19T05:52:09.619162Z",
+      "verified_by": "Core runtime verifier",
+      "limitations": [
+        "Only the bounded tested transport path; no broader native tool authority"
+      ],
+      "permissions_required": [
+        "read"
+      ],
+      "cost_characteristics": {
+        "billing_source": "SUBSCRIPTION"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 24.875
+      },
+      "notes": "",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "ec7421eb-886f-4b80-b230-e3d87ef395db",
+    "digest": "088edf12a37ff3332cd74a75bd82c896c81b3c794ad11b64f428ce2ff10d303f",
+    "capability": {
+      "capability_id": "codex_cli:gpt-6-astra:document_analysis",
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "transport": "codex_cli",
+      "capability": "document_analysis",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "transport-proof:1f3effa8-3ba5-4ceb-be39-ae830517f66c",
+        "run:ff847fea-77d9-4da2-9532-f9e1ed87fd10"
+      ],
+      "verified_at": "2026-09-19T05:52:09.619162Z",
+      "verified_by": "Core runtime verifier",
+      "limitations": [
+        "Only the bounded tested transport path; no broader native tool authority"
+      ],
+      "permissions_required": [
+        "read"
+      ],
+      "cost_characteristics": {
+        "billing_source": "SUBSCRIPTION"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 24.875
+      },
+      "notes": "",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "168d2865-04c8-4cb3-8856-0277a4f97632",
+    "digest": "68bf64aa9ca77e577c4c9a7f7cef3725f2a890ed044596e1857b46d8631a88cf",
+    "capability": {
+      "capability_id": "claude_code_cli:claude-sonnet-5:structured_output",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "transport": "claude_code_cli",
+      "capability": "structured_output",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "transport-proof:1e2deb63-4402-424f-a069-e4160cdc32d3",
+        "run:f807e984-1074-4e27-ac65-15d0705b737c"
+      ],
+      "verified_at": "2026-09-19T05:52:42.321228Z",
+      "verified_by": "Core runtime verifier",
+      "limitations": [
+        "Only the bounded tested transport path; no broader native tool authority"
+      ],
+      "permissions_required": [
+        "read"
+      ],
+      "cost_characteristics": {
+        "billing_source": "SUBSCRIPTION"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 15.969000000011874
+      },
+      "notes": "",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "0b080231-b61a-4bfd-8675-a63497cc1791",
+    "digest": "b3d7d6db2fbfa8240e169037133bf1424c58d6ffc3b7d4aab0512e190fa30977",
+    "capability": {
+      "capability_id": "claude_code_cli:claude-sonnet-5:isolated_text_read",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "transport": "claude_code_cli",
+      "capability": "isolated_text_read",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "transport-proof:1e2deb63-4402-424f-a069-e4160cdc32d3",
+        "run:f807e984-1074-4e27-ac65-15d0705b737c"
+      ],
+      "verified_at": "2026-09-19T05:52:42.321228Z",
+      "verified_by": "Core runtime verifier",
+      "limitations": [
+        "Only the bounded tested transport path; no broader native tool authority"
+      ],
+      "permissions_required": [
+        "read"
+      ],
+      "cost_characteristics": {
+        "billing_source": "SUBSCRIPTION"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 15.969000000011874
+      },
+      "notes": "",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "062ba4c3-4f15-491d-a069-3c3a0e5c0a21",
+    "digest": "7c4a06e1b33bf2753d135260772130665b63494e5a69b13700c3888f0133d97e",
+    "capability": {
+      "capability_id": "claude_code_cli:claude-sonnet-5:document_analysis",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "transport": "claude_code_cli",
+      "capability": "document_analysis",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "transport-proof:1e2deb63-4402-424f-a069-e4160cdc32d3",
+        "run:f807e984-1074-4e27-ac65-15d0705b737c"
+      ],
+      "verified_at": "2026-09-19T05:52:42.321228Z",
+      "verified_by": "Core runtime verifier",
+      "limitations": [
+        "Only the bounded tested transport path; no broader native tool authority"
+      ],
+      "permissions_required": [
+        "read"
+      ],
+      "cost_characteristics": {
+        "billing_source": "SUBSCRIPTION"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 15.969000000011874
+      },
+      "notes": "",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "1d1d61aa-9365-44f5-bb24-481f10df8cce",
+    "digest": "194fb475e761d604c6b854bfa68e15a08c90106bd9797dc2a6872fb349189a0b",
+    "capability": {
+      "capability_id": "grok_build_cli:grok-4.6:structured_output",
+      "provider": "xai",
+      "model": "grok-4.6",
+      "transport": "grok_build_cli",
+      "capability": "structured_output",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "transport-proof:3ff9a4ca-30f6-43ba-9300-b11b02046f98",
+        "run:a4f2fcf8-48fe-4069-9977-f0d2e066b68c"
+      ],
+      "verified_at": "2026-09-19T06:24:09.699925Z",
+      "verified_by": "Core runtime verifier",
+      "limitations": [
+        "Only the bounded tested transport path; no broader native tool authority"
+      ],
+      "permissions_required": [
+        "read"
+      ],
+      "cost_characteristics": {
+        "billing_source": "SUBSCRIPTION"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 40.094000000011874
+      },
+      "notes": "",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "d7c503de-9928-4099-b316-1b2b1c7a3789",
+    "digest": "12c8539e836893324e62c079f14b3c639a9b4e9b5ab1adef8abc47afbf27e09a",
+    "capability": {
+      "capability_id": "grok_build_cli:grok-4.6:isolated_text_read",
+      "provider": "xai",
+      "model": "grok-4.6",
+      "transport": "grok_build_cli",
+      "capability": "isolated_text_read",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "transport-proof:3ff9a4ca-30f6-43ba-9300-b11b02046f98",
+        "run:a4f2fcf8-48fe-4069-9977-f0d2e066b68c"
+      ],
+      "verified_at": "2026-09-19T06:24:09.699925Z",
+      "verified_by": "Core runtime verifier",
+      "limitations": [
+        "Only the bounded tested transport path; no broader native tool authority"
+      ],
+      "permissions_required": [
+        "read"
+      ],
+      "cost_characteristics": {
+        "billing_source": "SUBSCRIPTION"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 40.094000000011874
+      },
+      "notes": "",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "43bbf28d-0a90-4b10-a809-183a462f0811",
+    "digest": "b69900b1acee3afa4779d20eb36a94d502164a6ff2d687520e32aaab0a672f2c",
+    "capability": {
+      "capability_id": "grok_build_cli:grok-4.6:document_analysis",
+      "provider": "xai",
+      "model": "grok-4.6",
+      "transport": "grok_build_cli",
+      "capability": "document_analysis",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "transport-proof:3ff9a4ca-30f6-43ba-9300-b11b02046f98",
+        "run:a4f2fcf8-48fe-4069-9977-f0d2e066b68c"
+      ],
+      "verified_at": "2026-09-19T06:24:09.699925Z",
+      "verified_by": "Core runtime verifier",
+      "limitations": [
+        "Only the bounded tested transport path; no broader native tool authority"
+      ],
+      "permissions_required": [
+        "read"
+      ],
+      "cost_characteristics": {
+        "billing_source": "SUBSCRIPTION"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 40.094000000011874
+      },
+      "notes": "",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "64208484-d2dd-4670-a6ce-6bf055739638",
+    "digest": "8c51062352bc3248f7d7981cdaedd3a9ce5d4d37f643fe36c9eda7cd4bb52070",
+    "capability": {
+      "capability_id": "ollama:qwen3:4b:structured_output",
+      "provider": "ollama",
+      "model": "qwen3:4b",
+      "transport": "ollama",
+      "capability": "structured_output",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "local",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "transport-proof:5e36fa54-eaa6-42ea-bd21-cb744033b68a",
+        "run:07df0894-fbd8-471f-89b2-90403299573c"
+      ],
+      "verified_at": "2026-09-19T05:55:20.458180Z",
+      "verified_by": "Core runtime verifier",
+      "limitations": [
+        "Only the bounded tested transport path; no broader native tool authority"
+      ],
+      "permissions_required": [
+        "read"
+      ],
+      "cost_characteristics": {
+        "billing_source": "LOCAL"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 42.54700000002049
+      },
+      "notes": "",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "908c33e1-e01c-4794-b3fb-36409fe83da2",
+    "digest": "55dae05ca810129a2a6c907ec01d2a5dc9d3f6cba15fda8e0a43883954158ed1",
+    "capability": {
+      "capability_id": "ollama:qwen3:4b:local_execution",
+      "provider": "ollama",
+      "model": "qwen3:4b",
+      "transport": "ollama",
+      "capability": "local_execution",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "local",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "transport-proof:5e36fa54-eaa6-42ea-bd21-cb744033b68a",
+        "run:07df0894-fbd8-471f-89b2-90403299573c"
+      ],
+      "verified_at": "2026-09-19T05:55:20.458180Z",
+      "verified_by": "Core runtime verifier",
+      "limitations": [
+        "Only the bounded tested transport path; no broader native tool authority"
+      ],
+      "permissions_required": [
+        "read"
+      ],
+      "cost_characteristics": {
+        "billing_source": "LOCAL"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 42.54700000002049
+      },
+      "notes": "",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "1a68c92b-974a-4739-beb5-b4ab8eee8256",
+    "digest": "56204552c38c7dcff442f11f8b08b399d417bb7f9a7ca00278e2b0c988fa63ef",
+    "capability": {
+      "capability_id": "ollama:qwen3:4b:private_local_processing",
+      "provider": "ollama",
+      "model": "qwen3:4b",
+      "transport": "ollama",
+      "capability": "private_local_processing",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "local",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "transport-proof:5e36fa54-eaa6-42ea-bd21-cb744033b68a",
+        "run:07df0894-fbd8-471f-89b2-90403299573c"
+      ],
+      "verified_at": "2026-09-19T05:55:20.458180Z",
+      "verified_by": "Core runtime verifier",
+      "limitations": [
+        "Only the bounded tested transport path; no broader native tool authority"
+      ],
+      "permissions_required": [
+        "read"
+      ],
+      "cost_characteristics": {
+        "billing_source": "LOCAL"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 42.54700000002049
+      },
+      "notes": "",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "b604fd2f-88ea-4bca-8c16-46435fd7b4de",
+    "digest": "5aec66a6acf082074fec4ce5986cab8877a92634985650ad1e34c13fee46600a",
+    "capability": {
+      "capability_id": "grok_build_cli:grok-4.6:isolated_text_proposal",
+      "provider": "xai",
+      "model": "grok-4.6",
+      "transport": "grok_build_cli",
+      "capability": "isolated_text_proposal",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "RESTRICTED",
+      "verification_status": "DEGRADED",
+      "evidence": [
+        "run:83a2fa8d-ede6-4c32-996b-0c70ea0ec04c",
+        "usage:1cccbbb7-1390-40ba-aea0-5a5dee882f81",
+        "native-evidence:b62f7e2b-456f-415e-9294-07bcd1e19211"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Staged non-executable text proposals only; host applies reviewed files through Git broker"
+      ],
+      "permissions_required": [
+        "write_docs"
+      ],
+      "cost_characteristics": {
+        "billing_source": "SUBSCRIPTION"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 24.96799999999348
+      },
+      "notes": "Latest write probe: NativeProposalEvidenceMismatch",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "7e59d965-f9da-4690-bd38-67aede7a970d",
+    "digest": "f7c1f5dd73bdcb4dd4e4a99ab9592673f223d132ea74864c1c9bba0f9fa551d5",
+    "capability": {
+      "capability_id": "claude_code_cli:claude-sonnet-5:isolated_text_proposal",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "transport": "claude_code_cli",
+      "capability": "isolated_text_proposal",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "AVAILABLE",
+      "verification_status": "VERIFIED",
+      "evidence": [
+        "run:f1a75c35-fc8c-4a7e-9dd4-ffa316bfe781",
+        "usage:0f5fa48a-aafb-410d-9087-be2fd188a99d",
+        "native-evidence:b782e440-8293-4db2-830c-115cb2bc2c85"
+      ],
+      "verified_at": "2026-09-19T15:22:56.136159Z",
+      "verified_by": "Core runtime and native tool broker",
+      "limitations": [
+        "Staged non-executable text proposals only; host applies reviewed files through Git broker"
+      ],
+      "permissions_required": [
+        "write_docs"
+      ],
+      "cost_characteristics": {
+        "billing_source": "SUBSCRIPTION"
+      },
+      "latency_characteristics": {
+        "observed_seconds": 11.48499999998603
+      },
+      "notes": "Latest write probe: verified staged tool execution",
+      "discovery_source": "runtime"
+    }
+  },
+  {
+    "proposal_id": "94740623-faad-4697-9e67-2847c40b216c",
+    "digest": "cfed26fc93011f07e4baf371380d28280da0d6ff94459e39668d58ba2d6cd000",
+    "capability": {
+      "capability_id": "codex_cli:gpt-6-astra:native_web_access",
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "transport": "codex_cli",
+      "capability": "native_web_access",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:codex_cli:DOCKER_REMOTE_EXECUTOR_READ_ONLY"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "6eff55a7-da2f-402d-b060-7ec6d565ee0d",
+    "digest": "2378bec273a2a98d22f50b6d2fd112ab4cd4191ad17c8e7be3ccb325307b9bdf",
+    "capability": {
+      "capability_id": "codex_cli:gpt-6-astra:native_x_access",
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "transport": "codex_cli",
+      "capability": "native_x_access",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:codex_cli:DOCKER_REMOTE_EXECUTOR_READ_ONLY"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "2332be35-cfdf-4beb-8e9b-2c5771ea2224",
+    "digest": "801afa6944a3d5b5244b10aeed6830c4f460b36eca5c04a11982c828f8b59af1",
+    "capability": {
+      "capability_id": "codex_cli:gpt-6-astra:shell_execution",
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "transport": "codex_cli",
+      "capability": "shell_execution",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:codex_cli:DOCKER_REMOTE_EXECUTOR_READ_ONLY"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "4edda1c3-408f-46c8-bab8-03bee1ab0c2e",
+    "digest": "5bad7abd61e8bd7cc445045d96dc45fe79bc1ef3f1a691abc3edf9091c88ea61",
+    "capability": {
+      "capability_id": "codex_cli:gpt-6-astra:git_operations",
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "transport": "codex_cli",
+      "capability": "git_operations",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:codex_cli:DOCKER_REMOTE_EXECUTOR_READ_ONLY"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "0730c116-89d2-48ff-857f-d9b15a43810b",
+    "digest": "cdb4d17ea86f328df3c23f335b4054d26b40f11fa6d22923f7f00ac84ec9e003",
+    "capability": {
+      "capability_id": "codex_cli:gpt-6-astra:repository_editing",
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "transport": "codex_cli",
+      "capability": "repository_editing",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:codex_cli:DOCKER_REMOTE_EXECUTOR_READ_ONLY"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "4b562661-936f-44a0-840c-73a23afafc69",
+    "digest": "3a1d1fb20327723f0f04b0d9cb4be55ec23156ed81a8f1503886026b50372cf2",
+    "capability": {
+      "capability_id": "codex_cli:gpt-6-astra:mcp",
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "transport": "codex_cli",
+      "capability": "mcp",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:codex_cli:DOCKER_REMOTE_EXECUTOR_READ_ONLY"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "a303231c-e950-485f-8665-866400991818",
+    "digest": "8893220607270b94369af2b4280064092ad9d963cc5198effdda542828c7db5f",
+    "capability": {
+      "capability_id": "claude_code_cli:claude-sonnet-5:native_web_access",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "transport": "claude_code_cli",
+      "capability": "native_web_access",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:claude_code_cli:DOCKER_OFFLINE_TOOLS"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files, stage_reviewed_text_proposals",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "236c09db-bbe6-4cc6-91eb-928249916f6f",
+    "digest": "81dc58d5e3a5abba75a9099546a52571c037d63d4195becd10c68552f2f51adc",
+    "capability": {
+      "capability_id": "claude_code_cli:claude-sonnet-5:native_x_access",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "transport": "claude_code_cli",
+      "capability": "native_x_access",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:claude_code_cli:DOCKER_OFFLINE_TOOLS"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files, stage_reviewed_text_proposals",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "13c90838-5962-4d82-88f2-6701b53163cd",
+    "digest": "e2ea1e98ce389078008399cf4b48f2b3ce0f29f3d332694b1c938aa7cbd71529",
+    "capability": {
+      "capability_id": "claude_code_cli:claude-sonnet-5:shell_execution",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "transport": "claude_code_cli",
+      "capability": "shell_execution",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:claude_code_cli:DOCKER_OFFLINE_TOOLS"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files, stage_reviewed_text_proposals",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "3aae2576-8d26-4fa3-bec2-7c70eff1cffc",
+    "digest": "6b4b05c7c54c71675e89053c69d76b53c7aeeb55e3eef73de46889be4a82f66c",
+    "capability": {
+      "capability_id": "claude_code_cli:claude-sonnet-5:git_operations",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "transport": "claude_code_cli",
+      "capability": "git_operations",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:claude_code_cli:DOCKER_OFFLINE_TOOLS"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files, stage_reviewed_text_proposals",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "e15d2fa7-ba7d-4493-9cc7-2ec6d14267ee",
+    "digest": "4af5122aeafa0afa7ea6dadb9a0a172f08bf9bd99df85d4c5793c166970d419a",
+    "capability": {
+      "capability_id": "claude_code_cli:claude-sonnet-5:repository_editing",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "transport": "claude_code_cli",
+      "capability": "repository_editing",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:claude_code_cli:DOCKER_OFFLINE_TOOLS"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files, stage_reviewed_text_proposals",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "13eaef85-7c0f-42a1-aadd-bd85d0a7004a",
+    "digest": "7317290761dbe9f58132a0d44e075a5b88738b9ae01888a3188bccbeb6945d3b",
+    "capability": {
+      "capability_id": "claude_code_cli:claude-sonnet-5:mcp",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "transport": "claude_code_cli",
+      "capability": "mcp",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:claude_code_cli:DOCKER_OFFLINE_TOOLS"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files, stage_reviewed_text_proposals",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "6a1c9e78-4954-43ee-9704-256fb34112a9",
+    "digest": "caf7e6572bbac9a04a0a1f94e6a1f3843c186757dd08f6d07efa1dd91ec58a38",
+    "capability": {
+      "capability_id": "grok_build_cli:grok-4.6:native_web_access",
+      "provider": "xai",
+      "model": "grok-4.6",
+      "transport": "grok_build_cli",
+      "capability": "native_web_access",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:grok_build_cli:DOCKER_OFFLINE_TOOLS"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files, stage_reviewed_text_proposals",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "103b4a5b-4471-45e6-8203-682b6f551253",
+    "digest": "fe2953da411d778881c6038d1276b411da1ff6adaeb881bae16229c0de976c3e",
+    "capability": {
+      "capability_id": "grok_build_cli:grok-4.6:native_x_access",
+      "provider": "xai",
+      "model": "grok-4.6",
+      "transport": "grok_build_cli",
+      "capability": "native_x_access",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:grok_build_cli:DOCKER_OFFLINE_TOOLS"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files, stage_reviewed_text_proposals",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "603d4701-f2c8-4709-84f7-c0dcad014af6",
+    "digest": "9ce914e8f78ce8cc02b23e7522cd92188984aa51e28f94ef442d3e7f4efa4ddd",
+    "capability": {
+      "capability_id": "grok_build_cli:grok-4.6:shell_execution",
+      "provider": "xai",
+      "model": "grok-4.6",
+      "transport": "grok_build_cli",
+      "capability": "shell_execution",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:grok_build_cli:DOCKER_OFFLINE_TOOLS"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files, stage_reviewed_text_proposals",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "0f78a614-90fa-48a7-a019-94c8c2e1e7a0",
+    "digest": "237ec140702e47e1b34105c753a5df4eea9d00c2ff540fb775b47ef983f4c80e",
+    "capability": {
+      "capability_id": "grok_build_cli:grok-4.6:git_operations",
+      "provider": "xai",
+      "model": "grok-4.6",
+      "transport": "grok_build_cli",
+      "capability": "git_operations",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:grok_build_cli:DOCKER_OFFLINE_TOOLS"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files, stage_reviewed_text_proposals",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "195c9916-a10b-419e-bb32-81260ab2dbf3",
+    "digest": "8d3f4c29d7e08448197132bc093fe934c65a36f1d3731e91f8b976685e0914cb",
+    "capability": {
+      "capability_id": "grok_build_cli:grok-4.6:repository_editing",
+      "provider": "xai",
+      "model": "grok-4.6",
+      "transport": "grok_build_cli",
+      "capability": "repository_editing",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:grok_build_cli:DOCKER_OFFLINE_TOOLS"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files, stage_reviewed_text_proposals",
+      "discovery_source": "introspection"
+    }
+  },
+  {
+    "proposal_id": "91b525c8-ca14-4eea-a04c-6a49b1878152",
+    "digest": "e8c8c4acb939b83fc388ed55bdd9ae7fe5c19652238e1d2bd40b89f9728ac15d",
+    "capability": {
+      "capability_id": "grok_build_cli:grok-4.6:mcp",
+      "provider": "xai",
+      "model": "grok-4.6",
+      "transport": "grok_build_cli",
+      "capability": "mcp",
+      "capability_type": "intelligence",
+      "native_or_tool_mediated": "tool_mediated",
+      "status": "UNAVAILABLE",
+      "verification_status": "UNAVAILABLE",
+      "evidence": [
+        "installed-tool-boundary:grok_build_cli:DOCKER_OFFLINE_TOOLS"
+      ],
+      "verified_at": null,
+      "verified_by": null,
+      "limitations": [
+        "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product."
+      ],
+      "permissions_required": [],
+      "cost_characteristics": {},
+      "latency_characteristics": {},
+      "notes": "Current granted tools: read_supplied_files, stage_reviewed_text_proposals",
+      "discovery_source": "introspection"
+    }
+  }
+]

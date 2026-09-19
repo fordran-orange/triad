@@ -312,3 +312,8 @@ app.include_router(operator_router)
 @app.get("/core", include_in_schema=False)
 def core_shell():
     return FileResponse(Path(__file__).parent / "static/core.html")
+
+
+from trading_core.intelligence.api import router as intelligence_router
+
+app.include_router(intelligence_router)

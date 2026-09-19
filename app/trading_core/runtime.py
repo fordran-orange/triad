@@ -499,7 +499,11 @@ class Runtime:
             )
         ):
             raise PermissionError("Runtime tools or permissions exceed immutable assignment")
-        identity = canonical.reviewer if request.role == "REVIEW" else canonical.assigned_agent
+        identity = (
+            canonical.reviewer
+            if request.role == "REVIEW" and canonical.work_type != "review"
+            else canonical.assigned_agent
+        )
         if (
             identity != request.agent_id
             or canonical.mission_id != request.mission_id
@@ -540,6 +544,14 @@ class Runtime:
 
             adapter = TransportRouter(ProviderControl(self.ledger)).select(
                 request, input_ceiling, transport_id
+            )
+        capability_route = None
+        if mode == "REAL":
+            from trading_core.intelligence.records import Records
+            from trading_core.intelligence.routing import Routing
+
+            capability_route = Routing(Records(self.ledger.store)).validate_execution(
+                request, adapter
             )
         if getattr(adapter, "transport_type", None) == "CLI":
             # Native harnesses add tool definitions and protocol context. Reserve
@@ -624,6 +636,11 @@ class Runtime:
             if not okay:
                 raise value
             result, inputs, outputs = value
+            if (
+                capability_route
+                and getattr(adapter, "actual_model", None) != capability_route["model"]
+            ):
+                raise ProviderError("DEGRADED", "CapabilityRouteModelMismatch")
             usage_known = (
                 isinstance(inputs, int)
                 and isinstance(outputs, int)

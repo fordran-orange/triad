@@ -6,9 +6,12 @@ from itertools import pairwise
 from trading_core.work import now
 
 _projection_owner = ContextVar("projection_owner", default="triad")
+_projection_database = ContextVar("projection_database", default="default")
 
 
 def graph_id(label, identifier):
+    if label == "ConfiguredAgent":
+        return _projection_database.get() + ":agent:" + identifier
     if label in {"Mission", "File", "Evidence", "Commit", "Strategy", "DataSource"}:
         return _projection_owner.get() + ":" + identifier
     return identifier
@@ -131,6 +134,7 @@ class Brain:
     @staticmethod
     def project(tx, kind: str, entity_id: str, data: dict):
         _projection_owner.set(data.get("owner", "triad"))
+        _projection_database.set(data.get("projection_database", "default"))
         work_id = data.get("work_item_id")
         if kind == "WorkItem":
             node(
@@ -180,6 +184,7 @@ class Brain:
                     tx,
                     "ConfiguredAgent",
                     configured_id,
+                    agent_id=configured_id,
                     display_name=data["display_name"],
                     status=data["status"],
                     provider=data["provider"],
@@ -265,7 +270,7 @@ class Brain:
             elif record_kind == "AgentLifecycle":
                 tx.run(
                     "MATCH (a:ConfiguredAgent {id:$id}) SET a.status=$status",
-                    id=data["agent_id"],
+                    id=graph_id("ConfiguredAgent", data["agent_id"]),
                     status=data["status"],
                 ).consume()
             elif record_kind == "RawDataset":
@@ -508,7 +513,11 @@ class Brain:
                                 self.project,
                                 row["kind"],
                                 row["entity_id"],
-                                {**projection, "owner": owner},
+                                {
+                                    **projection,
+                                    "owner": owner,
+                                    "projection_database": self.store.settings.postgres_db,
+                                },
                             )
                             session.run(
                                 "MATCH (n {id:$id}) SET n.owner=$owner",

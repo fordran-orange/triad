@@ -310,7 +310,7 @@ def test_legacy_product_records_cannot_forge_configured_agent_truth(engine):
     with graph.driver() as driver, driver.session() as session:
         row = session.run(
             "MATCH (a:ConfiguredAgent {id:$id}) RETURN a.owner AS owner,a.provider AS provider",
-            id=agent,
+            id=engine.host.store.settings.postgres_db + ":agent:" + agent,
         ).single()
         assert row["owner"] == "triad" and row["provider"] != "forged"
 
@@ -351,7 +351,7 @@ def test_canonical_intelligence_overrides_tampered_legacy_mirror(engine):
     with graph.driver() as driver, driver.session() as session:
         row = session.run(
             "MATCH (a:ConfiguredAgent {id:$id}) RETURN a.display_name AS name,a.provider AS provider",
-            id=agent,
+            id=engine.host.store.settings.postgres_db + ":agent:" + agent,
         ).single()
         assert row["name"] == original["display_name"]
         assert row["provider"] == original["provider"]

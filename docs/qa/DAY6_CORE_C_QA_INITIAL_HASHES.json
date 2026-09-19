@@ -1,0 +1,20 @@
+{
+  "app/trading_core/intelligence/api.py": "4746bbe3caa291c462461d37ed5cc97834708a9af9748e4679fe1a0988f0be00",
+  "app/trading_core/intelligence/capabilities.py": "517d11f92fbd3702a55247b5cf46afdc9560496916d56cb0497494865153e4d2",
+  "tests/test_day6_qa_b.py": "df9f93c104fcabfca84d3232e237f5c43447d506ceb68e6d05d17fc92af5b644",
+  "app/trading_core/runtime.py": "30c14d23c01555362df9f0ea5c2ee437ca73dbea857d7d06ba68930e14446478",
+  "tests/test_day6_qa_c.py": "b31661a58816e162557d62190ac25e252e1b6079a605701e21c798622076bb07",
+  "app/trading_core/brain.py": "d16483ab1dba4e0d753623d812f99fe020c3d71c87a864e534962c6d3012565c",
+  "tests/test_intelligence_agents.py": "9d633f35eca7d4da66c24bf895d17270f656c0c44335a938ecad01043701114d",
+  "app/trading_core/static/intelligence.html": "f6f9679c4a5193425b60cae9260660945eb95dbe61e96dd5a5c504cc95390253",
+  "app/trading_core/static/core.html": "8c4d42a99aa5a634a4656412fef0c0573d0d09d26c5ec3af575bfd81ed0bbb67",
+  "docs/qa/DAY6_CAPABILITY_CANDIDATES.json": "b5cc7c7b81c1796c0c9c48508396f20d74097583673ecd6f21140044a58ad5fd",
+  "app/trading_core/intelligence/contracts.py": "4266f83606fc6c389baadf18e45cce97db65d65cc3758f5f42b14e10531e89d8",
+  "tools/verify_text_proposals.py": "347046d4321724f1b54dbb20e7d02d8d7a5cdcc9b7e82ca7192bcfb3a5adf230",
+  "app/trading_core/api.py": "dac18aa25020b2dd886a9adfa0d7226308a810038ee027df2dd1498c2cdea903",
+  "app/trading_core/intelligence/agents.py": "20a8cef59a2a90893602dc95b84e78b5c58539968cc74ec10b33fefecf46bce1",
+  "tests/test_day3_integration.py": "0f6d5f7d135b856bb735021a00facd44ca538058487da08955f36a07e25487ec",
+  "tests/test_intelligence_routing.py": "8e42dfdbe70c7dd48805f43f247184611d25b2bfeb86138f9905d21d89926157",
+  "app/trading_core/intelligence/routing.py": "55644f09e21966f9c461ec626ee55250aa3d1989c3e130d5f2740e79bf797c14",
+  "app/trading_core/static/intelligence.js": "bdcbd6f123a5f5d94e7696240ec2df21fbe90727e9efb12a8669cbde11269596"
+}

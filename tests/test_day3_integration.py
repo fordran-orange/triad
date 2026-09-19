@@ -62,6 +62,14 @@ def engine(tmp_path):
         + [w.work_item_id for w in works]
         + [w.mission_id for w in works]
     )
+    # Configured roles are private to each authoritative database even when the
+    # same four executor names appear in disposable databases sharing Neo4j.
+    ids.extend(
+        database + ":agent:" + r[key]
+        for r in records
+        for key in ("agent_id", "parent_agent", "builder", "qa_agent")
+        if r.get(key) and isinstance(r[key], str)
+    )
     for row in canonical:
         for key in ("journal_id", "handoff_id", "review_id", "policy_decision_id", "packet_id"):
             if key in row:

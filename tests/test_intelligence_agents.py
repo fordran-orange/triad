@@ -99,7 +99,7 @@ def test_low_risk_creation_lineage_budget_and_termination(engine):
         assert (
             session.run(
                 "MATCH (r:AgentCreationRequest)-[:CREATED_AGENT]->(a:ConfiguredAgent {id:$id})-[:DELEGATED_TO]->(w:WorkItem {id:$work}) RETURN count(*) AS n",
-                id=identifier,
+                id=engine.host.store.settings.postgres_db + ":agent:" + identifier,
                 work=work.work_item_id,
             ).single()["n"]
             == 1

@@ -119,6 +119,11 @@ class Agents:
                             "document_analysis",
                             "isolated_text_read",
                             "isolated_text_proposal",
+                            *(
+                                ("local_execution", "private_local_processing")
+                                if base.agent_id == "LOCAL_QWEN"
+                                else ()
+                            ),
                         )
                     )
                 )

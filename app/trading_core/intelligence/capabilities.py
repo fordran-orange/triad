@@ -24,7 +24,13 @@ class Capabilities:
         versions = {}
         for row in self.records.list("CapabilityVersion", shared=True):
             if row["owner"] == "core":
-                versions[row["capability"]["capability_id"]] = row
+                capability = row["capability"]
+                # IDs identify proposals, not separate grants for the same fact.
+                # A later downgrade must supersede every older verification.
+                key = tuple(
+                    capability[name] for name in ("provider", "model", "transport", "capability")
+                )
+                versions[key] = row
         return list(versions.values())
 
     def propose(self, capability: Capability, *, actor, work_id=None):
@@ -54,6 +60,9 @@ class Capabilities:
             proposal = self.records.get(proposal_id, conn=conn)
             if proposal["kind"] != "CapabilityProposal":
                 raise ValueError("Expected a capability proposal")
+            capability = Capability.model_validate(proposal["capability"])
+            if fingerprint(capability.model_dump(mode="json")) != proposal["digest"]:
+                raise PermissionError("Capability proposal digest does not match its contents")
             quality = Quality(self.records)
             qa = quality.require_pass(implementation_id, commit, conn=conn)
             build = self.records.get(implementation_id, conn=conn)
@@ -123,6 +132,111 @@ class Capabilities:
                         permissions_required=("read",),
                         cost_characteristics={"billing_source": proof["billing_source"]},
                         latency_characteristics={"observed_seconds": proof.get("latency")},
+                    )
+                )
+        # Text proposal capability requires measured native staging, not a model's claim.
+        if not hasattr(control, "ledger"):
+            return found
+        events = {
+            r.get("run_id"): r
+            for r in control.ledger.records("Event", 1000)
+            if r.get("event") == "native_executor_evidence"
+        }
+        seen = set()
+        requests = {r.get("run_id"): r for r in control.ledger.records("AgentRunRequest", 1000)}
+        for usage in control.ledger.records("Usage", 1000):
+            transport = usage.get("transport")
+            event = events.get(usage.get("run_id"), {})
+            proof = (
+                (control.snapshot(transport).get("workitem") or {}) if transport in SPECS else {}
+            )
+            model = usage.get("actual_model") or event.get("model") or proof.get("actual_model")
+            if (
+                transport not in {"claude_code_cli", "grok_build_cli"}
+                or transport in seen
+                or usage.get("mode") != "REAL"
+                or requests.get(usage.get("run_id"), {}).get("role") not in {"PROPOSE", "IMPLEMENT"}
+                or not model
+                or model != proof.get("actual_model")
+            ):
+                continue
+            seen.add(transport)
+            verified = (
+                usage.get("status") == "SUCCESS"
+                and event.get("boundary") == "DOCKER_OFFLINE_TOOLS"
+                and any(c.get("tool") == "propose_file_change" for c in event.get("calls", []))
+            )
+            found.append(
+                Capability(
+                    capability_id=f"{transport}:{model}:isolated_text_proposal",
+                    provider=SPECS[transport]["provider"],
+                    model=model,
+                    transport=transport,
+                    capability="isolated_text_proposal",
+                    native_or_tool_mediated="tool_mediated",
+                    status="AVAILABLE" if verified else "RESTRICTED",
+                    verification_status="VERIFIED" if verified else "DEGRADED",
+                    discovery_source="runtime",
+                    evidence=(
+                        "run:" + usage["run_id"],
+                        "usage:" + usage["id"],
+                        "native-evidence:" + event.get("id", "not_recorded"),
+                    ),
+                    verified_at=usage["timestamp"] if verified else None,
+                    verified_by="Core runtime and native tool broker" if verified else None,
+                    notes="Latest write probe: "
+                    + (
+                        "verified staged tool execution"
+                        if verified
+                        else str(usage.get("error_class") or "No matching native staging evidence")
+                    ),
+                    limitations=(
+                        "Staged non-executable text proposals only; host applies reviewed files through Git broker",
+                    ),
+                    permissions_required=("write_docs",),
+                    cost_characteristics={"billing_source": usage["billing_source"]},
+                    latency_characteristics={"observed_seconds": usage["duration"]},
+                )
+            )
+        return found
+
+    def discover_introspection(self, control):
+        found = []
+        for transport, spec in SPECS.items():
+            if spec["type"] != "CLI":
+                continue
+            snapshot = control.snapshot(transport)
+            model = (snapshot.get("workitem") or {}).get("actual_model") or "not_verified"
+            installed = control.transport(transport).capabilities()
+            for name in (
+                "native_web_access",
+                "native_x_access",
+                "shell_execution",
+                "git_operations",
+                "repository_editing",
+                "mcp",
+            ):
+                found.append(
+                    Capability(
+                        capability_id=f"{transport}:{model}:{name}",
+                        provider=spec["provider"],
+                        model=model,
+                        transport=transport,
+                        capability=name,
+                        native_or_tool_mediated="tool_mediated",
+                        status="UNAVAILABLE",
+                        verification_status="UNAVAILABLE",
+                        discovery_source="introspection",
+                        evidence=(
+                            "installed-tool-boundary:"
+                            + transport
+                            + ":"
+                            + installed["outer_boundary"],
+                        ),
+                        limitations=(
+                            "Not granted by the installed isolated transport. This is not a claim about the unrestricted provider product.",
+                        ),
+                        notes="Current granted tools: " + ", ".join(installed["granted"]),
                     )
                 )
         return found
