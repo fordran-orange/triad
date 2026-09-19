@@ -37,6 +37,10 @@ def failure_code(exc):
     # Preserve only a host-owned code; never persist arbitrary provider error text.
     if isinstance(exc, PermissionError) and str(exc) == "AUTONOMY_BUDGET_EXHAUSTED":
         return "AUTONOMY_BUDGET_EXHAUSTED"
+    from trading_core.resource_policy import ResourceBlocked
+
+    if isinstance(exc, ResourceBlocked):
+        return "BLOCKED_RESOURCE_LIMIT"
     return type(exc).__name__
 
 

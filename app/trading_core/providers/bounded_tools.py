@@ -4,6 +4,7 @@ The broker never exposes a host path, credentials, a shell, or container options
 Writes are exported proposals and require the existing independent review flow.
 """
 
+import hashlib
 import json
 import secrets
 import threading
@@ -15,14 +16,14 @@ from trading_core.security import ensure_no_secret
 
 
 class BoundedTools:
-    def __init__(self, files, *, writable=(), guard=lambda: None, max_calls=30):
+    def __init__(self, files, *, writable=(), guard=lambda: None, max_calls=30, resources=None):
         if (
             not isinstance(files, dict)
             or len(files) > 64
             or not all(isinstance(v, str) for v in files.values())
             or sum(len(v.encode()) for v in files.values()) > MAX_BYTES
             or type(max_calls) is not int
-            or not 1 <= max_calls <= 30
+            or not 1 <= max_calls <= 1000
         ):
             raise ValueError("Invalid bounded workspace")
         self.files = {safe_path(k): v for k, v in files.items()}
@@ -30,6 +31,7 @@ class BoundedTools:
         self.writable = tuple(safe_path(p) for p in writable)
         self.guard = guard
         self.max_calls = max_calls
+        self.resources = resources
         self.calls = []
         self.denials = 0
         self.sandbox = OfflineSandbox()
@@ -42,7 +44,10 @@ class BoundedTools:
     def call(self, name, arguments):
         with self.lock:
             self.guard()
-            if len(self.calls) + self.denials >= self.max_calls:
+            if self.resources:
+                self.resources.check_time()
+                self.resources.consume_tool()
+            elif len(self.calls) + self.denials >= self.max_calls:
                 raise PermissionError("Tool budget exhausted")
             try:
                 if not isinstance(arguments, dict):
@@ -88,6 +93,11 @@ class BoundedTools:
                 self.guard()
                 self.files.update(result.files)
                 self.calls.append({"tool": name, "path": path, "boundary": result.boundary})
+                if self.resources:
+                    self.resources.observe(
+                        "authorized_read" if name == "read_file" else "valid_proposal",
+                        path + ":" + hashlib.sha256(self.files[path].encode()).hexdigest(),
+                    )
                 return (
                     result.stdout
                     if name == "read_file"

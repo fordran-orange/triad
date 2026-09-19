@@ -6,6 +6,9 @@ authorized operation succeeds; model claims never count as progress evidence.
 
 import hashlib
 import json
+import math
+import threading
+import time
 from enum import StrEnum
 
 from pydantic import AwareDatetime, Field
@@ -86,7 +89,9 @@ def scope_digest(work):
 class ResourceSession:
     """One host run. No API accepts caller-supplied grants or progress records."""
 
-    def __init__(self, ledger, request, allocations, *, billing_source, day=None):
+    def __init__(
+        self, ledger, request, allocations, *, billing_source, day=None, review_reason=None
+    ):
         if ledger.store.scope is not None:
             raise PermissionError("Resource sessions require the trusted Core host executor")
         self.ledger, self.request, self.day = ledger, request, day
@@ -101,6 +106,12 @@ class ResourceSession:
             raise ValueError("Every resource requires a positive initial allocation")
         self.scope = scope_digest(self.work)
         self.billing_source = billing_source
+        self.review_reason = review_reason
+        self.started = time.monotonic()
+        self.time_allocation = self.initial[ResourceType.TIME]
+        self.blocked = None
+        self.tool_calls = 0
+        self.tool_lock = threading.Lock()
         self._guard()
         with self.host.store.connect() as conn:
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (request.run_id,))
@@ -180,6 +191,18 @@ class ResourceSession:
             if r["payload"]["resource_type"] == resource_type
         )
 
+    def check_time(self):
+        if self.blocked is not None:
+            raise ResourceBlocked(self.blocked)
+        elapsed = math.ceil(time.monotonic() - self.started)
+        if elapsed > self.time_allocation:
+            self.time_allocation = self.ensure(ResourceType.TIME, elapsed)
+
+    def consume_tool(self):
+        with self.tool_lock:
+            self.tool_calls += 1
+            return self.ensure(ResourceType.TOOLS, self.tool_calls)
+
     def ensure(self, resource_type, required, *, reason="Initial allocation reached"):
         resource_type = ResourceType(resource_type)
         if type(required) is not int or required < 0:
@@ -192,13 +215,19 @@ class ResourceSession:
             decisions = [r["payload"] for r in self._rows(conn, "ResourceExtensionDecision")]
             denied = next((d for d in decisions if d["decision"] != "ALLOW"), None)
             if denied:
+                self.blocked = denied
                 raise ResourceBlocked(denied)
             current = self.initial[resource_type] + sum(
                 d["granted_amount"] for d in decisions if d["resource_type"] == resource_type
             )
             if required <= current:
                 return current
-            used = {e for d in decisions for e in d["progress_evidence"]}
+            used = {
+                e
+                for d in decisions
+                if d["resource_type"] == resource_type
+                for e in d["progress_evidence"]
+            }
             progress = tuple(
                 r["id"] for r in self._rows(conn, "ResourceProgress") if r["id"] not in used
             )
@@ -249,6 +278,8 @@ class ResourceSession:
                     "REQUIRE_HUMAN_APPROVAL",
                     "Additional cost requires an explicit cost reservation",
                 )
+            elif self.review_reason:
+                decision, explanation = "REQUIRE_HUMAN_APPROVAL", self.review_reason
             if decision == "ALLOW":
                 try:
                     self.ledger.reserve(
@@ -298,5 +329,6 @@ class ResourceSession:
                 },
             )
         if decision != "ALLOW":
+            self.blocked = result
             raise ResourceBlocked(result)
         return current + additional

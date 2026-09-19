@@ -86,8 +86,8 @@ class LineProcess:
         self.process.stdin.flush()
 
     def receive(self, timeout=20, guard=lambda: None):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        while deadline is None or time.monotonic() < deadline:
             guard()
             try:
                 return self.messages.get(timeout=0.1)
@@ -123,7 +123,7 @@ class CodexExecutor:
     Only the trusted orchestration process receives the unpredictable relay URL.
     """
 
-    def __init__(self, files, *, guard, writable=(), max_tool_calls=30):
+    def __init__(self, files, *, guard, writable=(), max_tool_calls=30, resources=None):
         self.files = {safe_path(k): v for k, v in files.items()}
         if writable:
             raise PermissionError("The Codex executor is currently read-only")
@@ -134,9 +134,10 @@ class CodexExecutor:
             raise ValueError("Executor input too large")
         ensure_no_secret(files)
         self.guard = guard
-        if not 1 <= max_tool_calls <= 30:
+        if not 1 <= max_tool_calls <= 1000:
             raise ValueError("Invalid executor tool-call budget")
         self.max_tool_calls = max_tool_calls
+        self.resources = resources
         self.tool_calls = 0
         self.name = "triad-tools-" + uuid4().hex
         self.environment_id = "triad-" + uuid4().hex
@@ -160,7 +161,9 @@ class CodexExecutor:
         ensure_no_secret(params)
         if method in {"process/start", "fs/readFile"}:
             self.tool_calls += 1
-            if self.tool_calls > self.max_tool_calls:
+            if self.resources:
+                self.resources.consume_tool()
+            elif self.tool_calls > self.max_tool_calls:
                 raise PermissionError("WorkItem tool budget exhausted")
         if method in {
             "initialize",
@@ -266,7 +269,7 @@ class CodexExecutor:
         def outbound():
             try:
                 while not self.stopped.is_set():
-                    message = self.process.receive(timeout=120, guard=self.guard)
+                    message = self.process.receive(timeout=None, guard=self.guard)
                     if "error" in message:
                         self.responses.append(message["error"])
                     socket.send(json.dumps(message))
@@ -278,7 +281,7 @@ class CodexExecutor:
             for raw in socket:
                 self.guard()
                 self.frame_count += 1
-                if self.frame_count > 256 or len(self.requests) >= 30:
+                if self.frame_count > 8192:
                     raise PermissionError("Executor protocol budget exhausted")
                 message = json.loads(raw)
                 try:
@@ -327,7 +330,7 @@ class CodexExecutor:
 class CodexReadOnlyRun:
     """Version-pinned read-only Codex native execution and structured results."""
 
-    def __init__(self, command, guard, max_tool_calls=30):
+    def __init__(self, command, guard, max_tool_calls=30, *, resources=None):
         self.command = command
         self.guard = guard
         self.max_tool_calls = max_tool_calls
@@ -335,6 +338,7 @@ class CodexReadOnlyRun:
         self.actual_model = None
         self.commands = ()
         self.evidence = {}
+        self.resources = resources
 
     def cancel(self):
         self.cancelled.set()
@@ -343,11 +347,17 @@ class CodexReadOnlyRun:
         deadline = time.monotonic() + 110
 
         def check():
-            if self.cancelled.is_set() or time.monotonic() >= deadline:
+            if self.cancelled.is_set():
+                raise ProviderError("DEGRADED", "DeadlineExceeded")
+            if self.resources:
+                self.resources.check_time()
+            elif time.monotonic() >= deadline:
                 raise ProviderError("DEGRADED", "DeadlineExceeded")
             self.guard()
 
-        with CodexExecutor(files, guard=check, max_tool_calls=self.max_tool_calls) as executor:
+        with CodexExecutor(
+            files, guard=check, max_tool_calls=self.max_tool_calls, resources=self.resources
+        ) as executor:
             # Empty MCP table and disabled local integrations prevent unrelated
             # user-configured integrations entering this dedicated subprocess.
             app = LineProcess(
@@ -478,7 +488,7 @@ class CodexReadOnlyRun:
                     },
                 )
                 while True:
-                    done, params = observe(app.receive(timeout=110, guard=check))
+                    done, params = observe(app.receive(timeout=None, guard=check))
                     if done:
                         if params["turn"]["status"] != "completed":
                             raise ProviderError("DEGRADED", "CodexTurnFailed")

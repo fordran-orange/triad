@@ -206,20 +206,32 @@ class Development(ExecutionServices):
             if write:
                 self.failed_build(mission, work, request.run_id, exc)
             current = self.host.store.get(work.work_item_id)
+            from trading_core.resource_policy import ResourceBlocked
+
+            blocked = isinstance(exc, ResourceBlocked)
             if current.status == State.IN_PROGRESS:
                 self.host.advance(
-                    current, State.FAILED, "Product run failed: " + type(exc).__name__
+                    current,
+                    State.BLOCKED if blocked else State.FAILED,
+                    "Resource extension blocked"
+                    if blocked
+                    else "Product run failed: " + type(exc).__name__,
+                    failure_reason="BLOCKED_RESOURCE_LIMIT" if blocked else type(exc).__name__,
                 )
             self.journal_event(
                 mission,
-                "Run failed; evidence retained",
+                "Resource extension blocked; evidence retained"
+                if blocked
+                else "Run failed; evidence retained",
                 work_item_id=work.work_item_id,
                 error_class=type(exc).__name__,
-                phase="FAILED",
+                phase="BLOCKED_RESOURCE_LIMIT" if blocked else "FAILED",
             )
             raise
 
     def failed_build(self, mission, work, run_id, exc):
+        from trading_core.resource_policy import ResourceBlocked
+
         checkpoints = [
             r
             for r in self.rows("ProductBuildCheckpoint", mission)
@@ -238,7 +250,7 @@ class Development(ExecutionServices):
             change_commit="failed:" + run_id,
             files=(),
             tests=(),
-            status="FAILED",
+            status="BLOCKED_RESOURCE_LIMIT" if isinstance(exc, ResourceBlocked) else "FAILED",
             evidence=("run:" + run_id, "failure:" + type(exc).__name__),
         )
         self.quality.implementation(failed)

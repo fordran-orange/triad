@@ -71,7 +71,14 @@ def engine(tmp_path):
         if r.get(key) and isinstance(r[key], str)
     )
     for row in canonical:
-        for key in ("journal_id", "handoff_id", "review_id", "policy_decision_id", "packet_id"):
+        for key in (
+            "journal_id",
+            "handoff_id",
+            "review_id",
+            "policy_decision_id",
+            "packet_id",
+            "event_id",
+        ):
             if key in row:
                 ids.append(row[key])
         if row["kind"] == "JournalEntry":

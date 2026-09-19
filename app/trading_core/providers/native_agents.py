@@ -47,17 +47,22 @@ def token_count(value):
 
 
 class NativeRun:
-    def __init__(self, command, guard, max_tool_calls=30):
+    def __init__(self, command, guard, max_tool_calls=30, *, resources=None):
         self.command, self.guard = command, guard
         self.max_tool_calls = max_tool_calls
         self.cancelled = threading.Event()
         self.actual_model = None
         self.evidence = {}
         self.broker = None
+        self.resources = resources
         self.deadline = time.monotonic() + 110
 
     def check(self):
-        if self.cancelled.is_set() or time.monotonic() >= self.deadline:
+        if self.cancelled.is_set():
+            raise ProviderError("DEGRADED", "DeadlineExceeded")
+        if self.resources:
+            self.resources.check_time()
+        elif time.monotonic() >= self.deadline:
             raise ProviderError("DEGRADED", "DeadlineExceeded")
         self.guard()
 
@@ -216,7 +221,7 @@ class GrokSession:
         # frame ceiling without truncating ordinary multi-file reads; wall time,
         # per-frame size, total text and tool-call limits remain independent.
         for _ in range(4096):
-            message = self.process.receive(timeout=110, guard=self.guard)
+            message = self.process.receive(timeout=None, guard=self.guard)
             if message.get("id") == identifier and "method" not in message:
                 if "error" in message:
                     raise ProviderError("UNAVAILABLE", "GrokProtocolRejected")
@@ -321,7 +326,11 @@ def grok_preflight(command, cwd):
 class GrokRun(NativeRun):
     def execute(self, request, files, model="Auto", writable=()):
         self.broker = BoundedTools(
-            files, writable=writable, guard=self.check, max_calls=self.max_tool_calls
+            files,
+            writable=writable,
+            guard=self.check,
+            max_calls=self.max_tool_calls,
+            resources=self.resources,
         )
         with native_workspace(prefix="triad-grok-run-") as cwd:
             grok_preflight(self.command, cwd)
@@ -484,7 +493,11 @@ def claude_initialize(app, guard, expected):
 class ClaudeRun(NativeRun):
     def execute(self, request, files, model="Auto", writable=()):
         self.broker = BoundedTools(
-            files, writable=writable, guard=self.check, max_calls=self.max_tool_calls
+            files,
+            writable=writable,
+            guard=self.check,
+            max_calls=self.max_tool_calls,
+            resources=self.resources,
         )
         with (
             native_workspace(prefix="triad-claude-run-") as cwd,
@@ -505,7 +518,7 @@ class ClaudeRun(NativeRun):
                     }
                 )
                 for _ in range(512):
-                    message = app.receive(timeout=110, guard=self.check)
+                    message = app.receive(timeout=None, guard=self.check)
                     if message.get("type") == "system" and message.get("subtype") == "init":
                         # StructuredOutput is a vendor result formatter, not an OS tool.
                         tools = set(message.get("tools", [])) - {"StructuredOutput"}

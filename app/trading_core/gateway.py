@@ -12,17 +12,21 @@ from trading_core.work import WorkItem
 
 
 class ToolGateway:
-    def __init__(self, work: WorkItem, root: Path = ROOT):
+    def __init__(self, work: WorkItem, root: Path = ROOT, *, resources=None):
         self.work = WorkItem.model_validate(work.model_dump())
         self.root = root.resolve()
         self.calls = 0
         self.started = time.monotonic()
         self.evidence: list[str] = []
         self.changed: list[str] = []
+        self.resources = resources
 
     def check(self, tool: str, path: str) -> Path:
         self.calls += 1
-        if (
+        if self.resources:
+            self.resources.check_time()
+            self.resources.consume_tool()
+        elif (
             self.calls > self.work.compute_budget.max_tool_calls
             or time.monotonic() - self.started > self.work.compute_budget.timeout_seconds
         ):
@@ -119,6 +123,8 @@ class ToolGateway:
             raise PermissionError("File exceeds bounded read size")
         data = target.read_bytes()
         self.evidence.append(f"sha256:{hashlib.sha256(data).hexdigest()}:{path}")
+        if self.resources:
+            self.resources.observe("authorized_read", path + ":" + hashlib.sha256(data).hexdigest())
         return data.decode("utf-8-sig")
 
     def write(self, path: str, content: str) -> None:

@@ -79,7 +79,7 @@ class ImplementationRun(Record):
     files: tuple[str, ...]
     tests: tuple[str, ...]
     evidence: tuple[str, ...]
-    status: Literal["IMPLEMENTED", "FAILED"] = "IMPLEMENTED"
+    status: Literal["IMPLEMENTED", "FAILED", "BLOCKED_RESOURCE_LIMIT"] = "IMPLEMENTED"
     created_at: datetime = Field(default_factory=now)
     started_at: datetime | None = None
     completed_at: datetime | None = None

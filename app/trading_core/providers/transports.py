@@ -313,7 +313,8 @@ class CLITransport(BaseTransport):
         work = self.control.ledger.store.get(request.work_item_id)
         if request.execution_permissions != ("read",) or set(request.allowed_tools) - {"read_file"}:
             raise PermissionError("Codex currently supports read-only review only")
-        gateway = ToolGateway(work)
+        resources = getattr(self, "resources", None)
+        gateway = ToolGateway(work, resources=resources)
         files = {}
         # Exact file grants only; never recursively expose a host directory.
         if "read_file" in request.allowed_tools:
@@ -324,7 +325,7 @@ class CLITransport(BaseTransport):
             request.agent_id, request.work_item_id, request.control_epoch
         )
         self.native_run = CodexReadOnlyRun(
-            self.command(), guard, min(30, work.compute_budget.max_tool_calls)
+            self.command(), guard, work.compute_budget.max_tool_calls, resources=resources
         )
         try:
             result = self.native_run.execute(request, files, self.model)
@@ -346,7 +347,8 @@ class CLITransport(BaseTransport):
         if not self.readonly_ready() or request.role not in {"REVIEW", "PROPOSE", "IMPLEMENT"}:
             raise ProviderError("UNAVAILABLE", "OuterBoundaryUnavailable")
         work = self.control.ledger.store.get(request.work_item_id)
-        gateway = ToolGateway(work)
+        resources = getattr(self, "resources", None)
+        gateway = ToolGateway(work, resources=resources)
         files, writable = {}, ()
         if request.role == "REVIEW":
             if request.execution_permissions != ("read",) or set(request.allowed_tools) - {
@@ -371,7 +373,9 @@ class CLITransport(BaseTransport):
             request.agent_id, request.work_item_id, request.control_epoch
         )
         runner = ClaudeRun if self.agent == "CLAUDE" else GrokRun
-        self.native_run = runner(self.command(), guard, min(30, work.compute_budget.max_tool_calls))
+        self.native_run = runner(
+            self.command(), guard, work.compute_budget.max_tool_calls, resources=resources
+        )
         try:
             result = self.native_run.execute(request, files, self.model, writable)
             self.actual_model = self.native_run.actual_model

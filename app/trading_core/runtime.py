@@ -2,6 +2,7 @@ from trading_core.resources import resource
 
 """Four provider adapters behind one envelope; no credentials enter prompts or records."""
 
+import hashlib
 import json
 import math
 import os
@@ -21,6 +22,7 @@ from trading_core.contracts import (
     ImprovementProposal,
     ProviderHealth,
 )
+from trading_core.resource_policy import ResourceBlocked, ResourceSession, ResourceType
 from trading_core.security import ensure_no_secret
 from trading_core.settings import ROOT
 from trading_core.work import now
@@ -528,10 +530,7 @@ class Runtime:
         if configured_agent:
             timeout = min(timeout, configured_agent["budget"]["timeout_seconds"])
         _, prompt = compile_prompt(request)
-        if (
-            len(prompt) > min(limits["max_input_chars"], canonical.compute_budget.max_input_chars)
-            or request.token_budget > limits["max_output_tokens"]
-        ):
+        if request.token_budget > limits["max_output_tokens"]:
             raise PermissionError("Runtime envelope exceeds host limits")
         if request.policy_decision.get("decision") not in {"ALLOW", "REQUIRE_REVIEW"}:
             raise PermissionError("Runtime requires approved Control Plane decision")
@@ -577,6 +576,30 @@ class Runtime:
             if hasattr(adapter, "billing_source")
             else "UNKNOWN",
         )
+        from trading_core.ledger import Ledger
+        from trading_core.store import Store
+
+        resources = ResourceSession(
+            Ledger(Store(self.ledger.store.settings)),
+            request,
+            {
+                ResourceType.REASONING: max(1, request.reasoning_budget),
+                ResourceType.INPUT: min(
+                    limits["max_input_chars"], canonical.compute_budget.max_input_chars
+                ),
+                ResourceType.OUTPUT: request.token_budget,
+                ResourceType.TIME: timeout,
+                ResourceType.TOOLS: canonical.compute_budget.max_tool_calls,
+            },
+            billing_source=adapter.billing_source()
+            if hasattr(adapter, "billing_source")
+            else "UNKNOWN",
+            day=day,
+            review_reason="Specialist lifetime allocation requires a separate reviewed grant"
+            if configured_agent
+            else None,
+        )
+        adapter.resources = resources
         self.ledger.put(
             "AgentRunRequest",
             request.model_dump(mode="json"),
@@ -627,16 +650,17 @@ class Runtime:
 
         usage_known = False
         try:
+            if len(prompt) > resources.initial[ResourceType.INPUT]:
+                resources.observe("accepted_context", hashlib.sha256(prompt.encode()).hexdigest())
+                resources.ensure(ResourceType.INPUT, len(prompt))
             with self.ledger.gate(request.agent_id, request.work_item_id, epoch):
                 threading.Thread(target=invoke, daemon=True).start()
             while True:
                 self.ledger.guard(request.agent_id, request.work_item_id, epoch)
-                if time.monotonic() - started > timeout:
-                    raise ProviderError("DEGRADED", "DeadlineExceeded")
+                resources.check_time()
                 try:
                     okay, value = results.get(timeout=0.2)
-                    if time.monotonic() - started > timeout:
-                        raise ProviderError("DEGRADED", "DeadlineExceeded")
+                    resources.check_time()
                     break
                 except queue.Empty:
                     continue
@@ -659,9 +683,9 @@ class Runtime:
             self.ledger.guard(request.agent_id, request.work_item_id, epoch)
             result = AgentRunResult.model_validate(result.model_dump())
             ensure_no_secret(result.model_dump(mode="json"))
+            resources.ensure(ResourceType.OUTPUT, outputs)
             if (
                 result.run_id != request.run_id
-                or outputs > min(request.token_budget, max(1, request.reasoning_budget))
                 or inputs > input_ceiling
                 or result.commands_executed
                 or any(c.kind in {"FACT", "TEST_RESULT"} for c in result.claims)
@@ -680,8 +704,12 @@ class Runtime:
         except Exception as exc:
             if hasattr(adapter, "cancel"):
                 adapter.cancel()
-            status = exc.status if isinstance(exc, ProviderError) else "FAILED"
-            error = exc.error_class if isinstance(exc, ProviderError) else type(exc).__name__
+            status = exc.status if isinstance(exc, (ProviderError, ResourceBlocked)) else "FAILED"
+            error = (
+                exc.error_class
+                if isinstance(exc, (ProviderError, ResourceBlocked))
+                else type(exc).__name__
+            )
             if not usage_known and getattr(adapter, "transport_type", None) == "CLI":
                 # The native harness may finish inference but reject the returned
                 # schema or tool evidence. Preserve measured usage on that path.
