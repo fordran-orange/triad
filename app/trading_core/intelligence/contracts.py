@@ -22,6 +22,11 @@ HOST_RECORD_KINDS = frozenset(
         "AgentPromotion",
         "CapabilityRoutingDecision",
         "QualityDebtResolution",
+        "ResourceAllocation",
+        "ResourceProgress",
+        "ResourceExtensionRequest",
+        "ResourceExtensionDecision",
+        "ResourceRunState",
     }
 )
 
