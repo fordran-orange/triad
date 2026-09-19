@@ -38,3 +38,19 @@ Schwab's [official Trader API discussion](https://www.schwab.com/learn/story/way
 ## Acceptance
 
 The shell scope is appropriately limited, but the candidate-to-implementation evidence boundary and metadata confidentiality are not ready for acceptance. Grouped corrections require a new independent QA run on their exact revision, preserving this failed evidence. No passing D/E verdict is issued here.
+
+## Fresh correction QA — 0b1a26e
+
+Verdict remains **CHANGES_REQUIRED** on archived exact revision `0b1a26e970e52402d7875e9876e21b7472b4da6b`. Source/test hashes are recorded in `DAY7_DE_QA_CORRECTION_HASHES.json`. The archived source import location is asserted in the log; concurrent later F/runtime/UI changes were excluded. No implementation edits were made by QA.
+
+`logs/day7-de-qa-correction.log`: **13 passed, 3 failed in32.53seconds**. The expanded independent suite repeats the original failures and adds positive adoption, independently varied evidence/candidate/build/commit links, replay/deprecation, and raw legacy metadata checks. Agent A completed its DB run before this one; agent B was notified when the DB slot became free.
+
+**DAY7-DE-001 and DAY7-DE-002 are resolved on this revision.** A matching Core implementation with exact candidate/definition fingerprint and passing QA adopts successfully once and can subsequently deprecate. Wrong candidate evidence, wrong definition hash, wrong requested commit and each wrong embedded candidate/build/commit link are rejected. Unrelated product-owned QA and an unrelated implemented capability are rejected. Raw malformed IntegrationDefinition records are quarantined on shared catalog reads.
+
+**DAY7-DE-003 remains open**, with three retained adversarial failures:
+
+1. A nested transport endpoint beginning with uppercase `HTTPS://` and URL userinfo is accepted because URL detection only recognizes lowercase scheme prefixes. URL scheme case must not bypass credential rejection.
+2. An ordinary nested `headers.X-API-Key` credential field is accepted because its normalized name is `xapikey`, which is absent from the exact-name deny list. Obvious authorization-header variants need the same protection as `api_key`.
+3. Catalog connection overlays are not typed/public-metadata validated. A raw legacy IntegrationConnection whose `status` is a dictionary containing a synthetic `api_key` is merged into the otherwise clean definition and returned to product consumers. Apply validation/quarantine to connections before merging them, and validate canonical connection writes too.
+
+All credential values in these tests are synthetic. No account connection, authentication or production integration mutation occurred. A further metadata correction and fresh independent QA are required; the passing adoption tests must remain passing.

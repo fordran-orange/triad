@@ -30,6 +30,10 @@ class Records:
             from trading_core.integrations.contracts import IntegrationRecord
 
             payload = IntegrationRecord.model_validate(payload).model_dump(mode="json")
+        if kind == "IntegrationConnection":
+            from trading_core.integrations.contracts import IntegrationConnection
+
+            payload = IntegrationConnection.model_validate(payload).model_dump(mode="json")
         ensure_no_secret(payload)
         if conn is None:
             with self.store.connect() as connection:

@@ -15,6 +15,7 @@ from trading_core.integrations.adapters import (
 )
 from trading_core.integrations.contracts import IntegrationCandidate, IntegrationRecord
 from trading_core.integrations.registry import ExternalIntegrationRegistry
+from trading_core.intelligence.contracts import ImplementationRun
 from trading_core.intelligence.quality import Quality
 from trading_core.store import Store
 from trading_core.work import WorkItem
@@ -225,3 +226,164 @@ def test_all_shell_operations_fail_closed_even_if_metadata_overclaims(factory, m
     for method in (shell.place_order, shell.cancel_order, shell.replace_order):
         with pytest.raises(PermissionError):
             method({"symbol": "SPY"})
+
+
+def adoption_fixture(registry, identifier, *, change=None, evidence_override=None):
+    from trading_core.integrations.registry import definition_fingerprint
+
+    run = ImplementationRun(
+        owner="core",
+        builder="fixture-builder",
+        provider="host",
+        model="fixture",
+        transport="host",
+        base_commit="base",
+        change_commit="adapter-commit",
+        files=("app/trading_core/integrations/fixture_adapter.py",),
+        tests=("independent adapter regression",),
+        evidence=(),
+    )
+    value = definition(
+        **(
+            {
+                "candidate_id": identifier,
+                "implementation_run_id": run.implementation_run_id,
+                "implementation_commit": run.change_commit,
+            }
+            | (change or {})
+        )
+    )
+    evidence = (
+        "integration-candidate:" + identifier,
+        "integration-definition-sha256:" + definition_fingerprint(value.model_dump(mode="json")),
+    )
+    if callable(evidence_override):
+        evidence = evidence_override(evidence)
+    run = run.model_copy(
+        update={
+            "evidence": evidence if callable(evidence_override) else evidence_override or evidence
+        }
+    )
+    registry.host.append("IntegrationDefinition", value.model_dump(mode="json"), owner="core")
+    Quality(registry.host).implementation(run)
+    Quality(registry.host).review(qa(run))
+    return run
+
+
+@pytest.mark.integration
+def test_exact_reviewed_core_adapter_adopts_once_and_deprecates(engine):
+    registry = ExternalIntegrationRegistry(engine.host.store)
+    identifier = approve(registry)
+    run = adoption_fixture(registry, identifier)
+    decision = registry.mark_implemented(
+        identifier, "fixture-vendor", run.implementation_run_id, run.change_commit
+    )
+    assert registry.host.get(decision)["status"] == "IMPLEMENTED"
+    assert registry.candidates()[0]["status"] == "IMPLEMENTED"
+    with pytest.raises(PermissionError):
+        registry.mark_implemented(
+            identifier, "fixture-vendor", run.implementation_run_id, run.change_commit
+        )
+    registry.decide(identifier, "DEPRECATED", "Retired test adapter")
+    assert registry.candidates()[0]["status"] == "DEPRECATED"
+
+
+@pytest.mark.integration
+def test_wrong_adoption_links_and_capability_digest_rejected(engine):
+    registry = ExternalIntegrationRegistry(engine.host.store)
+    for wrong in (
+        "candidate",
+        "definition",
+        "commit",
+        "linked_candidate",
+        "linked_build",
+        "linked_commit",
+    ):
+        identifier = approve(registry)
+
+        def alter_evidence(evidence, wrong=wrong):
+            return (
+                ("integration-candidate:other" if wrong == "candidate" else evidence[0]),
+                ("integration-definition-sha256:wrong" if wrong == "definition" else evidence[1]),
+            )
+
+        change = {
+            "linked_candidate": {"candidate_id": "other"},
+            "linked_build": {"implementation_run_id": "other"},
+            "linked_commit": {"implementation_commit": "other"},
+        }.get(wrong)
+        run = adoption_fixture(
+            registry, identifier, change=change, evidence_override=alter_evidence
+        )
+        with pytest.raises(PermissionError):
+            registry.mark_implemented(
+                identifier,
+                "fixture-vendor",
+                run.implementation_run_id,
+                "wrong-commit" if wrong == "commit" else run.change_commit,
+            )
+
+
+@pytest.mark.integration
+def test_legacy_raw_invalid_definition_quarantined(engine):
+    from psycopg.types.json import Jsonb
+    from trading_core.work import uid
+
+    registry = ExternalIntegrationRegistry(engine.host.store)
+    registry.seed()
+    bad = definition().model_dump(mode="json") | {
+        "endpoint": "https://fixture-user:synthetic-secret@example.invalid/data"
+    }
+    with engine.host.store.connect() as conn:
+        conn.execute(
+            "INSERT INTO core.intelligence_records(id,kind,owner,payload) VALUES (%s,%s,%s,%s)",
+            (uid(), "IntegrationDefinition", "core", Jsonb(bad)),
+        )
+    product = ExternalIntegrationRegistry(Store(engine.host.store.settings, scope="triad"))
+    assert {r["integration_id"] for r in product.catalog()} == {"schwab", "robinhood"}
+
+
+@pytest.mark.integration
+def test_legacy_invalid_connection_cannot_leak_into_shared_catalog(engine):
+    from psycopg.types.json import Jsonb
+    from trading_core.work import now, uid
+
+    registry = ExternalIntegrationRegistry(engine.host.store)
+    registry.seed()
+    marker = "synthetic-qa-connection-credential"
+    with engine.host.store.connect() as conn:
+        conn.execute(
+            "INSERT INTO core.intelligence_records(id,kind,owner,payload) VALUES (%s,%s,%s,%s)",
+            (
+                uid(),
+                "IntegrationConnection",
+                "core",
+                Jsonb(
+                    {
+                        "integration_id": "schwab",
+                        "checked_at": now().isoformat(),
+                        "connected": False,
+                        "status": {"api_key": marker},
+                    }
+                ),
+            ),
+        )
+    product = ExternalIntegrationRegistry(Store(engine.host.store.settings, scope="triad"))
+    assert marker not in str(product.catalog()), (
+        "Invalid connection metadata leaked through catalog merge"
+    )
+
+
+@pytest.mark.parametrize(
+    "transport",
+    [
+        {
+            "transport": "REST",
+            "endpoint": "HTTPS://fixture-user:synthetic-secret@example.invalid/data",
+        },
+        {"transport": "REST", "headers": {"X-API-Key": "synthetic-never-real"}},
+    ],
+)
+def test_obvious_credential_metadata_variants_rejected(transport):
+    with pytest.raises(ValueError):
+        definition(transports=(transport,))

@@ -34,23 +34,33 @@ def public_metadata(value):
     if isinstance(value, dict):
         for key, item in value.items():
             compact = str(key).lower().replace("_", "").replace("-", "").replace(" ", "")
-            if compact in {
-                "apikey",
-                "password",
-                "token",
-                "accesstoken",
-                "refreshtoken",
-                "authorization",
-                "secret",
-                "clientsecret",
-                "credentials",
-            }:
+            if (
+                compact.endswith("apikey")
+                or compact.endswith("accesstoken")
+                or compact.endswith("refreshtoken")
+                or compact
+                in {
+                    "apikey",
+                    "password",
+                    "token",
+                    "accesstoken",
+                    "refreshtoken",
+                    "authorization",
+                    "secret",
+                    "clientsecret",
+                    "credentials",
+                    "headers",
+                    "cookies",
+                    "cookie",
+                    "bearer",
+                }
+            ):
                 raise ValueError("Credential fields cannot enter public integration metadata")
             public_metadata(item)
     elif isinstance(value, (list, tuple)):
         for item in value:
             public_metadata(item)
-    elif isinstance(value, str) and value.startswith(("https://", "http://")):
+    elif isinstance(value, str) and value.lower().startswith(("https://", "http://")):
         parsed = urlsplit(value)
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError(
@@ -103,6 +113,11 @@ class IntegrationConnection(Record):
     last_success: AwareDatetime | None = None
     last_failure: AwareDatetime | None = None
     detail: str
+
+    @model_validator(mode="after")
+    def sanitized(self):
+        public_metadata(self.model_dump(mode="json"))
+        return self
 
 
 class IntegrationCandidate(Record):

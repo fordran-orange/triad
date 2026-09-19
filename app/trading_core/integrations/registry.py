@@ -47,6 +47,12 @@ class ExternalIntegrationRegistry:
                 latest[row["integration_id"]] = {**clean, "id": row["id"], "owner": "core"}
         for row in self.host.list("IntegrationConnection"):
             if row["owner"] == "core" and row["integration_id"] in latest:
+                try:
+                    row = IntegrationConnection.model_validate(
+                        {k: v for k, v in row.items() if k in IntegrationConnection.model_fields}
+                    ).model_dump(mode="json")
+                except ValueError:
+                    continue
                 item = latest[row["integration_id"]]
                 item.update(
                     last_health_check=row["checked_at"],

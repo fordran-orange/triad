@@ -1,0 +1,13 @@
+{
+  "revision": "0b1a26e970e52402d7875e9876e21b7472b4da6b",
+  "archive": "C:\\Users\\fordr\\AppData\\Local\\Temp\\triad-day7-de-correction-qa-d064c4504a2a460daa62cd8de8c3c006",
+  "files": {
+    "app/trading_core/integrations/contracts.py": "9c664b8b48208093edcd408984349fceeb8557fba56c83f01350b761a6c70e30",
+    "app/trading_core/integrations/adapters.py": "3f098ed14fdb321883027b922db3a35be8c4e08daf104516842169153b6feb99",
+    "app/trading_core/integrations/registry.py": "6687c8d5c77efb71d0b4c7ba83791ec5ec5e1a071491efba7d3861c2a8a57a16",
+    "app/trading_core/intelligence/contracts.py": "7b4784b83cd55d7282324f432e299b1e30bf8ae013fbf4a557bb59cea4d4d059",
+    "app/trading_core/intelligence/records.py": "b67998e7677a57c7be1f705284f56fd6f800e2e2d96133e8e606c8fac191bccf",
+    "tests/test_external_integrations.py": "ebf2a670a8d070b725ffe6ec92875af8ab919e8858c386fbfaaba0d0b1e793b9",
+    "tests/test_day7_de_qa.py": "e639c62f875c4b59479147d425243ae42aca0a72278ded459bbcbaf70d6abb44"
+  }
+}
