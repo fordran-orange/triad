@@ -87,6 +87,8 @@ class ResourceSession:
     """One host run. No API accepts caller-supplied grants or progress records."""
 
     def __init__(self, ledger, request, allocations, *, billing_source, day=None):
+        if ledger.store.scope is not None:
+            raise PermissionError("Resource sessions require the trusted Core host executor")
         self.ledger, self.request, self.day = ledger, request, day
         self.host = Records(Store(ledger.store.settings))
         self.work = ledger.store.get(request.work_item_id)

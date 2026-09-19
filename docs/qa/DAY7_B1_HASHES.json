@@ -1,0 +1,35 @@
+{
+  "revision": "40da1678ec4ad3ac108615d8f6e78fdbf7f08981",
+  "committed_blob_hashes": [
+    {
+      "path": "app/trading_core/resource_policy.py",
+      "sha256": "7356a5af1de6137c8b91d2ffb7964cf561e2880642741073c0732a2584d36e8c"
+    },
+    {
+      "path": "app/trading_core/intelligence/contracts.py",
+      "sha256": "b10d37e02af09b76830bec9617d02c7f9e9ad7cf8a618d4f679e362011e3277e"
+    },
+    {
+      "path": "tests/test_resource_policy.py",
+      "sha256": "87c5f49c113651745f70b7eef2c63962cc06fd6f42a9e7a3315ba365ca56d659"
+    },
+    {
+      "path": "docs/qa/DAY7_B1_BUILD.md",
+      "sha256": "f973cafebd28fb37386b2915d707b885331998ae5b2fe12a199471a1804f88cd"
+    }
+  ],
+  "qa_evidence": [
+    {
+      "path": "tests/test_day7_resource_policy_qa.py",
+      "sha256": "73ab8c5186c4ddebed69d8dd14982ec42635b7a4b5852f843eb354d7f8eef503"
+    },
+    {
+      "path": "logs/day7-b1-independent-tests.log",
+      "sha256": "8ca6a4ab3c8cf9a924934b6576358ce2520c90d0509787ca701275b6ebbf2448"
+    },
+    {
+      "path": "logs/day7-b1-independent-adversarial.log",
+      "sha256": "5f49696c4049dcfaa4a5d2d9cf3296f58e7d9e33f24c8199a46a4c67edd63e84"
+    }
+  ]
+}
