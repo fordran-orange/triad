@@ -162,7 +162,7 @@ class Store:
 
         require_owner(self.scope, work.owner)
         if work.parent_work_item_id:
-            parent = self.get(work.parent_work_item_id)
+            parent = self.get(work.parent_work_item_id, conn=conn)
             from trading_core.product_identity import same_product
 
             if not same_product(parent.owner, work.owner):
@@ -236,11 +236,13 @@ class Store:
         for record in records:
             self.add_record(record, conn=conn)
 
-    def get(self, work_id: str) -> WorkItem:
-        with self.connect() as conn:
-            row = conn.execute(
-                "SELECT payload,owner FROM core.work_items WHERE id=%s", (work_id,)
-            ).fetchone()
+    def get(self, work_id: str, *, conn=None) -> WorkItem:
+        if conn is None:
+            with self.connect() as connection:
+                return self.get(work_id, conn=connection)
+        row = conn.execute(
+            "SELECT payload,owner FROM core.work_items WHERE id=%s", (work_id,)
+        ).fetchone()
         if not row:
             raise KeyError(work_id)
         from trading_core.ownership import require_owner

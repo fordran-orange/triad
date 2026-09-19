@@ -336,6 +336,12 @@ class Daily:
         draft = self.product.get(draft_id)
         if draft["kind"] != "DailyDebriefDraft" or digest(draft["debrief"]) != draft["digest"]:
             raise PermissionError("Debrief hash does not match")
+        cycle = self.current(draft["cycle_id"])
+        self.product.ledger.guard(
+            work_id=cycle["parent_work_item_id"], epoch=cycle["control_epoch"]
+        )
+        if cycle["status"] != "DEBRIEFING":
+            raise PermissionError("Only an active debriefing cycle may publish")
         commit = "debrief:" + draft["digest"]
         qa = Quality(self.host).require_pass(implementation_id, commit)
         assessment = digest(
