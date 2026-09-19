@@ -72,9 +72,67 @@ class DailyDevelopment(Development):
         return self.daily.transition(mission, state, evidence, **updates)
 
     def inspect(self, mission):
+        import httpx
+
         current = Readiness().catalog()
+        # Freeze historical product evidence before the first inspector runs;
+        # later inspectors never receive this cycle's earlier conclusions.
+        inspections = [
+            r for r in self.records.list("ProductInspection") if r.get("mission_id") != mission
+        ][-3:]
+        areas = [
+            {"inspection_id": r["id"], "agent": r.get("agent"), **area}
+            for r in inspections
+            for area in r.get("areas", [])
+        ]
+        control = self.ledger.control()
+        worker = {"checked_at": now().isoformat(), "status": "UNKNOWN"}
+        try:
+            response = httpx.get("http://127.0.0.1:8101/health/live", timeout=5, trust_env=False)
+            response.raise_for_status()
+            health = response.json()
+            worker["status"] = (
+                "UP"
+                if health.get("status") == "ok" and health.get("product") == "triad"
+                else "UNKNOWN"
+            )
+        except (httpx.HTTPError, ValueError):
+            worker["status"] = "UNAVAILABLE"
+        worker["evidence"] = "Read-only Triad worker /health/live; liveness is not task success"
         context = {
             "product_schema": ProductInspection.model_json_schema(),
+            "product_map": areas,
+            "capability_inventory": [
+                {
+                    k: a.get(k)
+                    for k in ("inspection_id", "capability", "state", "limitations", "evidence")
+                }
+                for a in areas
+            ],
+            "improvement_backlog": [
+                {
+                    k: r.get(k)
+                    for k in ("id", "candidate_id", "title", "product_area", "status", "evidence")
+                }
+                for r in self.records.list("ProductCandidate")
+                if r.get("mission_id") != mission
+            ][-6:],
+            "recent_independent_qa": [
+                {
+                    k: r.get(k)
+                    for k in (
+                        "id",
+                        "implementation_run_id",
+                        "reviewed_commit",
+                        "decision",
+                        "findings",
+                        "required_changes",
+                    )
+                }
+                for r in self.records.list("QARun")
+            ][-3:],
+            "worker_readiness": worker,
+            "control_snapshot": {k: control.get(k) for k in ("epoch", "paused", "killed")},
             "preferred_operator_target": "Research Readiness View: what real historical research can be performed now, and what evidence is missing?",
             "current_data": {
                 "limitations": current["limitations"],
