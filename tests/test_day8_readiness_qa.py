@@ -25,6 +25,8 @@ def attest(ready, request, manifest, *, mutate=None):
         'critical_findings': [],
         'checks': {c: {'status': 'COMPLETED', 'result': 'PASS', 'evidence': ['offline-check:'+c]} for c in module.CHECKS},
     }
+    sessions = {t.astimezone(module.ZoneInfo("America/New_York")).date().isoformat() for t in module.Calendar().expected(request.start, request.end)}
+    payload['session_checks'] = {symbol: {day: deepcopy(payload['checks']) for day in sessions} for symbol in request.symbols}
     if mutate:
         mutate(payload)
     digest = module.fingerprint(payload)
@@ -104,3 +106,37 @@ def test_product_cannot_append_canonical_readiness_attestation(owner):
     from trading_core.store import Store
     with pytest.raises(PermissionError):
         Records(Store(settings=SimpleNamespace(),scope=owner)).append("ReadinessEvidence",{},owner=owner)
+
+
+@pytest.mark.parametrize("defect", ["missing_session", "wrong_session", "missing_symbol", "missing_check", "failed_check", "future_time", "naive_time", "unresolved_outlier", "critical_finding", "blank_evidence", "blank_normalizer", "blank_outlier_reference", "blank_outlier_disposition"])
+def test_incomplete_session_or_check_evidence_is_rejected(tmp_path,monkeypatch,defect):
+    ready,req,_,manifest=service(tmp_path,monkeypatch)
+    def modify(payload):
+        sessions=payload["session_checks"]["LABTEST"]
+        if defect=="missing_session": sessions.clear()
+        elif defect=="wrong_session": sessions["2026-09-15"]=sessions.pop("2026-09-14")
+        elif defect=="missing_symbol": payload["session_checks"].clear()
+        elif defect=="missing_check": sessions["2026-09-14"].pop("outlier_review")
+        elif defect=="failed_check": sessions["2026-09-14"]["outlier_review"]["result"]="FAIL"
+        elif defect=="future_time": payload["executed_at"]="2099-01-01T12:00:00Z"
+        elif defect=="naive_time": payload["executed_at"]="2026-09-19T12:00:00"
+        elif defect=="unresolved_outlier": payload["outlier_findings"]=[{"resolved":False,"evidence":"fixture"}]
+        elif defect=="critical_finding": payload["critical_findings"]=[{"issue":"gap"}]
+        elif defect=="blank_normalizer": payload["normalizer_version"]="   "
+        elif defect=="blank_outlier_reference": payload["outlier_reference_evidence"]=[""]
+        elif defect=="blank_outlier_disposition": payload["outlier_disposition"]="   "
+        elif defect=="blank_evidence":
+            payload["checks"]["independent_reproduction"]["evidence"]=[""]
+            sessions["2026-09-14"]["independent_reproduction"]["evidence"]=[""]
+    attest(ready,req,manifest,mutate=modify)
+    assert ready.evaluate(req)["status"]!="READY"
+
+
+def test_integrity_changes_invalidate_previously_reviewed_readiness(tmp_path,monkeypatch):
+    ready,req,archive,manifest=service(tmp_path,monkeypatch)
+    attest(ready,req,manifest)
+    assert ready.evaluate(req)["status"]=="READY"
+    (archive.root/manifest.raw_sources[0]["path"]).write_bytes(b"changed raw source")
+    result=ready.evaluate(req)
+    assert result["status"]!="READY"
+    assert result["eligible_sources"]==[]
