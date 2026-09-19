@@ -200,3 +200,68 @@ def run_approved_checks(grant, files, script, *, guard, resources=None):
         "duration": result.duration,
         "executed_at": now().isoformat(),
     }
+
+
+def adopt_ui_role(records, implementation_id, commit):
+    """Trusted operator-authorized capability rollout after real probe and QA.
+
+    Keeps the existing member's tier/tools/paths/budgets. New write_code use still
+    requires a separate immutable exact-file EngineeringGrant on every run.
+    """
+    from psycopg.types.json import Jsonb
+
+    from trading_core.intelligence.capabilities import Capabilities
+    from trading_core.intelligence.quality import Quality
+
+    if records.store.scope is not None:
+        raise PermissionError("Role rollout requires Core host")
+    with records.store.lease("agent-creation"), records.store.connect() as conn:
+        records.ledger.check(records.ledger.control(conn))
+        qa = Quality(records).require_pass(implementation_id, commit, conn=conn)
+        build = records.get(implementation_id, conn=conn)
+        marker = "engineering-role:CLAUDE:isolated_product_ui_edit"
+        if (
+            build["owner"] != "core"
+            or marker not in build["evidence"]
+            or marker not in qa["evidence"]
+        ):
+            raise PermissionError("Exact role rollout requires independent approval")
+        row = conn.execute(
+            "SELECT definition FROM core.agent_instances WHERE id='CLAUDE' FOR UPDATE"
+        ).fetchone()
+        definition = row["definition"]
+        if definition["authority_tier"] != 2:
+            raise PermissionError("Never raise a configured authority tier")
+        versions = Capabilities(records).current()
+        if not any(
+            v["capability"]["capability"] == "isolated_product_ui_edit"
+            and v["capability"]["verification_status"] == "VERIFIED"
+            and v["capability"]["status"] == "AVAILABLE"
+            and all(v["capability"][k] == definition[k] for k in ("provider", "model"))
+            and v["capability"]["transport"] == definition["preferred_transport"]
+            for v in versions
+        ):
+            raise PermissionError("Real verified capability adoption must precede role update")
+        updated = {
+            **definition,
+            "capabilities": sorted(set(definition["capabilities"]) | {"isolated_product_ui_edit"}),
+            "execution_permissions": sorted(
+                set(definition["execution_permissions"]) | {"write_code"}
+            ),
+        }
+        records.append("AgentDefinition", updated, owner="core", conn=conn)
+        conn.execute(
+            "UPDATE core.agent_instances SET definition=%s WHERE id='CLAUDE'", (Jsonb(updated),)
+        )
+        records.append(
+            "EngineeringRoleAdoption",
+            {
+                "agent": "CLAUDE",
+                "implementation_id": implementation_id,
+                "commit": commit,
+                "qa_id": qa["id"],
+                "adopted_at": now().isoformat(),
+            },
+            owner="core",
+            conn=conn,
+        )
