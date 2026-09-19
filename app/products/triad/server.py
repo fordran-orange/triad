@@ -67,3 +67,8 @@ def work():
     from products.triad.cycles import Cycles
 
     return dashboard(Cycles().host)
+
+
+@app.get("/triad/product")
+def trading_product_shell():
+    return FileResponse(Path(__file__).parent / "static/product.html")

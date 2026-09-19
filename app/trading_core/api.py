@@ -317,3 +317,12 @@ def core_shell():
 from trading_core.intelligence.api import router as intelligence_router
 
 app.include_router(intelligence_router)
+
+from trading_core.integrations.api import router as integration_router
+
+app.include_router(integration_router)
+
+
+@app.get("/launch", include_in_schema=False)
+def launchpad():
+    return FileResponse(Path(__file__).parent / "static/launch.html")
