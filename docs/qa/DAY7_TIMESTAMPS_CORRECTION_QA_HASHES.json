@@ -1,0 +1,55 @@
+{
+  "revision": "b10a7ff6e878ea2580b8be369ff91c384c813342",
+  "decision": "PASS_WITH_OBSERVATIONS",
+  "reviewer": "/root/day6_qa_b",
+  "implementation_files": {
+    "app/trading_core/brain.py": "e1d7367153b6ac696a7d9009cd37b1a97308911a0fae22047488fada23c4e637",
+    "app/trading_core/intelligence/agents.py": "bfe1e708c7562d7bd18abffae093c19226509f332f40c94ada42a251f8b58fe7",
+    "app/trading_core/intelligence/contracts.py": "e5ff6fe9f6c1413819c99797dea4886e0b9d1de10105ebb1c3a14f72103f5bfa",
+    "app/trading_core/intelligence/quality.py": "0c3aa7df28a30e584d9ff43bda787c5c4c86cccb305fbb790ca66e6afe5e4db5",
+    "app/trading_core/orchestrator.py": "bbce73d934d2b5aa7e8b95d6aa587d72b37c79564da14a97b93f35755da8ec29",
+    "app/trading_core/research/service.py": "1f821952f59d42afa1635023149f349ceef2a4c6bb77fa9aa07b8ea1769793fb",
+    "app/trading_core/runtime.py": "270fa7aee413bbe3d589b3b63d221a8c28a0e3e22193c0f64d87b185ab21d47e",
+    "app/trading_core/static/record-view.js": "9e9d9aa41593b3b78187c7e23234a42a16dbaeb1485e7844f4f1f214128e71a1",
+    "app/trading_core/store.py": "64f5c09ffc6ccb0eecc621446f27e386dac70c48083b30be627d60f34278e7bc",
+    "app/trading_core/work.py": "427580c9319ebf3530cdc7c2002ab1893402457de5879401b113f5d85d01462f",
+    "tests/test_lifecycle_times.py": "196139981a82e532595c9d914fc99e7473a951e2caf38df4d3d307897e60dd69"
+  },
+  "qa_evidence": {
+    "tests/test_day7_timestamps_qa.py": "a314079f1cb1bb94506763c518ac41a02f0d3549a90aedfe89a8e782452b0518",
+    "docs/qa/DAY7_TIMESTAMPS_CORRECTION_QA.md": "c684a9189d464760fd11a7b8d9f838659b1ec8aea6331b2146eb18cc96168c06",
+    "logs/day7-timestamps-independent-b10a7ff.log": "b89d7bd089e5579ccd9f2fde8e162f66fcfc435794918ddb9c1fb05d8832b572",
+    "logs/day7-timestamps-ui-independent.json": "bc04ec8e289819032ca46e02869d886ba1330ac597fcc32f83aa51a2f27d57cb"
+  },
+  "concurrent_checkout_status": [
+    " M tests/test_day7_timestamps_qa.py",
+    "?? docs/qa/DAY7_TIMESTAMPS_CORRECTION_QA.md"
+  ],
+  "observation_closure": {
+    "decision": "PASS",
+    "revision": "27cda299418b7145757cf5c262a7e0f360ef7d70",
+    "fixture_correction_commit": "9bd28ade3628f695e924d58331e4cc851f9b8b9c",
+    "test_result": "11 passed in 110.77s",
+    "projected_lifecycle_nodes_confirmed_removed": 19,
+    "implementation_files": {
+      "tests/test_day3_integration.py": "070a1994fed56c7611e5abd202820e8f6d30863eff445c32bb69cccba0cf9791",
+      "app/trading_core/store.py": "64f5c09ffc6ccb0eecc621446f27e386dac70c48083b30be627d60f34278e7bc",
+      "app/trading_core/work.py": "427580c9319ebf3530cdc7c2002ab1893402457de5879401b113f5d85d01462f",
+      "app/trading_core/intelligence/quality.py": "0c3aa7df28a30e584d9ff43bda787c5c4c86cccb305fbb790ca66e6afe5e4db5",
+      "app/trading_core/runtime.py": "3eb06530577376c6a810e984144830acecfc8f7fef8f4602950eee159209739c"
+    },
+    "evidence": {
+      "logs/day7-timestamps-independent-27cda29.log": "fa586de05a37d833f9bbc4c921f122130a11c11893a2378fc80fcc27d01363fb",
+      "logs/day7-timestamps-cleanup-observations.jsonl": "05960478ba697ac9d032f48d8fde31db6e809be988dacc3d99dd1d0b34143fc6",
+      "logs/day7_timestamp_cleanup_runner.py": "62a6d1ff4bc2716541e6f8290755c6db06f49e92a2a6012dbc5252fbd9fc7842",
+      "logs/day7_timestamp_cleanup_plugin.py": "31759e97a73e0ed94460be7527f0dbb3b3cc4eaa8fe66258300df86d59f06787",
+      "logs/day7-timestamps-correction-report-b10a7ff.md": "c684a9189d464760fd11a7b8d9f838659b1ec8aea6331b2146eb18cc96168c06",
+      "logs/day7-timestamps-correction-manifest-b10a7ff.json": "5a71e45c2946413c0c87e447d496390b6c6217bf618d43cbb0e9df9aeb051f69",
+      "docs/qa/DAY7_TIMESTAMPS_CORRECTION_QA.md": "52b5618c81126317c4bafb75213120d5d373008b60d31625841afbf09b943838",
+      "logs/day7-timestamps-27cda29/tests/test_day7_timestamps_qa.py": "a314079f1cb1bb94506763c518ac41a02f0d3549a90aedfe89a8e782452b0518"
+    },
+    "original_report_prefix_length_bytes": 2948,
+    "original_report_sha256": "c684a9189d464760fd11a7b8d9f838659b1ec8aea6331b2146eb18cc96168c06",
+    "note": "The original qa_evidence report hash binds the preserved report prefix and archived full original, not the newly appended closure."
+  }
+}

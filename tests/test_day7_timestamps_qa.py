@@ -2,8 +2,10 @@
 # ruff: noqa: F811
 
 from datetime import UTC, datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
+from psycopg.types.json import Jsonb
 from test_day3_integration import active, engine  # noqa: F401
 from test_intelligence_capabilities import build, qa
 from trading_core.intelligence.contracts import ImplementationRun, QARun
@@ -11,6 +13,53 @@ from trading_core.intelligence.quality import Quality
 from trading_core.intelligence.records import Records
 from trading_core.store import Store
 from trading_core.work import Handoff, HandoffLifecycle, Review, WorkItem
+
+
+@pytest.mark.integration
+def test_historical_invalid_lifecycle_events_do_not_overlay_handoff(engine):
+    store = engine.host.store
+    victim = store.create(
+        WorkItem(
+            owner="aegis",
+            title="Historical",
+            description="Private",
+            assigned_agent="BUILDER",
+            reviewer="REVIEWER",
+        )
+    )
+    own = store.create(WorkItem(owner="triad", title="Other", description="Private"))
+    h = handoff(store, victim)
+    stamp = datetime(2026, 1, 1, tzinfo=UTC)
+    # These are pre-correction invalid events, inserted only into disposable SQL.
+    for change in (
+        {"row_owner": "triad"},
+        {"row_work": own.work_item_id},
+        {"work_item_id": own.work_item_id},
+        {"actor": "BUILDER"},
+        {"phase": "to_agent"},
+    ):
+        payload = HandoffLifecycle(
+            handoff_id=h.handoff_id,
+            work_item_id=victim.work_item_id,
+            actor="REVIEWER",
+            phase="completed_at",
+            occurred_at=stamp,
+        ).model_dump(mode="json")
+        row_owner = change.get("row_owner", victim.owner)
+        row_work = change.get("row_work", victim.work_item_id)
+        payload.update({k: v for k, v in change.items() if not k.startswith("row_")})
+        with store.connect() as conn:
+            conn.execute(
+                "INSERT INTO core.orchestration_records(id,kind,work_item_id,payload,owner) VALUES (%s,'HandoffLifecycle',%s,%s,%s)",
+                (str(uuid4()), row_work, Jsonb(payload), row_owner),
+            )
+    projected = Store(store.settings, scope="aegis").records("Handoff", victim.work_item_id)[0]
+    assert projected["completed_at"] is None
+    assert projected["to_agent"] == "REVIEWER"
+    store.receive_handoff(victim.work_item_id, "REVIEWER")
+    store.handoff_lifecycle(victim.work_item_id, "completed_at", "REVIEWER")
+    projected = store.records("Handoff", victim.work_item_id)[0]
+    assert datetime.fromisoformat(projected["completed_at"]) > stamp
 
 
 def handoff(store, work):
