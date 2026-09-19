@@ -77,7 +77,7 @@ Migration order: baseline -> generic execution -> ownership contracts -> modules
 ## Final extraction decisions
 
 - Generic execution was extracted before dependent services. Provider verification and laboratory code use `ExecutionServices`, never product cycles.
-- Runtime, ledger, contracts, security, support and Git tools now live directly under `app/trading_core`. Provider adapters are under `providers/`; the research engine is under `research/`.
+- Runtime, ledger, contracts, security, support and Git tools now live directly under `app/trading_core`. Provider adapters are under `providers/`; the research engine is under `research/`. The table's proposed `trading_core/day3` and `trading_core/day5a` targets were flattened: initializer files are compatibility-only, generic contracts are `trading_core/contracts.py`, and the provider package is `trading_core/providers`.
 - Triad owns Candidate and CycleSummary contracts, relay acceptance policy, scheduler, jobs, rotation and daily improvement slots.
 - Neutral `platform_host/api.py` uses HTTP proxies to independent product processes. `platform_host/legacy.py` is retained for in-process compatibility tests only.
 - Legacy Python modules forward imports. Environment names, credential targets, container labels, persisted schema strings, the old JavaScript renderer global and historical branch prefixes are compatibility identifiers.
