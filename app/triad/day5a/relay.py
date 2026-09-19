@@ -10,7 +10,7 @@ import json
 from triad.brain import Brain
 from triad.day3.adapters import ProviderError
 from triad.day3.contracts import AgentRunRequest, AgentRunResult, Disagreement
-from triad.day3.cycles import Cycles
+from triad.execution import ExecutionServices
 from triad.day3.support import support
 from triad.day5a.contracts import PREFERRED
 from triad.gateway import ToolGateway
@@ -22,7 +22,7 @@ MISSION = "Review the current Triad operator documentation and identify one boun
 
 def run_relay(control):
     ledger = control.ledger
-    cycles = Cycles(store=ledger.store)
+    cycles = ExecutionServices(store=ledger.store)
     proof = {
         "relay_id": uid(),
         "mode": "REAL",

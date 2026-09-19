@@ -13,7 +13,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from triad.brain import Brain
-from triad.day3.cycles import Cycles
+from triad.execution import ExecutionServices
 from triad.lab.contracts import (
     BacktestRun,
     Costs,
@@ -56,7 +56,7 @@ def write_run_status(path, run):
 
 class Laboratory:
     def __init__(self, cycles=None, root=ROOT, limits=None):
-        self.cycles = cycles or Cycles()
+        self.cycles = cycles or ExecutionServices()
         self.ledger = self.cycles.ledger
         self.host = self.cycles.host
         self.root = Path(root)

@@ -5,7 +5,7 @@ import time
 from triad.brain import Brain
 from triad.day3.adapters import ProviderError
 from triad.day3.contracts import AgentRunRequest, AgentRunResult
-from triad.day3.cycles import Cycles
+from triad.execution import ExecutionServices
 from triad.day3.support import support
 from triad.day5a.contracts import SPECS
 from triad.work import ComputeBudget, State, WorkItem, now, uid
@@ -24,7 +24,7 @@ def verify(control, transport_id, acceptance=False):
             "mode": "REAL",
             "billing_source": "API",
         }
-    cycles = Cycles(store=ledger.store)
+    cycles = ExecutionServices(store=ledger.store)
     started = time.monotonic()
     proof = {
         "transport": transport_id,

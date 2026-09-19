@@ -16,17 +16,16 @@ from triad.day3.contracts import (
     Limits,
 )
 from triad.day3.ledger import Ledger, Stopped
+from triad.execution import ExecutionServices
 from triad.gateway import ToolGateway
 from triad.orchestrator import Orchestrator
 from triad.settings import ROOT
 from triad.work import (
     ComputeBudget,
-    Handoff,
     PolicyDecision,
     Review,
     State,
     WorkItem,
-    WorkResult,
     now,
     uid,
 )
@@ -39,7 +38,7 @@ def failure_code(exc):
     return type(exc).__name__
 
 
-class Cycles:
+class Cycles(ExecutionServices):
     def __init__(self, store=None, git=None, day=None):
         self.host = Orchestrator(store=store)
         self.ledger = Ledger(self.host.store)
@@ -130,26 +129,6 @@ class Cycles:
             )
         )
 
-    def start_work(self, work, epoch=None):
-        authority = self.ledger.guard(work.assigned_agent, work.work_item_id, epoch)["epoch"]
-        work = self.host.advance(work, State.VALIDATING, "Day 3 policy evaluation")
-        policy = self.host.control.evaluate(work)
-        if policy.decision not in {"ALLOW", "REQUIRE_REVIEW"}:
-            self.host.advance(work, State.BLOCKED, "Day 3 policy blocked", records=(policy,))
-            raise PermissionError("Work policy denied")
-        work = self.host.advance(
-            work, State.APPROVED, "Bounded development assignment approved", records=(policy,)
-        )
-        work = self.host.advance(work, State.ASSIGNED, "Assigned cycle improvement opportunity")
-        work = self.host.advance(work, State.IN_PROGRESS, "Day 3 runtime started")
-        self.ledger.put(
-            "RunAuthority",
-            {"epoch": authority},
-            identifier="authority-" + work.work_item_id,
-            work_id=work.work_item_id,
-        )
-        self.ledger.event("agent_started", work.work_item_id, agent=work.assigned_agent)
-        return work, policy
 
     def request(self, work, policy, role, context, agent=None):
         read = role == "REVIEW"
@@ -237,52 +216,6 @@ class Cycles:
         )
         return record
 
-    def handoff(self, work, result, metadata, checks, mode):
-        commit = metadata.get("change_commit") if metadata else self.git.git("rev-parse", "HEAD")
-        evidence = tuple(f"sha256:{v}:{k}" for k, v in checks.get("hashes", {}).items())
-        journal = self.host.journal(
-            work,
-            kind="creation",
-            result=result.summary,
-            evidence=evidence,
-            files=checks.get("files", ()),
-            tests=checks.get("checks", ()),
-            actions=("Provider proposed structured changes; host applied approved files",)
-            if checks.get("files")
-            else ("Validated structured provider output; no host files changed",),
-            mode=mode,
-        ).model_copy(update={"git_commit": commit})
-        handoff = Handoff(
-            from_agent=work.assigned_agent,
-            to_agent=work.reviewer,
-            work_item_id=work.work_item_id,
-            completed_work=result.summary,
-            files_changed=tuple(checks.get("files", ())),
-            tests_performed=tuple(checks.get("checks", ())),
-            evidence=evidence,
-            recommended_checks=work.acceptance_criteria,
-            git_commit=commit,
-            review_request="Independently inspect objective, criteria, source/diff and repeated checks; prior model reasoning is withheld initially",
-        )
-        legacy = WorkResult(
-            summary=result.summary,
-            tests=tuple(checks.get("checks", ())),
-            evidence=evidence,
-            execution_mode="deterministic_demo"
-            if mode == "SIMULATED"
-            else "ollama"
-            if work.assigned_agent == "LOCAL_QWEN"
-            else "cloud",
-        )
-        work = self.host.advance(
-            work,
-            State.AWAITING_REVIEW,
-            "Structured journal and handoff persisted before independent review",
-            records=(journal, handoff),
-            result=legacy,
-        )
-        self.ledger.event("handoff_created", work.work_item_id, handoff_id=handoff.handoff_id)
-        return work
 
     def review_change(self, change_id, *, human_merge=False):
         record = self.ledger.get(change_id)

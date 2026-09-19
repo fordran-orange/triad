@@ -15,7 +15,7 @@ pytestmark = pytest.mark.integration
 def test_relay_independent_verdicts_and_durable_lineage(engine, monkeypatch, grok_verdict):
     from triad.day5a import relay
 
-    monkeypatch.setattr(relay, "Cycles", lambda store: engine)
+    monkeypatch.setattr(relay, "ExecutionServices", lambda store: engine)
     control = ProviderControl(engine.ledger)
     monkeypatch.setattr(control, "proven", lambda snapshot: True)
     contexts = {}
@@ -63,3 +63,4 @@ def test_relay_independent_verdicts_and_durable_lineage(engine, monkeypatch, gro
         assert proof["disagreement_check"] == "OPEN"
         assert engine.ledger.records("Disagreement")[0]["status"] == "OPEN"
         assert not ProviderControl.relay_proven(proof)
+
