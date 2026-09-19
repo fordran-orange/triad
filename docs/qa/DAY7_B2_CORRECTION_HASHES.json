@@ -1,0 +1,109 @@
+{
+  "implementation_revision": "27cda299418b7145757cf5c262a7e0f360ef7d70",
+  "verdict": "PASS",
+  "snapshot_app_files_verified_equal_archive": 157,
+  "committed_blob_hashes": [
+    {
+      "path": "app/products/triad/cycles.py",
+      "sha256": "548079aacaf19f49cfdeb146840f8ac8cb12db7c56113db6d40bcf5537f97cce"
+    },
+    {
+      "path": "app/products/triad/development.py",
+      "sha256": "e9cf526fe622e822c46365fd4eda0a942fc634c0c11ad714a6d85d49bb99bdee"
+    },
+    {
+      "path": "app/trading_core/gateway.py",
+      "sha256": "69dbd26e71a3d73a7eadb771af0e4badee835283637f1f99f313033ebc5982d8"
+    },
+    {
+      "path": "app/trading_core/intelligence/contracts.py",
+      "sha256": "3821c29c2575a89fce31daf93132ebfcdbe88b43d4ca70628b886c79e4d7b069"
+    },
+    {
+      "path": "app/trading_core/providers/bounded_tools.py",
+      "sha256": "8cd4427e758988f1da2ed8622fdbebe4f4b8582acd7b839142bbc61e0da2ed97"
+    },
+    {
+      "path": "app/trading_core/providers/codex_executor.py",
+      "sha256": "518487b7fb5379ddca6aaa14e0de9c605752f280b5f3b04112a6a43a9972fab7"
+    },
+    {
+      "path": "app/trading_core/providers/native_agents.py",
+      "sha256": "e08137fc7c560969bf0464b90134c532cda9ed45680a6a5d8e7f5e222ca4d64f"
+    },
+    {
+      "path": "app/trading_core/providers/transports.py",
+      "sha256": "b1c5ce9610ca5da00d95e0ae82b0e4947ee482cf93c83935a47bf2b3eac3a766"
+    },
+    {
+      "path": "app/trading_core/resource_policy.py",
+      "sha256": "baf9db3a714b46e99fd80c2b82190bce5fee3830448a88b4ce230a3e3ab5e9f5"
+    },
+    {
+      "path": "app/trading_core/runtime.py",
+      "sha256": "3eb06530577376c6a810e984144830acecfc8f7fef8f4602950eee159209739c"
+    }
+  ],
+  "evidence_raw_hashes": [
+    {
+      "path": "logs/day7-b2-qa-exact-27cda29.zip",
+      "sha256": "a08b4c171ec6fa4f9a0b10787a6f1248b8f54dfde030c4d301e8ec13e86becfc"
+    },
+    {
+      "path": "logs/day7-b2-correction-qa-run.py",
+      "sha256": "55b7515269bd1150795b7e8c32b976201b4c8b639e191fefaad95ecb8d046a68"
+    },
+    {
+      "path": "tests/test_day7_b2_qa.py",
+      "sha256": "2a91339468433c6a1a0f5db4db2f5bbedef672a563398e7141b3b33f44f51564"
+    },
+    {
+      "path": "logs/day7-b2-qa-exact-27cda29/tests/test_day7_b2_qa.py",
+      "sha256": "2a91339468433c6a1a0f5db4db2f5bbedef672a563398e7141b3b33f44f51564"
+    },
+    {
+      "path": "docs/qa/DAY7_B2_CORRECTION_QA.md",
+      "sha256": "a8ac8eac50dd8272848ef5913c5d9f1bd3a975ff5b79e69d1919a7d78939826a"
+    },
+    {
+      "path": "logs/day7-b2-correction-independent-tests.log",
+      "sha256": "4d3b10524443e12d764ad6c6400c9d2790b1ca10310372fb540545c0aeccf7fc"
+    },
+    {
+      "path": "logs/day7-b2-correction-independent-tests.exit",
+      "sha256": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04"
+    },
+    {
+      "path": "logs/day7-b2-correction-continuation.log",
+      "sha256": "ecbfac28815668bd3ff4b42d699394bc7f5f8f976e053b689c1d5c5e7cd0b4e8"
+    },
+    {
+      "path": "logs/day7-b2-correction-continuation.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "logs/day7-b2-correction-final.log",
+      "sha256": "ea43a9625177c6d1f1cef82839f3a0495cdb3b63b4137943c5437b286beb2ed1"
+    },
+    {
+      "path": "logs/day7-b2-correction-final.exit",
+      "sha256": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04"
+    },
+    {
+      "path": "logs/day7-b2-correction-docker-kill.log",
+      "sha256": "599617e578524f94f1eb28a9cd54a99ae8bb1722adb50434693ac90d8c533361"
+    },
+    {
+      "path": "logs/day7-b2-correction-docker-kill.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "logs/day7-b2-correction-final-lint.log",
+      "sha256": "a4443afdcfb6d7363adb285762515ccf7cf50473b1a05c20c1a50f6bed4d26b0"
+    },
+    {
+      "path": "logs/day7-b2-correction-final-lint.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    }
+  ]
+}

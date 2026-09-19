@@ -70,18 +70,18 @@ def prepare_file(tmp_path):
 @pytest.mark.integration
 def test_elapsed_time_extension_continues_same_adapter(engine, tmp_path):
     prepare_file(tmp_path)
-    work, request = work_request(engine, timeout=1)
-    adapter = ReadProgress(work, tmp_path, delay=1.3)
+    work, request = work_request(engine, timeout=3)
+    adapter = ReadProgress(work, tmp_path, delay=3.3)
     started = time.monotonic()
     result = engine.runtime.execute(request, mode="SIMULATED", adapter=adapter, day=engine.day)
-    assert time.monotonic() - started > 1
+    assert time.monotonic() - started > 3
     assert adapter.invocations == 1 and not adapter.cancelled.is_set()
     assert result.summary == "Fixture finished"
     decisions = adapter.resources.host.list("ResourceExtensionDecision")
     assert any(
         d["resource_type"] == ResourceType.TIME and d["decision"] == "ALLOW" for d in decisions
     )
-    assert engine.host.store.get(work.work_item_id).compute_budget.timeout_seconds == 1
+    assert engine.host.store.get(work.work_item_id).compute_budget.timeout_seconds == 3
 
 
 @pytest.mark.integration
@@ -204,3 +204,37 @@ def test_specialist_output_extension_requires_new_reviewed_grant(engine):
     assert failure.value.decision["decision"] == "REQUIRE_HUMAN_APPROVAL"
     assert "Specialist lifetime" in failure.value.decision["reason"]
     assert manager.get(identifier)["tokens_reserved"] == 512
+
+
+@pytest.mark.integration
+def test_codex_metadata_limit_is_shared_with_host_file_reads(engine, tmp_path):
+    from trading_core.resource_policy import DEFAULT_ALLOCATIONS, ResourceSession
+
+    prepare_file(tmp_path)
+    work, request = work_request(engine)
+    resources = ResourceSession(
+        engine.ledger,
+        request,
+        {**DEFAULT_ALLOCATIONS, ResourceType.TOOLS: 1},
+        billing_source="LOCAL",
+        day=engine.day,
+    )
+    ToolGateway(work, tmp_path, resources=resources).read("docs/evidence.md")
+    executor = CodexExecutor(
+        {"docs/evidence.md": "Actual bounded fixture evidence"},
+        guard=lambda: None,
+        resources=resources,
+    )
+    executor.mediate(
+        {"id": 1, "method": "fs/getMetadata", "params": {"path": "/workspace/docs/evidence.md"}}
+    )
+    assert resources.tool_calls == 2
+    assert resources.allocation(ResourceType.TOOLS) == 2
+    with pytest.raises(ResourceBlocked):
+        executor.mediate(
+            {"id": 2, "method": "fs/readDirectory", "params": {"path": "/workspace/docs"}}
+        )
+    assert resources.tool_calls == 3
+    decisions = resources.host.list("ResourceExtensionDecision")
+    assert sorted(d["decision"] for d in decisions) == ["ALLOW", "DENY"]
+    assert resources.allocation(ResourceType.TOOLS) == 2
