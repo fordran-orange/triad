@@ -1,7 +1,6 @@
 """A lineage alias cannot equate independent products or rewrite source evidence."""
 
 import pytest
-
 from trading_core.product_identity import (
     CURRENT_PRODUCTS,
     canonical_product,

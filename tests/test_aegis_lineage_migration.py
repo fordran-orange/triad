@@ -1,10 +1,9 @@
 # ruff: noqa: F811
 """Staged migration preserves immutable history and conservative control state."""
 
-import pytest
 import psycopg
+import pytest
 from test_day3_integration import engine  # noqa: F401
-
 from trading_core.resources import resource
 
 pytestmark = pytest.mark.integration
