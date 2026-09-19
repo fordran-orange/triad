@@ -1,0 +1,34 @@
+{
+  "revision": "2cc4bedcdb658ea9205f8640ac00992cd3a5c0a6",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "PASS",
+  "scope": "Actual provider probe and exact narrow capability/role adoption candidate; no product merge approval",
+  "candidate_digest": "ed98a219b9256fbedb3e0402d7c43caf1349815188f846ef430c3c1b49fab924",
+  "role_marker": "engineering-role:CLAUDE:isolated_product_ui_edit",
+  "implementation_files": {
+    "app/trading_core/engineering.py": "675810778fbc61b5d864c4b71b97c7fa429d008138e4334aa26e4f9c138e01e7",
+    "app/trading_core/runtime.py": "79c95fceeaf021ea7ad45ad49478e09d63b1ee418d7af1c7e3000c041f9e45d9",
+    "app/trading_core/git_tools.py": "7d4a0ea58fd18fc06c2a2473ee31ac8dc703c938880e563314b34a8050c87ef7",
+    "app/trading_core/providers/bounded_tools.py": "5071dcc5746da0c68d898c00a49418a0e3a9110080cd9d1a1a325b6b0d6e2b36",
+    "app/trading_core/providers/native_agents.py": "b4f41c47294d1c350523e7bfe113a48e622992581df4d09b7d26a68819220312",
+    "app/trading_core/providers/transports.py": "60cbf3a02dadea1b6eb914e5b695b718c0cb507871a0f6e50eef8d6e682167e4",
+    "app/trading_core/providers/isolation.py": "3166761af2d619e3c64700afd0840ed03f8d7ff33355a71606efe38cdc1b6ee2",
+    "app/trading_core/intelligence/contracts.py": "33d8917fd62fa737a95bf0036f815d537acd1220a7d8db9326b8bdf521b51529",
+    "app/trading_core/intelligence/agents.py": "60743ab72ea57d92d515935cd41fbd134ecc44216019d39b6c34c1ef73940c31",
+    "app/trading_core/intelligence/capabilities.py": "4eb9bdceff978a2a7cb01e0eefd79d4f3e3bc7edb96e365f7ea8a7040dd0af28",
+    "app/trading_core/intelligence/quality.py": "0c3aa7df28a30e584d9ff43bda787c5c4c86cccb305fbb790ca66e6afe5e4db5",
+    "app/trading_core/intelligence/routing.py": "314dfdde645041773d274723e4b6aa05581568d9eecafb3c970d9bc5f43d0e20",
+    "infrastructure/postgres/011_agent_lifecycle.sql": "44b51f857ff3cab9e5fe14c4796e47cdb5bcfcb36a3df8939b7c8ee8e9a8810e",
+    "app/trading_core/resources/sql/011_agent_lifecycle.sql": "44b51f857ff3cab9e5fe14c4796e47cdb5bcfcb36a3df8939b7c8ee8e9a8810e",
+    "tools/day8_engineering_probe.py": "5864cccdbeadf2880ac6efa9f15a3c7f4db054adf9cc6592b4735abf4eb46015"
+  },
+  "qa_evidence": {
+    "docs/qa/DAY8_ENGINEERING_REAL_QA.md": "a6be6f24573b0191ddcb0711fe931841eb94ea8ce3d127a1ba69698fd6e0546b",
+    "logs/day8-capability-adoption-candidate.json": "0cab9247ef86223004012f899574b46fce1ab6ad50bbebc7b820eda63b94da20",
+    "logs/day8-capability-probe-d4cb02eb-c8aa-4175-a466-384b93c2c66a.json": "3818edcdfa78a4a0fec999f455cfed0a72cc34eacd991d06b0881fa55f7d3a84",
+    "logs/day8-real-probe-independent.json": "ce2674e633165fef1f5a2a41c8c713d6af504fa25a5208e032f2aac945d93362",
+    "logs/day8-real-probe.log": "c4c06adb2666f4f61d2cf402f47d769dc83ccb357563d44680eca0768f08112f",
+    "docs/qa/DAY8_ENGINEERING_FINAL_QA_HASHES.json": "f0f270afba5a90a243c3743b60b6d57f0cd35d17f8d465840d44ed9174dba257",
+    "docs/qa/DAY8_ROLE_PROBE_FINAL_QA_HASHES.json": "8587f3bdd0d686117b2f96a62365209f5f8c8f9e31acac3298dfa1dab0930fcf"
+  }
+}
