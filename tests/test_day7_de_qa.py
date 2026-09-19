@@ -382,8 +382,26 @@ def test_legacy_invalid_connection_cannot_leak_into_shared_catalog(engine):
             "endpoint": "HTTPS://fixture-user:synthetic-secret@example.invalid/data",
         },
         {"transport": "REST", "headers": {"X-API-Key": "synthetic-never-real"}},
+        {"transport": "REST", "private_key": "synthetic-signing-key-never-real"},
+        {"transport": "REST", "signing_key": "synthetic-signing-key-never-real"},
+        {"transport": "REST", "secret_key": "synthetic-secret-key-never-real"},
+        {"transport": "REST", "endpoint": "  https://user:synthetic-secret@example.invalid/data"},
     ],
 )
 def test_obvious_credential_metadata_variants_rejected(transport):
     with pytest.raises(ValueError):
         definition(transports=(transport,))
+
+
+@pytest.mark.integration
+def test_connection_write_guard_rejects_invalid_public_payload(engine):
+    registry = ExternalIntegrationRegistry(engine.host.store)
+    invalid = {
+        "integration_id": "schwab",
+        "status": "NOT_CONFIGURED",
+        "connected": False,
+        "detail": "HTTPS://user:synthetic-secret@example.invalid/check",
+    }
+    with pytest.raises(ValueError):
+        registry.host.append("IntegrationConnection", invalid, owner="core")
+    assert registry.host.list("IntegrationConnection") == []

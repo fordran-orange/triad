@@ -54,3 +54,11 @@ Verdict remains **CHANGES_REQUIRED** on archived exact revision `0b1a26e970e5240
 3. Catalog connection overlays are not typed/public-metadata validated. A raw legacy IntegrationConnection whose `status` is a dictionary containing a synthetic `api_key` is merged into the otherwise clean definition and returned to product consumers. Apply validation/quarantine to connections before merging them, and validate canonical connection writes too.
 
 All credential values in these tests are synthetic. No account connection, authentication or production integration mutation occurred. A further metadata correction and fresh independent QA are required; the passing adoption tests must remain passing.
+
+## Metadata correction QA — 18fbe6a
+
+Verdict remains **CHANGES_REQUIRED** on exact archived revision `18fbe6aec650bc8989c2bae6b948e7cb91663529`. `DAY7_DE_QA_METADATA_HASHES.json` binds the reviewed source and expanded independent test file. The original adoption failures, uppercase URL/header cases, raw connection quarantine and newly explicit canonical connection-write rejection now pass.
+
+The fresh focused suite (`logs/day7-de-qa-metadata.log`) reports **17 passed, 1 failed in32.70seconds**: an ordinary `transports.private_key` credential field is accepted. A subsequent non-DB probe expands that same credential-shape check to `private_key`, `signing_key`, `secret_key` and a credential-bearing HTTPS URL preceded by whitespace. All four are accepted; the previously fixed uppercase URL and X-API-Key cases reject correctly. This follow-up reports **4 failed, 2 passed, 15 deselected in1.76seconds**, preserved in `logs/day7-de-qa-metadata-variants.log`. Three additional parameter variants were added after the18-case full run; that full run is not claimed to have executed them.
+
+These are standard broker/authentication credential forms, not arbitrary secret strings. The public metadata promise therefore still requires a systematic credential-key boundary and normalization of URL whitespace, or an explicit public transport schema. DAY7-DE-003 stays open. No implementation edits or external account calls were made; database testing was sequenced after A's GHI run and the slot released to B afterward.

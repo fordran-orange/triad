@@ -1,0 +1,22 @@
+{
+  "revision": "308dd766657019acc42a82598ca70e90834b77a9",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "CHANGES_REQUIRED",
+  "implementation_files": {
+    "app/trading_core/integrations/data.py": "e37119b88c991b5cc6f0302a25fcdb72f565a8b065ed08a621c28e5743a6d501",
+    "app/trading_core/integrations/registry.py": "855f69f343c9db56be576048a1f143c8382b65f03b4b8e40cd59dbe6d6df4724",
+    "app/trading_core/integrations/contracts.py": "fc60ee67ad25b9eb1280d76a3caeba034f202b796e05d38d4c1cf28236f6c927",
+    "app/trading_core/research/data.py": "440999bc893c30efdad1f9ef4d5096dc3a6acaad841b1c3b4881a60cec0ae6a8",
+    "app/trading_core/intelligence/quality.py": "0c3aa7df28a30e584d9ff43bda787c5c4c86cccb305fbb790ca66e6afe5e4db5",
+    "tests/test_integration_data.py": "332452410b9a39cafc32ab62198e52eb4fd74c6b74cd8c9e9269c9553a866a7e",
+    "tests/test_day7_f_qa.py": "278b1bb6c5a5306cded689d8c01684682a7ee5500d1a78e51253443c09d3b54d"
+  },
+  "qa_evidence": {
+    "docs/qa/DAY7_F_CORRECTION_QA.md": "526730774473c5dd762f7ea6f611b7c0fa7ba0683f4e6ea3d6c661b05b635d89",
+    "tests/test_day7_f_correction_qa.py": "576f7910befb5e7f4477c121510f6a8afed05889af8e6d4fb7de7b47c1fd7fd1",
+    "logs/day7-f-independent-308dd76.log": "842ef57b1371b5a21dfbf988bf71432a86c855709733d0b5a534c09ed751b6e5",
+    "logs/day7-f-deprecation-proof.log": "2a227bf257a2304c0828c795d5e1e809462bb2b9f426563cc179976b5b12ab15",
+    "logs/day7-f-correction-qa-initial.py": "970703f4b10ff7037ca4e744ee7c54e43e0f28e743215ed45ace66cfd0026478",
+    "logs/day7_f_correction_qa_runner.py": "5a74b9e131e7dc78b2f55c53844bb83b8003db7b92a00e98f2f527392b7651e5"
+  }
+}
