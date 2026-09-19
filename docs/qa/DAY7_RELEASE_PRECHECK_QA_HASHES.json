@@ -1,0 +1,24 @@
+{
+  "reviewer": "/root/day6_qa_c",
+  "revision": "96652c2bc2f9e4c7bc692c67bdd7b2dbedb56117",
+  "decision": "PASS bounded canonical/live/installed audit; final release acceptance pending",
+  "files": {
+    "docs/qa/DAY7_RELEASE_PRECHECK_QA.md": "47c681a469ce616978e9e23e704e9824862230fe798ed11d4cf714e4ee057931",
+    "logs/day7-final-canonical-audit.py": "ffa44254eb6233811ac87c902fcdf34e00df78ab758a2a3d41321aaa20a22fdd",
+    "logs/day7-final-canonical-audit.json": "cc76ded95f1ce172e0bc335dea88df5af11d7dac6386f484f08bcc788b2d1f5e",
+    "logs/day7-final-canonical-audit.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day7-final-canonical-audit-initial.log": "2fdbd9a7adbc0a1a18c9e49b8519c21172e916073451813f2586700f0a82b89b",
+    "logs/day7-final-canonical-audit-initial.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04",
+    "logs/day7-independent-postrestart.json": "e46ed7c1b597c41d04da41a40ce0d3377d5dda788af768455eb5ba960283fde8",
+    "logs/day7-final-independent-installed-bytes.json": "572194c54bdda5c4e40fa5f9616d731dafeb4dc94a81e870276e9371f8adeed9",
+    "logs/day7-final-restart.log": "44fab6cd427076897f7298261fd5797d64d4a2e05a3967725726d7f3b98abeaf",
+    "logs/day7-release-services.log": "c038ba0a978f384cd10c6bdfe9585fa1f39a21065d1f4577245371d8af29e740",
+    "logs/day7-release-services.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day7-release-package.log": "4a0b468be6c198f8dfd8dc01671f6df0783ac822f96f4d0567d7a8c92f193fe2",
+    "logs/day7-release-package.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day7-final-data-regression.log": "123c325466693519882a987b7edb976bf6ef0082dfc5094d4ace7c0021a727dd",
+    "logs/day7-final-data-regression.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "docs/qa/DAY7_REGRESSION_FINAL_QA.md": "4d13b16e8bcb99679e54545b2feabcaad64d7dc2fdf83c8060a4e52b80cb14ff",
+    "docs/qa/DAY7_REGRESSION_FINAL_QA_HASHES.json": "4a75b619b526cae380c63995f681a4e72f084f0ed1e55f2efd948f71e0255ea7"
+  }
+}

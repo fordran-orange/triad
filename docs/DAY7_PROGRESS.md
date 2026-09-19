@@ -1,16 +1,20 @@
-# Day 7 current checkpoint
+# Day 7 technical handoff
 
-Authorized: complete Day 7; save operator questions for end. No automatic usage reset.
-Branch: codex/day7-hardening. Day 6 base/main retained at f1835049aeb4778ec682f0c684d8cec12234a28c.
+Repository: C:/Triad. Build branch: codex/day7-hardening.
+Application and fixture corrections: eea65d393efc644f4b443914b26ce9023e4bec2e.
+Final full regression:535 passed,5warnings,1145.97s; no skipped tests.
+Source snapshot:290files, aggregate278debeb40dfcab583392d9f8e0b223a031d6b238171ca1dceb8d12b9e30a74e.
 
-- Phase 0 independently PASS: 396 tests, services/data/package/browser. DAY7_PRECHECK reports.
-- Phase 1 Aegis independently live PASS: explicit migration 012 applied, immutable records/artifact hashes preserved. DAY7_PHASE1_FINAL_ACCEPTANCE.md. Runtime backend e2b44d4, explicit upgrade1038016. No B3 production deployment yet.
-- B1 resource policy foundation corrected and independently PASS. Original failures preserved.
-- B2 resource/native runtime 9bd28ad: QA found uncounted metadata/directory reads and failed UTF8 progress. Corrected27cda29; fresh agentA QA in progress. Original DAY7_B2_QA.md CHANGES_REQUIRED retained.
-- Lifecycle timestamps correctedb10a7ff independently PASS_WITH_OBSERVATIONS (11 tests); event_id test fixturecleanup observation fixed9bd28ad, agentB verifying.
-- B3 resource defaults/migration013 and HTTP handling built, targeted tests in progress. Not deployed. Records preserve old static grants with versioned effective allocation overlay; operator-lowered controls preserved. Reasoning/output independent. Resource denials explicit; HTTP cannot resume partial structured output, so governed block/review rather than silent billable retry. Native vendor reasoning measurements remain unknown when not reported.
-- Remaining: canonical CycleRecord + Cycles UI; external registry/contracts/broker shells/local canonical data integration; Core Integrations UI; launcher; Day6 quality debt definitions; final regression/package/live/browser/independentQA/report/tag.
+Read docs/DAY7_REPORT.md, docs/qa/DAY7_ACCEPTANCE_MANIFEST.json and the final independent acceptance report for release evidence. The base/day7-complete tag is reserved for the independently accepted release after Core governance. Never infer release from this checkpoint alone.
 
-Production backup: backups/day7-before-aegis-20260919T181620Z. Retained restored DB day7_aegis_restore_20260919_181620. Historical failures remain preserved. Four providers previously ONLINE; schedule/autonomy/live orders remain disabled; API ceiling0, fallbackNEVER, Aegis inactive and exchangeclosed.
+Production: Core8000/Triad8101/Aegis8102. Explicit012/013upgrade applied. FourprovidersONLINE,gatePASS,zeroactive runs; API fallbackNEVER,live trading and scheduled autonomy disabled. Aegis inactive/human-directed/exchangeCLOSED. Broker entries are shells,not configured. Newlocalcanonical source is available; fixturecoverage does not imply realmarketdata.
 
-Desktop shortcut targets C:/Users/fordr/AppData/Local/Triad/Launch.html. file:// browser access was blocked; do not work around. Use localhost app for authorized browser QA.
+ThreecanonicalTriadcycles retain failures. BlockedREAL8a16bb3a-925e-4ff3-8131-94bad088fd1e points to separatelycompletedday6-product-20260919. Definitions-only debt resolutionc79baa3f-ed4d-4b87-9ae0-781687e86e41 retains originalOPENdebt and originalDay6artifact. Definitions v2 exactLF SHA9542a822398e252302dc3a79358732675d30f24c15429cc9e1611c9cc8d32fba; preserve reviewedbytes acrossWindowscheckouts.
+
+Rollbackbackup:backups/day7-before-final-20260919T210842Z; restoredDBday7_final_restore_20260919_210842 retained.228artifacts/original101WorkItems/168intelligence/91artifact-ownerrows independentlyunchanged. OriginalpreAegisbackup retained. AllnegativeQA andfirstfullrun5failure/524pass evidence retained.
+
+Canonical32segmentbuild/QA pairs retained via reviewed pinnedplan and two regressioncorrections; finalrelease governance is recorded separately. No newcycle,brokerlogin,paidAPI,integrationadoptionoragentauthority is authorized by this handoff.
+
+Desktopshortcutactualtarget:C:/Users/fordr/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/Triad/Launch.html. ReviewedlauncherSHAe6acf764e607d34484718b23256d3b5730d0dd8aa1b02072d90c48c593e1ee24. /launch is the sameapplicationpage. No file-URLrestrictionbypass.
+
+Finalsourcecopyandreleasegate must preserve rawsource/artifacthashes. Main may be fast-forwarded with checkedancestryandcompare-and-swap ref update before switchingtoidenticalHEAD, avoidingoldercheckoutCRLFrewrites. No remote push required. No usage reset credits redeemed. Nextproductrecommendation is documented,not started.
