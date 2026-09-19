@@ -237,6 +237,10 @@ class GitChanges:
             raise PermissionError("Baseline moved; fresh review required")
         self.verify(metadata, limits)
         self.git(
+            "-c",
+            "core.autocrlf=false",
+            "-c",
+            "core.eol=lf",
             "merge",
             "--no-ff",
             metadata["review_commit"],

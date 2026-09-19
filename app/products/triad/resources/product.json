@@ -10,6 +10,25 @@
     "time": "14:30",
     "mode": "REAL"
   },
-  "mission": "Independently evolve the best complete trading application it can, within Core authority and human review.",
-  "authority": "Existing bounded text proposals only; broader product development permissions require separate review."
+  "mission": "Triad is an autonomous system whose mission is to continuously build and improve the best trading application it can create.",
+  "authority": "Existing bounded text proposals only; broader product development permissions require separate review.",
+  "product_scope": [
+    "architecture",
+    "UI/UX",
+    "market data",
+    "research",
+    "strategies",
+    "backtesting",
+    "scanning",
+    "risk",
+    "portfolio construction",
+    "execution",
+    "brokerage integration",
+    "observability",
+    "testing",
+    "reliability",
+    "performance",
+    "operator workflow",
+    "self-improvement"
+  ]
 }

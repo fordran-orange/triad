@@ -1,0 +1,74 @@
+[
+  {
+    "Path": "C:\\Triad\\app\\products\\triad\\development_api.py",
+    "Hash": "88D53BBC018613638DF9FC01248A90BE2807FAEBA5A6BB29C3A05E1B6282D7C6"
+  },
+  {
+    "Path": "C:\\Triad\\app\\products\\triad\\development_contracts.py",
+    "Hash": "0133B94558C9D4E4DCB72DEB873AE0E71167C11CD29E98B643F3EF2BA9D683B7"
+  },
+  {
+    "Path": "C:\\Triad\\app\\products\\triad\\development.py",
+    "Hash": "ACE9375B3B09E2F8D7FF2D4129F7C353EB246E8CE0373EF199F691FE0A00236A"
+  },
+  {
+    "Path": "C:\\Triad\\app\\products\\triad\\static\\development.html",
+    "Hash": "F37F0B7234DDC019297A06EA48F555C2B90B0DD1BF6C6744970863C259FA2957"
+  },
+  {
+    "Path": "C:\\Triad\\app\\products\\triad\\static\\development.js",
+    "Hash": "02F88A7461E6409EC93989A8B52BA74D17A0674E3BFA32F5DD1A0B39A46409AC"
+  },
+  {
+    "Path": "C:\\Triad\\app\\products\\triad\\static\\day3.html",
+    "Hash": "103FAC0C692CA3ADDFFA41BBDA801D2E88A8488D5C14461D1F7C6573C124BA07"
+  },
+  {
+    "Path": "C:\\Triad\\app\\products\\triad\\server.py",
+    "Hash": "56A0657C5C5E2E20F970919ACF9F385B3DDA0B2ED904F3379A18DB1F4586DC2B"
+  },
+  {
+    "Path": "C:\\Triad\\app\\products\\triad\\cycles.py",
+    "Hash": "7BDCC0AE25AF6DED9303A8449CE7D6030BF54C037763B19064178312B5022B3A"
+  },
+  {
+    "Path": "C:\\Triad\\config\\triad\\product.json",
+    "Hash": "D69FDBF26ABEAD49F6795093E0BD9ECFE3E3A47C2B43A150F6C092F4FA337492"
+  },
+  {
+    "Path": "C:\\Triad\\app\\products\\triad\\resources\\product.json",
+    "Hash": "D69FDBF26ABEAD49F6795093E0BD9ECFE3E3A47C2B43A150F6C092F4FA337492"
+  },
+  {
+    "Path": "C:\\Triad\\pyproject.toml",
+    "Hash": "0CAF3660961FEE73EEA84220C4A9855557027B29EDC459F7D20FE29DE8D44E73"
+  },
+  {
+    "Path": "C:\\Triad\\products\\triad\\docs\\CAPABILITY_INVENTORY.md",
+    "Hash": "64B96167F85869351E6755917644A364F18F9A8511820B62A655D1AC93EA71A7"
+  },
+  {
+    "Path": "C:\\Triad\\products\\triad\\docs\\INSPECTION_BASELINE.md",
+    "Hash": "90502A571114FB46A555F2B5837952B5E4C985DC9365B8C8FB12A2F2B178CAE6"
+  },
+  {
+    "Path": "C:\\Triad\\products\\triad\\docs\\PRODUCT_MAP.md",
+    "Hash": "4F0CFB278E93BDD203BDDFDA67BC4BD3AB9451C632830A0F281AB5B2D315AEF4"
+  },
+  {
+    "Path": "C:\\Triad\\docs\\DAY6_PRODUCT_WORKFLOW.md",
+    "Hash": "96D279500B3AD6C1BD8388816BF2457A60F2071D180BB20CC43D3C0D8F25BD29"
+  },
+  {
+    "Path": "C:\\Triad\\tools\\run_product_cycle.py",
+    "Hash": "C4C63DFD089589ADA5E214362E956E9C7E50A23BAC000316F8A53F0B5A8C488D"
+  },
+  {
+    "Path": "C:\\Triad\\tests\\test_product_development.py",
+    "Hash": "C95ACD163C8F7B4ED0F7854E575B11F4A2DF2925A7D5D52A995914568C7557D2"
+  },
+  {
+    "Path": "C:\\Triad\\tests\\test_day6_product_framework_qa.py",
+    "Hash": "C97E73AA79AD0D10518375A82CF900199348E1DA93CB432518709A1F064DDCF7"
+  }
+]

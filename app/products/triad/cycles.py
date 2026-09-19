@@ -238,6 +238,8 @@ class Cycles(ExecutionServices):
 
     def review_change(self, change_id, *, human_merge=False):
         record = self.ledger.get(change_id)
+        if record.get("mode") == "REAL" and record.get("git"):
+            raise PermissionError("Real changes require the separate Day 6 product QA workflow")
         work = self.host.store.get(record["work_item_id"])
         if work.status not in {State.AWAITING_REVIEW, State.APPROVED_BY_REVIEWER}:
             raise PermissionError("No reviewable change")
@@ -420,6 +422,8 @@ class Cycles(ExecutionServices):
         return record
 
     def stage(self, agent, cycle_id, mode, candidate, parent=None):
+        if mode == "REAL":
+            raise PermissionError("Use the Day 6 product workflow with separate build and QA WorkItems")
         work = self.make_work(agent, cycle_id, parent)
         epoch = self.ledger.reserve(agent, work.work_item_id, improvement=True, day=self.day)
         work, policy = self.start_work(work, epoch)
