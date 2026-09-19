@@ -32,11 +32,15 @@ def test_claim_cannot_dispatch_after_authority_changes(engine, monkeypatch, chan
     service, due = enabled(engine)
     original = service.host.store.lease
 
+    changed = False
+
     @contextmanager
     def controlled(name):
+        nonlocal changed
         with original(name):
             yield
-        if name == "triad-daily-schedule-slot":
+        if name == "triad-daily-schedule-slot" and not changed:
+            changed = True
             if change == "kill_resume":
                 service.host.ledger.operate("kill")
                 service.host.ledger.operate("resume")
@@ -129,3 +133,61 @@ def test_next_cycle_uses_real_local_time_across_dst_gap():
     assert (candidate.hour, candidate.minute) == (local.hour, local.minute), (
         "Do not show nonexistent local wall time"
     )
+
+
+@pytest.mark.integration
+def test_original_authorized_scheduled_create_and_replaced_config(engine):
+    service, _ = enabled(engine)
+    config = service.schedule()
+    cycle = service.create(
+        scheduled=True, expected_epoch=config["control_epoch"], schedule_id=config["id"]
+    )
+    assert cycle.scheduled is True and cycle.control_epoch == config["control_epoch"]
+    service.configure(DailySchedule(enabled=True, time="10:00"))
+    with pytest.raises(PermissionError):
+        service.create(
+            scheduled=True, expected_epoch=config["control_epoch"], schedule_id=config["id"]
+        )
+    with pytest.raises(PermissionError):
+        service.create(scheduled=True)
+
+
+@pytest.mark.integration
+def test_fall_fold_claims_only_first_occurrence(engine):
+    service, _ = enabled(engine)
+    service.configure(DailySchedule(enabled=True, time="01:30"))
+    calls = []
+
+    def fail(**kwargs):
+        calls.append(kwargs)
+        raise RuntimeError("fixture stop")
+
+    first = datetime(2026, 11, 1, 6, 30, tzinfo=UTC)
+    second = datetime(2026, 11, 1, 7, 30, tzinfo=UTC)
+    assert tick(service=service, instant=first, run=fail)["status"] == "BLOCKED"
+    assert tick(service=service, instant=second, run=fail)["status"] == "ALREADY_CLAIMED"
+    assert len(calls) == 1
+    assert next_cycle(service.schedule(), first).startswith("2026-11-02T01:30")
+
+
+def test_spring_gap_dispatch_skips_same_day_as_preview():
+    from types import SimpleNamespace
+
+    config = {
+        **DailySchedule(enabled=True, time="02:30").model_dump(),
+        "effective_after": "2026-03-08",
+        "control_epoch": 1,
+        "manual_prerequisite": "reviewed",
+    }
+    service = SimpleNamespace(
+        schedule=lambda: config,
+        product=SimpleNamespace(ledger=SimpleNamespace(guard=lambda **_: None)),
+        require_complete=lambda _: None,
+    )
+    result = tick(
+        service=service,
+        instant=datetime(2026, 3, 8, 9, tzinfo=UTC),
+        run=lambda **_: pytest.fail("Must not dispatch nonexistent wall time"),
+    )
+    assert result["status"] == "NOT_DUE"
+    assert result["next_cycle"].startswith("2026-03-09T02:30")

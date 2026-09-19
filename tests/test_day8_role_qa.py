@@ -88,7 +88,8 @@ def test_role_rollout_requires_qa_capability_and_preserves_other_fields(engine):
     with pytest.raises(PermissionError):
         adopt_ui_role(records, run.implementation_run_id, "wrong-commit")
     adopt_ui_role(records, run.implementation_run_id, run.change_commit)
-    after = definition(records)
+    assert definition(records) == before
+    after = Agents(records).get("CLAUDE")
     assert set(after["execution_permissions"]) == set(before["execution_permissions"]) | {
         "write_code"
     }

@@ -132,6 +132,7 @@ def test_canonical_grants_reject_forgery_revocation_and_scoped_ingestion(engine)
     )
     with pytest.raises(KeyError):
         grant_for(engine.ledger, request)
+    work, _ = engine.start_work(work)
     issued = issue_grant(
         records, work, base_commit="fixture", files=(PATH,), test_id="qa", test_script=SCRIPT
     )

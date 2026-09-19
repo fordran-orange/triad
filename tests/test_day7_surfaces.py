@@ -39,7 +39,8 @@ def test_integration_ui_readonly_and_changes_require_operator(engine, monkeypatc
         app.dependency_overrides.clear()
 
 
-def test_launcher_and_honest_product_shell():
+def test_launcher_and_honest_product_shell(monkeypatch):
+    monkeypatch.setenv("CORE_PROVIDER_MONITOR", "0")
     with TestClient(app) as client:
         page = client.get("/launch")
         assert page.status_code == 200

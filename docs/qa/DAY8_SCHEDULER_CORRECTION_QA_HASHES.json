@@ -1,0 +1,31 @@
+{
+  "revision": "6891f07e861e4dca443c94504f2e8b700df85f19",
+  "decision": "CHANGES_REQUIRED",
+  "backend_test_revision": "6891f07e861e4dca443c94504f2e8b700df85f19",
+  "tested_backend_raw_git_blob_sha256": {
+    "app/products/triad/daily_scheduler.py": "41032ff6bca026e83614d7e5a4f318747ddf66e334f473014aa55118f819a6e0",
+    "app/products/triad/daily_api.py": "dddd168a0ebbd0ca1631f3f883b515cecbdfb73d7be7453a097d6dba499bf5b0",
+    "app/products/triad/server.py": "292783f16b21b7739d3fcd354b9127ff7573b3dd8bbf18eb14ca23d83e4dac0a",
+    "app/products/triad/static/daily.js": "7ec63e5f4d8219a9c7766a002ff78149d1f2a99b986a5fb84aeb8854c3098826",
+    "app/products/triad/daily.py": "60dfc5440b954947d8ada9ad3256b3273fa648fcb4eca928e67c4881e5c55162",
+    "app/products/triad/daily_development.py": "8fa8b8f4740cb7f69f3b0ec71351e18732842fd90cf54c9c1e731ecb526d5c90",
+    "tests/test_daily_scheduler.py": "168adb43c03e4d197ff872423b1693e25f68a3f7233637d5242aceffb04e9b0b",
+    "tests/test_daily_lifecycle.py": "0e6a9a5e4afab92ef8512c7c7d5bfeafd89fffa0b02eddd7a0ec7066d39f75a1"
+  },
+  "final_scope_raw_git_blob_sha256": {
+    "app/products/triad/daily_scheduler.py": "41032ff6bca026e83614d7e5a4f318747ddf66e334f473014aa55118f819a6e0",
+    "app/products/triad/daily_api.py": "dddd168a0ebbd0ca1631f3f883b515cecbdfb73d7be7453a097d6dba499bf5b0",
+    "app/products/triad/server.py": "292783f16b21b7739d3fcd354b9127ff7573b3dd8bbf18eb14ca23d83e4dac0a",
+    "app/products/triad/static/daily.js": "7ec63e5f4d8219a9c7766a002ff78149d1f2a99b986a5fb84aeb8854c3098826"
+  },
+  "evidence_sha256": {
+    "docs/qa/DAY8_SCHEDULER_CORRECTION_QA.md": "2a2dc42eaf412b472cc1111b68be683dbe3539391017e13a9d501e246f20457b",
+    "logs/day8-scheduler-6891f07/tests/test_day8_scheduler_qa.py": "83d593af88e818ac70261064fa700f71af67645cd59f2d62c61af3c6e83ee700",
+    "tests/test_day8_scheduler_qa.py": "83d593af88e818ac70261064fa700f71af67645cd59f2d62c61af3c6e83ee700",
+    "logs/day8-scheduler-independent-6891f07.log": "828ebea7c01d089b6366f0512bba773c41832356a93c9155af231d867081819a",
+    "logs/day8-scheduler-independent-6891f07.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day8-scheduler-ui-qa.js": "c7b2d4555a5fa5fce1506a57ca21bc3dc29ca9e401d9ffebca54c5d11be49b6a",
+    "logs/day8-scheduler-ui-6891f07.log": "7af4e6206c796f7b907ea85b1608067d69c8c4ccd99653a847f466271e077fdf",
+    "logs/day8-scheduler-ui-6891f07.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04"
+  }
+}

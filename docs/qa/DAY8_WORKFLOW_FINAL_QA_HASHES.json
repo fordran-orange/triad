@@ -1,0 +1,38 @@
+{
+  "revision": "add70c29554e3845a244698e0a412224c62f1314",
+  "reviewer": "/root/day6_qa_c",
+  "verdict": "PASS",
+  "scope": "Bounded daily workflow, not first-real-cycle acceptance",
+  "test_result": {
+    "passed": 9,
+    "warnings": 2,
+    "seconds": 181.31,
+    "exit": 0
+  },
+  "source_sha256": {
+    "app/products/triad/daily_development.py": "eef76fc4d03beb3049b499e88465c01141b917073373fafabeb03a00d380f200",
+    "app/products/triad/daily_verification.py": "e6921c9c7d26d9440f9c69e86b2edd8f64ff883fa45a90fc79444a4cbf4cde36",
+    "tools/run_daily_product_cycle.py": "0a4f346bd84eeb849c2da9a950f061b4b4e9d51fde3df4ab6d30df840e23c26b",
+    "app/products/triad/daily.py": "f44da6c4fe89ab2da58e0257acfe6007765c717041792e68a555651ba518a96f",
+    "app/products/triad/cycle_history.py": "5d917a97d0356bfab588af757ee42660757c4bac79bf05cf40390e219c9ec0a4",
+    "app/products/triad/development.py": "5fb4dd05a19686ef59712ac4d4200633b7c1bd1858fd3e61e9a0bc3ac3492651",
+    "app/trading_core/engineering.py": "675810778fbc61b5d864c4b71b97c7fa429d008138e4334aa26e4f9c138e01e7",
+    "app/trading_core/intelligence/quality.py": "0c3aa7df28a30e584d9ff43bda787c5c4c86cccb305fbb790ca66e6afe5e4db5",
+    "app/trading_core/intelligence/routing.py": "314dfdde645041773d274723e4b6aa05581568d9eecafb3c970d9bc5f43d0e20",
+    "app/trading_core/cycle_records.py": "54d607f6a1764330a2de03e86f01d3da275890433e60a4a474b3435bd251494e"
+  },
+  "source_matches_exact_git_blobs": true,
+  "evidence_sha256": {
+    "tests/test_day8_workflow_qa.py": "eca34cc3599f8072a0458076c98580d51f3e92a369c5ff791eec58a70d2dbd34",
+    "logs/day8-workflow-correction-runner.py": "6476b1344956ef1584f811333391228967176bcaedc429eff90c5b2d1d502b01",
+    "logs/day8-workflow-correction-tests.log": "2192647d8920e9b870403dbde978cade23deaaabea647bb51c3f8313c6fdfa02",
+    "logs/day8-workflow-correction-tests.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day8-workflow-add70c2.zip": "7faaca95553ff91820fba4306a587525d30d21cd64ec8b3a35232e03bb8eca4f",
+    "docs/qa/DAY8_WORKFLOW_FINAL_QA.md": "2cf1ce1695a32c1b24f9e61a33dddcc99c61b48affdf4164058eba8569dccea8",
+    "docs/qa/DAY8_WORKFLOW_QA.md": "c8d0b2708bacbd5a0e3337206822fc0843867800ce346d1757727fff12129c98",
+    "docs/qa/DAY8_WORKFLOW_QA_HASHES.json": "27b88536503cf2763e7ee8364395f28605d473044b1b28cae612369459233652",
+    "logs/day8-workflow-qa-initial-test.py": "79b0e49d0a191e9d4c465fb7f840f540f521cdb47fba63bc0d1363d17625b353",
+    "logs/day8-workflow-qa-db.log": "63c205e11717cfdff98d285be701fdbd1bfd9876b9cc56640a6a4eaecbbdd758",
+    "logs/day8-workflow-qa-unit.log": "e61869b2590aa6c29a8b3d9aeb4ddb3db81a9e8368a736cb02b1c6fe4783bd37"
+  }
+}

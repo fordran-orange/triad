@@ -1,0 +1,29 @@
+{
+  "revision": "5faaec90492d8fe0d1994f14942901184e1b1f92",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "PASS",
+  "implementation_files": {
+    "app/trading_core/engineering.py": "675810778fbc61b5d864c4b71b97c7fa429d008138e4334aa26e4f9c138e01e7",
+    "app/trading_core/intelligence/contracts.py": "33d8917fd62fa737a95bf0036f815d537acd1220a7d8db9326b8bdf521b51529",
+    "app/trading_core/intelligence/agents.py": "60743ab72ea57d92d515935cd41fbd134ecc44216019d39b6c34c1ef73940c31",
+    "app/trading_core/intelligence/capabilities.py": "4eb9bdceff978a2a7cb01e0eefd79d4f3e3bc7edb96e365f7ea8a7040dd0af28",
+    "app/trading_core/intelligence/quality.py": "0c3aa7df28a30e584d9ff43bda787c5c4c86cccb305fbb790ca66e6afe5e4db5",
+    "app/trading_core/intelligence/routing.py": "314dfdde645041773d274723e4b6aa05581568d9eecafb3c970d9bc5f43d0e20",
+    "infrastructure/postgres/011_agent_lifecycle.sql": "44b51f857ff3cab9e5fe14c4796e47cdb5bcfcb36a3df8939b7c8ee8e9a8810e",
+    "app/trading_core/resources/sql/011_agent_lifecycle.sql": "44b51f857ff3cab9e5fe14c4796e47cdb5bcfcb36a3df8939b7c8ee8e9a8810e",
+    "tools/day8_engineering_probe.py": "5864cccdbeadf2880ac6efa9f15a3c7f4db054adf9cc6592b4735abf4eb46015"
+  },
+  "qa_evidence": {
+    "docs/qa/DAY8_ROLE_PROBE_FINAL_QA.md": "3fac15a78e17b8c2861501a70b0fc929a670e620b0d4f88243d6136d700ee7c6",
+    "tests/test_day8_role_correction_qa.py": "392442983c11db341d4a1adb31347f80bcf6618f28bd2eccfdc92061eb5f9d66",
+    "tests/test_day8_role_qa.py": "3f752e95a4a56bb58788f2d6f038829b9cd6b23d7089114b8643b59c16b82fac",
+    "tests/test_day8_engineering_qa.py": "b52c0ad40ee012607c2f869fcf58f3f7e232589d6673e0be9617069be360d74c",
+    "logs/day8_role_correction_qa_runner.py": "21e523ece8915c5365b5ecc4b71fc16e0d067b6a1922756a86a66efd0d0245f5",
+    "logs/day8-role-correction-5faaec9.log": "6cf3825cda2e58e67bda9a10d352c59bfba03b8a6ba045282c0b7d9e2fa286ed",
+    "logs/day8-role-probe-precheck-5faaec9.log": "133cf7e634b997e79225772d9887985ee1bcc1bd2ea4d6937f7505d165222f52",
+    "logs/day8-engineering-qa-pre-authority.py": "15e761d36182561bd99b8c514ae469491c02c04f41404cdb049fd1f0e7abcef0",
+    "logs/day8-role-qa-pre-overlay.py": "310f5e99384976e07f9929155994b47d46be6451b22658d8c06cc037e2a09961",
+    "docs/qa/DAY8_ROLE_PROBE_QA.md": "de505b764cb330e95a513b2110321f42936fc7e7652892153325ff3bc342ffa9",
+    "docs/qa/DAY8_ROLE_PROBE_QA_HASHES.json": "91cf9b1fb0be1d53893f3903bcff76e0d24e6aaf356a89072f18aaf372b2af1c"
+  }
+}
