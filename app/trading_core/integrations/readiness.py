@@ -10,15 +10,16 @@ import json
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import Field
+from pydantic import AwareDatetime, Field, model_validator
 
 from trading_core.integrations.contracts import DataRequest
 from trading_core.integrations.data import DataAccess, licensed
 from trading_core.intelligence.quality import Quality
 from trading_core.intelligence.records import Records
 from trading_core.research.calendar import Calendar
+from trading_core.research.contracts import Bar
 from trading_core.research.data import quality
-from trading_core.work import now
+from trading_core.work import Record, now
 
 POLICY = "day7-readiness-definitions-v2"
 DEFINITION_SHA256 = "9542a822398e252302dc3a79358732675d30f24c15429cc9e1611c9cc8d32fba"
@@ -35,6 +36,38 @@ CHECKS = (
     "license_provenance",
     "independent_reproduction",
 )
+
+
+class CompletedCheck(Record):
+    status: Literal["COMPLETED"]
+    result: Literal["PASS"]
+    evidence: tuple[str, ...] = Field(min_length=1)
+
+
+class ReadinessAttestation(Record):
+    request_hash: str
+    dataset_hash: str
+    policy: Literal["day7-readiness-definitions-v2"]
+    executed_at: AwareDatetime
+    normalizer_version: str = Field(min_length=1)
+    outlier_method: str = Field(min_length=1)
+    outlier_parameters: dict = Field(min_length=1)
+    outlier_reference_evidence: tuple[str, ...] = Field(min_length=1)
+    outlier_findings: tuple[dict, ...]
+    outlier_disposition: str = Field(min_length=1)
+    critical_findings: tuple[dict, ...] = Field(max_length=0)
+    checks: dict[str, CompletedCheck]
+    session_checks: dict[str, dict[str, dict[str, CompletedCheck]]]
+
+    @model_validator(mode="after")
+    def complete(self):
+        if self.executed_at > now() or set(self.checks) != set(CHECKS):
+            raise ValueError("Exact completed checks and an observed execution time required")
+        if any(
+            f.get("resolved") is not True or not f.get("evidence") for f in self.outlier_findings
+        ):
+            raise ValueError("Unresolved outlier finding")
+        return self
 
 
 class ReadinessRequest(DataRequest):
@@ -141,23 +174,21 @@ class Readiness:
             }
             if fingerprint(payload) != evidence["digest"]:
                 return None
-            checks = evidence["checks"]
-            if (
-                not evidence.get("executed_at")
-                or not evidence.get("normalizer_version")
-                or not evidence.get("outlier_method")
-                or evidence.get("critical_findings") != []
-            ):
+            attestation = ReadinessAttestation.model_validate(payload)
+            sessions = {
+                t.astimezone(ZoneInfo("America/New_York")).date().isoformat()
+                for t in Calendar().expected(request.start, request.end)
+            }
+            if not sessions or set(attestation.session_checks) != set(request.symbols):
                 return None
-            if any(
-                checks.get(c, {}).get("status") != "COMPLETED"
-                or checks[c].get("result") != "PASS"
-                or not checks[c].get("evidence")
-                for c in CHECKS
-            ):
-                return None
-            return {"record_id": evidence["id"], "qa_id": qa["id"], "checks": checks}
-        except (KeyError, ValueError, PermissionError):
+            for symbol in request.symbols:
+                if set(attestation.session_checks[symbol]) != sessions or any(
+                    set(checks) != set(CHECKS)
+                    for checks in attestation.session_checks[symbol].values()
+                ):
+                    return None
+            return {"record_id": evidence["id"], "qa_id": qa["id"], "checks": evidence["checks"]}
+        except (KeyError, ValueError, PermissionError, TypeError, AttributeError):
             return None
 
     def evaluate(self, request):
@@ -193,7 +224,11 @@ class Readiness:
                 "No configured and independently verified historical acquisition adapter; no fetch attempted"
             )
             return result
-        if not all(result["source"].get(k) for k in ("enabled", "configured", "connected")):
+        if (
+            not all(result["source"].get(k) for k in ("enabled", "configured", "connected"))
+            or result["source"].get("status") != "AVAILABLE"
+            or result["source"].get("capabilities", {}).get("HISTORICAL_BARS") != "IMPLEMENTED"
+        ):
             result["status"] = "BLOCKED"
             missing.append("Selected integration is disabled or disconnected")
             return result
@@ -249,7 +284,14 @@ class Readiness:
                     & (frame.timestamp >= request.start)
                     & (frame.timestamp < request.end)
                 ]
-                report, _ = quality(part.to_dict("records"), symbol, request.start, request.end)
+                rows = [
+                    {k: v for k, v in row.items() if k in Bar.model_fields}
+                    for row in part.to_dict("records")
+                ]
+                report, _ = quality(rows, symbol, request.start, request.end)
+                if not part.empty and not (part.source == manifest.source).all():
+                    report["status"] = "FAIL"
+                    report["issues"].append({"check": "manifest_source_mismatch"})
                 result["checks"].append(
                     {"name": "available_data_quality", "symbol": symbol, **report}
                 )

@@ -20,6 +20,8 @@ def service(tmp_path, monkeypatch):
             catalog=lambda: [
                 {
                     "integration_id": "local-canonical",
+                    "status": "AVAILABLE",
+                    "capabilities": {"HISTORICAL_BARS": "IMPLEMENTED"},
                     "enabled": True,
                     "configured": True,
                     "connected": True,
