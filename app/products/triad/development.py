@@ -293,14 +293,20 @@ class Development(ExecutionServices):
             raise PermissionError("Three independent frontier inspections required")
         if not self.rows("ProductSynthesis", mission):
             findings = [
-                {"agent": r["agent"], "summary": r["summary"], "candidates": r["candidates"]}
+                {
+                    "agent": r["agent"],
+                    "summary": r["summary"],
+                    "candidate_titles": [c["title"] for c in r["candidates"]],
+                }
                 for r in inspections
             ]
             work, result, _, usage = self.call(
                 mission,
                 "LOCAL_QWEN",
                 "SUPPORT",
-                "Summarize these independent product findings and disagreements concisely. Observe only; do not choose, approve or grant authority.",
+                "Summarize these independent product findings and disagreements in at most 100 words. "
+                "Return only a short summary and at most one assumption. "
+                "Observe only; do not choose, approve or grant authority.",
                 {"findings": findings},
             )
             self.record(
