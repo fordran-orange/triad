@@ -68,6 +68,12 @@ def test_private_records_context_and_artifacts(engine, tmp_path):
 def test_product_controls_cannot_relax_global_governance(engine):
     triad = scoped(engine, "triad")
     work = triad.host.create(WorkItem(title="isolated", description="test"))
+    foreign = scoped(engine, "p2p").host.create(WorkItem(title="private", description="test"))
+    with pytest.raises(PermissionError):
+        triad.ledger.guard(work_id=foreign.work_item_id)
+    with pytest.raises(KeyError):
+        triad.ledger.guard(work_id="missing-assignment")
+    epoch = triad.ledger.guard(work_id=work.work_item_id)["epoch"]
     for action in ("enable", "lower_limits", "kill", "human_review"):
         with pytest.raises(PermissionError):
             triad.ledger.operate(action, agent="CODEX")
@@ -80,6 +86,8 @@ def test_product_controls_cannot_relax_global_governance(engine):
     with pytest.raises(Stopped):
         triad.ledger.guard(work_id=work.work_item_id)
     engine.ledger.operate("resume")
+    with pytest.raises(Stopped):
+        triad.ledger.guard(work_id=work.work_item_id, epoch=epoch)
     triad.ledger.operate("stop", work_id=work.work_item_id)
     with pytest.raises(Stopped):
         triad.ledger.guard(work_id=work.work_item_id)

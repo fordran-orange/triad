@@ -153,24 +153,34 @@ class Ledger:
             raise Stopped("Run cancelled or autonomy paused")
 
     def guard(self, agent=None, work_id=None, epoch=None):
-        if work_id and self.store.scope:
-            self.store.get(work_id)
         if self.store.scope:
+            from trading_core.ownership import require_owner
+
+            # Streaming protocols check this for every frame. Read one current
+            # authority snapshot instead of opening three connections per check.
+            # Nothing is cached: every call still enforces ownership and revocation.
             with self.store.connect() as conn:
                 row = conn.execute(
-                    "SELECT paused FROM core.product_controls WHERE product=%s", (self.store.scope,)
+                    "SELECT payload, "
+                    "(SELECT owner FROM core.work_items WHERE id=%s) AS work_owner, "
+                    "COALESCE((SELECT paused FROM core.product_controls WHERE product=%s),false) AS product_paused, "
+                    "EXISTS(SELECT 1 FROM core.product_stops WHERE product=%s AND work_id=%s) AS product_stopped "
+                    "FROM core.autonomy_control WHERE id=1",
+                    (work_id, self.store.scope, self.store.scope, work_id),
                 ).fetchone()
-                if row and row["paused"]:
-                    raise Stopped("Product is paused")
-                if (
-                    work_id
-                    and conn.execute(
-                        "SELECT 1 FROM core.product_stops WHERE product=%s AND work_id=%s",
-                        (self.store.scope, work_id),
-                    ).fetchone()
-                ):
-                    raise Stopped("Product assignment stopped")
-        control = self.control()
+            if not row:
+                raise Stopped("Initialize Day 3 before dispatch")
+            if work_id:
+                if row["work_owner"] is None:
+                    raise KeyError(work_id)
+                require_owner(self.store.scope, row["work_owner"])
+            if row["product_paused"]:
+                raise Stopped("Product is paused")
+            if row["product_stopped"]:
+                raise Stopped("Product assignment stopped")
+            control = row["payload"]
+        else:
+            control = self.control()
         self.check(control, agent, work_id, epoch)
         return control
 
