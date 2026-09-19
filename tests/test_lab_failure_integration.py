@@ -75,7 +75,9 @@ def test_review_transaction_rollback_and_concurrent_verdicts(engine, tmp_path, m
     barrier = Barrier(2)
     original_get = lab.host.store.get
 
-    def concurrent_get(identifier):
+    def concurrent_get(identifier, *, conn=None):
+        if conn is not None:
+            return original_get(identifier, conn=conn)
         work = original_get(identifier)
         barrier.wait(timeout=20)
         return work
