@@ -168,6 +168,9 @@ class Archive:
             "checksum": digest(raw),
             "path": path.relative_to(self.root).as_posix(),
         }
+        if getattr(provider, "integration_provenance", None):
+            metadata["integration_provenance"] = provider.integration_provenance
+            metadata["license_use_notes"] = provider.license_use_notes
         save_json(path.with_name("metadata.json"), metadata)
         return metadata
 

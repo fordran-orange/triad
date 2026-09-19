@@ -59,6 +59,10 @@ class ExternalIntegrationRegistry:
         return list(latest.values())
 
     def adapter(self, identifier):
+        if identifier == "local-canonical":
+            from trading_core.integrations.data import LocalCanonicalStore
+
+            return LocalCanonicalStore(self.store)
         factories = {"schwab": SchwabBrokerAdapter, "robinhood": RobinhoodBrokerAdapter}
         if identifier not in factories:
             raise KeyError(identifier)
