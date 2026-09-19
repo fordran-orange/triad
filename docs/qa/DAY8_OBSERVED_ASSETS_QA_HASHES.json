@@ -1,0 +1,22 @@
+{
+  "revision": "7c78acb093c1b2488c1df56336e9723edda3059f",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "PASS",
+  "tests": "63 passed in 20.85s",
+  "implementation_files": {
+    "app/trading_core/providers/native_agents.py": "13fed9339450504e5351eab4f1167f561bec4c8f7a9fe2f9874b926d61e9444f",
+    "app/products/triad/daily_development.py": "fab4a4aa26fe49a8501c23b81e47e72f1377c0fc2320feca77c34bf93cfa9e50",
+    "tools/day8_engineering_probe.py": "d88270453942e6d2c8e3af0595504f47d083b1008a8ab699dfeb7c7238114c5a",
+    "app/trading_core/providers/bounded_tools.py": "5071dcc5746da0c68d898c00a49418a0e3a9110080cd9d1a1a325b6b0d6e2b36",
+    "app/trading_core/providers/transports.py": "60cbf3a02dadea1b6eb914e5b695b718c0cb507871a0f6e50eef8d6e682167e4",
+    "app/trading_core/engineering.py": "675810778fbc61b5d864c4b71b97c7fa429d008138e4334aa26e4f9c138e01e7",
+    "app/trading_core/runtime.py": "79c95fceeaf021ea7ad45ad49478e09d63b1ee418d7af1c7e3000c041f9e45d9"
+  },
+  "qa_evidence": {
+    "docs/qa/DAY8_OBSERVED_ASSETS_QA.md": "973ed8826aefd4d19156521309c0e53e4d140bb386b6ef418cd99229f99a8d2f",
+    "tests/test_day8_observed_assets_qa.py": "59ca1db18450eb1cde8d0a6ce1d261c8b6a87d9ed8fc912b5ff712ee0a885f2b",
+    "logs/day8_observed_qa_runner.py": "5bc6f84699ac6c0e2fa606e65062f4c887c8bc82dcd46b624d9dbdfaf504cb37",
+    "logs/day8-observed-independent-7c78acb.log": "7c86dbe2f47aa0cc5f8cb225a5e77580de7b61025f722f1ecd5ab5f99c77f90c",
+    "logs/day8-first-build-failure.json": "cf9543eae09b61e9b27f308bd60397d59a1d4d1071bc5af8da8b4929373a4723"
+  }
+}
