@@ -1,6 +1,7 @@
 """Provider-neutral contracts; metadata never contains credentials."""
 
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import AwareDatetime, Field, HttpUrl, model_validator
 
@@ -29,6 +30,34 @@ CandidateStatus = Literal[
 ]
 
 
+def public_metadata(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            compact = str(key).lower().replace("_", "").replace("-", "").replace(" ", "")
+            if compact in {
+                "apikey",
+                "password",
+                "token",
+                "accesstoken",
+                "refreshtoken",
+                "authorization",
+                "secret",
+                "clientsecret",
+                "credentials",
+            }:
+                raise ValueError("Credential fields cannot enter public integration metadata")
+            public_metadata(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            public_metadata(item)
+    elif isinstance(value, str) and value.startswith(("https://", "http://")):
+        parsed = urlsplit(value)
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError(
+                "Public documentation and endpoints cannot carry credentials or URL parameters"
+            )
+
+
 class IntegrationRecord(Record):
     integration_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,79}$")
     name: str
@@ -54,6 +83,14 @@ class IntegrationRecord(Record):
     last_failure: AwareDatetime | None = None
     notes: tuple[str, ...] = ()
     transports: tuple[dict, ...] = ()
+    candidate_id: str | None = None
+    implementation_run_id: str | None = None
+    implementation_commit: str | None = None
+
+    @model_validator(mode="after")
+    def sanitized(self):
+        public_metadata(self.model_dump(mode="json"))
+        return self
 
 
 class IntegrationConnection(Record):
@@ -82,6 +119,11 @@ class IntegrationCandidate(Record):
     status: CandidateStatus = "DISCOVERED"
     created_at: AwareDatetime = Field(default_factory=now)
     updated_at: AwareDatetime = Field(default_factory=now)
+
+    @model_validator(mode="after")
+    def sanitized(self):
+        public_metadata(self.model_dump(mode="json"))
+        return self
 
 
 class DataRequest(Record):

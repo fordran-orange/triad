@@ -1,7 +1,14 @@
 """Append-only registry and candidate decisions; public metadata has no secrets."""
 
+import hashlib
+import json
+
 from trading_core.integrations.adapters import RobinhoodBrokerAdapter, SchwabBrokerAdapter
-from trading_core.integrations.contracts import IntegrationCandidate, IntegrationConnection
+from trading_core.integrations.contracts import (
+    IntegrationCandidate,
+    IntegrationConnection,
+    IntegrationRecord,
+)
 from trading_core.intelligence.records import Records
 from trading_core.store import Store
 from trading_core.work import now
@@ -31,7 +38,13 @@ class ExternalIntegrationRegistry:
         latest = {}
         for row in self.host.list("IntegrationDefinition"):
             if row["owner"] == "core":
-                latest[row["integration_id"]] = row
+                try:
+                    clean = IntegrationRecord.model_validate(
+                        {k: v for k, v in row.items() if k in IntegrationRecord.model_fields}
+                    ).model_dump(mode="json")
+                except ValueError:
+                    continue  # Quarantined metadata cannot leak through the shared catalog.
+                latest[row["integration_id"]] = {**clean, "id": row["id"], "owner": "core"}
         for row in self.host.list("IntegrationConnection"):
             if row["owner"] == "core" and row["integration_id"] in latest:
                 item = latest[row["integration_id"]]
@@ -140,10 +153,29 @@ class ExternalIntegrationRegistry:
             if candidate["status"] != "APPROVED_FOR_IMPLEMENTATION":
                 raise PermissionError("Candidate needs a reviewed implementation approval")
             definition = next(r for r in self.catalog() if r["integration_id"] == integration_id)
-            if definition["provider"] != candidate["provider"] or not any(
-                v == "IMPLEMENTED" for v in definition["capabilities"].values()
+            build = self.host.get(implementation_id)
+            required = set(candidate["capabilities"])
+            implemented = {k for k, v in definition["capabilities"].items() if v == "IMPLEMENTED"}
+            fingerprint = definition_fingerprint(definition)
+            if (
+                build["kind"] != "ImplementationRun"
+                or build["owner"] != "core"
+                or definition["provider"] != candidate["provider"]
+                or definition["category"] != candidate["category"]
+                or not required
+                or not required <= implemented
+                or definition.get("candidate_id") != identifier
+                or definition.get("implementation_run_id") != implementation_id
+                or definition.get("implementation_commit") != commit
+                or "integration-candidate:" + identifier not in build["evidence"]
+                or "integration-definition-sha256:" + fingerprint not in build["evidence"]
+                or not any(
+                    path.startswith("app/trading_core/integrations/") for path in build["files"]
+                )
             ):
-                raise PermissionError("No matching implemented capability registered")
+                raise PermissionError(
+                    "Implementation and independent QA must cover this exact Core candidate, definition and required capabilities"
+                )
             Quality(self.host).require_pass(implementation_id, commit)
             return self.host.append(
                 "IntegrationCandidateDecision",
@@ -179,3 +211,24 @@ class ExternalIntegrationRegistry:
             },
             owner=work.owner,
         )
+
+
+def definition_fingerprint(definition):
+    excluded = {
+        "id",
+        "owner",
+        "kind",
+        "created_at",
+        "updated_at",
+        "last_health_check",
+        "last_success",
+        "last_failure",
+        "candidate_id",
+        "implementation_run_id",
+        "implementation_commit",
+    }
+    return hashlib.sha256(
+        json.dumps(
+            {k: v for k, v in definition.items() if k not in excluded}, sort_keys=True
+        ).encode()
+    ).hexdigest()

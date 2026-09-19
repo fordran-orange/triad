@@ -26,6 +26,10 @@ class Records:
         if self.store.scope is not None and kind in HOST_RECORD_KINDS:
             raise PermissionError("Canonical build and QA evidence requires trusted Core ingestion")
         require_write(self.store.scope, owner)
+        if kind == "IntegrationDefinition":
+            from trading_core.integrations.contracts import IntegrationRecord
+
+            payload = IntegrationRecord.model_validate(payload).model_dump(mode="json")
         ensure_no_secret(payload)
         if conn is None:
             with self.store.connect() as connection:
