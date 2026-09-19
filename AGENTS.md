@@ -10,3 +10,7 @@ Core owns generic intelligence, authority and providers. Products consume Core;
 Core imports neither product. Preserve product-private knowledge and credentials.
 Day 6 leaves P2P behavior unchanged, exchange CLOSED and live trading disabled.
 Keep scheduled autonomy disabled until separately authorized.
+
+Day 7 renames the preserved P2P lineage to Aegis. Current names/routes use Aegis;
+historical P2P evidence stays intact through the fixed canonical alias. Aegis stays
+inactive and human-directed, with exchange closed and no product feature work.

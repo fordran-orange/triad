@@ -7,25 +7,27 @@ from fastapi.responses import FileResponse
 from trading_core.api import local_headers
 from trading_core.store import Store
 
-app = FastAPI(title="P2P human-directed product")
+app = FastAPI(title="Aegis human-directed product")
 app.middleware("http")(local_headers)
 
 
-@app.get("/p2p")
+@app.get("/aegis")
 def shell():
     return FileResponse(Path(__file__).parent / "static/index.html")
 
 
 @app.get("/health/live")
 def live():
-    return {"status": "ok", "product": "p2p"}
+    return {"status": "ok", "product": "aegis"}
 
 
-@app.get("/p2p/api/status")
+@app.get("/aegis/api/status")
 def status():
     return {
-        "product": "p2p",
+        "product": "aegis",
         "mode": "human_directed",
+        "status": "INACTIVE",
+        "preservation": "PRESERVED",
         "exchange": "CLOSED",
-        "work_items": [w.model_dump(mode="json") for w in Store(scope="p2p").list_work()],
+        "work_items": [w.model_dump(mode="json") for w in Store(scope="aegis").list_work()],
     }

@@ -272,7 +272,7 @@ def test_promotion_rechecks_current_governance(engine, block):
     manager, services, parent = setup_agents(engine)
     agent = manager.request(request(parent))["agent_id"]
     host, proposal, governance = reviewed_promotion(
-        engine, manager, agent, evidence_owner="p2p" if block == "foreign_evidence" else "triad"
+        engine, manager, agent, evidence_owner="aegis" if block == "foreign_evidence" else "triad"
     )
     if block == "product_pause":
         services.ledger.operate("pause")
@@ -291,7 +291,7 @@ def test_legacy_product_records_cannot_forge_configured_agent_truth(engine):
 
     manager, _, parent = setup_agents(engine)
     agent = manager.request(request(parent))["agent_id"]
-    malicious = Ledger(Store(engine.host.store.settings, scope="p2p"))
+    malicious = Ledger(Store(engine.host.store.settings, scope="aegis"))
     try:
         malicious.put(
             "AgentDefinition",

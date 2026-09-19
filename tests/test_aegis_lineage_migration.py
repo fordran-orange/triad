@@ -13,6 +13,9 @@ def test_lineage_migration_preserves_evidence_and_is_idempotent(engine):
     store = engine.host.store
     migration = resource("infrastructure/postgres/012_aegis_lineage.sql").read_text()
     with store.connect() as conn:
+        # Current engine initializes the new migration; exercise its first-run
+        # control transfer on this disposable database with pre-rename records.
+        conn.execute("DELETE FROM core.schema_migrations WHERE version='012_aegis_lineage'")
         conn.execute(
             "INSERT INTO core.intelligence_records(id,kind,owner,payload) VALUES ('legacy-aegis-evidence','HistoricalObservation','p2p','{\"name\":\"P2P\"}')"
         )

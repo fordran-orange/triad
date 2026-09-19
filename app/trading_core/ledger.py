@@ -33,6 +33,7 @@ class Ledger:
             )
             conn.execute(resource("infrastructure/postgres/010_intelligence.sql").read_text())
             conn.execute(resource("infrastructure/postgres/011_agent_lifecycle.sql").read_text())
+            conn.execute(resource("infrastructure/postgres/012_aegis_lineage.sql").read_text())
             initial = {
                 "paused": False,
                 "killed": False,
@@ -134,8 +135,8 @@ class Ledger:
     def records(self, kind=None, limit=300):
         with self.store.connect() as c:
             rows = c.execute(
-                "SELECT * FROM core.day3_records WHERE (%s::text IS NULL OR owner=%s OR owner='shared' OR (owner='core' AND kind IN ('ProviderPolicy','TransportStatus','ProviderHealth'))) AND (%s::text IS NULL OR kind=%s) ORDER BY created_at DESC LIMIT %s",
-                (self.store.scope, self.store.scope, kind, kind, limit),
+                "SELECT * FROM core.day3_records WHERE (%s::text IS NULL OR owner=ANY(%s) OR owner='shared' OR (owner='core' AND kind IN ('ProviderPolicy','TransportStatus','ProviderHealth'))) AND (%s::text IS NULL OR kind=%s) ORDER BY created_at DESC LIMIT %s",
+                (self.store.scope, self.store.owner_aliases, kind, kind, limit),
             ).fetchall()
         return [
             {"id": r["id"], "kind": r["kind"], "work_item_id": r["work_item_id"], **r["payload"]}
@@ -169,8 +170,8 @@ class Ledger:
                 row = conn.execute(
                     "SELECT payload, "
                     "(SELECT owner FROM core.work_items WHERE id=%s) AS work_owner, "
-                    "COALESCE((SELECT paused FROM core.product_controls WHERE product=COALESCE(%s,(SELECT owner FROM core.work_items WHERE id=%s))),false) AS product_paused, "
-                    "EXISTS(SELECT 1 FROM core.product_stops WHERE product=COALESCE(%s,(SELECT owner FROM core.work_items WHERE id=%s)) AND work_id=%s) AS product_stopped, "
+                    "COALESCE((SELECT paused FROM core.product_controls WHERE product=(SELECT CASE WHEN o='p2p' THEN 'aegis' ELSE o END FROM (SELECT COALESCE(%s,(SELECT owner FROM core.work_items WHERE id=%s)) AS o) lineage)),false) AS product_paused, "
+                    "EXISTS(SELECT 1 FROM core.product_stops WHERE product=(SELECT CASE WHEN o='p2p' THEN 'aegis' ELSE o END FROM (SELECT COALESCE(%s,(SELECT owner FROM core.work_items WHERE id=%s)) AS o) lineage) AND work_id=%s) AS product_stopped, "
                     "EXISTS(SELECT 1 FROM core.agent_instances a LEFT JOIN core.work_items p ON p.id=a.parent_work_id "
                     "WHERE (a.id=%s OR a.id=(SELECT agent_id FROM core.agent_work_bindings WHERE work_id=%s)) "
                     "AND (a.status<>'ACTIVE' OR a.definition->>'execution_eligible'='false' OR a.expires_at<=now() "

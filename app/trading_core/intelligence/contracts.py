@@ -64,7 +64,7 @@ class Capability(Record):
 class ImplementationRun(Record):
     implementation_run_id: str = Field(default_factory=uid)
     work_item_id: str | None = None
-    owner: Literal["core", "triad", "p2p"]
+    owner: Literal["core", "triad", "aegis", "p2p"]
     builder: str
     provider: str
     model: str

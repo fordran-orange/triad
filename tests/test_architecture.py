@@ -10,8 +10,8 @@ from trading_core.settings import ROOT
 def test_dependency_directions():
     rules = {
         "trading_core": ("products", "triad", "platform_host"),
-        "products/p2p": ("products.triad", "triad", "platform_host"),
-        "products/triad": ("products.p2p", "platform_host"),
+        "products/aegis": ("products.triad", "triad", "platform_host"),
+        "products/triad": ("products.aegis", "platform_host"),
     }
     violations = []
     for package, forbidden in rules.items():
@@ -83,25 +83,43 @@ def test_no_authority_added_and_exchange_closed():
         title="boundary",
         description="boundary",
         owner="triad",
-        allowed_paths=("app/trading_core", "config", "app/products/p2p", "docs/vault/operator"),
+        allowed_paths=("app/trading_core", "config", "app/products/aegis", "docs/vault/operator"),
     )
     for path in (
         "app/trading_core/ledger.py",
         "config/core/runtime.json",
-        "app/products/p2p/server.py",
+        "app/products/aegis/server.py",
         "docs/vault/operator/private.md",
     ):
         with pytest.raises(PermissionError):
             ToolGateway(work).check("read_file", path)
     with pytest.raises(PermissionError):
         import_candidate(
-            ExchangeCandidate(source_product="triad", destination_product="p2p", record_ids=("x",))
+            ExchangeCandidate(
+                source_product="triad", destination_product="aegis", record_ids=("x",)
+            )
         )
 
 
 def test_product_rotation_is_independent_of_core_review_defaults():
     from products.triad.cycles import Cycles
+
     cycle = Cycles.__new__(Cycles)
     cycle.rotation = ("GROK", "CLAUDE", "CODEX")
     assert cycle.next_agent("GROK") == "CLAUDE"
     assert cycle.next_agent("CODEX") == "GROK"
+
+
+def test_aegis_shell_and_legacy_redirect():
+    from fastapi.testclient import TestClient
+    from platform_host.api import app as gateway
+    from products.aegis.server import app as product
+
+    response = TestClient(product).get("/aegis")
+    assert response.status_code == 200
+    assert "Aegis product shell" in response.text
+    assert "INACTIVE" in response.text and "PRESERVED" in response.text
+    assert TestClient(product).get("/health/live").json()["product"] == "aegis"
+    response = TestClient(gateway).get("/p2p/api/status?view=all", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/aegis/api/status?view=all"

@@ -17,6 +17,6 @@ $process = Start-Process -FilePath $TriadPython -ArgumentList '-m','uvicorn','pl
 $process.Id | Set-Content (Join-Path $TriadRoot 'logs/api.pid')
 if (!$CoreOnly) {
     & (Join-Path $PSScriptRoot 'start_product.ps1') -Product triad
-    & (Join-Path $PSScriptRoot 'start_product.ps1') -Product p2p
+    & (Join-Path $PSScriptRoot 'start_product.ps1') -Product aegis
 }
-Write-Output "Core launched at http://127.0.0.1:$Port/core; products at /triad and /p2p"
+Write-Output "Core launched at http://127.0.0.1:$Port/core; products at /triad and /aegis"

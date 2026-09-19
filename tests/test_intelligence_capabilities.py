@@ -79,7 +79,7 @@ def test_registry_changes_require_exact_update_qa(engine):
     assert records.list("QualityDebt")[0]["status"] == "OPEN"
     with pytest.raises(ValueError):
         caps.approve(proposed, implementation.implementation_run_id, "revision-a")
-    for product in ("p2p", "triad"):
+    for product in ("aegis", "triad"):
         scoped = Records(Store(engine.host.store.settings, scope=product))
         assert scoped.get(identifier)["review_status"] == "APPROVED"
         assert Capabilities(scoped).current()[0]["id"] == identifier
@@ -122,7 +122,7 @@ def test_products_propose_only_for_own_work_and_cannot_publish_truth(engine):
     assert records.get(identifier)["review_status"] == "PENDING"
     assert caps.current() == []
     with pytest.raises(PermissionError):
-        Records(Store(engine.host.store.settings, scope="p2p")).get(identifier)
+        Records(Store(engine.host.store.settings, scope="aegis")).get(identifier)
 
 
 def test_runtime_discovery_is_narrow_and_requires_actual_proof(engine):

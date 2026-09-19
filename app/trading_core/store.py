@@ -30,11 +30,10 @@ class ConcurrentUpdate(RuntimeError):
 
 class Store:
     def __init__(self, settings: Settings | None = None, *, scope=None):
-        from trading_core.ownership import PRODUCTS
+        from trading_core.product_identity import canonical_product, lineage_owners
 
-        if scope is not None and scope not in PRODUCTS:
-            raise ValueError("Unknown product scope")
-        self.scope = scope
+        self.scope = canonical_product(scope) if scope is not None else None
+        self.owner_aliases = list(lineage_owners(scope)) if scope is not None else []
         self.settings = settings or Settings()
 
     def connect(self):
@@ -115,7 +114,9 @@ class Store:
         require_owner(self.scope, work.owner)
         if work.parent_work_item_id:
             parent = self.get(work.parent_work_item_id)
-            if parent.owner != work.owner:
+            from trading_core.product_identity import same_product
+
+            if not same_product(parent.owner, work.owner):
                 raise PermissionError("Cross-product parent assignment")
         if work.status != "CREATED" or work.revision != 0 or work.result is not None:
             raise ValueError("Only pristine CREATED assignments may be inserted")
@@ -161,7 +162,7 @@ class Store:
                 return self.step(previous, updated, detail, records, conn=transaction)
         result = conn.execute(
             "UPDATE core.work_items SET status=%s,revision=%s,payload=%s,updated_at=now() "
-            "WHERE id=%s AND revision=%s AND (%s::text IS NULL OR owner=%s) RETURNING id",
+            "WHERE id=%s AND revision=%s AND (%s::text IS NULL OR owner=ANY(%s)) RETURNING id",
             (
                 updated.status,
                 updated.revision,
@@ -169,7 +170,7 @@ class Store:
                 previous.work_item_id,
                 previous.revision,
                 self.scope,
-                self.scope,
+                self.owner_aliases,
             ),
         ).fetchone()
         if not result:
@@ -197,8 +198,8 @@ class Store:
     def list_work(self, limit: int = 100) -> list[WorkItem]:
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT payload,owner FROM core.work_items WHERE (%s::text IS NULL OR owner=%s) ORDER BY created_at DESC LIMIT %s",
-                (self.scope, self.scope, limit),
+                "SELECT payload,owner FROM core.work_items WHERE (%s::text IS NULL OR owner=ANY(%s)) ORDER BY created_at DESC LIMIT %s",
+                (self.scope, self.owner_aliases, limit),
             ).fetchall()
         return [WorkItem.model_validate({**r["payload"], "owner": r["owner"]}) for r in rows]
 
@@ -207,9 +208,9 @@ class Store:
     ) -> list[dict]:
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT kind,payload,owner FROM core.orchestration_records WHERE (%s::text IS NULL OR owner=%s OR owner='shared' OR kind='Agent') AND (%s::text IS NULL OR kind=%s) "
+                "SELECT kind,payload,owner FROM core.orchestration_records WHERE (%s::text IS NULL OR owner=ANY(%s) OR owner='shared' OR kind='Agent') AND (%s::text IS NULL OR kind=%s) "
                 "AND (%s::text IS NULL OR work_item_id=%s) ORDER BY created_at DESC LIMIT %s",
-                (self.scope, self.scope, kind, kind, work_id, work_id, limit),
+                (self.scope, self.owner_aliases, kind, kind, work_id, work_id, limit),
             ).fetchall()
         return [{"kind": r["kind"], **r["payload"]} for r in rows]
 

@@ -4,13 +4,13 @@ import os
 
 import httpx
 from fastapi import Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from trading_core.api import app
 
 
 async def forward(request: Request, product: str):
     port = int(
-        os.environ.get(product.upper() + "_WORKER_PORT", {"triad": "8101", "p2p": "8102"}[product])
+        os.environ.get(product.upper() + "_WORKER_PORT", {"triad": "8101", "aegis": "8102"}[product])
     )
     path = request.url.path
     query = request.url.query
@@ -47,7 +47,16 @@ async def triad_proxy(request: Request, path: str = ""):
     return await forward(request, "triad")
 
 
+@app.api_route("/aegis", methods=["GET"])
+@app.api_route("/aegis/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def aegis_proxy(request: Request, path: str = ""):
+    return await forward(request, "aegis")
+
+
 @app.api_route("/p2p", methods=["GET"])
-@app.api_route("/p2p/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def p2p_proxy(request: Request, path: str = ""):
-    return await forward(request, "p2p")
+@app.api_route("/p2p/{path:path}", methods=["GET"])
+async def legacy_product_redirect(request: Request, path: str = ""):
+    target = "/aegis" + ("/" + path if path else "")
+    if request.url.query:
+        target += "?" + request.url.query
+    return RedirectResponse(target, status_code=307)

@@ -7,8 +7,8 @@ from pydantic import BaseModel, ConfigDict
 
 class ExchangeCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    source_product: Literal["triad", "p2p"]
-    destination_product: Literal["triad", "p2p"]
+    source_product: Literal["triad", "aegis"]
+    destination_product: Literal["triad", "aegis"]
     record_ids: tuple[str, ...]
     status: Literal["CLOSED"] = "CLOSED"
 

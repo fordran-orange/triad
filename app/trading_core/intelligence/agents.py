@@ -9,6 +9,7 @@ from trading_core.control import PROTECTED, Registry, beneath, relative_path
 from trading_core.intelligence.quality import Quality
 from trading_core.intelligence.records import Records
 from trading_core.ownership import require_owner
+from trading_core.product_identity import same_product
 from trading_core.providers.contracts import PREFERRED
 from trading_core.store import Store
 from trading_core.work import Record, WorkItem, now, uid
@@ -215,8 +216,8 @@ class Agents:
     def list(self):
         with self.store.connect() as conn:
             ids = conn.execute(
-                "SELECT id FROM core.agent_instances WHERE %s::text IS NULL OR owner=%s OR (owner='core' AND definition->>'agent_type'='static') ORDER BY id",
-                (self.store.scope, self.store.scope),
+                "SELECT id FROM core.agent_instances WHERE %s::text IS NULL OR owner=ANY(%s) OR (owner='core' AND definition->>'agent_type'='static') ORDER BY id",
+                (self.store.scope, self.store.owner_aliases),
             ).fetchall()
             return [self.get(r["id"], conn=conn) for r in ids]
 
@@ -384,7 +385,7 @@ class Agents:
             if (
                 agent["agent_type"] != "specialist"
                 or agent["status"] != "ACTIVE"
-                or work.owner != agent["owner"]
+                or not same_product(work.owner, agent["owner"])
             ):
                 raise PermissionError("Active owned specialist required")
             if (
@@ -551,7 +552,7 @@ class Agents:
             if (
                 old["agent_type"] != "specialist"
                 or old["persistent_or_temporary"] != "temporary"
-                or request["owner"] != old["owner"]
+                or not same_product(request["owner"], old["owner"])
                 or old["status"] == "DISABLED"
             ):
                 raise PermissionError("Promotion must belong to an eligible temporary specialist")
@@ -575,7 +576,7 @@ class Agents:
                 if (
                     run["kind"] != "ImplementationRun"
                     or run["builder"] != request["agent_id"]
-                    or run["owner"] != old["owner"]
+                    or not same_product(run["owner"], old["owner"])
                 ):
                     raise PermissionError("Evidence must demonstrate this specialist's work")
                 Quality(self.host).require_pass(evidence, run["change_commit"], conn=conn)

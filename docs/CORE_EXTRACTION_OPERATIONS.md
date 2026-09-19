@@ -1,7 +1,7 @@
 # Operating the extracted platform
 
 This monorepo has three maintained ownership areas on one integration branch:
-`app/trading_core`, `app/products/triad`, and `app/products/p2p`. The neutral
+`app/trading_core`, `app/products/triad`, and `app/products/aegis`. The neutral
 `app/platform_host` package assembles HTTP routes without importing product code.
 There are no permanently divergent product branches.
 
@@ -11,19 +11,19 @@ From `C:\Triad`:
 .\tools\start_backend.ps1
 ```
 
-This starts Core and its local gateway on 8000, Triad on 8101, and P2P on 8102.
+This starts Core and its local gateway on 8000, Triad on 8101, and Aegis on 8102.
 All listeners bind loopback. Each process has separate stdout/stderr logs under
 `logs/`. A crashed product returns HTTP 503 through the gateway; Core remains up.
 To run only Core, use `start_backend.ps1 -CoreOnly`. This leaves any existing
 product workers alone. To restart one product, use `start_product.ps1 -Product triad`
-or `-Product p2p`.
+or `-Product aegis`.
 
 Standalone commands are also supported:
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn trading_core.api:app --host 127.0.0.1 --port 8000
 .\.venv\Scripts\python.exe -m uvicorn products.triad.server:app --host 127.0.0.1 --port 8101
-.\.venv\Scripts\python.exe -m uvicorn products.p2p.server:app --host 127.0.0.1 --port 8102
+.\.venv\Scripts\python.exe -m uvicorn products.aegis.server:app --host 127.0.0.1 --port 8102
 ```
 
 Use `platform_host.api:app` instead of `trading_core.api:app` for the optional
@@ -40,7 +40,7 @@ the production launcher.
 | `/research` | Core generic data/engine inspection; existing fixture laboratory |
 | `/day2` | Retained Core work explorer |
 | `/triad` | Product rotation, backlog, proposals, product reviews, journal, jobs and recovery |
-| `/p2p` | Sparse human-directed shell; no strategy imports or trading functionality added |
+| `/aegis` | Sparse human-directed shell; no strategy imports or trading functionality added |
 | `/api/core/control` | Authenticated global controls; works without products |
 | `/api/day3/control` | Authenticated Triad-local pause/resume/stop only; global actions are rejected |
 | `/api/day3/*` | Compatibility gateway to the independent Triad worker |
@@ -55,7 +55,7 @@ remain recorded. API budgets, per-run ceilings and the global kill switch remain
 ## Configuration and installation
 
 Core configuration is in `config/core/`; scheduling and member sequence are in
-`config/triad/product.json`; P2P's shell settings are in `config/p2p/product.json`.
+`config/triad/product.json`; Aegis's shell settings are in `config/aegis/product.json`.
 The former files under `agents/` are retained historical compatibility examples;
 new runtime code does not load them. Default package resources mirror the maintained
 config and migrations; `test_packaged_defaults_match_maintained_config` detects drift.
@@ -67,7 +67,7 @@ Core, product HTML, shared JS/CSS, configuration and SQL ship in the wheel.
 
 ## Data ownership and trust boundary
 
-`Store(scope='triad')` and `Store(scope='p2p')` are host-selected service scopes.
+`Store(scope='triad')` and `Store(scope='aegis')` are host-selected service scopes.
 Canonical WorkItems and audit/research records carry ownership. Reads filter
 before limiting results; foreign IDs, parents, writes, events and research models
 are rejected. Shared infrastructure records are readable but cannot be modified
@@ -122,3 +122,7 @@ typed CLOSED contract and a rejecting import function; there is no transfer API.
 The schedule remains disabled as before. Current autonomous Git changes still
 require a clean protected `main` checkout; this integration branch intentionally
 does not relax that check. Decide when to integrate it into `main` after review.
+
+## Day 7 lineage migration
+
+Migration 012 records p2p as a historical alias of aegis. Historical record owners, payloads, hashes and timestamps remain unchanged. New assignments use aegis. The /p2p route redirects to /aegis. Aegis remains inactive and preserved; exchange is closed. Legacy pause/stop controls transfer conservatively. Keep historical migrations and artifacts intact.

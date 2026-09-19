@@ -56,7 +56,7 @@ def test_approval_retains_authority_ceiling(engine):
     for updates in (
         {"risk_class": "HIGH"},
         {"permissions_required": ["shell"]},
-        {"affected_components": ["app/products/p2p"]},
+        {"affected_components": ["app/products/aegis"]},
         {"required_capabilities": []},
         {"specialist": "new specialist agent recommended"},
     ):
@@ -70,7 +70,7 @@ def test_approval_retains_authority_ceiling(engine):
 def test_scoped_dashboard_and_artifact_fail_closed(engine):
     dev = service(engine)
     dev.record("ProductCycle", "triad-mission", status="INSPECTING")
-    dev.canonical.append("ProductCycle", {"mission_id": "private"}, owner="p2p")
+    dev.canonical.append("ProductCycle", {"mission_id": "private"}, owner="aegis")
     assert [r["mission_id"] for r in dev.dashboard()["records"]["ProductCycle"]] == [
         "triad-mission"
     ]
@@ -78,7 +78,7 @@ def test_scoped_dashboard_and_artifact_fail_closed(engine):
         dev.artifact(".env")
     with dev.host.store.connect() as c:
         c.execute(
-            "INSERT INTO core.artifact_owners VALUES ('docs/improvements/foreign.md','p2p','fixture')"
+            "INSERT INTO core.artifact_owners VALUES ('docs/improvements/foreign.md','aegis','fixture')"
         )
     with pytest.raises(PermissionError):
         dev.check_ownership([SimpleNamespace(path="docs/improvements/FOREIGN.md")])

@@ -105,7 +105,7 @@ def test_low_risk_creation_lineage_budget_and_termination(engine):
             == 1
         )
     with pytest.raises(PermissionError):
-        Agents(Records(Store(engine.host.store.settings, scope="p2p"))).get(identifier)
+        Agents(Records(Store(engine.host.store.settings, scope="aegis"))).get(identifier)
 
 
 @pytest.mark.parametrize(

@@ -32,14 +32,14 @@ def wait_up(url, process):
 
 
 def test_product_crashes_leave_core_controls_enforced(engine):
-    ports = {p: free_port() for p in ("core", "triad", "p2p")}
+    ports = {p: free_port() for p in ("core", "triad", "aegis")}
     settings = engine.host.store.settings
     env = {
         **os.environ,
         "POSTGRES_DB": settings.postgres_db,
         "CORE_PROVIDER_MONITOR": "0",
         "TRIAD_WORKER_PORT": str(ports["triad"]),
-        "P2P_WORKER_PORT": str(ports["p2p"]),
+        "AEGIS_WORKER_PORT": str(ports["aegis"]),
         "TRIAD_OPERATOR_TOKEN": "isolated-acceptance-token-never-production",
     }
     processes = {}
@@ -47,7 +47,7 @@ def test_product_crashes_leave_core_controls_enforced(engine):
         for product, module in (
             ("core", "platform_host.api"),
             ("triad", "products.triad.server"),
-            ("p2p", "products.p2p.server"),
+            ("aegis", "products.aegis.server"),
         ):
             processes[product] = subprocess.Popen(
                 [
@@ -66,7 +66,7 @@ def test_product_crashes_leave_core_controls_enforced(engine):
             )
             wait_up(f"http://127.0.0.1:{ports[product]}", processes[product])
         url = f"http://127.0.0.1:{ports['core']}"
-        for product in ("triad", "p2p"):
+        for product in ("triad", "aegis"):
             assert httpx.get(url + "/" + product).status_code == 200
             processes[product].terminate()
             processes[product].wait(timeout=10)

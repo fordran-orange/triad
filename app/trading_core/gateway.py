@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from trading_core.control import PROTECTED, beneath, relative_path
+from trading_core.product_identity import canonical_product
 from trading_core.settings import ROOT
 from trading_core.work import WorkItem
 
@@ -30,8 +31,8 @@ class ToolGateway:
             raise PermissionError("Tool not granted")
         relative = relative_path(path)
         # Product content and mixed operator notes are not shared model context.
-        for product in ("triad", "p2p"):
-            if self.work.owner != product and any(
+        for product in ("triad", "aegis", "p2p"):
+            if canonical_product(self.work.owner) != canonical_product(product) and any(
                 beneath(relative, prefix)
                 for prefix in (
                     f"products/{product}",
@@ -60,10 +61,10 @@ class ToolGateway:
                     ).fetchone()
                 if row:
                     owner = row["owner"]
-            for product in ("core", "p2p", "triad"):
+            for product in ("core", "aegis", "p2p", "triad"):
                 if beneath(relative, "research/generated/" + product):
                     owner = product
-            if self.work.owner != owner:
+            if canonical_product(self.work.owner) != canonical_product(owner):
                 raise PermissionError("Cross-product artifact access denied")
         if beneath(relative, "docs/vault") and not beneath(
             relative, "docs/vault/02_Journal/generated"

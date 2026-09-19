@@ -45,7 +45,7 @@ from trading_core.resources import resource
 from trading_core.control import Registry
 from trading_core.support import CAPABILITIES
 from products.triad.resources import product_resource
-from products.p2p.server import app as p2p
+from products.aegis.server import app as aegis
 from fastapi.testclient import TestClient
 assert len(Registry().agents)==4 and CAPABILITIES
 for name in ['002_orchestration','003_autonomy','006_record_ownership','008_artifact_ownership']:
@@ -54,8 +54,8 @@ assert product_resource('product.json').read_text()
 for path in ['/core','/day2','/research','/settings/ai-providers','/assets/record-view.js','/assets/record-view.css']:
     response=TestClient(app).get(path)
     assert response.status_code==200, path
-assert TestClient(p2p).get('/p2p').status_code==200
-print('Clean installed package: Core, P2P, config, SQL, HTML, JS and CSS passed')
+assert TestClient(aegis).get('/aegis').status_code==200
+print('Clean installed package: Core, Aegis, config, SQL, HTML, JS and CSS passed')
 """
     env = {
         **os.environ,

@@ -63,8 +63,8 @@ class Records:
         # Only approved capability versions are shared platform facts.
         shared = shared and kind == "CapabilityVersion"
         rows = conn.execute(
-            "SELECT * FROM core.intelligence_records WHERE kind=%s AND (%s::text IS NULL OR owner=%s OR (%s AND owner='core')) ORDER BY created_at,id",
-            (kind, self.store.scope, self.store.scope, shared),
+            "SELECT * FROM core.intelligence_records WHERE kind=%s AND (%s::text IS NULL OR owner=ANY(%s) OR (%s AND owner='core')) ORDER BY created_at,id",
+            (kind, self.store.scope, self.store.owner_aliases, shared),
         ).fetchall()
         return [
             {**r["payload"], "id": r["id"], "kind": r["kind"], "owner": r["owner"]} for r in rows

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "triad-foundation"
 version = "0.2.0"
-description = "Shared trading infrastructure with independent Triad and P2P products"
+description = "Shared trading infrastructure with independent Triad and Aegis products"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "pandas>=2.2,<3", "pyarrow>=19,<24", "psycopg[binary]>=3.2,<4",
@@ -23,7 +23,7 @@ where = ["app"]
 [tool.setuptools.package-data]
 trading_core = ["static/*.html", "static/*.js", "static/*.css", "resources/**/*"]
 "products.triad" = ["static/*.html", "static/*.js", "resources/*"]
-"products.p2p" = ["static/*.html", "resources/*"]
+"products.aegis" = ["static/*.html", "resources/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

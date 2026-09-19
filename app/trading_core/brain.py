@@ -562,8 +562,9 @@ class Brain:
         self.store.get(work_id)
         with self.driver() as driver, driver.session() as session:
             records = session.run(
-                "MATCH (w:WorkItem {id:$id})-[r]-(n) WHERE $scope IS NULL OR n.owner=$scope OR n.owner='shared' OR 'Agent' IN labels(n) RETURN type(r) AS relationship, labels(n)[0] AS label, n.id AS id LIMIT 100",
+                "MATCH (w:WorkItem {id:$id})-[r]-(n) WHERE $scope IS NULL OR n.owner IN $owner_aliases OR n.owner='shared' OR 'Agent' IN labels(n) RETURN type(r) AS relationship, labels(n)[0] AS label, n.id AS id LIMIT 100",
                 id=work_id,
                 scope=self.store.scope,
+                owner_aliases=self.store.owner_aliases,
             )
             return [r.data() for r in records]

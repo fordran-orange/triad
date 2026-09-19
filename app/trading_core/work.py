@@ -90,7 +90,7 @@ class WorkResult(Record):
 
 
 class WorkItem(Record):
-    owner: Literal["core", "triad", "p2p"] = "core"
+    owner: Literal["core", "triad", "aegis", "p2p"] = "core"
     work_item_id: str = Field(default_factory=uid)
     parent_work_item_id: str | None = None
     mission_id: str = Field(default_factory=uid)

@@ -1,0 +1,9 @@
+# Day 7 A2 — Aegis consumer integration build
+
+Active package/config/UI identities become Aegis; /p2p GET paths redirect to /aegis with query preservation. Aegis remains human-directed, inactive, preserved and exchange closed. The launcher can replace the previous P2P worker on the same local port. Current operating docs and dependency/package/service checks use Aegis. Historical reports and SQL001–011 remain unchanged.
+
+Core startup now applies additive migration012. Host-selected scope canonicalizes p2p to aegis; parameterized reads accept both stored owner spellings. Work and intelligence contracts accept old owner spelling to load historical evidence. Private file access, graph lineage and context handling recognize the alias without equating it with Triad/Core. Pause/stop enforcement canonicalizes historical owners when checking current controls. Original record owners/payloads stay unchanged. New product assignments use aegis.
+
+Validation so far: 19 targeted architecture/ownership/alias/migration tests passed in16.08s; changed Python files pass Ruff; clean installed package smoke passed at temporary target trading-core-package-k8gt8ud3. First integrated test attempt was 16pass/1fail because migration012 now initializes before the migration fixture seeded legacy controls. Corrected disposable fixture explicitly resets only its migration marker before exercising first-run controls; subsequent19test run passed. Logs retain both attempts.
+
+Additional failure-isolation/intelligence/product regression is running in logs/day7-a2-regression.log, with final .exit pending at build-record creation. No final Day7 success claimed. Production services have not been restarted onto A2; live migration/browser/service verification and independent A2 QA remain mandatory before accepting this segment. A1 independent QA covers its earlier exact revision only.

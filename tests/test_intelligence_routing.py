@@ -120,7 +120,7 @@ def test_route_persists_evidence_and_excludes_local_qa(engine):
     qwen = next(c for c in decision["candidates"] if c["agent_id"] == "LOCAL_QWEN")
     assert not qwen["eligible"] and "Agent cannot independently review" in qwen["exclusions"]
     with pytest.raises(PermissionError):
-        Records(Store(engine.host.store.settings, scope="p2p")).get(decision["id"])
+        Records(Store(engine.host.store.settings, scope="aegis")).get(decision["id"])
 
 
 @pytest.mark.parametrize(
