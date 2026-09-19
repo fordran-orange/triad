@@ -1,0 +1,29 @@
+{
+  "revision": "31dd333b64381247da840e5d3bdcc9f35fff4c58",
+  "reviewer": "/root/day6_qa_c",
+  "verdict": "PASS",
+  "changed_files": [
+    "tests/test_lab_failure_integration.py"
+  ],
+  "source_sha256": {
+    "tests/test_lab_failure_integration.py": "4389c0d6ea77b977d9e66f5e5769e7992a5e2f5481e3bbcd01b6e883ac1e2e8d",
+    "app/trading_core/store.py": "3a32279b05dcb76d309a06bfd923fb0e10a29bb638653732bddbe1322a7181a2",
+    "app/trading_core/research_review.py": "f9ac129db733f2a3d8d2132c330eadb0e34c744f2a16f64e0e25d315114e49bc",
+    "app/trading_core/research/service.py": "1f821952f59d42afa1635023149f349ceef2a4c6bb77fa9aa07b8ea1769793fb"
+  },
+  "evidence_sha256": {
+    "logs/day8-lab-fixture-31dd333.zip": "c23cb131bfab88b6049ae897a60c33bbc1a1c3a6f18d9ba47d20618de8b92ae9",
+    "logs/day8-lab-fixture-qa-runner.py": "20709d946d647b9bade9bc5eb0fcfa2ca73a85e7866a7c041bc6cf6607ca1ae6",
+    "logs/day8-lab-fixture-qa.log": "fb9d38ac3c204d28ad44b557adba8184657823c5befcddeb50c68b42df88f303",
+    "logs/day8-lab-fixture-qa.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day8-full-regression.log": "8f9b0c9f44167bfde555e517cd97b6e4445355a5184db04f9a934a065e71a708",
+    "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA.md": "6bc628589cef7724e83b51840f26c313f30b8c4c9326761ff0143208cc2f7d34"
+  },
+  "tests": {
+    "passed": 4,
+    "warnings": 2,
+    "seconds": 26.94,
+    "exit": 0,
+    "integration_enabled": true
+  }
+}
