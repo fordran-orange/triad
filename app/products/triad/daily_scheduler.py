@@ -45,8 +45,6 @@ def tick(*, service=None, instant=None, run=None):
     config = service.schedule()
     if not config["enabled"]:
         return {"status": "DISABLED"}
-    service.product.ledger.guard(epoch=config["control_epoch"])
-    service.require_complete(config["manual_prerequisite"])
     instant = instant or datetime.now(UTC)
     if instant.tzinfo is None:
         raise ValueError("Aware scheduler instant required")
@@ -74,7 +72,6 @@ def tick(*, service=None, instant=None, run=None):
         claims = service.product.list("DailyScheduleClaim")
         if any(c["date"] == date for c in claims):
             return {"status": "ALREADY_CLAIMED", "date": date}
-        service.product.ledger.guard(epoch=config["control_epoch"])
         identifier = uid()
         service.host.append(
             "DailyScheduleClaim",
@@ -90,6 +87,8 @@ def tick(*, service=None, instant=None, run=None):
             owner="triad",
         )
     try:
+        service.product.ledger.guard(epoch=config["control_epoch"])
+        service.require_complete(config["manual_prerequisite"])
         cycle = run(
             scheduled=True,
             cycle_id=identifier,
@@ -103,5 +102,11 @@ def tick(*, service=None, instant=None, run=None):
         try:
             service.current(identifier)
         except KeyError:
-            service.history.blocked(cycle_id=identifier, scheduled=True, code=type(exc).__name__)
+            service.history.blocked(
+                cycle_id=identifier,
+                scheduled=True,
+                code=type(exc).__name__,
+                cycle_type="DAILY_PRODUCT",
+                control_epoch=config["control_epoch"],
+            )
         return {"status": "BLOCKED", "cycle_id": identifier, "failure": type(exc).__name__}

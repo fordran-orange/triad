@@ -91,6 +91,8 @@ class CycleHistory:
         scheduled=False,
         code="TRIAD_PROVIDER_GATE_FAILED",
         gate=None,
+        cycle_type="ROTATION",
+        control_epoch=None,
     ):
         cycle_id = cycle_id or uid()
         timestamp = now()
@@ -105,7 +107,7 @@ class CycleHistory:
         record = CycleRecord(
             cycle_id=cycle_id,
             product="triad",
-            cycle_type="ROTATION",
+            cycle_type=cycle_type,
             execution_mode=mode,
             status="BLOCKED",
             created_at=timestamp,
@@ -113,7 +115,9 @@ class CycleHistory:
             finished_at=timestamp,
             parent_work_item_id=parent,
             scheduled=scheduled,
-            control_epoch=self.host.ledger.control()["epoch"],
+            control_epoch=self.host.ledger.control()["epoch"]
+            if control_epoch is None
+            else control_epoch,
             failure_code=code,
             provider_gate_result=gate or {"status": "BLOCKED", "reason": code},
             failures=({"code": code},),
