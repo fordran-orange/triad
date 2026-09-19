@@ -123,11 +123,23 @@ def test_api_persists_without_executing_and_requires_auth(jobs):
         app.dependency_overrides.clear()
 
 
-def test_readiness_does_not_equate_review_agreement_with_quality(jobs):
+@pytest.mark.parametrize("available", [False, True])
+def test_readiness_does_not_equate_review_agreement_with_quality(jobs, monkeypatch, available):
+    # The developer's installed/authenticated CLIs must not determine this fixture.
+    monkeypatch.setattr(
+        jobs.cycles.runtime,
+        "health",
+        lambda: [
+            {"agent": agent, "status": "AVAILABLE" if available else "UNAVAILABLE"}
+            for agent in (*jobs.cycles.rotation, "LOCAL_QWEN")
+        ],
+    )
     report = readiness(jobs.cycles, probe=True)
-    assert report["cloud_validation"] == "BLOCKED"
+    assert report["cloud_validation"] == (
+        "READY_FOR_AUTHORIZED_BOUNDED_TEST" if available else "BLOCKED"
+    )
     for provider in report["providers"][:3]:
-        assert provider["blockers"]
+        assert bool(provider["blockers"]) is not available
         assert "CLOUD_BUDGET_NOT_AUTHORIZED" not in provider["blockers"]
         assert provider["illustrative_8000_input_1024_output_usd"] is None
         assert provider["quality"] == "NOT_EVALUATED"

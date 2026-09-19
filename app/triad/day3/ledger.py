@@ -2,7 +2,8 @@
 
 import math
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from psycopg.types.json import Jsonb
 
@@ -32,6 +33,7 @@ class Ledger:
                 "stopped_work": [],
                 "require_human_review": False,
                 "limits": Limits().model_dump(mode="json"),
+                "daily_execution_caps": {"SUBSCRIPTION": False, "LOCAL": False},
             }
             conn.execute(
                 "INSERT INTO triad.autonomy_control VALUES (1,%s) ON CONFLICT DO NOTHING",
@@ -115,6 +117,74 @@ class Ledger:
         self.check(control, agent, work_id, epoch)
         return control
 
+    @staticmethod
+    def daily_execution_limits_suspended(control, at=None):
+        """Fail closed; expiry is enforced on every reservation, including after restart."""
+        grant = control.get("daily_execution_limit_suspension", {})
+        try:
+            start = datetime.fromisoformat(grant["starts_at"])
+            end = datetime.fromisoformat(grant["expires_at"])
+            return (
+                grant.get("operator_authorized") is True
+                and grant.get("scope") == ["max_tokens_day", "max_compute_seconds_day"]
+                and start.tzinfo is not None
+                and end.tzinfo is not None
+                and timedelta(0) < end - start <= timedelta(hours=25)
+                and start <= (at or now()) < end
+            )
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return False
+
+    def suspend_daily_execution_limits_today(self, timezone="America/Chicago"):
+        """Host-only operator action; never exposed to models or the lower-limits UI."""
+        started = now()
+        local = started.astimezone(ZoneInfo(timezone))
+        expires = (local + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        grant = {
+            "operator_authorized": True,
+            "starts_at": started.isoformat(),
+            "expires_at": expires.astimezone(UTC).isoformat(),
+            "timezone": timezone,
+            "scope": ["max_tokens_day", "max_compute_seconds_day"],
+            "reason": "Operator requested daily execution limits suspended today for acceptance testing",
+        }
+        with self.store.connect() as conn:
+            control = self.control(conn, True)
+            control["daily_execution_limit_suspension"] = grant
+            conn.execute(
+                "UPDATE triad.autonomy_control SET payload=%s WHERE id=1", (Jsonb(control),)
+            )
+            self.put(
+                "ControlAction", {"action": "suspend_daily_execution_limits", **grant}, conn=conn
+            )
+        return grant
+
+    def configure_non_api_daily_caps(self, *, subscription=False, local=False):
+        """Explicit host/operator policy; not callable through model tools."""
+        if type(subscription) is not bool or type(local) is not bool:
+            raise ValueError("Daily cap settings must be booleans")
+        with self.store.connect() as conn:
+            control = self.control(conn, True)
+            control["daily_execution_caps"] = {"SUBSCRIPTION": subscription, "LOCAL": local}
+            control.pop("daily_execution_limit_suspension", None)
+            control["epoch"] += 1
+            conn.execute(
+                "UPDATE triad.autonomy_control SET payload=%s WHERE id=1", (Jsonb(control),)
+            )
+            self.put(
+                "ControlAction",
+                {
+                    "action": "configure_non_api_daily_caps",
+                    "operator_authorized": True,
+                    "timestamp": now().isoformat(),
+                    "daily_execution_caps": control["daily_execution_caps"],
+                    "api_daily_caps": True,
+                    "replaces_temporary_suspension": True,
+                },
+                conn=conn,
+            )
+        return control
+
     @contextmanager
     def gate(self, agent=None, work_id=None, epoch=None):
         # Serialize dispatch/merge start with the kill-switch transaction.
@@ -176,25 +246,67 @@ class Ledger:
             )
         return control
 
-    def reserve(self, agent, work_id, *, improvement=False, cost=0, tokens=0, seconds=0, day=None):
+    def reserve(
+        self,
+        agent,
+        work_id,
+        *,
+        improvement=False,
+        cost=0,
+        tokens=0,
+        seconds=0,
+        day=None,
+        billing_source="UNKNOWN",
+    ):
         if not math.isfinite(cost) or cost < 0 or tokens < 0 or seconds < 0:
             raise PermissionError("Invalid budget reservation")
+        if billing_source not in {"SUBSCRIPTION", "LOCAL", "API", "UNKNOWN"}:
+            billing_source = "UNKNOWN"
         day = day or datetime.now(UTC).date().isoformat()
         with self.store.connect() as c:
             control = self.control(c, True)
             self.check(control, agent, work_id)
             limits = Limits.model_validate(control["limits"])
+            suspended = self.daily_execution_limits_suspended(control)
+            # Only the host-selected adapter supplies billing; never model output.
+            # Unknown billing fails closed, as do malformed/missing policy values.
+            optional = billing_source in {"SUBSCRIPTION", "LOCAL"}
+            capped = not (
+                optional and control.get("daily_execution_caps", {}).get(billing_source) is False
+            )
             c.execute(
                 "INSERT INTO triad.autonomy_daily(day) VALUES (%s) ON CONFLICT DO NOTHING", (day,)
             )
             used = c.execute(
                 "SELECT * FROM triad.autonomy_daily WHERE day=%s FOR UPDATE", (day,)
             ).fetchone()
+            execution_used = {"tokens": 0, "seconds": 0}
+            if capped and not suspended and (tokens or seconds):
+                # Keep subscription/local reservations out of paid API ceilings.
+                # Legacy unclassified reservations remain conservatively charged.
+                execution_used = c.execute(
+                    "SELECT COALESCE(sum((payload->>'tokens')::bigint),0) AS tokens, "
+                    "COALESCE(sum((payload->>'seconds')::bigint),0) AS seconds "
+                    "FROM triad.day3_records WHERE kind='BudgetReservation' "
+                    "AND payload->>'day'=%s AND "
+                    "COALESCE(payload->>'billing_source','UNKNOWN') IN (%s,'UNKNOWN')",
+                    (day, billing_source),
+                ).fetchone()
             if (
                 used["changes"] + int(improvement) > limits.max_changes_day
                 or float(used["reserved_cost"]) + cost > limits.max_cloud_cost_day + 1e-9
-                or used["reserved_tokens"] + tokens > limits.max_tokens_day
-                or used["reserved_seconds"] + seconds > limits.max_compute_seconds_day
+                or (
+                    capped
+                    and not suspended
+                    and tokens > 0
+                    and execution_used["tokens"] + tokens > limits.max_tokens_day
+                )
+                or (
+                    capped
+                    and not suspended
+                    and seconds > 0
+                    and execution_used["seconds"] + seconds > limits.max_compute_seconds_day
+                )
                 or limits.max_repositories < 1
             ):
                 raise PermissionError("AUTONOMY_BUDGET_EXHAUSTED")
@@ -220,6 +332,9 @@ class Ledger:
                     "cost": cost,
                     "tokens": tokens,
                     "seconds": seconds,
+                    "daily_execution_limits_suspended": suspended,
+                    "billing_source": billing_source,
+                    "daily_execution_caps_enforced": capped and not suspended,
                 },
                 work_id=work_id,
                 conn=c,

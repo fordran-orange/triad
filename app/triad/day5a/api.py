@@ -36,6 +36,30 @@ class BudgetInput(BaseModel):
     daily_usd: float = Field(ge=0, le=25, allow_inf_nan=False)
 
 
+class DailyCapsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subscription: bool
+    local: bool
+
+
+class LocalUsageAlertInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    tokens: int = Field(ge=1, le=1000000000)
+    seconds: int = Field(ge=1, le=86400)
+
+
+@router.put("/local-usage-alert", dependencies=AUTH)
+def local_usage_alert(body: LocalUsageAlertInput, control: ProviderControl = DEP):
+    return control.configure_local_usage_alert(body.tokens, body.seconds)
+
+
+@router.put("/daily-execution-caps", dependencies=AUTH)
+def daily_execution_caps(body: DailyCapsInput, control: ProviderControl = DEP):
+    return control.ledger.configure_non_api_daily_caps(
+        subscription=body.subscription, local=body.local
+    )
+
+
 @router.post("/api-budget", dependencies=AUTH)
 def api_budget(body: BudgetInput, control: ProviderControl = DEP):
     return control.authorize_api_budget(body.daily_usd)

@@ -72,6 +72,56 @@ class ProviderControl:
             )
         return {"daily_usd": amount}
 
+    def configure_local_usage_alert(self, tokens, seconds):
+        if type(tokens) is not int or type(seconds) is not int or tokens < 1 or seconds < 1:
+            raise ValueError("Warning thresholds must be positive whole numbers")
+        settings = {"tokens": tokens, "seconds": seconds}
+        with self.ledger.store.connect() as conn:
+            control = self.ledger.control(conn, lock=True)
+            control["local_usage_alert"] = settings
+            conn.execute(
+                "UPDATE triad.autonomy_control SET payload=%s WHERE id=1", (Jsonb(control),)
+            )
+            self.ledger.put(
+                "ControlAction",
+                {
+                    "action": "configure_local_usage_alert",
+                    "thresholds": settings,
+                    "timestamp": now().isoformat(),
+                },
+                conn=conn,
+            )
+        return settings
+
+    def local_usage_alert(self, control):
+        thresholds = control.get("local_usage_alert", {"tokens": 100000, "seconds": 3600})
+        day = now().date().isoformat()
+        # Aggregate the entire day, not the dashboard's bounded recent-history list.
+        with self.ledger.store.connect() as conn:
+            totals = conn.execute(
+                "SELECT count(*) AS requests, "
+                "COALESCE(sum(COALESCE((payload->>'input_tokens')::bigint,0) + "
+                "COALESCE((payload->>'output_tokens')::bigint,0)),0) AS tokens, "
+                "COALESCE(sum((payload->>'duration')::double precision),0) AS seconds "
+                "FROM triad.day3_records WHERE kind='Usage' AND payload->>'agent'='LOCAL_QWEN' "
+                "AND payload->>'mode'='REAL' AND left(payload->>'timestamp',10)=%s",
+                (day,),
+            ).fetchone()
+        exceeded = [key for key in ("tokens", "seconds") if totals[key] >= thresholds[key]]
+        return {
+            "agent": "LOCAL_QWEN",
+            "day": day,
+            "timezone": "UTC",
+            "thresholds": thresholds,
+            "usage": totals,
+            "exceeded": exceeded,
+            "active": bool(exceeded),
+            "blocking": False,
+            "message": "Qwen usage is high today. Work continues; inspect recent tasks for unexpected repetition."
+            if exceeded
+            else "Qwen usage is below the warning thresholds. Work is not limited.",
+        }
+
     def transport(self, transport_id):
         if transport_id not in SPECS:
             raise ValueError("Unknown transport")
@@ -96,13 +146,20 @@ class ProviderControl:
         )
 
     def refresh(self, transport_id):
+        self._snapshot_cache = None
+        with self.ledger.store.lease("provider-test-" + transport_id):
+            return self._refresh(transport_id)
+
+    def _refresh(self, transport_id):
         adapter = self.transport(transport_id)
         data = adapter.detect()
         if adapter.transport_type == "CLI":
             data.update(adapter.authentication_status())
             data.update(
-                health="AUTH_REQUIRED" if data["auth_state"] != "AUTHENTICATED" else "OFFLINE",
-                error="OuterBoundaryUnavailable",
+                health="AUTH_REQUIRED"
+                if data["auth_state"] in {"NOT_AUTHENTICATED", "AUTH_FAILED"}
+                else "OFFLINE",
+                error=adapter.capabilities()["execution_blocker"],
                 capabilities=adapter.capabilities(),
             )
             self.ledger.event(
@@ -129,9 +186,13 @@ class ProviderControl:
                 except ProviderError:
                     pass
         previous = self.snapshot(transport_id)
+        changed = any(
+            previous.get(key) and data.get(key) and previous[key] != data[key]
+            for key in ("cli_version", "executable", "endpoint", "local_version")
+        )
         data.update(
-            test=previous.get("test"),
-            workitem=previous.get("workitem"),
+            test=None if changed else previous.get("test"),
+            workitem=None if changed else previous.get("workitem"),
             updated_at=now().isoformat(),
         )
         self.ledger.put("TransportStatus", data, identifier="transport-status-" + transport_id)
@@ -219,11 +280,62 @@ class ProviderControl:
                 return False
             try:
                 age = now() - datetime.fromisoformat(evidence["completed_at"])
-                if not timedelta(0) <= age < timedelta(hours=1):
+                if age < timedelta(0):
                     return False
             except (ValueError, TypeError, KeyError):
                 return False
         return snapshot.get("auth_state") == "AUTHENTICATED" and not snapshot.get("error")
+
+    def monitor_connections(self):
+        """Refresh selected non-API connections without inference, login or replay."""
+        import logging
+
+        from triad.store import ConcurrentUpdate
+
+        for agent in AGENTS:
+            tid = self.policy(agent).preferred_transport
+            if SPECS[tid]["type"] == "API":
+                continue
+            try:
+                with self.ledger.store.lease("provider-auth-" + tid):
+                    self.refresh(tid)
+            except ConcurrentUpdate:
+                continue  # An operator login or real verification owns the connection.
+            except Exception:  # noqa: BLE001 - keep monitoring other providers during outages
+                logging.getLogger("triad.providers").warning(
+                    "Connection monitor could not refresh %s", tid
+                )
+
+    @classmethod
+    def readiness_state(cls, snapshot):
+        """Distinguish missing or stale evidence from a reported connection failure."""
+        if snapshot.get("configuration") == "NOT_CONFIGURED":
+            return "NOT_CONFIGURED"
+        if snapshot.get("auth_state") in {"NOT_AUTHENTICATED", "AUTH_FAILED"}:
+            return "AUTH_REQUIRED"
+        if snapshot.get("error"):
+            return (
+                snapshot.get("health")
+                if snapshot.get("health") not in {None, "ONLINE", "OFFLINE"}
+                else "CONNECTION_ERROR"
+            )
+        if cls.proven(snapshot):
+            return "ONLINE"
+        if any(
+            snapshot.get(k, {}).get("success") is False
+            for k in ("test", "workitem")
+            if snapshot.get(k)
+        ):
+            return "VERIFICATION_FAILED"
+        if snapshot.get("auth_state") == "AUTHENTICATED":
+            if all(
+                (snapshot.get(k) or {}).get("success")
+                and (snapshot.get(k) or {}).get("mode") == "REAL"
+                for k in ("test", "workitem")
+            ):
+                return "VERIFICATION_REQUIRED"
+            return "VERIFICATION_REQUIRED"
+        return "NOT_CHECKED"
 
     def dashboard(self):
         identifiers = (
@@ -268,6 +380,7 @@ class ProviderControl:
                             tid, "qwen3:4b" if tid == "ollama" else "Auto"
                         ),
                         "online": self.proven(state),
+                        "readiness": self.readiness_state(state),
                         "capabilities": self.transport(tid).capabilities(),
                     }
                 )
@@ -285,7 +398,7 @@ class ProviderControl:
                     if not enabled
                     else "ONLINE"
                     if preferred["online"]
-                    else preferred.get("health", "OFFLINE"),
+                    else preferred["readiness"],
                     "transports": transports,
                     "active_transport": latest.get("transport"),
                     "billing_source": latest.get(
@@ -311,7 +424,7 @@ class ProviderControl:
                         "authority_tier": 0 if agent == "LOCAL_QWEN" else 2,
                         "research": "Day 5 discovery gated",
                         "code_modification": "reviewed text proposals only",
-                        "shell": "BLOCKED: outer isolation unavailable",
+                        "shell": "Not granted; isolated file tools only",
                         "git": "host reviewed changes only",
                         "web": False,
                         "external_tools": False,
@@ -323,22 +436,19 @@ class ProviderControl:
                 }
             )
         relay = self.read("day5a-relay")
-        passed = (
-            all(
-                a["state"] == "ONLINE"
-                and a["policy"]["preferred_transport"] == PREFERRED[a["agent"]]
-                and a["billing_source"]
-                == ("LOCAL" if a["agent"] == "LOCAL_QWEN" else "SUBSCRIPTION")
-                for a in agents
-            )
-            and relay.get("success") is True
-        )
+        passed = all(
+            a["state"] == "ONLINE"
+            and a["policy"]["preferred_transport"] == PREFERRED[a["agent"]]
+            and a["billing_source"] == ("LOCAL" if a["agent"] == "LOCAL_QWEN" else "SUBSCRIPTION")
+            for a in agents
+        ) and self.relay_proven(relay)
         return {
             "agents": agents,
             "gate": "PASS" if passed else "BLOCKED",
             "relay": relay or {"status": "NOT_RUN"},
             "discovery_enabled": passed,
             "control": control,
+            "local_usage_alert": self.local_usage_alert(control),
             "active_runs": [
                 r for r in self.ledger.records("TransportRun", 100) if r.get("status") == "RUNNING"
             ],
@@ -351,6 +461,31 @@ class ProviderControl:
             raise PermissionError(
                 "DAY5A_GATE_BLOCKED: real frontier WorkItems and full relay required"
             )
+
+    @staticmethod
+    def relay_proven(relay):
+        return (
+            relay.get("success") is True
+            and relay.get("status") == "PASS"
+            and relay.get("mode") == "REAL"
+            and relay.get("graph_verified") is True
+            and bool(relay.get("git_record_id"))
+            and bool(relay.get("source_digest"))
+            and relay.get("disagreement_check") == "NONE"
+            and [(s.get("agent"), s.get("billing_source")) for s in relay.get("steps", [])]
+            == [
+                ("CODEX", "SUBSCRIPTION"),
+                ("CLAUDE", "SUBSCRIPTION"),
+                ("GROK", "SUBSCRIPTION"),
+                ("LOCAL_QWEN", "LOCAL"),
+            ]
+            and all(
+                s.get("usage_id") and s.get("run_id") and s.get("actual_model")
+                for s in relay.get("steps", [])
+            )
+            and [(r.get("reviewer"), r.get("decision")) for r in relay.get("reviews", [])]
+            == [("CLAUDE", "APPROVE"), ("GROK", "APPROVE")]
+        )
 
 
 class TransportRouter:
@@ -367,7 +502,15 @@ class TransportRouter:
         adapter = preferred
         fallback = False
         failure = None
-        if preferred.transport_type == "CLI":
+        auth = {}
+        if preferred.transport_type == "CLI" and preferred.readonly_ready():
+            auth = preferred.authentication_status()
+            preferred._verified_billing_source = auth.get("billing_source", "UNKNOWN")
+        if preferred.transport_type == "CLI" and not (
+            (request.role == "REVIEW" or preferred.agent in {"CLAUDE", "GROK"})
+            and preferred.readonly_ready()
+            and auth.get("auth_state") == "AUTHENTICATED"
+        ):
             # Installation/authentication does not override the missing outer boundary.
             failure = "OuterBoundaryUnavailable"
             if transport_id:

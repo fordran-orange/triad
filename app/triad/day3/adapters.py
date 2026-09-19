@@ -426,13 +426,27 @@ class Runtime:
         return output
 
     def execute(self, request, *, mode="REAL", day=None, adapter=None, transport_id=None):
+        # One in-flight run per agent across workers, tests and direct API calls.
+        # Advisory locks are released even when the owning process exits.
+        with self.ledger.store.lease("provider-execution-" + request.agent_id):
+            return self._execute(
+                request, mode=mode, day=day, adapter=adapter, transport_id=transport_id
+            )
+
+    def _execute(self, request, *, mode="REAL", day=None, adapter=None, transport_id=None):
         request = AgentRunRequest.model_validate(request.model_dump())
         select_transport = adapter is None and mode == "REAL"
         adapter = adapter or self.provider(request.agent_id, mode)
         expected_permissions = (
             ("read",) if request.role in {"REVIEW", "SUPPORT"} else ("write_docs",)
         )
-        expected_tools = set() if request.role in {"REVIEW", "SUPPORT"} else {"propose_file_change"}
+        expected_tools = (
+            {"read_file"}
+            if request.role == "REVIEW"
+            else set()
+            if request.role == "SUPPORT"
+            else {"propose_file_change"}
+        )
         if (
             request.execution_permissions != expected_permissions
             or not set(request.allowed_tools) <= expected_tools
@@ -478,6 +492,10 @@ class Runtime:
             adapter = TransportRouter(ProviderControl(self.ledger)).select(
                 request, input_ceiling, transport_id
             )
+        if getattr(adapter, "transport_type", None) == "CLI":
+            # Native harnesses add tool definitions and protocol context. Reserve
+            # this overhead rather than pretending the user prompt is the whole input.
+            input_ceiling += 48000
         estimate = adapter.estimate_cost(input_ceiling, request.token_budget)
         if estimate > min(request.cost_budget, limits["max_cost_run"]):
             raise PermissionError("Per-run cost ceiling exceeded")
@@ -488,6 +506,9 @@ class Runtime:
             tokens=input_ceiling + request.token_budget,
             seconds=limits["timeout_seconds"],
             day=day,
+            billing_source=adapter.billing_source()
+            if hasattr(adapter, "billing_source")
+            else "UNKNOWN",
         )
         self.ledger.put(
             "AgentRunRequest",
@@ -530,6 +551,7 @@ class Runtime:
             except Exception as exc:  # noqa: BLE001 - marshal failures across thread boundary
                 results.put((False, exc))
 
+        usage_known = False
         try:
             with self.ledger.gate(request.agent_id, request.work_item_id, epoch):
                 threading.Thread(target=invoke, daemon=True).start()
@@ -545,6 +567,14 @@ class Runtime:
             if not okay:
                 raise value
             result, inputs, outputs = value
+            usage_known = (
+                isinstance(inputs, int)
+                and isinstance(outputs, int)
+                and inputs >= 0
+                and outputs >= 0
+            )
+            if not usage_known:
+                raise ProviderError("DEGRADED", "InvalidUsageMetadata")
             self.ledger.guard(request.agent_id, request.work_item_id, epoch)
             result = AgentRunResult.model_validate(result.model_dump())
             ensure_no_secret(result.model_dump(mode="json"))
@@ -571,8 +601,24 @@ class Runtime:
                 adapter.cancel()
             status = exc.status if isinstance(exc, ProviderError) else "FAILED"
             error = exc.error_class if isinstance(exc, ProviderError) else type(exc).__name__
-            inputs = outputs = 0
-            actual = estimate  # unknown billed usage remains conservatively reserved
+            if not usage_known and getattr(adapter, "transport_type", None) == "CLI":
+                # The native harness may finish inference but reject the returned
+                # schema or tool evidence. Preserve measured usage on that path.
+                measured = getattr(getattr(adapter, "native_run", None), "evidence", {})
+                native_inputs, native_outputs = (
+                    measured.get("input_tokens"),
+                    measured.get("output_tokens"),
+                )
+                if (
+                    type(native_inputs) is int
+                    and type(native_outputs) is int
+                    and native_inputs >= 0
+                    and native_outputs >= 0
+                ):
+                    inputs, outputs, usage_known = native_inputs, native_outputs, True
+            if not usage_known:
+                inputs = outputs = 0
+            actual = adapter.estimate_cost(inputs, outputs) if usage_known else estimate
             self.ledger.event(
                 "provider_failed",
                 request.work_item_id,
@@ -607,7 +653,7 @@ class Runtime:
                     "mode": mode,
                     "input_tokens": inputs,
                     "output_tokens": outputs,
-                    "usage_known": status == "SUCCESS",
+                    "usage_known": usage_known,
                     "estimated_cost": actual,
                     "reserved_cost": estimate,
                     "duration": time.monotonic() - started,

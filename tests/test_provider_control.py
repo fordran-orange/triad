@@ -42,7 +42,7 @@ def test_cli_first_no_paid_fallback_and_model_ownership():
         )
 
 
-def test_login_is_not_online_and_expired_proofs_are_not_online():
+def test_login_is_not_online_but_verified_setup_does_not_expire():
     state = {"auth_state": "AUTHENTICATED"}
     assert not ProviderControl.proven(state)
     proof = {"success": True, "mode": "REAL", "completed_at": now().isoformat()}
@@ -50,9 +50,81 @@ def test_login_is_not_online_and_expired_proofs_are_not_online():
     assert ProviderControl.proven(state)
     assert not ProviderControl.proven({**state, "error": "AuthExpired"})
     assert not ProviderControl.proven({**state, "test": {**proof, "mode": "SIMULATED"}})
-    assert not ProviderControl.proven(
+    assert ProviderControl.proven(
         {**state, "workitem": {**proof, "completed_at": (now() - timedelta(hours=2)).isoformat()}}
     )
+
+
+def test_durable_verification_still_blocks_failures_and_missing_evidence():
+    proof = {
+        "success": True,
+        "mode": "REAL",
+        "completed_at": (now() - timedelta(hours=2)).isoformat(),
+    }
+    state = {"auth_state": "AUTHENTICATED", "health": "OFFLINE", "test": proof, "workitem": proof}
+    assert ProviderControl.readiness_state(state) == "ONLINE"
+    assert ProviderControl.proven(state)
+    assert not ProviderControl.proven({**state, "test": {**proof, "completed_at": "invalid"}})
+    assert not ProviderControl.proven(
+        {**state, "test": {**proof, "completed_at": (now() + timedelta(days=1)).isoformat()}}
+    )
+    assert (
+        ProviderControl.readiness_state({**state, "error": "ConnectionRefused"})
+        == "CONNECTION_ERROR"
+    )
+    assert (
+        ProviderControl.readiness_state({**state, "auth_state": "NOT_AUTHENTICATED"})
+        == "AUTH_REQUIRED"
+    )
+    assert ProviderControl.readiness_state({**state, "workitem": None}) == "VERIFICATION_REQUIRED"
+    assert (
+        ProviderControl.readiness_state({**state, "test": {"success": False}})
+        == "VERIFICATION_FAILED"
+    )
+    assert ProviderControl.readiness_state({}) == "NOT_CHECKED"
+    fresh = {**proof, "completed_at": now().isoformat()}
+    assert ProviderControl.readiness_state({**state, "test": fresh, "workitem": fresh}) == "ONLINE"
+
+
+@pytest.mark.parametrize("version,retained", [("1.0", True), ("2.0", False)])
+def test_connection_refresh_preserves_proofs_until_setup_changes(version, retained):
+    proof = {"success": True, "mode": "REAL", "completed_at": now().isoformat()}
+    adapter = SimpleNamespace(
+        transport_type="CLI",
+        agent="CODEX",
+        detect=lambda: {"install_status": "INSTALLED", "cli_version": version},
+        authentication_status=lambda: {"auth_state": "AUTHENTICATED"},
+        capabilities=lambda: {"execution_blocker": None},
+    )
+    host = SimpleNamespace(
+        transport=lambda tid: adapter,
+        snapshot=lambda tid: {"cli_version": "1.0", "test": proof, "workitem": proof},
+        ledger=SimpleNamespace(event=lambda *a, **k: None, put=lambda *a, **k: None),
+    )
+    result = ProviderControl._refresh(host, "codex_cli")
+    assert (result["test"] == proof) is retained
+    assert (result["workitem"] == proof) is retained
+
+
+def test_automatic_monitor_skips_paid_api_and_continues_after_outage():
+    from contextlib import nullcontext
+
+    checked = []
+
+    def refresh(tid):
+        checked.append(tid)
+        if tid == "claude_code_cli":
+            raise RuntimeError("fixture unavailable")
+
+    host = SimpleNamespace(
+        policy=lambda agent: SimpleNamespace(
+            preferred_transport="openai_api" if agent == "CODEX" else PREFERRED[agent]
+        ),
+        ledger=SimpleNamespace(store=SimpleNamespace(lease=lambda key: nullcontext())),
+        refresh=refresh,
+    )
+    ProviderControl.monitor_connections(host)
+    assert checked == ["claude_code_cli", "grok_build_cli", "ollama"]
 
 
 @pytest.mark.parametrize(
@@ -191,6 +263,34 @@ def test_auth_metadata_does_not_retain_cli_output(monkeypatch):
         ),
     )
     assert adapter.authentication_status()["billing_source"] == "UNKNOWN"
+
+
+def test_grok_unverified_login_is_not_reported_as_signed_out(monkeypatch):
+    from triad.day5a import native_agents
+
+    def unavailable(command):
+        raise RuntimeError("fixture unavailable")
+
+    monkeypatch.setattr(native_agents, "grok_authentication", unavailable)
+    adapter = CLITransport("grok_build_cli", fake_control("GROK"))
+    monkeypatch.setattr(adapter, "command", lambda: ["fixture.exe"])
+    monkeypatch.setattr(adapter, "readonly_ready", lambda: False)
+    auth = adapter.authentication_status()
+    assert auth["auth_state"] == "UNKNOWN"
+    assert auth["billing_source"] == "UNKNOWN"
+    assert "does not need to be repeated" in auth["auth_detail"]
+    assert adapter.health_check().error_class == "AuthenticationStatusUnknown"
+    monkeypatch.setattr(adapter, "detect", lambda: {"install_status": "INSTALLED"})
+    recorded = []
+    control = SimpleNamespace(
+        transport=lambda tid: adapter,
+        snapshot=lambda tid: {},
+        ledger=SimpleNamespace(event=lambda *a, **k: None, put=lambda *a, **k: recorded.append(a)),
+    )
+    result = ProviderControl._refresh(control, "grok_build_cli")
+    assert result["health"] == "OFFLINE"
+    assert result["auth_state"] == "UNKNOWN"
+    assert recorded
 
 
 def test_http_transport_never_reads_legacy_env_keys(monkeypatch):

@@ -43,7 +43,7 @@ def verify(control, transport_id, acceptance=False):
     with ledger.store.lease("provider-test-" + transport_id):
         ledger.event("transport_test_started", transport=transport_id, proof_id=proof_id)
         try:
-            if SPECS[transport_id]["type"] == "CLI":
+            if SPECS[transport_id]["type"] == "CLI" and not adapter.readonly_ready():
                 raise ProviderError("UNAVAILABLE", "OuterBoundaryUnavailable")
             if adapter.agent == "LOCAL_QWEN":
                 parent = cycles.host.create(
@@ -90,12 +90,19 @@ def verify(control, transport_id, acceptance=False):
                 worker = cycles.host.registry.successor(adapter.agent)
                 work = cycles.host.create(
                     WorkItem(
-                        title="Day 5A explicit API connection test",
-                        description="Return a structured result with summary exactly TRIAD_TRANSPORT_OK, no changes or commands.",
+                        title="Day 5A explicit provider verification",
+                        description=(
+                            "Read README.md using the supplied isolated file tools. Return its title "
+                            "and one structural observation in summary. No changes."
+                            if adapter.transport_type == "CLI" and acceptance
+                            else "Return a structured result with summary exactly TRIAD_TRANSPORT_OK, no changes or commands."
+                        ),
                         assigned_agent=worker,
                         reviewer=adapter.agent,
                         allowed_tools=("read_file",),
-                        allowed_paths=("docs",),
+                        allowed_paths=("README.md",)
+                        if adapter.transport_type == "CLI" and acceptance
+                        else ("docs",),
                         execution_permissions=("read",),
                         authority_tier=0,
                         compute_budget=ComputeBudget(max_output_tokens=1024),
@@ -110,8 +117,9 @@ def verify(control, transport_id, acceptance=False):
                     mission_id=work.mission_id,
                     role="REVIEW",
                     objective=work.description,
+                    acceptance_criteria=work.acceptance_criteria,
                     context_packet={"purpose": "transport test"},
-                    allowed_tools=(),
+                    allowed_tools=("read_file",) if adapter.transport_type == "CLI" else (),
                     allowed_paths=work.allowed_paths,
                     execution_permissions=("read",),
                     reasoning_budget=1024,

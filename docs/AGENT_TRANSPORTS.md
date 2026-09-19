@@ -11,8 +11,10 @@ Logical assignments remain CODEX, CLAUDE, GROK and LOCAL_QWEN. Transport IDs:
 
 `AgentTransport` describes detection, installation, authentication, health, models,
 execution, cancellation, usage, billing and capabilities. HTTP adapters preserve
-the existing schema-validated data-only runtime. CLI adapters currently implement
-installation/auth controls and diagnostics, but deny native WorkItem execution.
+the existing schema-validated data-only runtime. CLI adapters implement
+installation/auth controls and diagnostics. Codex supports isolated read-only
+reviews; Claude and Grok support isolated text reviews and staged proposals.
+Unsupported work fails closed. Live acceptance remains separately required.
 
 Runtime validates immutable assignments and persisted policy decisions before
 selecting a transport. The router records selection or denial; API grants and
@@ -26,9 +28,10 @@ an environment allowlist, bounded pipes and a deadline. On Windows it creates a
 suspended process, assigns a kill-on-close Job Object, then resumes it. Cancellation,
 timeout, parent exit and setup failure terminate the process tree. A Job Object
 controls lifecycle; it does **not** isolate file access, credentials or network.
-That missing outer security boundary is why native WorkItems remain disabled.
+The separate Docker executor and host-owned tool broker provide the file-operation
+boundary; the vendor authentication/inference harness remains trusted host code.
 
 `TransportDecision`, `TransportRun`, `TransportVerification`, provider policy,
 status and audit records use PostgreSQL and the existing Neo4j outbox. No fabricated
-native command/file/Git evidence is emitted. Full native output parsers, isolated
-worktrees and frontier relay integration still need implementation and verification.
+native command/file/Git evidence is emitted. Native output parsers and isolated snapshot tools are implemented. Arbitrary
+shell/Git work, live acceptance and the frontier relay are not yet verified.

@@ -1,10 +1,10 @@
 # Triad
 
-Day 5A provider setup is **in progress; strategy discovery is gated**.
-Open [Settings → AI Providers](http://127.0.0.1:8000/settings/ai-providers).
-CLI-first policy, optional secure API credentials and explicit fallback controls are
-implemented. Native CLI isolation/execution and the frontier relay remain incomplete.
-See [current verification](docs/DAY5A_VERIFICATION.md).
+Day 5A provider acceptance **passed on 2026-09-18**: real isolated frontier
+WorkItems, local Qwen, and the independently reviewed four-agent documentation relay.
+Open [Settings → AI Providers](http://127.0.0.1:8000/settings/ai-providers) for current
+readiness; connection proofs expire and paid API fallback remains disabled.
+See [verification evidence and tested scope](docs/DAY5A_VERIFICATION.md).
 
 A bounded research and development work system. Day 4 adds portable market data and deterministic backtesting. Only trivial engine-test fixtures are included; no broker credentials or live execution.
 

@@ -40,12 +40,29 @@ async def lifespan(app):
 
     worker = threading.Thread(target=scheduled_loop, daemon=True)
     worker.start()
+
+    def provider_loop():
+        from triad.day5a.control import ProviderControl
+
+        while not stop.is_set():
+            try:
+                ProviderControl().monitor_connections()
+            except Exception:  # noqa: BLE001 - retry after service/database outages
+                import logging
+
+                logging.getLogger("triad.providers").warning("Provider monitor unavailable")
+            if stop.wait(300):
+                break
+
+    provider_worker = threading.Thread(target=provider_loop, daemon=True)
+    provider_worker.start()
     yield
     stop.set()
     from triad.day5a.process import ManagedProcess
 
     ManagedProcess.shutdown()
     worker.join(timeout=1)
+    provider_worker.join(timeout=1)
 
 
 app = FastAPI(title="Triad bounded orchestration", version="0.4.0", lifespan=lifespan)
@@ -123,6 +140,18 @@ def operator_shell():
 @app.get("/health/live")
 def liveness():
     return {"status": "ok", "scope": "api_process_only"}
+
+
+@app.get("/assets/record-view.js", include_in_schema=False)
+def record_view_script():
+    return FileResponse(
+        Path(__file__).parent / "static/record-view.js", media_type="text/javascript"
+    )
+
+
+@app.get("/assets/record-view.css", include_in_schema=False)
+def record_view_styles():
+    return FileResponse(Path(__file__).parent / "static/record-view.css", media_type="text/css")
 
 
 @app.get("/api/foundation")

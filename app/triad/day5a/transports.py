@@ -72,6 +72,57 @@ class CLITransport(BaseTransport):
         super().__init__(transport_id, control)
         self.runner = ManagedProcess()
 
+    def readonly_ready(self):
+        if hasattr(self, "_readonly_ready"):
+            return self._readonly_ready
+        if self.agent in {"CLAUDE", "GROK"}:
+            from triad.day5a.isolation import OfflineSandbox
+            from triad.day5a.native_agents import VERSIONS
+
+            command = self.command()
+            self._readonly_ready = False
+            if command:
+                try:
+                    version = ManagedProcess().run(command + ["--version"], cwd=ROOT)
+                    expected = (
+                        VERSIONS[self.agent] + " (Claude Code)"
+                        if self.agent == "CLAUDE"
+                        else "grok " + VERSIONS[self.agent] + " (3736acbc8658)"
+                    )
+                    self._readonly_ready = (
+                        version.exit_code == 0
+                        and version.stdout.strip() == expected
+                        and OfflineSandbox.available()
+                    )
+                except (OSError, RuntimeError):
+                    pass
+            return self._readonly_ready
+        from triad.day5a.codex_executor import TAG, VERSION
+        from triad.day5a.isolation import OfflineSandbox
+
+        self._readonly_ready = False
+        command = self.command()
+        if command:
+            try:
+                version = ManagedProcess().run(command + ["--version"], cwd=ROOT)
+                image_version = OfflineSandbox._docker(
+                    [
+                        "image",
+                        "inspect",
+                        TAG,
+                        "--format",
+                        '{{index .Config.Labels "triad.executor.version"}}',
+                    ]
+                )
+                self._readonly_ready = (
+                    version.exit_code == 0
+                    and version.stdout.strip() == "codex-cli " + VERSION
+                    and image_version == VERSION
+                )
+            except (OSError, RuntimeError):
+                pass
+        return self._readonly_ready
+
     def command(self):
         name = self.spec["cli"]
         found = shutil.which(name + ".exe") or shutil.which(name)
@@ -121,11 +172,17 @@ class CLITransport(BaseTransport):
         if not command:
             return {"auth_state": "NOT_AUTHENTICATED", "billing_source": "UNKNOWN"}
         if self.agent == "GROK":
-            return {
-                "auth_state": "NOT_AUTHENTICATED",
-                "billing_source": "UNKNOWN",
-                "auth_detail": "No verified noninteractive auth-status adapter yet",
-            }
+            from triad.day5a.native_agents import grok_authentication
+
+            try:
+                return grok_authentication(command)
+            except (OSError, RuntimeError, TimeoutError, ProviderError):
+                return {
+                    "auth_state": "UNKNOWN",
+                    "billing_source": "UNKNOWN",
+                    "auth_detail": "Triad could not verify Grok's subscription session. "
+                    "A successful browser login does not need to be repeated automatically.",
+                }
         args = ["login", "status"] if self.agent == "CODEX" else ["auth", "status", "--json"]
         result = ManagedProcess().run(command + args, cwd=ROOT)
         auth = {"auth_state": "NOT_AUTHENTICATED", "billing_source": "UNKNOWN"}
@@ -168,6 +225,14 @@ class CLITransport(BaseTransport):
 
     def health_check(self):
         auth = self.authentication_status()
+        if self.readonly_ready() and auth["auth_state"] == "AUTHENTICATED":
+            return ProviderHealth(
+                agent=self.agent,
+                provider=self.provider,
+                model=self.model,
+                status="AVAILABLE",
+                mode="REAL",
+            )
         return ProviderHealth(
             agent=self.agent,
             provider=self.provider,
@@ -176,6 +241,8 @@ class CLITransport(BaseTransport):
             error_class=(
                 "OuterBoundaryUnavailable"
                 if auth["auth_state"] == "AUTHENTICATED"
+                else "AuthenticationStatusUnknown"
+                if auth["auth_state"] == "UNKNOWN"
                 else "AuthenticationRequired"
             ),
         )
@@ -188,9 +255,27 @@ class CLITransport(BaseTransport):
         }
 
     def billing_source(self):
+        if hasattr(self, "_verified_billing_source"):
+            return self._verified_billing_source
         return self.control.snapshot(self.transport_id).get("billing_source", "UNKNOWN")
 
     def capabilities(self):
+        if self.agent in {"CLAUDE", "GROK"} and self.readonly_ready():
+            return {
+                "native": ["file_read", "file_proposals", "structured_output"],
+                "granted": ["read_supplied_files", "stage_reviewed_text_proposals"],
+                "outer_boundary": "DOCKER_OFFLINE_TOOLS",
+                "execution_blocker": None,
+                "limitation": "Explicit text snapshots and reviewed proposals only; no host shell, Git or network tools",
+            }
+        if self.agent == "CODEX" and self.readonly_ready():
+            return {
+                "native": ["file_read", "structured_output"],
+                "granted": ["read_supplied_files"],
+                "outer_boundary": "DOCKER_REMOTE_EXECUTOR_READ_ONLY",
+                "execution_blocker": None,
+                "limitation": "Read-only reviews only; shell is restricted to cat on supplied files",
+            }
         return {
             "native": [
                 "file_read",
@@ -212,12 +297,96 @@ class CLITransport(BaseTransport):
         return 0.0  # reservation only; subscription monetary usage remains null
 
     def execute(self, request):
-        # A job object/worktree is not a security boundary. Never launch an agent
-        # with host credentials/files reachable while isolation is unverified.
-        raise ProviderError("UNAVAILABLE", "OuterBoundaryUnavailable")
+        if self.agent in {"CLAUDE", "GROK"}:
+            return self._execute_isolated(request)
+        if (
+            self.agent != "CODEX"
+            or getattr(request, "role", None) != "REVIEW"
+            or not self.readonly_ready()
+        ):
+            raise ProviderError("UNAVAILABLE", "OuterBoundaryUnavailable")
+        from triad.day5a.codex_executor import CodexReadOnlyRun
+        from triad.gateway import ToolGateway
+
+        work = self.control.ledger.store.get(request.work_item_id)
+        if request.execution_permissions != ("read",) or set(request.allowed_tools) - {"read_file"}:
+            raise PermissionError("Codex currently supports read-only review only")
+        gateway = ToolGateway(work)
+        files = {}
+        # Exact file grants only; never recursively expose a host directory.
+        if "read_file" in request.allowed_tools:
+            for path in request.allowed_paths:
+                if (ROOT / path).is_file():
+                    files[path] = gateway.read(path)
+        guard = lambda: self.control.ledger.guard(
+            request.agent_id, request.work_item_id, request.control_epoch
+        )
+        self.native_run = CodexReadOnlyRun(
+            self.command(), guard, min(30, work.compute_budget.max_tool_calls)
+        )
+        try:
+            result = self.native_run.execute(request, files, self.model)
+            self.actual_model = self.native_run.actual_model
+            return result
+        finally:
+            self.control.ledger.event(
+                "native_executor_evidence",
+                request.work_item_id,
+                run_id=request.run_id,
+                source_hashes=gateway.evidence,
+                **self.native_run.evidence,
+            )
+
+    def _execute_isolated(self, request):
+        from triad.day5a.native_agents import ClaudeRun, GrokRun
+        from triad.gateway import ToolGateway
+
+        if not self.readonly_ready() or request.role not in {"REVIEW", "PROPOSE", "IMPLEMENT"}:
+            raise ProviderError("UNAVAILABLE", "OuterBoundaryUnavailable")
+        work = self.control.ledger.store.get(request.work_item_id)
+        gateway = ToolGateway(work)
+        files, writable = {}, ()
+        if request.role == "REVIEW":
+            if request.execution_permissions != ("read",) or set(request.allowed_tools) - {
+                "read_file"
+            }:
+                raise PermissionError("Review must be read-only")
+            if "read_file" in request.allowed_tools:
+                for path in request.allowed_paths:
+                    # Exact file grants only. No recursive directory snapshots.
+                    if (ROOT / path).is_file():
+                        files[path] = gateway.read(path)
+        else:
+            if request.execution_permissions != ("write_docs",) or set(request.allowed_tools) != {
+                "propose_file_change"
+            }:
+                raise PermissionError("Implementation supports reviewed text proposals only")
+            limits = self.control.ledger.guard(request.agent_id)["limits"]
+            if not set(request.allowed_paths) <= set(limits["allowed_directories"]):
+                raise PermissionError("Proposal directories must be explicitly governed")
+            writable = request.allowed_paths
+        guard = lambda: self.control.ledger.guard(
+            request.agent_id, request.work_item_id, request.control_epoch
+        )
+        runner = ClaudeRun if self.agent == "CLAUDE" else GrokRun
+        self.native_run = runner(self.command(), guard, min(30, work.compute_budget.max_tool_calls))
+        try:
+            result = self.native_run.execute(request, files, self.model, writable)
+            self.actual_model = self.native_run.actual_model
+            return result
+        finally:
+            self.control.ledger.event(
+                "native_executor_evidence",
+                request.work_item_id,
+                run_id=request.run_id,
+                source_hashes=gateway.evidence,
+                **self.native_run.evidence,
+            )
 
     def cancel(self):
         self.runner.cancel()
+        if hasattr(self, "native_run"):
+            self.native_run.cancel()
 
 
 class HTTPTransport(BaseTransport):
