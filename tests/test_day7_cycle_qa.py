@@ -51,13 +51,20 @@ def test_historical_failed_inspection_is_terminal_not_in_progress(engine):
 
 def test_recapture_cannot_erase_existing_gate_failure(engine):
     _, history, _ = scoped(engine)
-    cycle = history.blocked(cycle_id="blocked-gate")
+    cycle = history.blocked(
+        cycle_id="blocked-gate",
+        scheduled=True,
+        gate={"status": "BLOCKED", "failed_provider": "CLAUDE", "reason": "Verification expired"},
+    )
     original = history.records.list("CycleRecord")[0]
     history.capture(cycle)
     latest = history.list()[0]
     assert latest["status"] == "BLOCKED"
     assert latest["failure_code"] == original["failure_code"]
     assert latest["blocked_at"] == original["blocked_at"]
+    assert {k: latest[k] for k in ("provider_gate_result", "scheduled", "created_at")} == {
+        k: original[k] for k in ("provider_gate_result", "scheduled", "created_at")
+    }
     assert history.records.get(original["id"])["status"] == "BLOCKED"
 
 
@@ -160,3 +167,72 @@ def test_get_is_read_only_and_recovery_preserves_source_records(engine):
     ) == before
     row = next(r for r in response.json()["cycles"] if r["cycle_id"] == cycle)
     assert row["status"] == "BLOCKED" and row["recovered_by_cycle_id"] == "recovery"
+
+
+def test_legacy_proposals_are_retained_and_selection_requires_change_link(engine):
+    store, history, _ = scoped(engine)
+    work = store.create(
+        WorkItem(
+            owner="triad",
+            mission_id="legacy-proposal",
+            title="Proposal",
+            description="Historical source fixture",
+        )
+    )
+    ledger = Ledger(store)
+    ledger.put("Cycle", {"cycle_id": "legacy-proposal", "status": "COMPLETED", "mode": "SIMULATED"})
+    ledger.put(
+        "Proposal",
+        {"proposal_id": "proposal-a", "title": "Historical idea", "decision": "ALLOW"},
+        identifier="proposal-a",
+        work_id=work.work_item_id,
+    )
+    unselected = history.capture("legacy-proposal")
+    assert unselected["proposals"][0]["proposal_id"] == "proposal-a"
+    assert unselected["selected_proposal"] is None
+    ledger.put(
+        "Change",
+        {"proposal_id": "proposal-a", "cycle_id": "legacy-proposal", "status": "MERGED"},
+        work_id=work.work_item_id,
+    )
+    selected = history.capture("legacy-proposal")
+    assert selected["selected_proposal"]["proposal_id"] == "proposal-a"
+    assert selected["selected_proposal"]["work_item_id"] == work.work_item_id
+    records = len(history.records.list("CycleRecord"))
+    history.capture("legacy-proposal")
+    assert len(history.records.list("CycleRecord")) == records
+
+
+@pytest.mark.parametrize("terminal", [State.CANCELLED, State.REJECTED])
+def test_terminal_product_work_does_not_become_active_history(engine, terminal):
+    store, history, host = scoped(engine)
+    work = store.create(
+        WorkItem(
+            owner="triad",
+            mission_id="terminal-work",
+            title="Build",
+            description="Terminal lifecycle fixture",
+            assigned_agent="CLAUDE",
+        )
+    )
+    work, _ = engine.start_work(work)
+    if terminal == State.CANCELLED:
+        work = engine.host.advance(work, State.BLOCKED, "Fixture halted before cancellation")
+    if terminal == State.REJECTED:
+        work = engine.host.advance(work, State.AWAITING_REVIEW, "Fixture awaiting separate review")
+    engine.host.advance(work, terminal, "Recorded terminal outcome")
+    host.append(
+        "ProductCycle", {"mission_id": "terminal-work", "status": "INSPECTING"}, owner="triad"
+    )
+    if terminal == State.REJECTED:
+        host.append(
+            "ProductQA",
+            {
+                "mission_id": "terminal-work",
+                "decision": "FAIL",
+                "findings": ["Recorded independent rejection"],
+            },
+            owner="triad",
+        )
+    row = history.capture("terminal-work")
+    assert row["status"] in {"CANCELLED", "REJECTED", "FAILED", "BLOCKED"}

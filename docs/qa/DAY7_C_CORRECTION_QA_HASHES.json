@@ -1,0 +1,81 @@
+{
+  "implementation_revision": "08865f43358cdd1244d6dd72693f736c96129cd3",
+  "verdict": "CHANGES_REQUIRED",
+  "snapshot_app_files_verified_equal_archive": 166,
+  "committed_blob_hashes": [
+    {
+      "path": "app/products/triad/cycle_history.py",
+      "sha256": "ec7b48c0a19f92c18cfeb040cb1ba46a4e7e7756483691333d87a0d16c0ae673"
+    },
+    {
+      "path": "app/products/triad/cycles.py",
+      "sha256": "aa2baeaa35dcc8db0b20c5b76dd704beae9c6ecd5c388b2c605dd55b01f7a366"
+    },
+    {
+      "path": "app/products/triad/development.py",
+      "sha256": "5fb4dd05a19686ef59712ac4d4200633b7c1bd1858fd3e61e9a0bc3ac3492651"
+    },
+    {
+      "path": "app/products/triad/development_api.py",
+      "sha256": "cc6592bcde40684fcffc2814ef6b85dbefbbe782708279fa88fb92dbdc4913b4"
+    },
+    {
+      "path": "app/products/triad/jobs.py",
+      "sha256": "63a838219229a1780fda099f06845ca72f4b0090aa9790d1744d6ad6ea651c9f"
+    },
+    {
+      "path": "app/products/triad/static/cycles.html",
+      "sha256": "719f969a4cba7f83cd99d087e7a7ab7c3a9c65879a2cd5eebee87df3f7c0c5f9"
+    },
+    {
+      "path": "app/products/triad/static/cycles.js",
+      "sha256": "d70d1a147ee207fb8941c5b8cf85a28bdcf77ad40927611fc8da2d12cb6a0f11"
+    },
+    {
+      "path": "app/trading_core/cycle_records.py",
+      "sha256": "54d607f6a1764330a2de03e86f01d3da275890433e60a4a474b3435bd251494e"
+    },
+    {
+      "path": "app/trading_core/intelligence/contracts.py",
+      "sha256": "7b4784b83cd55d7282324f432e299b1e30bf8ae013fbf4a557bb59cea4d4d059"
+    }
+  ],
+  "evidence_raw_hashes": [
+    {
+      "path": "logs/day7-c-correction-exact-08865f4.zip",
+      "sha256": "f3b93cd0b953d97cb70b77791fbb29d65cf158fb9a4ed015f91bf4d3f2cd9140"
+    },
+    {
+      "path": "logs/day7-c-correction-qa-run.py",
+      "sha256": "a9c113a1abc59442d436b6cb73ef286d4e9ae82d2971c7a96a4e1d966f67ee72"
+    },
+    {
+      "path": "tests/test_day7_cycle_qa.py",
+      "sha256": "855122dd463203034a2ac518eedcedd38bf37830f52eef5c5a32ddde4ec14269"
+    },
+    {
+      "path": "logs/day7-c-correction-exact-08865f4/tests/test_day7_cycle_qa.py",
+      "sha256": "855122dd463203034a2ac518eedcedd38bf37830f52eef5c5a32ddde4ec14269"
+    },
+    {
+      "path": "docs/qa/DAY7_C_CORRECTION_QA.md",
+      "sha256": "09d411661944c7e607539275121b7d464dc1897e004bb6e4ca437dbdbd58eaa9"
+    },
+    {
+      "path": "logs/day7-c-correction-independent.log",
+      "sha256": "dd6024159ccbeb5e4004aebe62ce72432bc48eccd7c0864f6ad34996d00930f7"
+    },
+    {
+      "path": "logs/day7-c-correction-independent.exit",
+      "sha256": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04"
+    },
+    {
+      "path": "logs/day7-c-correction-qa-lint.log",
+      "sha256": "a4443afdcfb6d7363adb285762515ccf7cf50473b1a05c20c1a50f6bed4d26b0"
+    },
+    {
+      "path": "logs/day7-c-correction-qa-lint.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    }
+  ]
+}

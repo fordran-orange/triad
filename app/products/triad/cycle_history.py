@@ -199,6 +199,10 @@ class CycleHistory:
             else "BLOCKED"
             if kinds("ProductBuildFailure")
             or any(w["status"] in {"FAILED", "BLOCKED"} for w in works)
+            else "CANCELLED"
+            if any(w["status"] == "CANCELLED" for w in works)
+            else "REJECTED"
+            if any(w["status"] == "REJECTED" for w in works)
             else prior.get("status", "IN_PROGRESS")
         )
         failures = [{"code": f, "source": summary.get("id")} for f in summary.get("failures", ())]
@@ -213,7 +217,8 @@ class CycleHistory:
         failures += [
             {"code": w.get("failure_reason") or w["status"], "work_item_id": w["work_item_id"]}
             for w in works
-            if w["status"] in {"FAILED", "BLOCKED"} and w["work_type"] != "cycle_record"
+            if w["status"] in {"FAILED", "BLOCKED", "CANCELLED", "REJECTED"}
+            and w["work_type"] != "cycle_record"
         ]
         for failure in prior.get("failures", ()):
             if failure not in failures:
@@ -284,12 +289,14 @@ class CycleHistory:
             or ("PRODUCT_BUILD" if product_cycle or merges else "ROTATION"),
             execution_mode=mode,
             status=final_status,
-            created_at=created,
-            started_at=started,
+            created_at=prior.get("created_at") or created,
+            started_at=prior.get("started_at") or started,
             finished_at=finished,
             parent_work_item_id=parent,
             control_epoch=epochs[0] if epochs else prior.get("control_epoch"),
-            scheduled=product_cycle[0].get("schedule_enabled")
+            scheduled=prior.get("scheduled")
+            if prior.get("scheduled") is not None
+            else product_cycle[0].get("schedule_enabled")
             if product_cycle
             else legacy[-1].get("scheduled")
             if legacy
@@ -355,7 +362,8 @@ class CycleHistory:
             next_cycle_candidates=tuple(summary.get("next_cycle_candidates", ())),
             failure_code=blocked_code if final_status == "BLOCKED" else None,
             blocked_at=(prior.get("blocked_at") or finished) if final_status == "BLOCKED" else None,
-            provider_gate_result={
+            provider_gate_result=prior.get("provider_gate_result")
+            or {
                 "status": "FAILED",
                 "source": "historical failure evidence",
                 "failures": failures,
