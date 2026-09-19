@@ -1,0 +1,12 @@
+{
+  "revision": "7c78acb093c1b2488c1df56336e9723edda3059f",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "PASS",
+  "canonical_probe_result": "584e5d4f-c064-4bff-9c4e-42176d020edd",
+  "qa_evidence": {
+    "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA.md": "3b96c31eec3deaaa895a26caa36f65fde70edf1cac4e1467e6db988ec35f2b36",
+    "docs/qa/DAY8_OBSERVED_ASSETS_QA_HASHES.json": "3582a077613d8c46be4f3818928483dc611b801f4d1a6e0ed06093b40aeb1a6c",
+    "logs/day8-capability-probe-123f1ebf-5a8d-4887-a718-09875feea1cc.json": "7e51df2c425a41e6c3b716657edee433054bb9b6caba947bfb73f0e5f3e6447e",
+    "logs/day8-repeat-probe-independent.json": "0a3f6eb54ef9495914b6698756e9c26185a15e7c243913cb2cb4a011150b2e6b"
+  }
+}
