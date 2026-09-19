@@ -257,7 +257,9 @@ class Development(ExecutionServices):
                 "No other frontier findings are supplied. Do not infer real market access or trading success. "
                 "Return RESEARCH_FINDING, no files/proposal/claims/actions/tests/commands. "
                 "analysis_artifacts must contain exactly one JSON string matching the supplied product schema. "
-                "Give 2-3 evidenced product areas and 1-2 improvement candidates; concise fields. "
+                "Give exactly 2 evidenced product areas and 1 improvement candidate. "
+                "Keep the entire response below 1000 output tokens: short phrases for fields, "
+                "at most one short item per nested field list, no repeated explanations. "
                 "Identify real product value without seeding a preferred strategy. Candidate IDs may be omitted."
             )
             work, result, payload, usage = self.call(
