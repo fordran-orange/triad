@@ -1,0 +1,29 @@
+{
+  "revision": "b43054bb704c36ea53b380b5b65041258aa94333",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "PASS",
+  "implementation_files": {
+    "app/trading_core/engineering.py": "86360664600980d5009022716f38c563090b7f81a9bc41123c3a12d8b960c1ec",
+    "app/trading_core/runtime.py": "79c95fceeaf021ea7ad45ad49478e09d63b1ee418d7af1c7e3000c041f9e45d9",
+    "app/trading_core/git_tools.py": "7d4a0ea58fd18fc06c2a2473ee31ac8dc703c938880e563314b34a8050c87ef7",
+    "app/trading_core/providers/bounded_tools.py": "5071dcc5746da0c68d898c00a49418a0e3a9110080cd9d1a1a325b6b0d6e2b36",
+    "app/trading_core/providers/native_agents.py": "b4f41c47294d1c350523e7bfe113a48e622992581df4d09b7d26a68819220312",
+    "app/trading_core/providers/transports.py": "60cbf3a02dadea1b6eb914e5b695b718c0cb507871a0f6e50eef8d6e682167e4",
+    "app/trading_core/providers/isolation.py": "3166761af2d619e3c64700afd0840ed03f8d7ff33355a71606efe38cdc1b6ee2",
+    "app/trading_core/intelligence/contracts.py": "e2a3a492d751b4b523a1f8fbc6d464f1b0f7ba2a818541d84b39355aee5622fc",
+    "tests/test_engineering.py": "5448a8e763a0c5f93c636233754b8bab1028ba6dcdd6bec445b7c7f968a36c0f",
+    "tests/test_native_agents.py": "c9cce79144b04870469b0501697be4e1bf0193932309240a6f171680041540e2",
+    "tests/test_day3_integration.py": "813027e1bbbd6063a699aa96a7910a18012b1b89d757e1afcb9cfd44d0ae5adb"
+  },
+  "qa_evidence": {
+    "docs/qa/DAY8_ENGINEERING_FINAL_QA.md": "7d877300fc9fcc7bd1b2643b0c5c4f640f7ecb3481dcdbf2202b7ff3aced7d94",
+    "tests/test_day8_engineering_qa.py": "15e761d36182561bd99b8c514ae469491c02c04f41404cdb049fd1f0e7abcef0",
+    "tests/test_day8_engineering_correction_qa.py": "f177d77ededd460c14748202b9c59c099c976df4e6ed8f43fce93c464d418188",
+    "logs/day8_engineering_final_qa_runner.py": "1a3605eb5166c23e86f9531728c9ccd991254e99f4f16c2bd7c6f02f0cc3d5f9",
+    "logs/day8-engineering-correction-b43054b.log": "d07c156602659305697b9e768bd6203bebb4dc4ec0b886b4e660e96654490a79",
+    "logs/day8-engineering-correction-native-proof.log": "f046ef4d12c511bff25702b787cea8937fc82c5f84cbd48f4701ca9a8a7d970d",
+    "logs/day8-engineering-correction-qa-initial.py": "9d8b6e6b058f5638cb1ce40608f6a77e3ba44f0866b68b882216e018f1754a59",
+    "docs/qa/DAY8_ENGINEERING_QA.md": "b7e046573d7ddd8ee359b73ef5b61bb1b1bac43b5435d0327e20db332b33fa8e",
+    "docs/qa/DAY8_ENGINEERING_QA_HASHES.json": "73258a0ee9c5b3977c73370670a8fc4e5be2055a2fcbbc0c755970f5ca5c34b3"
+  }
+}

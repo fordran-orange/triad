@@ -1,0 +1,38 @@
+{
+  "revision": "939cf7d451ef813f803a4810829457991275de4f",
+  "decision": "PASS",
+  "raw_git_blob_sha256": {
+    "app/products/triad/daily_api.py": "5778bf210dcff0bcd8cc697be80f1a4687bdde995b5604e12b2c57267ffee068",
+    "app/products/triad/server.py": "29540f7ae45c50c70c2578e51b54adda084f550e766de36b76ee4dc4868734b5",
+    "app/products/triad/static/cycles.html": "5d098a4fd99ecf03f0740fa14e0c84178353662cfd2e96a1e01c263c1d2db5e9",
+    "app/products/triad/static/daily.html": "0e1915b7c66b035146a00988fb2e47326f3c40f0a315a9be6eb63462af7f5d1f",
+    "app/products/triad/static/daily.js": "39a494faf6f27a893027b7d52872866a6983b83fe6678fbc98aa78dc04216ce6",
+    "app/products/triad/static/development.html": "5b2b9cf9d2e179478f34bfd25f897efd8a2fd88f529c169fe111d4a8b1ce36c8",
+    "app/products/triad/static/product.html": "60c6627666f6c48ddaab925dbbbe0c4ac650b595105205526322b9a09908b67e",
+    "pyproject.toml": "eda1b06f6d03f65ed919984eb96d8d870bc8b4fabfc6db7c9eff0668b80a2e0f"
+  },
+  "frozen_archive_sha256": {
+    "app/products/triad/daily_api.py": "5778bf210dcff0bcd8cc697be80f1a4687bdde995b5604e12b2c57267ffee068",
+    "app/products/triad/server.py": "29540f7ae45c50c70c2578e51b54adda084f550e766de36b76ee4dc4868734b5",
+    "app/products/triad/static/cycles.html": "08fe98b7bcf5ee95f177ce3a834eb98428980dcc9d31aa83d4d2d26694e94ef7",
+    "app/products/triad/static/daily.html": "e92ef266a6bc1f3a796c7ea8bfca4a7880a31833bbad911a6b7a113f85615a33",
+    "app/products/triad/static/daily.js": "bf6a767c4702f0477a05d0cd68d4a7f9d7ca8c48c6a5977f1f8a5ad77089b9f6",
+    "app/products/triad/static/development.html": "bc2531ce9f5bff9c77de87d9f273e6cc10c5333f36d5480035bfbdfa512aa362",
+    "app/products/triad/static/product.html": "60c6627666f6c48ddaab925dbbbe0c4ac650b595105205526322b9a09908b67e",
+    "pyproject.toml": "f6c8d43604fd894ece5efb39d7f082b904cbfc5e70f4c73a0f873bd5e44a96fd"
+  },
+  "evidence_sha256": {
+    "docs/qa/DAY8_DAILY_UI_FINAL_QA.md": "b6f839b1594dcaaa36b40ac074013683759d53333e0cf7ebc021455f31d3a8a4",
+    "logs/day8-daily-ui-939cf7d/tests/test_day8_daily_ui_qa.py": "085c84c838d86c913bb9aff691d315c0dacd6d8e1062fd1ea47352245d52403a",
+    "logs/day8-daily-ui-independent-939cf7d.log": "ecdbeb1f5b6c4e5414710c70a3ed997875a692989015a737f4df338a3ce4c766",
+    "logs/day8-daily-ui-independent-939cf7d.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day8-daily-ui-dom-correction-qa.js": "d0d4de30c5e21ea6a97a190d68729b92a662111ffd1560fc6ea6b16003704a08",
+    "logs/day8-daily-ui-dom-final-939cf7d.log": "2be06d2678f6cca348091c0e7644ed5f28e5b481d360a86d4c4462475570a104",
+    "logs/day8-daily-ui-dom-final-939cf7d.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day8-daily-ui-package-939cf7d.log": "8adbf210fa5045df2041469bbaa147aa249e3096a57095ec8612b4e97f742e69",
+    "logs/day8-daily-ui-package-939cf7d.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day8-daily-installed-correction-qa.py": "6491d09d3b8cb0c167dc85925313ae2afdca97329dcb13807054cdc34e95e1d1",
+    "logs/day8-daily-installed-939cf7d.log": "174085e08f98cd64887caf78ca72161258a39af3b880b84b9a07f8b2ce51de87",
+    "logs/day8-daily-installed-939cf7d.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+  }
+}

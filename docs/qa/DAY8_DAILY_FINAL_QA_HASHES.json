@@ -1,0 +1,39 @@
+{
+  "revision": "6e1f3ae0982f1a11bda184e76ff9e8d2d6604471",
+  "reviewer": "/root/day6_qa_c",
+  "decision": "PASS",
+  "snapshot": "C:\\Triad\\logs\\day8-daily-6e1f3ae",
+  "snapshot_app_config_sql_files_equal_archive": 196,
+  "result": {
+    "passed": 22,
+    "failed": 0,
+    "warnings": 2,
+    "seconds": 56.31,
+    "exit": 0
+  },
+  "source_test_hashes": {
+    "app/products/triad/daily.py": "9ecfc6dd9a8489d0d530b477ee1f45fecca630501f54c7f6f4b5e429f79db59f",
+    "app/trading_core/store.py": "3a32279b05dcb76d309a06bfd923fb0e10a29bb638653732bddbe1322a7181a2",
+    "app/trading_core/intelligence/contracts.py": "e2a3a492d751b4b523a1f8fbc6d464f1b0f7ba2a818541d84b39355aee5622fc",
+    "app/trading_core/ledger.py": "1e5db1993464e692818df817dacbfc592098039d2e55a91a3f1af859861ba4b6",
+    "app/trading_core/intelligence/quality.py": "0c3aa7df28a30e584d9ff43bda787c5c4c86cccb305fbb790ca66e6afe5e4db5",
+    "tests/test_daily_lifecycle.py": "0e6a9a5e4afab92ef8512c7c7d5bfeafd89fffa0b02eddd7a0ec7066d39f75a1",
+    "tests/test_day8_daily_qa.py": "3a4717cb0c7f389224f54cc119c3d7d4f97c3a01c5467c9ed9902630b4d8a19a",
+    "tests/test_day8_daily_correction_qa.py": "a40411a91a4b82939eb22135286f99b89a8d2ada0c6dac5a261edcec66472797"
+  },
+  "evidence_hashes": {
+    "docs/qa/DAY8_DAILY_FINAL_QA.md": "d60d129dd6ca39bf76f76643e3d3d8e862b4d3036f6319fdd4a33fef577e158f",
+    "logs/day8-daily-6e1f3ae.zip": "6b53f4e06451d2333647120db06c0df642f99ca723b54810634bfa12deb6da6f",
+    "logs/day8-daily-final-runner.py": "5c4a27676cbb6746359309af49d864498eb3aa1e4ee9fb7f4bd023d12229d2da",
+    "logs/day8-daily-qa-final.log": "ce3dd6985feb1760754bfddfb93b2c019900602674a57849923c7561c9344bc2",
+    "logs/day8-daily-qa-final.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "docs/qa/DAY8_DAILY_QA.md": "737f9678e3cb8dc98118174517ca508b8cae1de4feaf6226db25bd32462563c0",
+    "docs/qa/DAY8_DAILY_QA_HASHES.json": "16db9c14de020ba6e3970a714fdebc9bca9250b8931bce9a1e91c4c802ca1268",
+    "docs/qa/DAY8_DAILY_QA_INITIAL_HASHES.json": "5bf56d14f1210e07937837fc5188f94f6de84d09f82c6247c4cbdef04df4ece4",
+    "docs/qa/DAY8_DAILY_CORRECTION_QA.md": "bdb70d85165b856850d12cf3ed4a869fa99ce04b77e6148200625826ab1a68e4",
+    "docs/qa/DAY8_DAILY_CORRECTION_QA_HASHES.json": "861082a1f1b7d40137e1a9486c1c4e2cfd7148a7b165c4cd822f390756759053",
+    "logs/day8-daily-qa-initial.log": "b70483c3f83c077e9cc67a241fd7e83e38786ee69489557fca031ec19aceec48",
+    "logs/day8-daily-qa-pause.log": "25403f533cb38ebace472573e53c3f919e2d1478a24a9142a13fd431b93a8216",
+    "logs/day8-daily-qa-correction.log": "8726e0054c5b26092fb919de03d755a4d168ea6223d851bbb532eb3710279bb9"
+  }
+}

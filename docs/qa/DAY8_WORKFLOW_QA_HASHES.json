@@ -1,0 +1,24 @@
+{
+  "revision": "c47ce8f798ddb0f3c5ea7218a1ee6a03a44b3785",
+  "reviewer": "/root/day6_qa_c",
+  "verdict": "CHANGES REQUIRED",
+  "source_sha256": {
+    "app/products/triad/daily_development.py": "60c276cb210978be4646eb02d858bf4f8d342d03c2dceba7c5243e954959dd9a",
+    "app/products/triad/daily_verification.py": "558ab9b583ca8935d56c06787d195efb2d5e0999c9dc4291e54bd5a2258a8e33",
+    "tools/run_daily_product_cycle.py": "0a4f346bd84eeb849c2da9a950f061b4b4e9d51fde3df4ab6d30df840e23c26b",
+    "app/products/triad/daily.py": "9ecfc6dd9a8489d0d530b477ee1f45fecca630501f54c7f6f4b5e429f79db59f",
+    "app/products/triad/development.py": "5fb4dd05a19686ef59712ac4d4200633b7c1bd1858fd3e61e9a0bc3ac3492651",
+    "app/trading_core/engineering.py": "86360664600980d5009022716f38c563090b7f81a9bc41123c3a12d8b960c1ec"
+  },
+  "evidence_sha256": {
+    "tests/test_day8_workflow_qa.py": "79b0e49d0a191e9d4c465fb7f840f540f521cdb47fba63bc0d1363d17625b353",
+    "logs/day8-workflow-qa-initial-test.py": "79b0e49d0a191e9d4c465fb7f840f540f521cdb47fba63bc0d1363d17625b353",
+    "logs/day8-workflow-qa-runner.py": "c9a756d5473ebcc922a62bbe0d1c18932a998ad1f1011f7768c79519a4de5a10",
+    "logs/day8-workflow-qa-db.log": "63c205e11717cfdff98d285be701fdbd1bfd9876b9cc56640a6a4eaecbbdd758",
+    "logs/day8-workflow-qa-db.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04",
+    "logs/day8-workflow-qa-unit.log": "e61869b2590aa6c29a8b3d9aeb4ddb3db81a9e8368a736cb02b1c6fe4783bd37",
+    "logs/day8-workflow-qa-unit.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04",
+    "logs/day8-workflow-c47ce8f.zip": "8cb57278cb317ed50be9b6a0a73558a8f6d0e759c43d588a29fc39e119a9281b",
+    "docs/qa/DAY8_WORKFLOW_QA.md": "c8d0b2708bacbd5a0e3337206822fc0843867800ce346d1757727fff12129c98"
+  }
+}

@@ -58,6 +58,8 @@ def test_store_create_ordinary_and_external_transaction_preserve_ownership_and_r
         WorkItem(owner="aegis", title="Foreign parent", description="QA")
     )
     with store.connect() as conn, pytest.raises((PermissionError, KeyError)):
+        store.get(alien.work_item_id, conn=conn)
+    with store.connect() as conn, pytest.raises((PermissionError, KeyError)):
         store.create(
             child.model_copy(update={"parent_work_item_id": alien.work_item_id}), conn=conn
         )
@@ -79,7 +81,7 @@ def test_store_create_parent_child_share_supplied_transaction(engine):
     assert store.get(child.work_item_id).parent_work_item_id == parent.work_item_id
 
 
-@pytest.mark.parametrize("control", ["parent_stop", "epoch_change"])
+@pytest.mark.parametrize("control", ["parent_stop", "epoch_change", "already_completed"])
 def test_publish_revalidates_parent_and_cycle_epoch(engine, control):
     service = Daily(Store(engine.host.store.settings))
     cycle, build, _, draft_id = reviewed(service)
@@ -87,9 +89,11 @@ def test_publish_revalidates_parent_and_cycle_epoch(engine, control):
         Ledger(Store(engine.host.store.settings, scope="triad")).operate(
             "stop", work_id=cycle.parent_work_item_id
         )
-    else:
+    elif control == "epoch_change":
         service.host.ledger.operate("pause")
         service.host.ledger.operate("resume")
+    else:
+        service.transition(cycle.cycle_id, "COMPLETED", ["verified completed cycle"])
     with pytest.raises((PermissionError, Stopped)):
         service.publish(
             draft_id,
