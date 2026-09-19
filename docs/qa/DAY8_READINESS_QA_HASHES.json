@@ -1,0 +1,22 @@
+{
+  "revision": "460c2c8f5f09729d2d701e3fc4c3c08e88b25e42",
+  "decision": "CHANGES_REQUIRED",
+  "raw_git_blob_sha256": {
+    "app/trading_core/integrations/readiness.py": "59fa961d23f5189f8324d865c96764386be74f3c19872d11faeff5550b4a9e01",
+    "app/trading_core/integrations/api.py": "54ff49129d127b4cd3fc98ed261ea1503583a06da43eec59b946d1262ec38889",
+    "app/trading_core/intelligence/contracts.py": "f85641c12644dc0d1192585a11833e9ac2ffdd73d6020f8bb5635f6a9c48839a",
+    "tests/test_readiness.py": "92568188eb85d225e9bf69cafc1e4b27b9f968561a69853222a9efed1355cfdd"
+  },
+  "frozen_archive_sha256": {
+    "app/trading_core/integrations/readiness.py": "59fa961d23f5189f8324d865c96764386be74f3c19872d11faeff5550b4a9e01",
+    "app/trading_core/integrations/api.py": "54ff49129d127b4cd3fc98ed261ea1503583a06da43eec59b946d1262ec38889",
+    "app/trading_core/intelligence/contracts.py": "f85641c12644dc0d1192585a11833e9ac2ffdd73d6020f8bb5635f6a9c48839a",
+    "tests/test_readiness.py": "92568188eb85d225e9bf69cafc1e4b27b9f968561a69853222a9efed1355cfdd"
+  },
+  "evidence_sha256": {
+    "tests/test_day8_readiness_qa.py": "3f9e178fb1fc0ecc9c9f126e44480b0e459a744f1ac2d92a19aaf09243d6677b",
+    "docs/qa/DAY8_READINESS_QA.md": "822ba7501eb416cbbaee04ba515e6291fc1603fd2c57c62d0d56facd01274509",
+    "logs/day8-readiness-independent-review-460c2c8.log": "039381a09b558e7bcc20255a1a8535a1b337cdab6c385709efc9478793ad3500",
+    "logs/day8-readiness-independent-review-460c2c8.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04"
+  }
+}
