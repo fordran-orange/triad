@@ -36,6 +36,12 @@ HOST_RECORD_KINDS = frozenset(
         "ResourceExtensionDecision",
         "ResourceRunState",
         "ReadinessEvidence",
+        "DailyCycleTransition",
+        "DailyVerification",
+        "DailyDebriefDraft",
+        "DailyDebriefPublication",
+        "DailySchedule",
+        "DailyScheduleClaim",
     }
 )
 
