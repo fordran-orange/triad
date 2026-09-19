@@ -36,7 +36,11 @@ window.TriadRecord = (() => {
       try {const parsed=JSON.parse(value);if(parsed && typeof parsed==='object')value=parsed;}catch{/* Ordinary text. */}
     }
     if(value===null || typeof value!=='object'){
-      area.append(node('p',scalar(value,key),'rv-text'));return area;
+      const displayed=node('p',scalar(value,key),'rv-text');area.append(displayed);
+      if(typeof value==='string' && /^\d{4}-\d{2}-\d{2}T\d{2}:.*(Z|[+-]\d{2}:\d{2})$/.test(value) && !isNaN(Date.parse(value))){
+        const canonical=node('details',undefined,'rv-identifiers');canonical.append(node('summary','Canonical UTC time'),node('p',new Date(value).toISOString()));area.append(canonical);
+      }
+      return area;
     }
     if(Array.isArray(value)){
       if(!value.length){area.append(node('p','None recorded','rv-empty'));return area;}

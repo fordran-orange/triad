@@ -614,6 +614,13 @@ class Runtime:
 
         def invoke():
             try:
+                if request.role == "REVIEW":
+                    self.ledger.store.receive_handoff(
+                        canonical.parent_work_item_id
+                        if canonical.work_type == "review" and canonical.parent_work_item_id
+                        else canonical.work_item_id,
+                        request.agent_id,
+                    )
                 results.put((True, adapter.execute(request)))
             except Exception as exc:  # noqa: BLE001 - marshal failures across thread boundary
                 results.put((False, exc))

@@ -78,6 +78,7 @@ class AgentCreationRequest(Record):
     lifetime_seconds: int = Field(default=900, ge=1, le=3600)
     persistent_or_temporary: Literal["persistent", "temporary"] = "temporary"
     reason: str = Field(min_length=1, max_length=2000)
+    requested_at: datetime | None = None
 
 
 class DelegationPolicy(Record):
@@ -328,7 +329,10 @@ class Agents:
             }
             self.host.append(
                 "AgentCreationRequest",
-                request.model_dump(mode="json"),
+                {
+                    **request.model_dump(mode="json"),
+                    "requested_at": (request.requested_at or now()).isoformat(),
+                },
                 owner=owner,
                 identifier=request.request_id,
                 conn=conn,

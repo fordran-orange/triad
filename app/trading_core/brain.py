@@ -47,6 +47,7 @@ LABELS = {
     "PolicyDecision",
     "Review",
     "Handoff",
+    "HandoffLifecycle",
     "ContextPacket",
     "ElevationRequest",
     "ConfiguredAgent",

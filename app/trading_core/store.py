@@ -10,7 +10,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from trading_core.settings import Settings
-from trading_core.work import Record, WorkItem
+from trading_core.work import HandoffLifecycle, Record, WorkItem, now
 
 ID_FIELDS = {
     "Agent": "agent_id",
@@ -18,6 +18,7 @@ ID_FIELDS = {
     "ContextPacket": "packet_id",
     "JournalEntry": "journal_id",
     "Handoff": "handoff_id",
+    "HandoffLifecycle": "event_id",
     "Review": "review_id",
     "ElevationRequest": "request_id",
     "Provenance": "provenance_id",
@@ -87,6 +88,10 @@ class Store:
             return
         kind = type(record).__name__
         data = record.model_dump(mode="json")
+        if kind == "Handoff":
+            timestamp = now().isoformat()
+            data["created_at"] = data.get("created_at") or timestamp
+            data["sent_at"] = data.get("sent_at") or timestamp
         work_id = data.get("work_item_id") or data.get("work_item")
         owner = "core" if kind == "Agent" else self.scope or "core"
         if work_id:
@@ -107,6 +112,41 @@ class Store:
         ).fetchone()
         if inserted:
             self.enqueue(conn, kind, record_id, data)
+            if kind == "Review":
+                self.handoff_lifecycle(work_id, "completed_at", data["reviewer"], conn=conn)
+
+    def handoff_lifecycle(self, work_id, phase, actor, *, conn=None):
+        """Append actual delivery/review events without rewriting the original handoff."""
+        if conn is None:
+            with self.connect() as connection:
+                return self.handoff_lifecycle(work_id, phase, actor, conn=connection)
+        rows = conn.execute(
+            "SELECT payload,owner FROM core.orchestration_records WHERE kind='Handoff' "
+            "AND work_item_id=%s ORDER BY created_at DESC",
+            (work_id,),
+        ).fetchall()
+        if not rows:
+            return
+        from trading_core.ownership import require_write
+
+        row = rows[0]
+        require_write(self.scope, row["owner"])
+        handoff = row["payload"]
+        if actor != handoff["to_agent"]:
+            raise PermissionError("Only the assigned receiver can acknowledge this handoff")
+        event = HandoffLifecycle(
+            event_id=f"{handoff['handoff_id']}-{phase}",
+            handoff_id=handoff["handoff_id"],
+            work_item_id=work_id,
+            phase=phase,
+            actor=actor,
+        )
+        self.add_record(event, conn=conn)
+
+    def receive_handoff(self, work_id, actor):
+        with self.connect() as conn:
+            self.handoff_lifecycle(work_id, "received_at", actor, conn=conn)
+            self.handoff_lifecycle(work_id, "acknowledged_at", actor, conn=conn)
 
     def create(self, work: WorkItem):
         from trading_core.ownership import require_owner
@@ -120,6 +160,7 @@ class Store:
                 raise PermissionError("Cross-product parent assignment")
         if work.status != "CREATED" or work.revision != 0 or work.result is not None:
             raise ValueError("Only pristine CREATED assignments may be inserted")
+        work = work.model_copy(update={"updated_at": work.created_at})
         with self.connect() as conn:
             conn.execute(
                 "INSERT INTO core.work_items(id,mission_id,status,revision,payload,owner) VALUES (%s,%s,%s,%s,%s,%s)",
@@ -137,6 +178,7 @@ class Store:
                 (work.work_item_id, work.status, "Operator created immutable bounded assignment"),
             )
             self.enqueue(conn, "WorkItem", work.work_item_id, work.model_dump(mode="json"))
+        return work
 
     def step(
         self,
@@ -212,7 +254,20 @@ class Store:
                 "AND (%s::text IS NULL OR work_item_id=%s) ORDER BY created_at DESC LIMIT %s",
                 (self.scope, self.owner_aliases, kind, kind, work_id, work_id, limit),
             ).fetchall()
-        return [{"kind": r["kind"], **r["payload"]} for r in rows]
+        result = [{"kind": r["kind"], **r["payload"]} for r in rows]
+        # Read projection overlays dated events; immutable source payloads stay intact.
+        handoffs = {r["handoff_id"]: r for r in result if r["kind"] == "Handoff"}
+        if handoffs:
+            with self.connect() as conn:
+                events = conn.execute(
+                    "SELECT payload FROM core.orchestration_records WHERE kind='HandoffLifecycle' "
+                    "AND payload->>'handoff_id'=ANY(%s) ORDER BY created_at",
+                    (list(handoffs),),
+                ).fetchall()
+            for event in events:
+                data = event["payload"]
+                handoffs[data["handoff_id"]][data["phase"]] = data["occurred_at"]
+        return result
 
     def events(self, work_id: str) -> list[dict]:
         self.get(work_id)

@@ -81,6 +81,8 @@ class ImplementationRun(Record):
     evidence: tuple[str, ...]
     status: Literal["IMPLEMENTED", "FAILED"] = "IMPLEMENTED"
     created_at: datetime = Field(default_factory=now)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
 
 class QARun(Record):
@@ -106,6 +108,8 @@ class QARun(Record):
     decision: Literal["PASS", "PASS_WITH_OBSERVATIONS", "CHANGES_REQUIRED", "REJECT", "BLOCKED"]
     execution_mode: Literal["HOST_INDEPENDENT_QA", "REAL_PROVIDER", "TEST_FIXTURE"]
     created_at: datetime = Field(default_factory=now)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     @model_validator(mode="after")
     def passing_evidence(self):

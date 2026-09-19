@@ -19,6 +19,15 @@ def uid() -> str:
 class Record(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    @field_validator("*", mode="after")
+    @classmethod
+    def canonical_utc(cls, value):
+        if isinstance(value, datetime):
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError("Lifecycle times require an explicit timezone")
+            return value.astimezone(UTC)
+        return value
+
 
 class State(StrEnum):
     CREATED = "CREATED"
@@ -97,6 +106,7 @@ class WorkItem(Record):
     title: str = Field(min_length=1, max_length=160)
     description: str = Field(min_length=1, max_length=8000)
     created_at: datetime = Field(default_factory=now)
+    updated_at: datetime | None = None
     created_by: str = "operator"
     assigned_agent: str | None = None
     routing_reason: str | None = None
@@ -124,6 +134,7 @@ class WorkItem(Record):
     reviewer: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    closed_at: datetime | None = None
     result: WorkResult | None = None
     failure_reason: str | None = None
     revision: int = Field(default=0, ge=0)
@@ -223,6 +234,11 @@ class JournalEntry(Record):
 
 class Handoff(Record):
     handoff_id: str = Field(default_factory=uid)
+    created_at: datetime | None = None
+    sent_at: datetime | None = None
+    received_at: datetime | None = None
+    acknowledged_at: datetime | None = None
+    completed_at: datetime | None = None
     from_agent: str
     to_agent: str
     work_item_id: str
@@ -257,6 +273,15 @@ class Review(Record):
     tests_repeated: tuple[str, ...]
     timestamp: datetime = Field(default_factory=now)
     execution_mode: str = "deterministic_demo"
+
+
+class HandoffLifecycle(Record):
+    event_id: str = Field(default_factory=uid)
+    handoff_id: str
+    work_item_id: str
+    phase: Literal["received_at", "acknowledged_at", "completed_at"]
+    actor: str
+    occurred_at: datetime = Field(default_factory=now)
 
 
 class ElevationRequest(Record):
@@ -317,9 +342,12 @@ def transition(
         or approved_review.reviewer == work.assigned_agent
     ):
         raise PermissionError("Matching independent approval required")
-    changes = {"status": target, "revision": work.revision + 1}
+    timestamp = now()
+    changes = {"status": target, "revision": work.revision + 1, "updated_at": timestamp}
     if target == State.IN_PROGRESS:
-        changes["started_at"] = now()
+        changes.update(started_at=timestamp, completed_at=None, closed_at=None)
     if target in {State.COMPLETED, State.REJECTED, State.CANCELLED, State.FAILED}:
-        changes["completed_at"] = now()
+        changes["completed_at"] = timestamp
+    if target in {State.COMPLETED, State.REJECTED, State.CANCELLED}:
+        changes["closed_at"] = timestamp
     return WorkItem.model_validate(work.model_dump() | changes)

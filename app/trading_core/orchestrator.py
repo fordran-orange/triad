@@ -63,8 +63,7 @@ class Orchestrator:
             work.model_dump()
             | {"assigned_agent": agent, "reviewer": reviewer, "routing_reason": routing_reason}
         )
-        self.store.create(work)
-        return work
+        return self.store.create(work)
 
     def advance(
         self,
@@ -322,6 +321,7 @@ class Orchestrator:
                 return work
             handoff_data = self.store.records("Handoff", work_id, 1)[0]
             handoff = Handoff.model_validate({k: v for k, v in handoff_data.items() if k != "kind"})
+            self.store.receive_handoff(work_id, work.reviewer)
             review = DocumentationReviewer().review(work, handoff, ToolGateway(work))
             work = self.apply_review(work, review)
         Brain(self.store).flush()

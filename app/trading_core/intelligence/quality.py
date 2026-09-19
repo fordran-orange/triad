@@ -6,6 +6,7 @@ must preserve the independent run transcript/test evidence they actually observe
 
 from trading_core.intelligence.contracts import ImplementationRun, QARun
 from trading_core.intelligence.records import Records
+from trading_core.work import now
 
 
 class Quality:
@@ -13,6 +14,12 @@ class Quality:
         self.records = records or Records()
 
     def implementation(self, run: ImplementationRun):
+        started = run.started_at
+        if not started and run.work_item_id:
+            started = self.records.store.get(run.work_item_id).started_at
+        run = run.model_copy(
+            update={"started_at": started, "completed_at": run.completed_at or now()}
+        )
         return self.records.append(
             "ImplementationRun",
             run.model_dump(mode="json"),
@@ -28,6 +35,10 @@ class Quality:
             raise PermissionError("A separate QA identity must review an implementation")
         if build["change_commit"] != qa.reviewed_commit:
             raise PermissionError("QA is stale for this implementation")
+        started = qa.started_at
+        if not started and qa.qa_work_item_id:
+            started = self.records.store.get(qa.qa_work_item_id).started_at
+        qa = qa.model_copy(update={"started_at": started, "completed_at": qa.completed_at or now()})
         with self.records.store.connect() as conn:
             identifier = self.records.append(
                 "QARun",
@@ -36,6 +47,10 @@ class Quality:
                 identifier=qa.qa_run_id,
                 conn=conn,
             )
+            if build.get("work_item_id"):
+                self.records.store.handoff_lifecycle(
+                    build["work_item_id"], "completed_at", qa.qa_agent, conn=conn
+                )
             observations = tuple(
                 dict.fromkeys(
                     (*qa.findings, *qa.optional_improvements)
@@ -53,6 +68,8 @@ class Quality:
                         "product_area": build["owner"],
                         "reason_deferred": "Independent QA classified as non-blocking",
                         "status": "OPEN",
+                        "created_at": now().isoformat(),
+                        "updated_at": now().isoformat(),
                     },
                     owner=build["owner"],
                     conn=conn,

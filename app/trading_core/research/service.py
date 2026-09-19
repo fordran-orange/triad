@@ -485,6 +485,7 @@ class Laboratory:
         epoch = self.ledger.guard(work.reviewer, work.work_item_id)["epoch"]
         if work.status != State.AWAITING_REVIEW:
             raise ValueError("Research work is not awaiting review")
+        self.host.store.receive_handoff(work.work_item_id, work.reviewer)
         experiment = self.model("Experiment", run.experiment_id, Experiment)
         experiment = Experiment.model_validate(
             {**experiment.model_dump(), "parameters": run.parameters}
