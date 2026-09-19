@@ -10,7 +10,7 @@ from typing import Literal
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from trading_core.brain import Brain
 from trading_core.orchestrator import Orchestrator
@@ -107,6 +107,14 @@ async def unavailable_provider(request, exc):
 
 @app.exception_handler(ValueError)
 async def invalid_operation(request, exc):
+    if isinstance(exc, ValidationError):
+        return JSONResponse(
+            {
+                "detail": "Record validation failed. Check the submitted fields.",
+                "fields": [{"loc": error["loc"], "type": error["type"]} for error in exc.errors()],
+            },
+            status_code=409,
+        )
     return JSONResponse({"detail": str(exc)}, status_code=409)
 
 

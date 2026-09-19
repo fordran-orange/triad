@@ -261,37 +261,7 @@ class DataAccess:
             raise PermissionError("Requested use is not licensed")
         host = Records(self.store)
         if request.mode == "REAL":
-            from trading_core.intelligence.quality import Quality
-
-            candidate = next(
-                (
-                    r
-                    for r in self.registry.candidates()
-                    if r["candidate_id"] == configured.get("candidate_id")
-                ),
-                None,
-            )
-            if (
-                not candidate
-                or candidate["status"] != "IMPLEMENTED"
-                or not configured.get("implementation_run_id")
-                or not configured.get("implementation_commit")
-            ):
-                raise PermissionError(
-                    "Real external acquisition requires the adopted reviewed Core adapter build"
-                )
-            build = host.get(configured["implementation_run_id"])
-            if (
-                build["owner"] != "core"
-                or "integration-definition-sha256:" + definition_fingerprint(configured)
-                not in build["evidence"]
-            ):
-                raise PermissionError(
-                    "Real acquisition definition differs from reviewed implementation"
-                )
-            Quality(host).require_pass(
-                configured["implementation_run_id"], configured["implementation_commit"]
-            )
+            self.registry.require_adopted(configured)
         epoch = host.ledger.guard()["epoch"]
         identifier = uid()
         manifests = []
@@ -322,6 +292,8 @@ class DataAccess:
                     definition
                 ):
                     raise PermissionError("Integration configuration changed before acquisition")
+                if request.mode == "REAL":
+                    self.registry.require_adopted(current)
                 single = request.model_copy(update={"symbols": (symbol,)})
                 raw = adapter.fetch_historical_bars(single)
                 host.ledger.guard(epoch=epoch)

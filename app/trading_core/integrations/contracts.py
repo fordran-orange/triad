@@ -34,38 +34,52 @@ def public_metadata(value):
     if isinstance(value, dict):
         for key, item in value.items():
             compact = str(key).lower().replace("_", "").replace("-", "").replace(" ", "")
-            if (
-                compact.endswith("apikey")
-                or compact.endswith("accesstoken")
-                or compact.endswith("refreshtoken")
-                or compact
-                in {
+            if any(
+                word in compact
+                for word in (
                     "apikey",
                     "password",
-                    "token",
+                    "secret",
+                    "privatekey",
+                    "signingkey",
+                    "credential",
                     "accesstoken",
                     "refreshtoken",
-                    "authorization",
-                    "secret",
-                    "clientsecret",
-                    "credentials",
-                    "headers",
-                    "cookies",
-                    "cookie",
-                    "bearer",
-                }
-            ):
+                )
+            ) or compact in {
+                "apikey",
+                "password",
+                "token",
+                "accesstoken",
+                "refreshtoken",
+                "authorization",
+                "secret",
+                "clientsecret",
+                "credentials",
+                "headers",
+                "cookies",
+                "cookie",
+                "bearer",
+            }:
                 raise ValueError("Credential fields cannot enter public integration metadata")
             public_metadata(item)
     elif isinstance(value, (list, tuple)):
         for item in value:
             public_metadata(item)
-    elif isinstance(value, str) and value.lower().startswith(("https://", "http://")):
-        parsed = urlsplit(value)
+    elif isinstance(value, str) and value.strip().lower().startswith(("https://", "http://")):
+        parsed = urlsplit(value.strip())
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError(
                 "Public documentation and endpoints cannot carry credentials or URL parameters"
             )
+
+
+class PublicTransport(Record):
+    transport: Literal["MCP", "REST", "SDK", "LOCAL"]
+    domain: str = "Not specified"
+    status: CapabilityState = "UNVERIFIED"
+    endpoint: HttpUrl | None = None
+    notes: tuple[str, ...] = ()
 
 
 class IntegrationRecord(Record):
@@ -92,7 +106,7 @@ class IntegrationRecord(Record):
     last_success: AwareDatetime | None = None
     last_failure: AwareDatetime | None = None
     notes: tuple[str, ...] = ()
-    transports: tuple[dict, ...] = ()
+    transports: tuple[PublicTransport, ...] = ()
     candidate_id: str | None = None
     implementation_run_id: str | None = None
     implementation_commit: str | None = None

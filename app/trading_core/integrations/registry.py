@@ -155,38 +155,13 @@ class ExternalIntegrationRegistry:
         )
 
     def mark_implemented(self, identifier, integration_id, implementation_id, commit):
-        from trading_core.intelligence.quality import Quality
-
         self.require_host()
         with self.store.lease("integration-candidate-" + identifier):
             candidate = next(r for r in self.candidates() if r["candidate_id"] == identifier)
             if candidate["status"] != "APPROVED_FOR_IMPLEMENTATION":
                 raise PermissionError("Candidate needs a reviewed implementation approval")
             definition = next(r for r in self.catalog() if r["integration_id"] == integration_id)
-            build = self.host.get(implementation_id)
-            required = set(candidate["capabilities"])
-            implemented = {k for k, v in definition["capabilities"].items() if v == "IMPLEMENTED"}
-            fingerprint = definition_fingerprint(definition)
-            if (
-                build["kind"] != "ImplementationRun"
-                or build["owner"] != "core"
-                or definition["provider"] != candidate["provider"]
-                or definition["category"] != candidate["category"]
-                or not required
-                or not required <= implemented
-                or definition.get("candidate_id") != identifier
-                or definition.get("implementation_run_id") != implementation_id
-                or definition.get("implementation_commit") != commit
-                or "integration-candidate:" + identifier not in build["evidence"]
-                or "integration-definition-sha256:" + fingerprint not in build["evidence"]
-                or not any(
-                    path.startswith("app/trading_core/integrations/") for path in build["files"]
-                )
-            ):
-                raise PermissionError(
-                    "Implementation and independent QA must cover this exact Core candidate, definition and required capabilities"
-                )
-            Quality(self.host).require_pass(implementation_id, commit)
+            self.validate_adoption(candidate, definition, implementation_id, commit)
             return self.host.append(
                 "IntegrationCandidateDecision",
                 {
@@ -200,6 +175,56 @@ class ExternalIntegrationRegistry:
                 },
                 owner=candidate["owner"],
             )
+
+    def validate_adoption(self, candidate, definition, implementation_id, commit):
+        from trading_core.intelligence.quality import Quality
+
+        identifier = candidate["candidate_id"]
+        build = self.host.get(implementation_id)
+        required = set(candidate["capabilities"])
+        implemented = {k for k, v in definition["capabilities"].items() if v == "IMPLEMENTED"}
+        fingerprint = definition_fingerprint(definition)
+        if (
+            build["kind"] != "ImplementationRun"
+            or build["owner"] != "core"
+            or definition["provider"] != candidate["provider"]
+            or definition["category"] != candidate["category"]
+            or not required
+            or not required <= implemented
+            or definition.get("candidate_id") != identifier
+            or definition.get("implementation_run_id") != implementation_id
+            or definition.get("implementation_commit") != commit
+            or "integration-candidate:" + identifier not in build["evidence"]
+            or "integration-definition-sha256:" + fingerprint not in build["evidence"]
+            or not any(path.startswith("app/trading_core/integrations/") for path in build["files"])
+        ):
+            raise PermissionError(
+                "Implementation and independent QA must cover this exact Core candidate, definition and required capabilities"
+            )
+        Quality(self.host).require_pass(implementation_id, commit)
+
+    def require_adopted(self, definition):
+        self.require_host()
+        candidate_id = definition.get("candidate_id")
+        candidate = next((r for r in self.candidates() if r["candidate_id"] == candidate_id), None)
+        decisions = [
+            r
+            for r in self.host.list("IntegrationCandidateDecision")
+            if r["candidate_id"] == candidate_id
+        ]
+        if not candidate or candidate["status"] != "IMPLEMENTED" or not decisions:
+            raise PermissionError("Integration candidate is not currently adopted")
+        decision = decisions[-1]
+        if (
+            decision["status"] != "IMPLEMENTED"
+            or decision.get("integration_id") != definition["integration_id"]
+            or decision.get("implementation_id") != definition.get("implementation_run_id")
+            or decision.get("commit") != definition.get("implementation_commit")
+        ):
+            raise PermissionError("Current integration revision differs from the adopted decision")
+        return self.validate_adoption(
+            candidate, definition, decision["implementation_id"], decision["commit"]
+        )
 
     def request_use(self, identifier, capability, *, work_id):
         work = self.store.get(work_id)

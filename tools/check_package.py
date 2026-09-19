@@ -46,15 +46,18 @@ from trading_core.control import Registry
 from trading_core.support import CAPABILITIES
 from products.triad.resources import product_resource
 from products.aegis.server import app as aegis
+from products.triad.server import app as triad
 from fastapi.testclient import TestClient
 assert len(Registry().agents)==4 and CAPABILITIES
-for name in ['002_orchestration','003_autonomy','006_record_ownership','008_artifact_ownership']:
+for name in ['002_orchestration','003_autonomy','006_record_ownership','008_artifact_ownership','012_aegis_lineage','013_resource_allocations']:
     assert resource('infrastructure/postgres/'+name+'.sql').read_text()
 assert product_resource('product.json').read_text()
-for path in ['/core','/day2','/research','/settings/ai-providers','/assets/record-view.js','/assets/record-view.css']:
+for path in ['/core','/day2','/research','/settings/ai-providers','/assets/record-view.js','/assets/record-view.css','/core/integrations','/assets/integrations.js','/launch']:
     response=TestClient(app).get(path)
     assert response.status_code==200, path
 assert TestClient(aegis).get('/aegis').status_code==200
+for path in ['/triad/product','/triad/development','/triad/cycles','/triad/assets/cycles.js']:
+    assert TestClient(triad).get(path).status_code==200, path
 print('Clean installed package: Core, Aegis, config, SQL, HTML, JS and CSS passed')
 """
     env = {
