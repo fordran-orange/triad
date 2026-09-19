@@ -8,6 +8,15 @@ from trading_core.work import uid
 from products.triad.daily import Daily, DailySchedule
 
 
+def scheduled_time(policy, date):
+    """Skip nonexistent wall times; use first occurrence of an autumn fold."""
+    hour, minute = map(int, policy.time.split(":"))
+    zone = ZoneInfo(policy.timezone)
+    target = datetime(date.year, date.month, date.day, hour, minute, tzinfo=zone, fold=0)
+    restored = target.astimezone(UTC).astimezone(zone)
+    return target if restored.replace(tzinfo=None) == target.replace(tzinfo=None) else None
+
+
 def next_cycle(config, instant=None):
     if not config.get("enabled"):
         return None
@@ -18,14 +27,14 @@ def next_cycle(config, instant=None):
         {k: v for k, v in config.items() if k in DailySchedule.model_fields}
     )
     local = instant.astimezone(ZoneInfo(policy.timezone))
-    hour, minute = map(int, policy.time.split(":"))
     for offset in range(9):
         date = local.date() + timedelta(days=offset)
-        target = datetime(date.year, date.month, date.day, hour, minute, tzinfo=local.tzinfo)
+        target = scheduled_time(policy, date)
         if (
-            date.weekday() in policy.days
+            target is not None
+            and date.weekday() in policy.days
             and date.isoformat() >= (config.get("effective_after") or date.isoformat())
-            and target > instant
+            and target.astimezone(UTC) > instant.astimezone(UTC)
         ):
             return target.isoformat()
     return None
@@ -46,11 +55,12 @@ def tick(*, service=None, instant=None, run=None):
     )
     local = instant.astimezone(ZoneInfo(policy.timezone))
     date = local.date().isoformat()
-    hour, minute = map(int, policy.time.split(":"))
+    target = scheduled_time(policy, local.date())
     if (
-        local.weekday() not in policy.days
+        target is None
+        or local.weekday() not in policy.days
         or date < config["effective_after"]
-        or (local.hour, local.minute) < (hour, minute)
+        or instant.astimezone(UTC) < target.astimezone(UTC)
     ):
         return {"status": "NOT_DUE", "next_cycle": next_cycle(config, instant)}
     if run is None:
@@ -80,7 +90,12 @@ def tick(*, service=None, instant=None, run=None):
             owner="triad",
         )
     try:
-        cycle = run(scheduled=True, cycle_id=identifier)
+        cycle = run(
+            scheduled=True,
+            cycle_id=identifier,
+            expected_epoch=config["control_epoch"],
+            schedule_id=config["id"],
+        )
         return {"status": cycle["status"], "cycle_id": identifier}
     except Exception as exc:  # noqa: BLE001 - persist failed dispatch, never retry the date
         # If the runner failed before canonical creation, still retain a blocked

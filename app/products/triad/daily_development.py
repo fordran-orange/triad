@@ -60,6 +60,13 @@ class DailyDevelopment(Development):
 
         self.daily = Daily(Store(self.host.store.settings))
 
+    def start_work(self, work, epoch=None):
+        cycle = self.daily.current(work.mission_id)
+        self.daily.product.ledger.guard(
+            work_id=cycle["parent_work_item_id"], epoch=cycle["control_epoch"]
+        )
+        return super().start_work(work, epoch=cycle["control_epoch"])
+
     def inspect(self, mission):
         current = Readiness().catalog()
         context = {
@@ -527,11 +534,21 @@ class DailyDevelopment(Development):
         )
         return {"decision": decision, "draft_id": draft_id}
 
-    def run_daily(self, *, scheduled=False, cycle_id=None, verify=None):
+    def run_daily(
+        self, *, scheduled=False, cycle_id=None, verify=None, expected_epoch=None, schedule_id=None
+    ):
         if verify is None:
             raise PermissionError("Trusted post-merge verification is required")
         with self.host.store.lease("triad-daily-product-execution"):
-            cycle = self.daily.create(scheduled=scheduled, cycle_id=cycle_id)
+            from contextlib import nullcontext
+
+            with self.host.store.lease("triad-daily-schedule-slot") if scheduled else nullcontext():
+                cycle = self.daily.create(
+                    scheduled=scheduled,
+                    cycle_id=cycle_id,
+                    expected_epoch=expected_epoch,
+                    schedule_id=schedule_id,
+                )
             mission = cycle.cycle_id
             try:
                 self.daily.transition(mission, "INSPECTING", ["Current service/product inspection"])

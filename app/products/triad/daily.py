@@ -162,8 +162,14 @@ class Daily:
         self.product = Records(Store(store.settings, scope="triad"))
         self.history = CycleHistory(store)
 
-    def create(self, *, scheduled=False, cycle_id=None):
-        control = self.product.ledger.guard()
+    def create(self, *, scheduled=False, cycle_id=None, expected_epoch=None, schedule_id=None):
+        control = self.product.ledger.guard(epoch=expected_epoch)
+        if scheduled:
+            config = self.schedule()
+            if not schedule_id or config.get("id") != schedule_id or not config["enabled"]:
+                raise PermissionError("Scheduled authority was disabled or replaced")
+            if expected_epoch != config["control_epoch"]:
+                raise PermissionError("Scheduled authority epoch differs")
         cycle_id = cycle_id or uid()
         with self.host.store.connect() as conn:
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (cycle_id,))
@@ -389,6 +395,10 @@ class Daily:
         return rows[-1] if rows else {**DailySchedule().model_dump(), "effective_after": None}
 
     def configure(self, config):
+        with self.host.store.lease("triad-daily-schedule-slot"):
+            return self._configure(config)
+
+    def _configure(self, config):
         config = DailySchedule.model_validate(config)
         control = self.product.ledger.guard()
         prerequisite = None
