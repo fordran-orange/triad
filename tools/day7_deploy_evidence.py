@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 from products.triad.cycle_history import CycleHistory
@@ -18,6 +19,7 @@ RECOVERY = "day6-product-20260919"
 ORIGINAL = "docs/improvements/real-market-readiness-criteria.md"
 ORIGINAL_SHA = "d5d1f6d00dc93a5e569b2e73bbed2ae1629c47ce372d403e15503aa7097e84f9"
 DEFINITIONS = "docs/improvements/real-market-readiness-definitions-v2.md"
+REVIEWED_COMMIT = "56e4f96cd9ab43a319302edb694897d75143237a"
 
 
 def digest(path):
@@ -32,6 +34,14 @@ def main():
     report = (ROOT / report_path).read_text(encoding="utf-8")
     if "**PASS**" not in report or "56e4f96" not in report:
         raise RuntimeError("Require the exact independent G/H/I correction PASS first")
+    reviewed_definitions = subprocess.run(
+        ["git", "show", REVIEWED_COMMIT + ":" + DEFINITIONS],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout
+    if digest(DEFINITIONS) != hashlib.sha256(reviewed_definitions).hexdigest():
+        raise RuntimeError("Current definitions differ from independently reviewed bytes")
     records = Records()
     debt = records.get(DEBT)
     if debt["kind"] != "QualityDebt" or debt["owner"] != "triad":
@@ -49,7 +59,7 @@ def main():
                 "artifact_sha256": digest(DEFINITIONS),
                 "original_artifact": ORIGINAL,
                 "original_artifact_sha256": ORIGINAL_SHA,
-                "reviewed_commit": "56e4f96cd9ab43a319302edb694897d75143237a",
+                "reviewed_commit": REVIEWED_COMMIT,
                 "qa_report": report_path,
                 "qa_report_sha256": digest(report_path),
                 "resolved_at": now().isoformat(),
