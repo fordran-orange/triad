@@ -1,0 +1,23 @@
+{
+  "revision": "4168fd84a76718a32f9efaf2490e62334295f8e9",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "CHANGES_REQUIRED",
+  "implementation_files": {
+    "app/trading_core/engineering.py": "55ae1efd548ee71951bae79ffc9437529b7b3328a139d3fee39977a89a80cbe9",
+    "app/trading_core/runtime.py": "79c95fceeaf021ea7ad45ad49478e09d63b1ee418d7af1c7e3000c041f9e45d9",
+    "app/trading_core/git_tools.py": "7d4a0ea58fd18fc06c2a2473ee31ac8dc703c938880e563314b34a8050c87ef7",
+    "app/trading_core/providers/bounded_tools.py": "36639f8a00166f45e88812ed000d9ef41345e2ea7caf65fa74c2e603ebf8ac1f",
+    "app/trading_core/providers/native_agents.py": "189117b05e47e313cdc6d4c857485974d4e13ca5831cf5652138c733ae972645",
+    "app/trading_core/providers/transports.py": "60cbf3a02dadea1b6eb914e5b695b718c0cb507871a0f6e50eef8d6e682167e4",
+    "app/trading_core/providers/isolation.py": "3166761af2d619e3c64700afd0840ed03f8d7ff33355a71606efe38cdc1b6ee2",
+    "app/trading_core/intelligence/contracts.py": "e2a3a492d751b4b523a1f8fbc6d464f1b0f7ba2a818541d84b39355aee5622fc",
+    "tests/test_engineering.py": "5448a8e763a0c5f93c636233754b8bab1028ba6dcdd6bec445b7c7f968a36c0f",
+    "tests/test_day3_integration.py": "813027e1bbbd6063a699aa96a7910a18012b1b89d757e1afcb9cfd44d0ae5adb"
+  },
+  "qa_evidence": {
+    "docs/qa/DAY8_ENGINEERING_QA.md": "b7e046573d7ddd8ee359b73ef5b61bb1b1bac43b5435d0327e20db332b33fa8e",
+    "tests/test_day8_engineering_qa.py": "15e761d36182561bd99b8c514ae469491c02c04f41404cdb049fd1f0e7abcef0",
+    "logs/day8_engineering_qa_runner.py": "547ebbbcbeb2c716798ddcafd8009b51e2048ca880fdcb3da19ef4a1b3495384",
+    "logs/day8-engineering-independent-4168fd8.log": "69c72de6dce998ff6ce69c889de2a0dd61b1096defba2ced98a46b569bea0bbb"
+  }
+}
