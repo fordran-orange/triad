@@ -1,0 +1,50 @@
+[
+  {
+    "Path": "C:\\Triad\\app\\trading_core\\intelligence\\__init__.py",
+    "Hash": "9E696CEB245AFC300D149D795B54ABE192352A36E8436AC776F4B3A5BB4BFB9A"
+  },
+  {
+    "Path": "C:\\Triad\\app\\trading_core\\intelligence\\capabilities.py",
+    "Hash": "C8A2EBB652162AC37E9016D3AB1F723B3215A44F452FFC9A6804645CFC3D4A9F"
+  },
+  {
+    "Path": "C:\\Triad\\app\\trading_core\\intelligence\\contracts.py",
+    "Hash": "FA264B42A357EAF113B845939C03F89EF0E58BD4B292868E8D482AD5BDA26274"
+  },
+  {
+    "Path": "C:\\Triad\\app\\trading_core\\intelligence\\quality.py",
+    "Hash": "E0C84F97D4369EEB964F34887B33A7A08248F0BABF07F58C559ED3A01F65E212"
+  },
+  {
+    "Path": "C:\\Triad\\app\\trading_core\\intelligence\\records.py",
+    "Hash": "3DD5A73E166BF07E88FD8C371D072B17DC5FD233E51487DCC1650939F277A54D"
+  },
+  {
+    "Path": "C:\\Triad\\app\\trading_core\\ledger.py",
+    "Hash": "89D97A4249FB6D745B5BD2310EEC47169F8DABA264281BE8486175C98AB22A66"
+  },
+  {
+    "Path": "C:\\Triad\\infrastructure\\postgres\\010_intelligence.sql",
+    "Hash": "04F20FF99E55C4B7944737883D71D0AEB345204AD77C9FF1DABB7F7A1A420DC3"
+  },
+  {
+    "Path": "C:\\Triad\\app\\trading_core\\resources\\sql\\010_intelligence.sql",
+    "Hash": "04F20FF99E55C4B7944737883D71D0AEB345204AD77C9FF1DABB7F7A1A420DC3"
+  },
+  {
+    "Path": "C:\\Triad\\tests\\test_intelligence_capabilities.py",
+    "Hash": "FCBAB5F5E456B39D1EBAAF4DF72984CE9C9A04EEFC606A66864A9B76DCE75561"
+  },
+  {
+    "Path": "C:\\Triad\\tests\\test_day6_qa_a.py",
+    "Hash": "6C377DC3EBCC6CEB426C6E01473BF32496F35CCA69466455FC0D27D75D7D430F"
+  },
+  {
+    "Path": "C:\\Triad\\AGENTS.md",
+    "Hash": "76BB6044F11D4E47B4C6ED38B6E5DEAF42A80623FCE1924F19DB539787B5276E"
+  },
+  {
+    "Path": "C:\\Triad\\docs\\DAY6_EXECUTION.md",
+    "Hash": "2986FD09C0C5C75F3693A07DAAD2D6E503FBE33CBC1864940777EB78B0099A4A"
+  }
+]

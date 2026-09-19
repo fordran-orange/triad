@@ -1,0 +1,12 @@
+diff --git a/app/trading_core/ledger.py b/app/trading_core/ledger.py
+index 35722be..da58ebb 100644
+--- a/app/trading_core/ledger.py
++++ b/app/trading_core/ledger.py
+@@ -31,6 +31,7 @@ class Ledger:
+             conn.execute(
+                 resource("infrastructure/postgres/009_product_audit_ownership.sql").read_text()
+             )
++            conn.execute(resource("infrastructure/postgres/010_intelligence.sql").read_text())
+             initial = {
+                 "paused": False,
+                 "killed": False,

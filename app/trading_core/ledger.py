@@ -31,6 +31,7 @@ class Ledger:
             conn.execute(
                 resource("infrastructure/postgres/009_product_audit_ownership.sql").read_text()
             )
+            conn.execute(resource("infrastructure/postgres/010_intelligence.sql").read_text())
             initial = {
                 "paused": False,
                 "killed": False,
