@@ -15,7 +15,7 @@ from trading_core.cycle_records import CycleRecord
 from trading_core.intelligence.quality import Quality
 from trading_core.intelligence.records import Records
 from trading_core.store import Store
-from trading_core.work import Record, now, uid
+from trading_core.work import Record, WorkItem, now, uid
 
 from products.triad.cycle_history import CycleHistory
 
@@ -163,13 +163,27 @@ class Daily:
         self.history = CycleHistory(store)
 
     def create(self, *, scheduled=False, cycle_id=None):
-        control = self.host.ledger.guard()
+        control = self.product.ledger.guard()
         cycle_id = cycle_id or uid()
-        parent = self.history.parent(cycle_id)
         with self.host.store.connect() as conn:
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (cycle_id,))
             if any(r["cycle_id"] == cycle_id for r in self.product.list("CycleRecord", conn=conn)):
                 raise ValueError("Cycle already exists; reconcile rather than replay")
+            parent = self.product.store.create(
+                WorkItem(
+                    owner="triad",
+                    mission_id=cycle_id,
+                    work_type="cycle_record",
+                    title="Daily cycle evidence: " + cycle_id[:100],
+                    description="Canonical daily lifecycle anchor; no execution authority.",
+                    authority_tier=0,
+                    allowed_tools=(),
+                    allowed_paths=(),
+                    execution_permissions=(),
+                    review_required=False,
+                ),
+                conn=conn,
+            ).work_item_id
             record = CycleRecord(
                 cycle_id=cycle_id,
                 product="triad",
@@ -217,7 +231,9 @@ class Daily:
             }:
                 raise PermissionError("Invalid or terminal cycle transition")
             if state not in {"BLOCKED", "FAILED", "CANCELLED"}:
-                self.host.ledger.guard(epoch=prior["control_epoch"])
+                self.product.ledger.guard(
+                    work_id=prior["parent_work_item_id"], epoch=prior["control_epoch"]
+                )
             if set(updates) - {
                 "selected_proposal",
                 "implementation_runs",
@@ -232,6 +248,8 @@ class Daily:
             }:
                 raise PermissionError("Transition cannot replace cycle identity or authority")
             if state == "COMPLETED":
+                if updates:
+                    raise PermissionError("Completion cannot alter the verified snapshot")
                 self.require_complete(cycle_id, prior, conn)
             stamp = now()
             payload = {k: v for k, v in prior.items() if k in CycleRecord.model_fields}
@@ -293,6 +311,9 @@ class Daily:
     def draft(self, debrief):
         debrief = Debrief.model_validate(debrief)
         cycle = self.current(debrief.cycle_id)
+        self.product.ledger.guard(
+            work_id=cycle["parent_work_item_id"], epoch=cycle["control_epoch"]
+        )
         if cycle["status"] != "DEBRIEFING":
             raise PermissionError("Debrief follows post-merge verification")
         payload = debrief.model_dump(mode="json")
@@ -311,7 +332,7 @@ class Daily:
             or not reason
         ):
             raise ValueError("Independent strategic assessment required")
-        self.host.ledger.guard()
+        self.product.ledger.guard()
         draft = self.product.get(draft_id)
         if draft["kind"] != "DailyDebriefDraft" or digest(draft["debrief"]) != draft["digest"]:
             raise PermissionError("Debrief hash does not match")
@@ -363,7 +384,7 @@ class Daily:
 
     def configure(self, config):
         config = DailySchedule.model_validate(config)
-        control = self.host.ledger.guard()
+        control = self.product.ledger.guard()
         prerequisite = None
         if config.enabled:
             cycles = [

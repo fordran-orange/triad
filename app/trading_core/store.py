@@ -157,7 +157,7 @@ class Store:
             self.handoff_lifecycle(work_id, "received_at", actor, conn=conn)
             self.handoff_lifecycle(work_id, "acknowledged_at", actor, conn=conn)
 
-    def create(self, work: WorkItem):
+    def create(self, work: WorkItem, *, conn=None):
         from trading_core.ownership import require_owner
 
         require_owner(self.scope, work.owner)
@@ -170,23 +170,25 @@ class Store:
         if work.status != "CREATED" or work.revision != 0 or work.result is not None:
             raise ValueError("Only pristine CREATED assignments may be inserted")
         work = work.model_copy(update={"updated_at": work.created_at})
-        with self.connect() as conn:
-            conn.execute(
-                "INSERT INTO core.work_items(id,mission_id,status,revision,payload,owner) VALUES (%s,%s,%s,%s,%s,%s)",
-                (
-                    work.work_item_id,
-                    work.mission_id,
-                    work.status,
-                    work.revision,
-                    Jsonb(work.model_dump(mode="json")),
-                    work.owner,
-                ),
-            )
-            conn.execute(
-                "INSERT INTO core.work_events(work_item_id,to_state,revision,detail) VALUES (%s,%s,0,%s)",
-                (work.work_item_id, work.status, "Operator created immutable bounded assignment"),
-            )
-            self.enqueue(conn, "WorkItem", work.work_item_id, work.model_dump(mode="json"))
+        if conn is None:
+            with self.connect() as connection:
+                return self.create(work, conn=connection)
+        conn.execute(
+            "INSERT INTO core.work_items(id,mission_id,status,revision,payload,owner) VALUES (%s,%s,%s,%s,%s,%s)",
+            (
+                work.work_item_id,
+                work.mission_id,
+                work.status,
+                work.revision,
+                Jsonb(work.model_dump(mode="json")),
+                work.owner,
+            ),
+        )
+        conn.execute(
+            "INSERT INTO core.work_events(work_item_id,to_state,revision,detail) VALUES (%s,%s,0,%s)",
+            (work.work_item_id, work.status, "Operator created immutable bounded assignment"),
+        )
+        self.enqueue(conn, "WorkItem", work.work_item_id, work.model_dump(mode="json"))
         return work
 
     def step(
