@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research Readiness</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;background:#101418;color:#e8ecef;line-height:1.5}
+a{color:#8cc4ff}
+nav{display:flex;flex-wrap:wrap;gap:1rem;padding:.75rem 1rem;background:#182028}
+main{max-width:64rem;margin:0 auto;padding:1rem}
+form{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:.75rem;margin-bottom:1rem}
+label{display:flex;flex-direction:column;font-weight:600;gap:.25rem}
+input,select,button{font:inherit;padding:.5rem;border-radius:4px;border:1px solid #58697a;background:#1b242d;color:inherit}
+button{cursor:pointer;background:#2b5f99;align-self:end}
+:focus-visible{outline:3px solid #ffd166;outline-offset:2px}
+section,#notice{border:1px solid #3a4856;border-radius:6px;padding:.75rem;margin:.75rem 0;background:#151c23}
+#notice[data-kind=error]{border-color:#ff6b6b}
+h1,h2,h3{margin:.25rem 0}
+dl{display:grid;grid-template-columns:minmax(8rem,14rem) 1fr;gap:.25rem .75rem;margin:0}
+dt{font-weight:600;overflow-wrap:anywhere}dd{margin:0;overflow-wrap:anywhere}
+.tag{border:1px solid currentColor;border-radius:4px;padding:0 .35rem;font-size:.85em}
+.fail{color:#ff8f8f}.ok{color:#8fe3a0}
+@media(max-width:36rem){dl{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<nav aria-label="Triad">
+<a href="/triad/product">Product</a>
+<a href="/triad/development">Development</a>
+<a href="/triad/cycles">Cycles</a>
+<a href="/triad/daily-debrief">Daily Debrief</a>
+</nav>
+<main>
+<h1>Research Readiness</h1>
+<p>Data readiness only. It says nothing about strategy edge, and a recorded archive is not validated research coverage. Evaluation is read-only; no data is acquired and no broker is needed for local historical research.</p>
+<form id="form" aria-describedby="notice">
+<label>Source<select id="source"></select></label>
+<label>Dataset<select id="dataset"></select></label>
+<label>Dataset mode<select id="mode"><option value="REAL">REAL</option><option value="FIXTURE">FIXTURE</option></select></label>
+<label>Symbols (comma separated)<input id="symbols" autocomplete="off"></label>
+<label>Universe<input id="universe" autocomplete="off" placeholder="e.g. explicit list"></label>
+<label>Membership rule<select id="membership"><option value="EXPLICIT_SYMBOLS">EXPLICIT_SYMBOLS</option><option value="HISTORICAL_CONSTITUENTS">HISTORICAL_CONSTITUENTS</option></select></label>
+<label>Start (UTC, inclusive)<input id="start" type="datetime-local"></label>
+<label>End (UTC, exclusive)<input id="end" type="datetime-local"></label>
+<button id="evaluate" type="button">Evaluate readiness</button>
+</form>
+<p>Checked window: XNYS regular session, 2026 calendar, at most 32 days; required OHLCV fields come from the Core evaluation.</p>
+<div id="notice" role="status" aria-live="polite">Loading Core catalog…</div>
+<div id="result" aria-live="polite" tabindex="-1"></div>
+</main>
+<script src="/triad/assets/research-readiness.js"></script>
+</body>
+</html>
