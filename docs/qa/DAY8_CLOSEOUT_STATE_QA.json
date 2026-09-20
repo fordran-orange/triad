@@ -1,0 +1,567 @@
+{
+  "reviewer": "/root/day6_qa_c",
+  "audited_at": "2026-09-20T02:58:26.550968+00:00",
+  "scope": "Read-only canonical blocked-state and preservation acceptance, not completed Day8",
+  "main_revision": "81d0fe3028c10bc31471548c8ba39b7ee3641fe4",
+  "checkout_revision": "81d0fe3028c10bc31471548c8ba39b7ee3641fe4",
+  "checkout_branch": "codex/day8-qa-reference",
+  "checkout_status": "M app/products/triad/daily_development.py\n M app/products/triad/development.py\n M tests/test_day8_workflow_qa.py\n?? app/products/triad/qa_reference.py\n?? docs/DAY8_REPORT.md\n?? tests/test_day8_qa_reference.py",
+  "counts": {
+    "cycles": 3,
+    "work_items": 24,
+    "debriefs": 0,
+    "ProductInspection": 9,
+    "ProductSynthesis": 3,
+    "ProductCandidate": 9,
+    "ProductProposal": 3,
+    "ProductApproval": 7,
+    "ProductBuildCheckpoint": 4,
+    "ProductBuild": 2,
+    "ProductQA": 1,
+    "ProductMerge": 0,
+    "ProductBuildFailure": 2,
+    "DailyVerification": 0,
+    "DailyDebriefDraft": 0,
+    "DailyDebriefPublication": 0,
+    "ResourceExtensionRequest": 13,
+    "ResourceExtensionDecision": 13,
+    "EngineeringTestRun": 6,
+    "EngineeringGrant": 4,
+    "ImplementationRun": 4,
+    "QARun": 1,
+    "Usage": 21,
+    "Handoffs": 2
+  },
+  "findings": [],
+  "cycles": [
+    {
+      "cycle_id": "day8-product-20260919-recovery2",
+      "status": "BLOCKED",
+      "execution_mode": "REAL",
+      "created_at": "2026-09-20T00:43:26.987662Z",
+      "started_at": "2026-09-20T00:43:27.457052Z",
+      "finished_at": "2026-09-20T00:57:41.358650Z",
+      "parent_work_item_id": "f421e9d3-cd1f-4ab3-8766-4923153e0fee",
+      "control_epoch": 2,
+      "failures": [
+        {
+          "code": "ProviderError",
+          "message": "CodexTurnFailed"
+        }
+      ],
+      "merge_commit": null,
+      "scheduled": false
+    },
+    {
+      "cycle_id": "day8-product-20260919-recovery1",
+      "status": "BLOCKED",
+      "execution_mode": "REAL",
+      "created_at": "2026-09-20T00:30:22.481372Z",
+      "started_at": "2026-09-20T00:30:22.890906Z",
+      "finished_at": "2026-09-20T00:37:47.087532Z",
+      "parent_work_item_id": "e3fcdefb-ced1-4a9d-9cd9-83cb3f7383b3",
+      "control_epoch": 2,
+      "failures": [
+        {
+          "code": "ValueError",
+          "message": "Approved offline candidate checks failed"
+        }
+      ],
+      "merge_commit": null,
+      "scheduled": false
+    },
+    {
+      "cycle_id": "day8-product-20260919",
+      "status": "BLOCKED",
+      "execution_mode": "REAL",
+      "created_at": "2026-09-19T23:15:18.654645Z",
+      "started_at": "2026-09-19T23:15:19.098171Z",
+      "finished_at": "2026-09-19T23:22:38.970454Z",
+      "parent_work_item_id": "8bd3602f-bcde-4784-b2ce-47cb615a8ffc",
+      "control_epoch": 2,
+      "failures": [
+        {
+          "code": "ProviderError",
+          "message": "NativeProposalEvidenceMismatch"
+        }
+      ],
+      "merge_commit": null,
+      "scheduled": false
+    }
+  ],
+  "implementations": [
+    {
+      "id": "e3f9927e-446a-4d6e-8eb4-400b62d93a25",
+      "work_item_id": "2a4a072e-25ed-4725-9d52-ed4fd77fe194",
+      "status": "FAILED",
+      "base_commit": "4b53134743dca86cdd7217414a12c8047ab8fd50",
+      "change_commit": "failed:907407ec-7813-4816-86b6-e80e87be11d3",
+      "builder": "CLAUDE",
+      "model": "not observed for failed implementation",
+      "transport": "claude_code_cli"
+    },
+    {
+      "id": "5d924b43-fe1b-4b2f-9c57-9631ed74f144",
+      "work_item_id": "82240d6a-7bfd-40ac-8a21-fbf570ff0f49",
+      "status": "FAILED",
+      "base_commit": "d0a399c82a153bb647686b3923001bbb23a85953",
+      "change_commit": "failed:e69679cc-9974-4da0-a50b-c55e9f4173a2",
+      "builder": "CLAUDE",
+      "model": "not observed for failed implementation",
+      "transport": "claude_code_cli"
+    },
+    {
+      "id": "dbfa5bb3-9684-4f2d-8f48-c45961b95965",
+      "work_item_id": "d10931c8-a5cb-4624-8afa-7de5339de711",
+      "status": "IMPLEMENTED",
+      "base_commit": "81d0fe3028c10bc31471548c8ba39b7ee3641fe4",
+      "change_commit": "34554761636e791f3404d209559475baeff20295",
+      "builder": "CLAUDE",
+      "model": "claude-sonnet-5",
+      "transport": "claude_code_cli"
+    },
+    {
+      "id": "897bfd10-56c2-41e8-9f1f-b13faa0966af",
+      "work_item_id": "d61d0ce4-78a4-48eb-9b0a-49d2eb1a557b",
+      "status": "IMPLEMENTED",
+      "base_commit": "81d0fe3028c10bc31471548c8ba39b7ee3641fe4",
+      "change_commit": "c4d518ed2b87547428be711742f3596cba39eb08",
+      "builder": "CLAUDE",
+      "model": "claude-sonnet-5",
+      "transport": "claude_code_cli"
+    }
+  ],
+  "qa": [
+    {
+      "id": "b2aea9eb-b3cb-4bd1-8d44-34524fec9259",
+      "implementation_run_id": "dbfa5bb3-9684-4f2d-8f48-c45961b95965",
+      "qa_work_item_id": "f682ddc3-a0ac-43fc-b9e9-9cb965beb9d8",
+      "qa_agent": "CODEX",
+      "decision": "CHANGES_REQUIRED",
+      "reviewed_commit": "34554761636e791f3404d209559475baeff20295",
+      "execution_mode": "REAL_PROVIDER",
+      "findings": [
+        "P1 \u2014 Unsupported integration and readiness definitions: the diff adds both feature files from /dev/null, including Core GET/POST endpoints, a request schema, and assertions about UNADJUSTED prices, a 2026-only calendar and a 32-day limit. The supplied proposal and granted references do not establish these contracts or precise rules. This fails the requirement to reuse an evidenced existing integration without inventing interfaces or readiness rules. Supply existing-contract evidence or use the approved attributed snapshot with only supported claims. The granted server source also does not directly establish the feature or asset routes; imported routers remain unverified.",
+        "P2 \u2014 Missing output is reported as successful Core evidence: request() converts JSON parsing failures into null even on HTTP 200. load() then reports that Core returned no datasets, while evaluate() clears the result and announces a completed live evaluation for null or an empty object. Validate response shape before reporting either conclusion; malformed or missing evidence should produce an explicit unavailable state, not a claim about Core's dataset inventory or completed evaluation.",
+        "P2 \u2014 An outstanding evaluation can overwrite a newly selected dataset: only the Evaluate button is disabled during the POST. Changing the dataset invokes onDataset(), but the earlier response subsequently replaces that dataset's details and announces completion. Other request fields also remain editable. Disable relevant controls during evaluation or invalidate responses when inputs change, and clearly associate displayed results with the submitted inputs."
+      ]
+    }
+  ],
+  "candidate_preservation": [
+    {
+      "implementation_id": "dbfa5bb3-9684-4f2d-8f48-c45961b95965",
+      "work_item_id": "d10931c8-a5cb-4624-8afa-7de5339de711",
+      "change_commit": "34554761636e791f3404d209559475baeff20295",
+      "branch": "codex/triad/claude/d10931c8-a5cb-4624-8afa-7de5339de711",
+      "worktree": "C:\\Triad\\data\\temp\\day3-worktrees\\d10931c8-a5cb-4624-8afa-7de5339de711",
+      "files": [
+        {
+          "path": "app/products/triad/features/research_readiness.js",
+          "sha256": "63e8d65e4c1e67f76c26ed70639f512dedf1effdae991351517f983754fba412"
+        },
+        {
+          "path": "app/products/triad/features/research_readiness.html",
+          "sha256": "5003bea0317fd68c648901597ab499d6a434fe7e9fc137d5270ab6bdd065d425"
+        }
+      ],
+      "correction": []
+    },
+    {
+      "implementation_id": "897bfd10-56c2-41e8-9f1f-b13faa0966af",
+      "work_item_id": "d61d0ce4-78a4-48eb-9b0a-49d2eb1a557b",
+      "change_commit": "c4d518ed2b87547428be711742f3596cba39eb08",
+      "branch": "codex/triad/claude/d61d0ce4-78a4-48eb-9b0a-49d2eb1a557b",
+      "worktree": "C:\\Triad\\data\\temp\\day3-worktrees\\d61d0ce4-78a4-48eb-9b0a-49d2eb1a557b",
+      "files": [
+        {
+          "path": "app/products/triad/features/research_readiness.js",
+          "sha256": "9202f2e861f53af2db79c6212ae2ce1c7b0da52076e94ffd4043aac218101968"
+        },
+        {
+          "path": "app/products/triad/features/research_readiness.html",
+          "sha256": "701bcb6ca53368360d91ac488ade1f34fecbe20f74e2bef70328a39eda26a218"
+        }
+      ],
+      "correction": [
+        "P1 \u2014 Unsupported integration and readiness definitions: the diff adds both feature files from /dev/null, including Core GET/POST endpoints, a request schema, and assertions about UNADJUSTED prices, a 2026-only calendar and a 32-day limit. The supplied proposal and granted references do not establish these contracts or precise rules. This fails the requirement to reuse an evidenced existing integration without inventing interfaces or readiness rules. Supply existing-contract evidence or use the approved attributed snapshot with only supported claims. The granted server source also does not directly establish the feature or asset routes; imported routers remain unverified.",
+        "P2 \u2014 Missing output is reported as successful Core evidence: request() converts JSON parsing failures into null even on HTTP 200. load() then reports that Core returned no datasets, while evaluate() clears the result and announces a completed live evaluation for null or an empty object. Validate response shape before reporting either conclusion; malformed or missing evidence should produce an explicit unavailable state, not a claim about Core's dataset inventory or completed evaluation.",
+        "P2 \u2014 An outstanding evaluation can overwrite a newly selected dataset: only the Evaluate button is disabled during the POST. Changing the dataset invokes onDataset(), but the earlier response subsequently replaces that dataset's details and announces completion. Other request fields also remain editable. Disable relevant controls during evaluation or invalidate responses when inputs change, and clearly associate displayed results with the submitted inputs."
+      ]
+    }
+  ],
+  "engineering_tests": [
+    {
+      "id": "df8713d0-4d92-4729-82fa-656e1e6a3925",
+      "work_item_id": "82240d6a-7bfd-40ac-8a21-fbf570ff0f49",
+      "commit": "ae69046341975070a2ad3e895cb4482349f64a19",
+      "status": "FAIL",
+      "exit_code": 1,
+      "test_id": "research-readiness-ui-v1",
+      "test_sha256": "20e243e41df23d91dfe9a940e883d11f4e95db835f9a0296a9a836fa8dc5471d",
+      "snapshot": {
+        "app/products/triad/features/research_readiness.js": "2d05b986da01b1e7877bf610151b122efde1f68bbd4a812844093a1223c8e4ab",
+        "app/products/triad/features/research_readiness.html": "f07cd64049d9f58a6a02a119764bcfa25ab2e882432cf281a00ed9e6e5fb0ed4"
+      }
+    },
+    {
+      "id": "b41c1827-d4f1-4d18-bf35-7cecf1a3b731",
+      "work_item_id": "d10931c8-a5cb-4624-8afa-7de5339de711",
+      "commit": "34554761636e791f3404d209559475baeff20295",
+      "status": "PASS",
+      "exit_code": 0,
+      "test_id": "research-readiness-ui-v1",
+      "test_sha256": "20e243e41df23d91dfe9a940e883d11f4e95db835f9a0296a9a836fa8dc5471d",
+      "snapshot": {
+        "app/products/triad/features/research_readiness.js": "63e8d65e4c1e67f76c26ed70639f512dedf1effdae991351517f983754fba412",
+        "app/products/triad/features/research_readiness.html": "5003bea0317fd68c648901597ab499d6a434fe7e9fc137d5270ab6bdd065d425"
+      }
+    },
+    {
+      "id": "23294579-e1d2-4eaa-9e1a-90ec543585a6",
+      "work_item_id": "d10931c8-a5cb-4624-8afa-7de5339de711",
+      "commit": "34554761636e791f3404d209559475baeff20295",
+      "status": "PASS",
+      "exit_code": 0,
+      "test_id": "research-readiness-ui-v1",
+      "test_sha256": "20e243e41df23d91dfe9a940e883d11f4e95db835f9a0296a9a836fa8dc5471d",
+      "snapshot": {
+        "app/products/triad/features/research_readiness.js": "63e8d65e4c1e67f76c26ed70639f512dedf1effdae991351517f983754fba412",
+        "app/products/triad/features/research_readiness.html": "5003bea0317fd68c648901597ab499d6a434fe7e9fc137d5270ab6bdd065d425"
+      }
+    },
+    {
+      "id": "f6b4d511-c958-4bf7-9dd8-8b5a161ccdab",
+      "work_item_id": "d10931c8-a5cb-4624-8afa-7de5339de711",
+      "commit": "34554761636e791f3404d209559475baeff20295",
+      "status": "PASS",
+      "exit_code": 0,
+      "test_id": "research-readiness-ui-v1",
+      "test_sha256": "20e243e41df23d91dfe9a940e883d11f4e95db835f9a0296a9a836fa8dc5471d",
+      "snapshot": {
+        "app/products/triad/features/research_readiness.js": "63e8d65e4c1e67f76c26ed70639f512dedf1effdae991351517f983754fba412",
+        "app/products/triad/features/research_readiness.html": "5003bea0317fd68c648901597ab499d6a434fe7e9fc137d5270ab6bdd065d425"
+      }
+    },
+    {
+      "id": "6a5db031-fd64-4996-92ff-60e98f11fa2b",
+      "work_item_id": "d61d0ce4-78a4-48eb-9b0a-49d2eb1a557b",
+      "commit": "c4d518ed2b87547428be711742f3596cba39eb08",
+      "status": "PASS",
+      "exit_code": 0,
+      "test_id": "research-readiness-ui-v1",
+      "test_sha256": "20e243e41df23d91dfe9a940e883d11f4e95db835f9a0296a9a836fa8dc5471d",
+      "snapshot": {
+        "app/products/triad/features/research_readiness.js": "9202f2e861f53af2db79c6212ae2ce1c7b0da52076e94ffd4043aac218101968",
+        "app/products/triad/features/research_readiness.html": "701bcb6ca53368360d91ac488ade1f34fecbe20f74e2bef70328a39eda26a218"
+      }
+    },
+    {
+      "id": "13e9fd69-f946-4b4e-9195-8fb0235a0721",
+      "work_item_id": "d61d0ce4-78a4-48eb-9b0a-49d2eb1a557b",
+      "commit": "c4d518ed2b87547428be711742f3596cba39eb08",
+      "status": "PASS",
+      "exit_code": 0,
+      "test_id": "research-readiness-ui-v1",
+      "test_sha256": "20e243e41df23d91dfe9a940e883d11f4e95db835f9a0296a9a836fa8dc5471d",
+      "snapshot": {
+        "app/products/triad/features/research_readiness.js": "9202f2e861f53af2db79c6212ae2ce1c7b0da52076e94ffd4043aac218101968",
+        "app/products/triad/features/research_readiness.html": "701bcb6ca53368360d91ac488ade1f34fecbe20f74e2bef70328a39eda26a218"
+      }
+    }
+  ],
+  "resource_extensions": [
+    {
+      "request_id": "2f2a7ae7-46bb-4d7a-803c-3ed63fad21af",
+      "work_item_id": "661cb141-94b5-4a5d-ba19-849603dc371a",
+      "resource_type": "MORE_INPUT_CONTEXT",
+      "current_allocation": 24000,
+      "requested_additional": 24000,
+      "requested_at": "2026-09-20T00:30:27.367052Z",
+      "decision": "ALLOW",
+      "granted_amount": 24000,
+      "decided_at": "2026-09-20T00:30:27.558512+00:00"
+    },
+    {
+      "request_id": "17436a15-4d2b-47c3-afff-ef2efac7d324",
+      "work_item_id": "36a83aed-7621-49bd-802d-aa09c73b8a32",
+      "resource_type": "MORE_INPUT_CONTEXT",
+      "current_allocation": 24000,
+      "requested_additional": 24000,
+      "requested_at": "2026-09-20T00:31:35.316584Z",
+      "decision": "ALLOW",
+      "granted_amount": 24000,
+      "decided_at": "2026-09-20T00:31:35.557172+00:00"
+    },
+    {
+      "request_id": "bff9d865-1f8e-423e-91b7-19ba0a3fcd11",
+      "work_item_id": "51ba356c-3639-49c8-961f-1469acfe7a30",
+      "resource_type": "MORE_INPUT_CONTEXT",
+      "current_allocation": 24000,
+      "requested_additional": 24000,
+      "requested_at": "2026-09-20T00:32:14.009208Z",
+      "decision": "ALLOW",
+      "granted_amount": 24000,
+      "decided_at": "2026-09-20T00:32:14.224818+00:00"
+    },
+    {
+      "request_id": "b4f313dd-6062-4a1c-a930-f942e515895f",
+      "work_item_id": "82240d6a-7bfd-40ac-8a21-fbf570ff0f49",
+      "resource_type": "MORE_INPUT_CONTEXT",
+      "current_allocation": 24000,
+      "requested_additional": 24000,
+      "requested_at": "2026-09-20T00:36:47.885311Z",
+      "decision": "ALLOW",
+      "granted_amount": 24000,
+      "decided_at": "2026-09-20T00:36:48.084062+00:00"
+    },
+    {
+      "request_id": "8d81c13c-db4b-4809-982c-316581e77b44",
+      "work_item_id": "92d7fee3-9ded-4f22-9d09-b54e3c2ec01a",
+      "resource_type": "MORE_INPUT_CONTEXT",
+      "current_allocation": 24000,
+      "requested_additional": 24000,
+      "requested_at": "2026-09-20T00:43:33.703842Z",
+      "decision": "ALLOW",
+      "granted_amount": 24000,
+      "decided_at": "2026-09-20T00:43:34.008239+00:00"
+    },
+    {
+      "request_id": "af5ffb6d-ce44-45ef-975e-dfdae454b393",
+      "work_item_id": "3fe3dd8f-fb08-4a6b-81b0-afca92336472",
+      "resource_type": "MORE_INPUT_CONTEXT",
+      "current_allocation": 24000,
+      "requested_additional": 24000,
+      "requested_at": "2026-09-20T00:44:43.846412Z",
+      "decision": "ALLOW",
+      "granted_amount": 24000,
+      "decided_at": "2026-09-20T00:44:44.181899+00:00"
+    },
+    {
+      "request_id": "bc6fdf5a-c72d-439a-8adb-6a40ae4680f4",
+      "work_item_id": "975bba53-f21c-4ee3-bad1-a025df353f13",
+      "resource_type": "MORE_INPUT_CONTEXT",
+      "current_allocation": 24000,
+      "requested_additional": 24000,
+      "requested_at": "2026-09-20T00:45:18.634557Z",
+      "decision": "ALLOW",
+      "granted_amount": 24000,
+      "decided_at": "2026-09-20T00:45:18.883820+00:00"
+    },
+    {
+      "request_id": "5bd7656c-b205-4bbb-837a-1ae93c9898a1",
+      "work_item_id": "d10931c8-a5cb-4624-8afa-7de5339de711",
+      "resource_type": "MORE_INPUT_CONTEXT",
+      "current_allocation": 24000,
+      "requested_additional": 24000,
+      "requested_at": "2026-09-20T00:53:50.796930Z",
+      "decision": "ALLOW",
+      "granted_amount": 24000,
+      "decided_at": "2026-09-20T00:53:51.021931+00:00"
+    },
+    {
+      "request_id": "f96ec33a-993d-4dac-a56e-476b2650bf93",
+      "work_item_id": "d10931c8-a5cb-4624-8afa-7de5339de711",
+      "resource_type": "MORE_OUTPUT_BUDGET",
+      "current_allocation": 6144,
+      "requested_additional": 6144,
+      "requested_at": "2026-09-20T00:54:54.094728Z",
+      "decision": "ALLOW",
+      "granted_amount": 6144,
+      "decided_at": "2026-09-20T00:54:54.313890+00:00"
+    },
+    {
+      "request_id": "207a3fec-91cf-486c-9dd0-c640a3ed69b0",
+      "work_item_id": "f682ddc3-a0ac-43fc-b9e9-9cb965beb9d8",
+      "resource_type": "MORE_INPUT_CONTEXT",
+      "current_allocation": 24000,
+      "requested_additional": 24000,
+      "requested_at": "2026-09-20T00:55:06.975269Z",
+      "decision": "ALLOW",
+      "granted_amount": 24000,
+      "decided_at": "2026-09-20T00:55:07.274755+00:00"
+    },
+    {
+      "request_id": "fc5f38a4-804e-4e3a-ba96-978f93daef0c",
+      "work_item_id": "d61d0ce4-78a4-48eb-9b0a-49d2eb1a557b",
+      "resource_type": "MORE_INPUT_CONTEXT",
+      "current_allocation": 24000,
+      "requested_additional": 24000,
+      "requested_at": "2026-09-20T00:56:11.480205Z",
+      "decision": "ALLOW",
+      "granted_amount": 24000,
+      "decided_at": "2026-09-20T00:56:11.768493+00:00"
+    },
+    {
+      "request_id": "001c8be8-a437-417e-9884-fb6af8425ac3",
+      "work_item_id": "d61d0ce4-78a4-48eb-9b0a-49d2eb1a557b",
+      "resource_type": "MORE_OUTPUT_BUDGET",
+      "current_allocation": 6144,
+      "requested_additional": 6144,
+      "requested_at": "2026-09-20T00:57:13.818253Z",
+      "decision": "ALLOW",
+      "granted_amount": 6144,
+      "decided_at": "2026-09-20T00:57:14.060109+00:00"
+    },
+    {
+      "request_id": "9b5c67c7-469f-4583-961b-db71001cc6ef",
+      "work_item_id": "c63092bd-6222-4e5b-b65f-62a5b33c2c78",
+      "resource_type": "MORE_INPUT_CONTEXT",
+      "current_allocation": 24000,
+      "requested_additional": 24000,
+      "requested_at": "2026-09-20T00:57:26.165978Z",
+      "decision": "ALLOW",
+      "granted_amount": 24000,
+      "decided_at": "2026-09-20T00:57:26.454194+00:00"
+    }
+  ],
+  "resource_summary": {
+    "requests": 13,
+    "decisions": {
+      "ALLOW": 13
+    },
+    "resource_types": {
+      "MORE_INPUT_CONTEXT": 11,
+      "MORE_OUTPUT_BUDGET": 2
+    }
+  },
+  "usage_summary": {
+    "runs": 21,
+    "statuses": {
+      "DEGRADED": 2,
+      "SUCCESS": 19
+    },
+    "billing_sources": {
+      "SUBSCRIPTION": 18,
+      "LOCAL": 3
+    },
+    "paid_api_runs": 0,
+    "failed_qa": [
+      {
+        "id": "65da0f41-94f6-441c-82f4-dd0efb036c95",
+        "kind": "Usage",
+        "work_item_id": "c63092bd-6222-4e5b-b65f-62a5b33c2c78",
+        "mode": "REAL",
+        "agent": "CODEX",
+        "model": "Auto",
+        "run_id": "3dacd96c-e172-4921-8724-3e5987e4b2c2",
+        "status": "DEGRADED",
+        "duration": 14.562000000005355,
+        "provider": "openai",
+        "timestamp": "2026-09-20T00:57:40.345095+00:00",
+        "transport": "codex_cli",
+        "error_class": "CodexTurnFailed",
+        "usage_known": false,
+        "actual_model": null,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "reserved_cost": 0.0,
+        "billing_source": "SUBSCRIPTION",
+        "estimated_cost": 0.0,
+        "requested_model": "Auto",
+        "configured_agent": "CODEX",
+        "reasoning_tokens": null
+      }
+    ]
+  },
+  "day8_complete_tag_absent": true,
+  "schedule": {
+    "enabled": false,
+    "time": "09:00",
+    "timezone": "America/Chicago",
+    "days": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "effective_after": null,
+    "next_cycle": null
+  },
+  "aegis": {
+    "product": "aegis",
+    "mode": "human_directed",
+    "status": "INACTIVE",
+    "preservation": "PRESERVED",
+    "exchange": "CLOSED",
+    "work_items": []
+  },
+  "research_readiness_route_status": 503,
+  "datasets": [
+    {
+      "id": "hf-itot-20260919T233952760505Z",
+      "symbols": [
+        "ITOT"
+      ],
+      "mode": "REAL",
+      "quality_status": "FAIL",
+      "row_count": 627060,
+      "canonical_paths": []
+    },
+    {
+      "id": "hf-qqq-20260919T233952760505Z",
+      "symbols": [
+        "QQQ"
+      ],
+      "mode": "REAL",
+      "quality_status": "FAIL",
+      "row_count": 947519,
+      "canonical_paths": []
+    },
+    {
+      "id": "hf-spy-20260919T233952760505Z",
+      "symbols": [
+        "SPY"
+      ],
+      "mode": "REAL",
+      "quality_status": "FAIL",
+      "row_count": 950529,
+      "canonical_paths": []
+    }
+  ],
+  "aegis_database_work_count": 0,
+  "control": {
+    "epoch": 2,
+    "paused": false,
+    "killed": false
+  },
+  "raw_preservation": [
+    {
+      "source": "C:\\Triad\\SPY_1m_10y.parquet.gz",
+      "compressed_sha256": "3cb44d868a78c6b90c30bb98f6bd795f9c3618ba041c4fad3912905aa69e1d47",
+      "extracted": "C:\\Triad\\SPY_1m_10y.parquet",
+      "extracted_sha256": "cf2c5ada2b671bce11ab1aefcda2ecf71df57ed64fe8b7e1b8c97d4cfae173b6"
+    },
+    {
+      "source": "C:\\Triad\\QQQ_1m_10y.parquet.gz",
+      "compressed_sha256": "58ef2a8b11d4b67f169f3ab745023b1d79722fb856586caee55b50d6f41a5eb7",
+      "extracted": "C:\\Triad\\QQQ_1m_10y.parquet",
+      "extracted_sha256": "ad3cdc78a91c9ba3bd16a9e42ae3a806c7b30c870177ed80a492885e3236a521"
+    },
+    {
+      "source": "C:\\Triad\\ITOT_1m_10y.parquet.gz",
+      "compressed_sha256": "ae9603c267420d0ca812ae170f2fe60db5e7d59cb267ef686b53f39f455348c0",
+      "extracted": "C:\\Triad\\ITOT_1m_10y.parquet",
+      "extracted_sha256": "2d103869d7929aee783862599c619a340ab51e4e002d8c58aa06897d831cec17"
+    }
+  ],
+  "source_sha256": {
+    "app/products/triad/daily_development.py": "a92ffb787c313893d25d625bc79f8a92a61b76d67fad2bb4b9d0f7bbaeb517d8",
+    "app/products/triad/development.py": "f496eb1fd16435245fe3bbacb3e0734064c2c0b473b7811f2e190615a3dc13e7",
+    "app/products/triad/daily.py": "f44da6c4fe89ab2da58e0257acfe6007765c717041792e68a555651ba518a96f",
+    "app/products/triad/daily_scheduler.py": "2bd887995f7f19c25e724d9d348450ef2e830ad5eacde3f04861956121093631",
+    "app/trading_core/providers/codex_executor.py": "518487b7fb5379ddca6aaa14e0de9c605752f280b5f3b04112a6a43a9972fab7"
+  },
+  "evidence_sha256": {
+    "logs/day8-final-cycle-evidence.json": "30a85ecfc91263d147f56fa7421979ab97903d0c8f00239777e4ae78a04e7f8b",
+    "logs/day8-export-cycle-evidence.py": "123df53086e4efcd4584b9fec2febe2eca12a62b25c5502496e0fc13389fff9f",
+    "logs/day8-manual-cycle.log": "cca3a24a1f296e509eb9e41f853aaaf833f6e04ca0661449ff76ac8caf5415c7",
+    "logs/day8-manual-cycle-recovery1.log": "8bbe3925c33b34a28d2411bf98648f4d04b2675a3eafde56c7dda123063adae1",
+    "logs/day8-manual-cycle-recovery2.log": "efd9d2ef5e5b9008f3826f0263cacfa1b47881ca667f75504f7e5f56f898f09e",
+    "docs/qa/HFDATALIBRARY_INDEPENDENT_QA.json": "cff4ac5dc1d1715e4c52116b98146f84cd15b7edf9203fd14c63050ee780bd28"
+  },
+  "provider_quota": "Parent independently observed ordinary usage disabled, weekly usage 100%, zero reset credits. This audit made no account/provider request; the canonical failure itself is CodexTurnFailed.",
+  "verdict": "PASS: blocked-state preservation verified; DAY8 NOT COMPLETE"
+}

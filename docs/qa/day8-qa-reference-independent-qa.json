@@ -1,0 +1,36 @@
+{
+  "decision": "PASS",
+  "revision": "cb0c69bdf0860dd0108c6e6800ed7bf245414911",
+  "reviewer": "/root/day6_qa_a",
+  "builder": "/root/day6_qa_b",
+  "scope": "Trusted QA reference packet correction only",
+  "git_blob_sha256": {
+    "app/products/triad/daily_development.py": "56e1445cce407139506404c2d9d65fcea72902b6d19d395ccee6a51ffa501ce7",
+    "app/products/triad/development.py": "d4e21a84e7612c54f5e8e5e67e0d945ac056efea5c709bbd8f90d99085ebdf8a",
+    "app/products/triad/qa_reference.py": "d77aba19b00e8c37e3e73ab99e51a43a5ad72154ca96364c8e68ae5b724acbde",
+    "tests/test_day8_qa_reference.py": "4dbdc73076945b1673c73756b9730b4d5493bc6dd638f33291b8ace800126068",
+    "tests/test_day8_workflow_qa.py": "8071c51134c0c283758975e943664115e413cafebe8c8675724d58017c917ab6"
+  },
+  "tests": {
+    "passed": 13,
+    "seconds": 3.93,
+    "exit": 0
+  },
+  "evidence_sha256": {
+    "logs/day8-qa-reference-independent-qa.md": "88e0c75cfd87fefa6afdbd465cf54026b7db8efbade14805a6d8aae32d049bb3",
+    "logs/day8-qa-reference-independent.log": "3cd9422f33954e46b9c9f02c022fdae4466444844cfa42a815ecab415ef4ebd0",
+    "logs/day8-qa-reference-independent.exit": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+    "logs/test_day8_qa_reference_independent.py": "a0c0550ead8100d818088c6b46596fc573b2f2837fd540f32b2b810fa049c623",
+    "logs/day8-qa-reference-independent-runner.py": "be2f47a366065ffa0ade2b88b8731126c4e6d87b3fd605d1458f9ea6c3be464f",
+    "logs/day8-qa-reference-cb0c69b.zip": "18e3c96b3619c2aa293f69fdbb97f51fab01dffda49cd30a4e6c0ae46fef3802",
+    "logs/day8-qa-reference-builder.log": "7203e4aa35b10e63dfaa49b6f22266c5f82563e01a50ac02becef87ca394e618",
+    "logs/day8-qa-reference-portable-builder.log": "5ca51b35956260c90fd16c043a91f63c939d0d73375e6646c5ee23d773fa49c9",
+    "logs/day8-qa-reference-portable-ruff.log": "a4443afdcfb6d7363adb285762515ccf7cf50473b1a05c20c1a50f6bed4d26b0"
+  },
+  "limits": [
+    "No native-provider validation of new packet due quota stop",
+    "No database tests or writes",
+    "Not approval of isolated product candidate c4d518e, which retains separate CHANGES_REQUIRED",
+    "No Day8 completion or schedule activation"
+  ]
+}

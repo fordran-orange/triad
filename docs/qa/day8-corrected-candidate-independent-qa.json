@@ -1,0 +1,49 @@
+{
+  "decision": "CHANGES_REQUIRED",
+  "revision": "c4d518ed2b87547428be711742f3596cba39eb08",
+  "reviewer": "/root/day6_qa_a",
+  "scope": "Offline corrected-candidate UI review; not native product QA substitute",
+  "build_work_item": "d61d0ce4-78a4-48eb-9b0a-49d2eb1a557b",
+  "implementation_id": "897bfd10-56c2-41e8-9f1f-b13faa0966af",
+  "findings": [
+    {
+      "id": "D8-CANDIDATE-STATUS-SHAPE",
+      "priority": "P2",
+      "path": "app/products/triad/features/research_readiness.js",
+      "issue": "Status-bearing malformed evaluation objects are presented as returned Core evaluation.",
+      "reproductions": [
+        {
+          "status": null
+        },
+        {
+          "status": "READY"
+        },
+        {
+          "status": "NOT_A_CORE_STATUS"
+        }
+      ],
+      "required_change": "Validate recognized non-null status plus the authoritative minimum evaluation envelope (submitted request identity and expected field types); malformed or partial evidence must show unavailable/unknown rather than successful Core evidence. Keep server status truth and do not manufacture READY."
+    }
+  ],
+  "closed_observations": [
+    "Null, empty-object and array evaluation bodies now yield readable errors.",
+    "All request controls and Evaluate are disabled during the pending POST; original ordinary input-edit race is prevented.",
+    "Navigation links now match exact required destinations."
+  ],
+  "git_blob_sha256": {
+    "app/products/triad/features/research_readiness.html": "701bcb6ca53368360d91ac488ade1f34fecbe20f74e2bef70328a39eda26a218",
+    "app/products/triad/features/research_readiness.js": "9202f2e861f53af2db79c6212ae2ce1c7b0da52076e94ffd4043aac218101968"
+  },
+  "evidence_sha256": {
+    "logs/day8-corrected-ui-dom-qa.js": "c169ec988404aab47be87f90a4db91e7546adcd8de8817d8a3a39af25eca77a1",
+    "logs/day8-corrected-ui-dom-qa.json": "d3191e551b70d056c0e59c9acd5c874a56418a8a25299c3c35b6ed6c39a146f3",
+    "logs/day8-corrected-ui-dom-qa.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day8-recovery2-independent-ui-records.json": "f1c9ea5cae6541adfa2d1e85043562f50027eda998d215382d2a5e247f890547"
+  },
+  "limitations": [
+    "Actual candidate JavaScript executed in offline fake DOM, no real browser claimed.",
+    "No model/source edits, merges, providers or production writes.",
+    "Native failed QA and original CHANGES_REQUIRED remain intact.",
+    "New trusted QA-reference packet still needs independent acceptance."
+  ]
+}

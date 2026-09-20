@@ -1,0 +1,120 @@
+{
+  "candidate": "c4d518ed2b87547428be711742f3596cba39eb08",
+  "observations": [
+    {
+      "response": null,
+      "notice": "Evaluation failed: Core returned no usable evaluation. Readiness is unknown.",
+      "result": "No result. ",
+      "disabled": false,
+      "posted": {
+        "integration_id": "local-canonical",
+        "dataset_id": "d1",
+        "symbols": [
+          "SPY"
+        ],
+        "start": "2026-09-17T13:30:00Z",
+        "end": "2026-09-17T14:30:00Z",
+        "mode": "FIXTURE",
+        "universe": "SPY",
+        "membership_rule": "EXPLICIT_SYMBOLS"
+      }
+    },
+    {
+      "response": {},
+      "notice": "Evaluation failed: Core returned no usable evaluation. Readiness is unknown.",
+      "result": "No result. ",
+      "disabled": false,
+      "posted": {
+        "integration_id": "local-canonical",
+        "dataset_id": "d1",
+        "symbols": [
+          "SPY"
+        ],
+        "start": "2026-09-17T13:30:00Z",
+        "end": "2026-09-17T14:30:00Z",
+        "mode": "FIXTURE",
+        "universe": "SPY",
+        "membership_rule": "EXPLICIT_SYMBOLS"
+      }
+    },
+    {
+      "response": [],
+      "notice": "Evaluation failed: Core returned no usable evaluation. Readiness is unknown.",
+      "result": "No result. ",
+      "disabled": false,
+      "posted": {
+        "integration_id": "local-canonical",
+        "dataset_id": "d1",
+        "symbols": [
+          "SPY"
+        ],
+        "start": "2026-09-17T13:30:00Z",
+        "end": "2026-09-17T14:30:00Z",
+        "mode": "FIXTURE",
+        "universe": "SPY",
+        "membership_rule": "EXPLICIT_SYMBOLS"
+      }
+    },
+    {
+      "response": {
+        "status": null
+      },
+      "notice": "Evaluation returned by Core.",
+      "result": "Inputs changed. Run an evaluation to see results for them. Status: null  Evaluated inputs as submitted:   integration id   local-canonical  dataset id   d1  symbols     SPY  start   2026-09-17T13:30:00Z  end   2026-09-17T14:30:00Z  mode   FIXTURE  universe   SPY  membership rule   EXPLICIT_SYMBOLS   status   none recorded ",
+      "disabled": false,
+      "posted": {
+        "integration_id": "local-canonical",
+        "dataset_id": "d1",
+        "symbols": [
+          "SPY"
+        ],
+        "start": "2026-09-17T13:30:00Z",
+        "end": "2026-09-17T14:30:00Z",
+        "mode": "FIXTURE",
+        "universe": "SPY",
+        "membership_rule": "EXPLICIT_SYMBOLS"
+      }
+    },
+    {
+      "response": {
+        "status": "READY"
+      },
+      "notice": "Evaluation returned by Core.",
+      "result": "Inputs changed. Run an evaluation to see results for them. Status: READY  Evaluated inputs as submitted:   integration id   local-canonical  dataset id   d1  symbols     SPY  start   2026-09-17T13:30:00Z  end   2026-09-17T14:30:00Z  mode   FIXTURE  universe   SPY  membership rule   EXPLICIT_SYMBOLS   status   READY ",
+      "disabled": false,
+      "posted": {
+        "integration_id": "local-canonical",
+        "dataset_id": "d1",
+        "symbols": [
+          "SPY"
+        ],
+        "start": "2026-09-17T13:30:00Z",
+        "end": "2026-09-17T14:30:00Z",
+        "mode": "FIXTURE",
+        "universe": "SPY",
+        "membership_rule": "EXPLICIT_SYMBOLS"
+      }
+    },
+    {
+      "response": {
+        "status": "NOT_A_CORE_STATUS"
+      },
+      "notice": "Evaluation returned by Core.",
+      "result": "Inputs changed. Run an evaluation to see results for them. Status: NOT_A_CORE_STATUS  Evaluated inputs as submitted:   integration id   local-canonical  dataset id   d1  symbols     SPY  start   2026-09-17T13:30:00Z  end   2026-09-17T14:30:00Z  mode   FIXTURE  universe   SPY  membership rule   EXPLICIT_SYMBOLS   status   NOT_A_CORE_STATUS ",
+      "disabled": false,
+      "posted": {
+        "integration_id": "local-canonical",
+        "dataset_id": "d1",
+        "symbols": [
+          "SPY"
+        ],
+        "start": "2026-09-17T13:30:00Z",
+        "end": "2026-09-17T14:30:00Z",
+        "mode": "FIXTURE",
+        "universe": "SPY",
+        "membership_rule": "EXPLICIT_SYMBOLS"
+      }
+    }
+  ],
+  "note": "Offline actual candidate JS in fake DOM; no browser or HTTP. Valid busy controls disable while POST pending, but malformed status-bearing payloads are still shown as Core evaluation."
+}

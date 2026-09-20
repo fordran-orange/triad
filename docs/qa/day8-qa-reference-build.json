@@ -1,0 +1,21 @@
+{
+  "revision": "cb0c69bdf0860dd0108c6e6800ed7bf245414911",
+  "branch": "codex/day8-qa-reference",
+  "builder": "/root/day6_qa_b",
+  "independent_qa": "/root/day6_qa_a; pending",
+  "tests": "8 passed in5.50s; Ruff passed",
+  "implementation": "Default-empty reviewer-context hook; Daily-only bounded hashed backend/reference bundle, exact base vs candidate identity, Core/product route wiring, schema and readiness behavior/definitions, sanitized catalog; no expanded path/tool grants. QA and ProductQA retain exact bundle digest.",
+  "scope": "No merge/deploy/provider calls or production mutations; existing failed cycles retained.",
+  "sha256": {
+    "app/products/triad/development.py": "d4e21a84e7612c54f5e8e5e67e0d945ac056efea5c709bbd8f90d99085ebdf8a",
+    "app/products/triad/daily_development.py": "56e1445cce407139506404c2d9d65fcea72902b6d19d395ccee6a51ffa501ce7",
+    "app/products/triad/qa_reference.py": "d77aba19b00e8c37e3e73ab99e51a43a5ad72154ca96364c8e68ae5b724acbde",
+    "tests/test_day8_qa_reference.py": "4dbdc73076945b1673c73756b9730b4d5493bc6dd638f33291b8ace800126068",
+    "tests/test_day8_workflow_qa.py": "8071c51134c0c283758975e943664115e413cafebe8c8675724d58017c917ab6"
+  },
+  "evidence": {
+    "logs/day8-qa-reference-builder.log": "7203e4aa35b10e63dfaa49b6f22266c5f82563e01a50ac02becef87ca394e618",
+    "logs/day8-qa-reference-portable-builder.log": "5ca51b35956260c90fd16c043a91f63c939d0d73375e6646c5ee23d773fa49c9",
+    "logs/day8-qa-reference-portable-ruff.log": "a4443afdcfb6d7363adb285762515ccf7cf50473b1a05c20c1a50f6bed4d26b0"
+  }
+}

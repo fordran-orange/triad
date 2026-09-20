@@ -1,0 +1,35 @@
+{
+  "decision": "PASS",
+  "revision": "81d0fe3028c10bc31471548c8ba39b7ee3641fe4",
+  "reviewer": "/root/day6_qa_a",
+  "scope": "Exact navigation contract correction only",
+  "git_blob_sha256": {
+    "app/products/triad/daily_development.py": "a92ffb787c313893d25d625bc79f8a92a61b76d67fad2bb4b9d0f7bbaeb517d8"
+  },
+  "source_sha256": {
+    "app/products/triad/daily_development.py": "a92ffb787c313893d25d625bc79f8a92a61b76d67fad2bb4b9d0f7bbaeb517d8"
+  },
+  "check_script_unchanged": true,
+  "check_script_sha256": "20e243e41df23d91dfe9a940e883d11f4e95db835f9a0296a9a836fa8dc5471d",
+  "tests": {
+    "passed": 17,
+    "seconds": 9.33,
+    "exit": 0
+  },
+  "failed_candidate_preserved": "ae69046341975070a2ad3e895cb4482349f64a19",
+  "evidence_sha256": {
+    "logs/day8-navigation-contract-qa.md": "90a872a6d3b58c9b99eb937c94e21234c2d0758b9862a98ed11e7caf8ba58bc9",
+    "logs/day8-navigation-independent.log": "942de85e0304c6a1c9782f9ca4725f1460b97a750761c4a3fb07ec0d52a8de01",
+    "logs/day8-navigation-independent.exit": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+    "logs/day8-navigation-check-observations.json": "3ae2fd1f52d20fadfd2220f265b046b46433a8ea84c99dd92b4c82ca45d172e3",
+    "logs/test_day8_navigation_qa.py": "8d55cbc320e570706830a0993f7103a3db15e135da7e9f1ebd421ebbb8578ba6",
+    "logs/day8-navigation-qa-runner.py": "b1e1074449d092c0ab02f4b7b2da73afd6aa2e8b8ca1aded3b311bbbb7f5943f",
+    "logs/day8-navigation-81d0fe3.zip": "08f9a826094bb226a9ca831e90446022496e99e5e5e2b05bf9d21955f405dc10",
+    "logs/day8-recovery1-build-check-failure.json": "8822ac54c388fe3b2419f4d8ca417b07588a69bedb16df0fab0fc87696f78438"
+  },
+  "limitations": [
+    "No provider execution or production writes",
+    "Corrected-link replay is a test-only copy, not an autonomous product artifact",
+    "No browser, product-merge or Day8 completion acceptance"
+  ]
+}

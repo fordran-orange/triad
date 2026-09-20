@@ -1,0 +1,7 @@
+# Daily QA reference evidence gap
+
+Source-only independent audit confirms the gap at81d0fe3. DailyDevelopment inherits Development.qa, whose host packet contains only proposal, exact_commit and repeated_host_checks. Its read grants cover the old product baseline, server.py and development_contracts.py. Build's api_contract and live catalog remain local to build. The Core API handler, ReadinessRequest schema, readiness decisions and authoritative Day7 definitions are not exposed to that reviewer. The product server import alone does not substantiate Core routes or semantic guarantees.
+
+Smallest safe correction: add a trusted QA-reference context hook, empty for legacy Development and populated for the daily readiness workflow. Supply a bounded, clearly delimited host evidence bundle: actual schema, registered routes, compact relevant source/definition excerpts with exact source revision and SHA, and sanitized catalog. Keep the proposed artifact/candidate identity separate from current trusted backend reference identity. Pass evidence in context rather than expanding Core file-path grants or tool authority; fit existing governed context accounting. Do not state that schema alone proves behavior.
+
+Preserve the native CHANGES_REQUIRED verdict and both actual UI findings. Fresh QA must inspect the corrected candidate against complete evidence; this audit grants no product approval. No code edit, provider call, database read/write or operational change was performed. JSON binds the exact inspected source hashes.

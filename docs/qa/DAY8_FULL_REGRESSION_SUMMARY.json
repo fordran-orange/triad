@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "tests": 670,
+  "warnings": 5,
+  "seconds": 1409.91,
+  "exit": 0,
+  "log_sha256": "bb6c28c816a64f6891e4fe5ecb979d43341492000d0347fc77e084cdcd711bea",
+  "started_revision": "32bb237",
+  "head_at_completion": "49ae7bc06ee69c0141d6e6ff436c47a0f06bb188",
+  "coverage_note": "Full suite started before later artifact/context/cycle-label corrections. Those deltas receive separate frozen-revision independent offline and integration QA; import formatting correction has separate 15-test PASS."
+}

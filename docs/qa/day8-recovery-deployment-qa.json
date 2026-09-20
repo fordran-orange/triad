@@ -1,0 +1,428 @@
+{
+  "verdict": "PASS",
+  "scope": "Deployment-only recovery acceptance; not Day8 completion",
+  "reviewer": "/root/day6_qa_a",
+  "base_revision": "4b53134743dca86cdd7217414a12c8047ab8fd50",
+  "revision": "d0a399c82a153bb647686b3923001bbb23a85953",
+  "clean_working_tree_verified": true,
+  "changed_implementation_test_paths": 10,
+  "coverage": {
+    "app/trading_core/providers/native_agents.py": {
+      "raw_git_blob_sha256": "13fed9339450504e5351eab4f1167f561bec4c8f7a9fe2f9874b926d61e9444f",
+      "accepted_manifest": "docs/qa/DAY8_OBSERVED_ASSETS_QA_HASHES.json",
+      "accepted_revision": "7c78acb093c1b2488c1df56336e9723edda3059f",
+      "current_matches_accepted": true,
+      "attribution": "Day8 host implementation"
+    },
+    "tools/day8_engineering_probe.py": {
+      "raw_git_blob_sha256": "d88270453942e6d2c8e3af0595504f47d083b1008a8ab699dfeb7c7238114c5a",
+      "accepted_manifest": "docs/qa/DAY8_OBSERVED_ASSETS_QA_HASHES.json",
+      "accepted_revision": "7c78acb093c1b2488c1df56336e9723edda3059f",
+      "current_matches_accepted": true,
+      "attribution": "Day8 host implementation"
+    },
+    "app/products/triad/development.py": {
+      "raw_git_blob_sha256": "f496eb1fd16435245fe3bbacb3e0734064c2c0b473b7811f2e190615a3dc13e7",
+      "accepted_manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "accepted_revision": "600c5d53c70d430f81c0b6e3570f7d71203ce585",
+      "current_matches_accepted": true,
+      "attribution": "Day8 host implementation"
+    },
+    "app/products/triad/daily_development.py": {
+      "raw_git_blob_sha256": "c24c7c36ce33d710e8eace96c8bca0205fcbfa4e3b4377800206ae4d8011c3ad",
+      "accepted_manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "accepted_revision": "600c5d53c70d430f81c0b6e3570f7d71203ce585",
+      "current_matches_accepted": true,
+      "attribution": "Day8 host implementation"
+    },
+    "app/products/triad/static/cycles.html": {
+      "raw_git_blob_sha256": "e0eea7dcc45de5b5d86201867230b81da7b7528be6101cc20b6bc0e358ebe986",
+      "accepted_manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "accepted_revision": "600c5d53c70d430f81c0b6e3570f7d71203ce585",
+      "current_matches_accepted": true,
+      "attribution": "Day8 host implementation"
+    },
+    "app/products/triad/static/cycles.js": {
+      "raw_git_blob_sha256": "b6113db273e418ac6990a3cc4d6848124edf7438e4741f8170d17b3c40f81b1a",
+      "accepted_manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "accepted_revision": "600c5d53c70d430f81c0b6e3570f7d71203ce585",
+      "current_matches_accepted": true,
+      "attribution": "Day8 host implementation"
+    },
+    "tests/test_lab_failure_integration.py": {
+      "raw_git_blob_sha256": "4389c0d6ea77b977d9e66f5e5769e7992a5e2f5481e3bbcd01b6e883ac1e2e8d",
+      "accepted_manifest": "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA_HASHES.json",
+      "accepted_revision": "31dd333b64381247da840e5d3bdcc9f35fff4c58",
+      "current_matches_accepted": true,
+      "attribution": "Day8 host implementation"
+    },
+    "tests/test_day8_observed_assets_qa.py": {
+      "raw_git_blob_sha256": "e9e0c27b0d0d16eb6c2f9e80de34abfc8972b2e64d5f03edc2afc7570617cc2d",
+      "accepted_manifest": "docs/qa/DAY8_OBSERVED_IMPORTS_QA_HASHES.json",
+      "accepted_revision": "49ae7bc06ee69c0141d6e6ff436c47a0f06bb188",
+      "current_matches_accepted": true,
+      "attribution": "Day8 independent QA test; formatting-only successor"
+    },
+    "tools/audit_hfdatalibrary.py": {
+      "raw_git_blob_sha256": "af17bd6b382dd2dffbc7774b9572db805c0fc44d699cc08acf8f6d25dd4a246f",
+      "accepted_manifest": "docs/qa/HFDATALIBRARY_INDEPENDENT_QA.json",
+      "accepted_revision": null,
+      "current_matches_accepted": true,
+      "attribution": "Separately authorized HFDataLibrary audit; not autonomous Day8 output"
+    },
+    "tests/test_hfdatalibrary_audit.py": {
+      "raw_git_blob_sha256": "43853d0786cea2c7a07989f1f017f1c0342e53c3c916fbf20d79012596240424",
+      "accepted_manifest": "docs/qa/HFDATALIBRARY_INDEPENDENT_QA.json",
+      "accepted_revision": null,
+      "current_matches_accepted": true,
+      "attribution": "Separately authorized HFDataLibrary audit; not autonomous Day8 output"
+    },
+    "docs/HFDATALIBRARY_AUDIT.md": {
+      "raw_git_blob_sha256": "d450eb790c2acbc6fe9bb29a779b5770fcc4f4eae6b3fa2c9873aef91e7db802",
+      "accepted_manifest": "docs/qa/HFDATALIBRARY_INDEPENDENT_QA.json",
+      "accepted_revision": null,
+      "current_matches_accepted": true,
+      "attribution": "Separately authorized HFDataLibrary audit; not autonomous Day8 output"
+    },
+    "docs/CLOSEOUT_2026-09-19.md": {
+      "raw_git_blob_sha256": "06461d4847a8c50c2796683c248d7d0ae6f3d970240f5460d2cdde22f95639ff",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    },
+    "docs/qa/DAY8_ACCEPTANCE_GAPS_QA.md": {
+      "raw_git_blob_sha256": "ea0aa0a50e642bf721b09b6ce6d7c3e87400ac23b3e190051410c0bb537c54e2",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    },
+    "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json": {
+      "raw_git_blob_sha256": "ebc1634c30b3a831fc4209446dc0c0517b1a0273b35f359119360e0352cf0197",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    },
+    "docs/qa/DAY8_CLOSEOUT_CHECKPOINT_QA.json": {
+      "raw_git_blob_sha256": "f7c62130a707a58b24fc2dfdbf2c63075d6b8cab00cb4c4cf08493628e1409da",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    },
+    "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA.md": {
+      "raw_git_blob_sha256": "6bc628589cef7724e83b51840f26c313f30b8c4c9326761ff0143208cc2f7d34",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    },
+    "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA_HASHES.json": {
+      "raw_git_blob_sha256": "a9739790813c9b574f39ee8ec2214e1d29862dae1c4d0959a22081ecd67061b7",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    },
+    "docs/qa/DAY8_OBSERVED_ASSETS_QA.md": {
+      "raw_git_blob_sha256": "973ed8826aefd4d19156521309c0e53e4d140bb386b6ef418cd99229f99a8d2f",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    },
+    "docs/qa/DAY8_OBSERVED_ASSETS_QA_HASHES.json": {
+      "raw_git_blob_sha256": "a86e9a5a8169ae51b8e28a125d7373813131c0fdeed88ee151857291e99cd715",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    },
+    "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA.md": {
+      "raw_git_blob_sha256": "3b96c31eec3deaaa895a26caa36f65fde70edf1cac4e1467e6db988ec35f2b36",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    },
+    "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA_HASHES.json": {
+      "raw_git_blob_sha256": "49a5bd85533e1736c8951b64e3d730d85af6dd74deb0130726294840af25457b",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    },
+    "docs/qa/DAY8_OBSERVED_IMPORTS_QA.md": {
+      "raw_git_blob_sha256": "e9e330f9ae20de667ddb50e06008cdff73e3f6886ea704ff384522c02e29fecb",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    },
+    "docs/qa/DAY8_OBSERVED_IMPORTS_QA_HASHES.json": {
+      "raw_git_blob_sha256": "656b0b1d31154691af655e41f30aa1a7e327fea819883fb80eeda20f16c0ac21",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    },
+    "docs/qa/HFDATALIBRARY_INDEPENDENT_QA.json": {
+      "raw_git_blob_sha256": "cc43cf904729b9e38ee11838cd1fac7cbf5ab28f99c9357c0f6c074c495d3fc6",
+      "attribution": "Independent acceptance evidence / checkpoint documentation",
+      "review_basis": "Accepted report provenance and exact retained hashes inspected; no executable authority",
+      "document_checked": true
+    }
+  },
+  "evidence_checks": [
+    {
+      "path": "docs/qa/DAY8_OBSERVED_ASSETS_QA.md",
+      "manifest": "docs/qa/DAY8_OBSERVED_ASSETS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "tests/test_day8_observed_assets_qa.py",
+      "manifest": "docs/qa/DAY8_OBSERVED_ASSETS_QA_HASHES.json",
+      "matches": true,
+      "preserved_in_revision": "24d8133",
+      "note": "Current import-only successor separately accepted49ae7bc"
+    },
+    {
+      "path": "logs/day8_observed_qa_runner.py",
+      "manifest": "docs/qa/DAY8_OBSERVED_ASSETS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-observed-independent-7c78acb.log",
+      "manifest": "docs/qa/DAY8_OBSERVED_ASSETS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-first-build-failure.json",
+      "manifest": "docs/qa/DAY8_OBSERVED_ASSETS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/DAY8_ACCEPTANCE_GAPS_QA.md",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-acceptance-gaps-source-hashes.json",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-acceptance-gaps-600c5d5.zip",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/test_day8_acceptance_gap_qa.py",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/test_day8_inspection_scope_qa.py",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-acceptance-gaps-runner.py",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-acceptance-gaps-integration-runner.py",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-acceptance-gaps-offline.log",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-acceptance-gaps-offline.exit",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-acceptance-gaps-integration.log",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-acceptance-gaps-integration.exit",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-artifact-seam-gap.json",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-acceptance-gap-audit.json",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-final-full-regression.log",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-full-regression.log",
+      "manifest": "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-lab-fixture-31dd333.zip",
+      "manifest": "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-lab-fixture-qa-runner.py",
+      "manifest": "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-lab-fixture-qa.log",
+      "manifest": "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-lab-fixture-qa.exit",
+      "manifest": "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-full-regression.log",
+      "manifest": "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA.md",
+      "manifest": "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-observed-imports-49ae7bc-QA.md",
+      "manifest": "docs/qa/DAY8_OBSERVED_IMPORTS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-observed-imports-49ae7bc.log",
+      "manifest": "docs/qa/DAY8_OBSERVED_IMPORTS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-observed-imports-49ae7bc-ruff.log",
+      "manifest": "docs/qa/DAY8_OBSERVED_IMPORTS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8_observed_imports_qa_runner.py",
+      "manifest": "docs/qa/DAY8_OBSERVED_IMPORTS_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA.md",
+      "manifest": "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "docs/qa/DAY8_OBSERVED_ASSETS_QA_HASHES.json",
+      "manifest": "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-capability-probe-123f1ebf-5a8d-4887-a718-09875feea1cc.json",
+      "manifest": "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-repeat-probe-independent.json",
+      "manifest": "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA_HASHES.json",
+      "matches": true
+    },
+    {
+      "path": "docs/CLOSEOUT_2026-09-19.md",
+      "manifest": "docs/qa/DAY8_CLOSEOUT_CHECKPOINT_QA.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-data-closeout-state.json",
+      "manifest": "docs/qa/DAY8_CLOSEOUT_CHECKPOINT_QA.json",
+      "matches": true
+    },
+    {
+      "path": "docs/qa/HFDATALIBRARY_INDEPENDENT_QA.json",
+      "manifest": "docs/qa/DAY8_CLOSEOUT_CHECKPOINT_QA.json",
+      "matches": true
+    },
+    {
+      "path": "docs/HFDATALIBRARY_AUDIT.md",
+      "manifest": "docs/qa/DAY8_CLOSEOUT_CHECKPOINT_QA.json",
+      "matches": true
+    },
+    {
+      "path": "logs/day8-final-full-regression.log",
+      "manifest": "docs/qa/DAY8_CLOSEOUT_CHECKPOINT_QA.json",
+      "matches": true
+    },
+    {
+      "path": "docs/qa/DAY8_OBSERVED_ASSETS_QA.md",
+      "manifest": "docs/qa/DAY8_CLOSEOUT_CHECKPOINT_QA.json",
+      "matches": true
+    },
+    {
+      "path": "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA.md",
+      "manifest": "docs/qa/DAY8_CLOSEOUT_CHECKPOINT_QA.json",
+      "matches": true
+    },
+    {
+      "path": "logs/DAY8_ACCEPTANCE_GAPS_QA.md",
+      "manifest": "docs/qa/DAY8_CLOSEOUT_CHECKPOINT_QA.json",
+      "matches": true
+    }
+  ],
+  "manifest_sha256": {
+    "docs/qa/DAY8_OBSERVED_ASSETS_QA_HASHES.json": "3582a077613d8c46be4f3818928483dc611b801f4d1a6e0ed06093b40aeb1a6c",
+    "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json": "a596019fe7c1062140036479463a6c5f8d98f03f34e23d54429e76e8036026a1",
+    "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA_HASHES.json": "528aa53c554136ffbf7fddda78c29b724927723dd5cb946fb1d4d31d6af9efc4",
+    "docs/qa/DAY8_OBSERVED_IMPORTS_QA_HASHES.json": "6a3b837235d398e73e3cbdd0fc3cb7704877ccd96e56509a64ff330431835395",
+    "docs/qa/HFDATALIBRARY_INDEPENDENT_QA.json": "cff4ac5dc1d1715e4c52116b98146f84cd15b7edf9203fd14c63050ee780bd28",
+    "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA_HASHES.json": "142acf3e841c62391043546572739cd1188b12996146759c07c906828f0ba11f",
+    "docs/qa/DAY8_CLOSEOUT_CHECKPOINT_QA.json": "112493f75060f3ae67e7f523b81f02d7cb1df9a0a60afb507ec0f3976538ffeb"
+  },
+  "tests": "No duplicate tests or production operations; accepted exact evidence checked read-only",
+  "limitations": [
+    "Separate data audit remains independently attributed; raw REAL manifests remain FAIL/ineligible.",
+    "First feature build failure remains BLOCKED; no success relabeling.",
+    "This authorizes only the next governed deployment; new native cycle, independent product QA, merge, actual browser verification, real debrief and final scheduling/release acceptance remain required."
+  ],
+  "closeout_line_endings": {
+    "accepted_disk_sha256": "d643e24381ee318dc13bd08d0c527eb71d05df6c0e41d2459b7245a1e4ee3d2c",
+    "raw_git_blob_sha256": "06461d4847a8c50c2796683c248d7d0ae6f3d970240f5460d2cdde22f95639ff",
+    "difference": "CRLF only; independently compared exact normalized bytes"
+  },
+  "decision": "PASS",
+  "git_blob_sha256": {
+    "app/products/triad/daily_development.py": "c24c7c36ce33d710e8eace96c8bca0205fcbfa4e3b4377800206ae4d8011c3ad",
+    "app/products/triad/development.py": "f496eb1fd16435245fe3bbacb3e0734064c2c0b473b7811f2e190615a3dc13e7",
+    "app/products/triad/static/cycles.html": "e0eea7dcc45de5b5d86201867230b81da7b7528be6101cc20b6bc0e358ebe986",
+    "app/products/triad/static/cycles.js": "b6113db273e418ac6990a3cc4d6848124edf7438e4741f8170d17b3c40f81b1a",
+    "app/trading_core/providers/native_agents.py": "13fed9339450504e5351eab4f1167f561bec4c8f7a9fe2f9874b926d61e9444f",
+    "docs/CLOSEOUT_2026-09-19.md": "06461d4847a8c50c2796683c248d7d0ae6f3d970240f5460d2cdde22f95639ff",
+    "docs/HFDATALIBRARY_AUDIT.md": "d450eb790c2acbc6fe9bb29a779b5770fcc4f4eae6b3fa2c9873aef91e7db802",
+    "docs/qa/DAY8_ACCEPTANCE_GAPS_QA.md": "ea0aa0a50e642bf721b09b6ce6d7c3e87400ac23b3e190051410c0bb537c54e2",
+    "docs/qa/DAY8_ACCEPTANCE_GAPS_QA_HASHES.json": "ebc1634c30b3a831fc4209446dc0c0517b1a0273b35f359119360e0352cf0197",
+    "docs/qa/DAY8_CLOSEOUT_CHECKPOINT_QA.json": "f7c62130a707a58b24fc2dfdbf2c63075d6b8cab00cb4c4cf08493628e1409da",
+    "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA.md": "6bc628589cef7724e83b51840f26c313f30b8c4c9326761ff0143208cc2f7d34",
+    "docs/qa/DAY8_LAB_FIXTURE_FINAL_QA_HASHES.json": "a9739790813c9b574f39ee8ec2214e1d29862dae1c4d0959a22081ecd67061b7",
+    "docs/qa/DAY8_OBSERVED_ASSETS_QA.md": "973ed8826aefd4d19156521309c0e53e4d140bb386b6ef418cd99229f99a8d2f",
+    "docs/qa/DAY8_OBSERVED_ASSETS_QA_HASHES.json": "a86e9a5a8169ae51b8e28a125d7373813131c0fdeed88ee151857291e99cd715",
+    "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA.md": "3b96c31eec3deaaa895a26caa36f65fde70edf1cac4e1467e6db988ec35f2b36",
+    "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA_HASHES.json": "49a5bd85533e1736c8951b64e3d730d85af6dd74deb0130726294840af25457b",
+    "docs/qa/DAY8_OBSERVED_IMPORTS_QA.md": "e9e330f9ae20de667ddb50e06008cdff73e3f6886ea704ff384522c02e29fecb",
+    "docs/qa/DAY8_OBSERVED_IMPORTS_QA_HASHES.json": "656b0b1d31154691af655e41f30aa1a7e327fea819883fb80eeda20f16c0ac21",
+    "docs/qa/HFDATALIBRARY_INDEPENDENT_QA.json": "cc43cf904729b9e38ee11838cd1fac7cbf5ab28f99c9357c0f6c074c495d3fc6",
+    "tests/test_day8_observed_assets_qa.py": "e9e0c27b0d0d16eb6c2f9e80de34abfc8972b2e64d5f03edc2afc7570617cc2d",
+    "tests/test_hfdatalibrary_audit.py": "43853d0786cea2c7a07989f1f017f1c0342e53c3c916fbf20d79012596240424",
+    "tests/test_lab_failure_integration.py": "4389c0d6ea77b977d9e66f5e5769e7992a5e2f5481e3bbcd01b6e883ac1e2e8d",
+    "tools/audit_hfdatalibrary.py": "af17bd6b382dd2dffbc7774b9572db805c0fc44d699cc08acf8f6d25dd4a246f",
+    "tools/day8_engineering_probe.py": "d88270453942e6d2c8e3af0595504f47d083b1008a8ab699dfeb7c7238114c5a"
+  },
+  "all_changed_file_count": 24
+}

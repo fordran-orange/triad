@@ -1,0 +1,33 @@
+{
+  "revision": "81d0fe3028c10bc31471548c8ba39b7ee3641fe4",
+  "reviewer": "/root/day6_qa_a",
+  "finding": "QA authoritative backend contract omitted",
+  "decision": "CHANGES_REQUIRED_FOR_HOST_QA_EVIDENCE_PACKET",
+  "source_sha256": {
+    "app/products/triad/development.py": "f496eb1fd16435245fe3bbacb3e0734064c2c0b473b7811f2e190615a3dc13e7",
+    "app/products/triad/daily_development.py": "a92ffb787c313893d25d625bc79f8a92a61b76d67fad2bb4b9d0f7bbaeb517d8",
+    "app/trading_core/integrations/api.py": "54ff49129d127b4cd3fc98ed261ea1503583a06da43eec59b946d1262ec38889",
+    "app/trading_core/integrations/readiness.py": "79dfc77394fae036e2f13bf58caf9a3bc6ccaf40f6f0aee431c8e0164c6121d9",
+    "docs/improvements/real-market-readiness-definitions-v2.md": "9542a822398e252302dc3a79358732675d30f24c15429cc9e1611c9cc8d32fba"
+  },
+  "observed_qa_context_keys": [
+    "proposal",
+    "exact_commit",
+    "repeated_host_checks"
+  ],
+  "observed_read_paths": [
+    "products/triad/docs/INSPECTION_BASELINE.md",
+    "app/products/triad/server.py",
+    "app/products/triad/development_contracts.py"
+  ],
+  "missing": [
+    "Builder api_contract is local to build and not forwarded to inherited QA.",
+    "No Core route handlers, request schema, readiness policy implementation or definitions document in QA grants/packet."
+  ],
+  "recommendation": "Add trusted read-only QA reference context hook (empty for generic Development; bounded authoritative evidence for daily readiness). Include actual request schema, registered route metadata, source/definition excerpts with exact Git provenance/hash, and sanitized catalog. Do not expand provider file tools, paths, write authority or weaken QA decisions.",
+  "limits": [
+    "Source-only bounded audit; no provider, DB or production operations.",
+    "No reassessment of two separate actual UI defects; preserve Codex CHANGES_REQUIRED and require fresh QA.",
+    "Correction must be independently reviewed before active-cycle use; do not relabel original rejection."
+  ]
+}

@@ -26,9 +26,10 @@ product builder. Current verified Claude text and Codex read profiles are preser
 General shell/Git/network capabilities stay unavailable. No real external data
 fetch, paid fallback, credentials, live trading or Aegis development is authorized.
 
-Current: precheck and bounded readiness, lifecycle, UI, engineering, scheduler and
-role-extension reviews passed. Workflow correction review is in progress. The real
-Claude UI staging probe completed; separate evidence QA is pending before capability
-adoption. No Day 8 source is merged or deployed, no daily product cycle has run,
-and scheduling remains disabled. A fresh database/artifact backup is recorded in
-`logs/day8-backup.json`. Final acceptance and completion tag remain outstanding.
+Current closeout: supporting implementation and bounded corrections received
+independent QA and governed deployment. Three REAL product cycles were attempted;
+all remain BLOCKED. The latest corrected product candidate is unmerged: native
+QA failed with CodexTurnFailed, account ordinary usage is exhausted, and independent
+host review found a remaining malformed-response validation issue. Scheduling is
+disabled; no reviewed Daily Debrief or completion tag exists. See
+[DAY8_REPORT.md](DAY8_REPORT.md) for exact evidence and the current resume sequence.
