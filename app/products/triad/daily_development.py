@@ -283,6 +283,12 @@ class DailyDevelopment(Development):
                     "notice",
                 ],
                 "html_script": "/triad/assets/research-readiness.js",
+                "navigation_links": {
+                    "Product": "/triad/product",
+                    "Development": "/triad/development",
+                    "Cycles": "/triad/cycles",
+                    "Daily Debrief": "/triad/daily-debrief",
+                },
                 "files": FILES,
             },
             "api_contract": {
@@ -321,7 +327,8 @@ class DailyDevelopment(Development):
             "Expose universe/symbols/membership rule/start/end/timeframe/session/required OHLCV fields and expected coverage; display provenance, missing checks, license and gaps. "
             "Support loading/empty/error; API errors must remain readable. No automatic fetch beyond Core discovery/read-only evaluation, no paid calls, no accounts or trading. "
             "All untrusted strings via textContent; no innerHTML/eval/storage/inline handlers. Required IDs/API contract supplied. HTML uses only one external script supplied route. "
-            "Include Product/Development/Cycles/Daily Debrief links. Max600changedlines and32000combinedbytes; keep eachfile below12000bytes. "
+            "Use the exact supplied navigation_links destinations for Product/Development/Cycles/Daily Debrief. "
+            "Max600changedlines and32000combinedbytes; keep eachfile below12000bytes. "
             "Return CODE_CHANGE with files_changed EMPTY and concise summary: Core reconstructs the exact files from your observed tool writes. "
             "Do not repeat file contents in the final JSON. No tests/commands/actions/claims. Host runs checks, Codex independently reviews."
         )
@@ -407,7 +414,9 @@ class DailyDevelopment(Development):
             checks = self.git.verify(metadata, None)
             proof = self.test_candidate(grant, metadata)
             if proof["status"] != "PASS":
-                raise ValueError("Approved offline candidate checks failed")
+                raise ValueError(
+                    "Approved offline candidate checks failed: " + proof.get("stderr", "")[-240:]
+                )
             checks["checks"].append("Approved offline UI contract checks")
             run = ImplementationRun(
                 owner="triad",
