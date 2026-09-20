@@ -1,0 +1,13 @@
+{
+  "revision": "49ae7bc06ee69c0141d6e6ff436c47a0f06bb188",
+  "reviewer": "/root/day6_qa_b",
+  "decision": "PASS",
+  "reviewed_file_sha256": "e9e0c27b0d0d16eb6c2f9e80de34abfc8972b2e64d5f03edc2afc7570617cc2d",
+  "previous_file_sha256": "59ca1db18450eb1cde8d0a6ce1d261c8b6a87d9ed8fc912b5ff712ee0a885f2b",
+  "evidence": {
+    "logs/day8-observed-imports-49ae7bc-QA.md": "35010dc7539a6401d6fe3ff83c71728f8d0a1d4109a1a0c7fbfa9de3b3651d53",
+    "logs/day8-observed-imports-49ae7bc.log": "6632e6abd49836484e2518fd4a9b33cc95811f32c7279284213399695d50910d",
+    "logs/day8-observed-imports-49ae7bc-ruff.log": "a4443afdcfb6d7363adb285762515ccf7cf50473b1a05c20c1a50f6bed4d26b0",
+    "logs/day8_observed_imports_qa_runner.py": "9f0e3d82fd6a452468b9acc37e4ff8f45311274da4a0a6d0205b99dee9bd284c"
+  }
+}
