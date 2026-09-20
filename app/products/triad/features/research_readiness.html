@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research Readiness</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;background:#0f1418;color:#e6edf3;line-height:1.45}
+header,main{max-width:64rem;margin:0 auto;padding:1rem}
+nav ul{display:flex;flex-wrap:wrap;gap:.5rem 1rem;list-style:none;padding:0;margin:0}
+a{color:#7cc4ff}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #ffd166;outline-offset:2px}
+section{border:1px solid #2d3742;border-radius:.5rem;padding:1rem;margin:1rem 0;background:#161d24}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.75rem}
+label{display:block;font-weight:600;margin-bottom:.25rem}
+input,select,button{width:100%;box-sizing:border-box;padding:.5rem;font:inherit;background:#0f1418;color:inherit;border:1px solid #4a5866;border-radius:.3rem}
+button{background:#1f6feb;border-color:#1f6feb;cursor:pointer;width:auto;min-width:10rem}
+button:disabled,input:disabled,select:disabled{opacity:.55;cursor:not-allowed}
+dl{margin:.25rem 0 .25rem 1rem}
+dt{font-weight:600;margin-top:.4rem}
+dd{margin-left:1rem;overflow-wrap:anywhere}
+.tag{display:inline-block;padding:0 .4rem;border:1px solid #7cc4ff;border-radius:.3rem}
+.warn{border-left:4px solid #ffd166;padding-left:.75rem}
+.err{border-left:4px solid #ff6b6b;padding-left:.75rem}
+</style>
+</head>
+<body>
+<header>
+<nav aria-label="Triad">
+<ul>
+<li><a href="/triad/product">Product</a></li>
+<li><a href="/triad/development">Development</a></li>
+<li><a href="/triad/cycles">Cycles</a></li>
+<li><a href="/triad/daily-debrief">Daily Debrief</a></li>
+</ul>
+</nav>
+<h1>Research Readiness</h1>
+<p>Data readiness only. It says nothing about strategy edge or expected performance. Archive presence is not validated research coverage.</p>
+</header>
+<main>
+<div id="notice" role="status" aria-live="polite">Loading Core discovery…</div>
+<section aria-labelledby="h-in">
+<h2 id="h-in">Read-only evaluation</h2>
+<form id="form" novalidate>
+<div class="grid">
+<div><label for="source">Source</label><select id="source"></select></div>
+<div><label for="dataset">Dataset</label><select id="dataset"></select></div>
+<div><label for="symbols">Symbols (comma separated)</label><input id="symbols" type="text" autocomplete="off"></div>
+<div><label for="universe">Universe</label><input id="universe" type="text" autocomplete="off"></div>
+<div><label for="membership">Membership rule</label><select id="membership"><option value="EXPLICIT_SYMBOLS">EXPLICIT_SYMBOLS</option><option value="HISTORICAL_CONSTITUENTS">HISTORICAL_CONSTITUENTS</option></select></div>
+<div><label for="mode">Data mode</label><select id="mode"><option value="REAL">REAL</option><option value="FIXTURE">FIXTURE</option></select></div>
+<div><label for="start">Start (UTC, inclusive)</label><input id="start" type="datetime-local"></div>
+<div><label for="end">End (UTC, exclusive)</label><input id="end" type="datetime-local"></div>
+</div>
+<p><button id="evaluate" type="submit">Evaluate readiness</button></p>
+</form>
+</section>
+<section aria-labelledby="h-ds">
+<h2 id="h-ds">Selected dataset and source</h2>
+<div id="detail">Nothing selected.</div>
+</section>
+<section aria-labelledby="h-res">
+<h2 id="h-res">Evaluation result</h2>
+<div id="result" aria-live="polite" tabindex="-1">No evaluation run.</div>
+</section>
+</main>
+<script src="/triad/assets/research-readiness.js"></script>
+</body>
+</html>
