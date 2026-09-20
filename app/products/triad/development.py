@@ -529,12 +529,17 @@ class Development(ExecutionServices):
                 if row and row["owner"] != "triad":
                     raise PermissionError("Cannot modify another product's artifact")
 
+    def qa_references(self, build):
+        """Optional trusted reference evidence; never extends reviewer tool grants."""
+        return {}
+
     def qa(self, mission, proposal, build):
         metadata = build["git"]
         limits = Limits.model_validate(self.ledger.control()["limits"]).model_copy(
             update={"allowed_directories": proposal.affected_components}
         )
         checks = self.exact_checks(build, limits)
+        references = self.qa_references(build)
         reviewer = "CODEX" if build["builder"] != "CODEX" else "CLAUDE"
         work, result, _, usage = self.call(
             mission,
@@ -550,6 +555,7 @@ class Development(ExecutionServices):
                 "proposal": proposal.model_dump(mode="json"),
                 "exact_commit": metadata["change_commit"],
                 "repeated_host_checks": checks,
+                **({"trusted_backend_reference": references} if references else {}),
             },
             excluded=(build["builder"],),
             parent=build["work_item_id"],
@@ -578,6 +584,7 @@ class Development(ExecutionServices):
             evidence=(
                 "run:" + usage["run_id"],
                 *("sha256:" + h + ":" + p for p, h in checks["hashes"].items()),
+                *(("qa-reference:" + references["sha256"],) if references else ()),
             ),
             decision=decision,
             execution_mode="REAL_PROVIDER",
@@ -593,6 +600,7 @@ class Development(ExecutionServices):
             decision=decision,
             findings=result.findings,
             checks=checks,
+            **({"qa_reference": references} if references else {}),
         )
         if result.review_decision != "APPROVE":
             builder_work = self.host.store.get(build["work_item_id"])

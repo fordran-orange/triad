@@ -262,6 +262,11 @@ class DailyDevelopment(Development):
         )
         return Limits.model_validate(self.ledger.control()["limits"])
 
+    def qa_references(self, build):
+        from products.triad.qa_reference import readiness_reference
+
+        return readiness_reference(self.git.root, build["git"], Readiness().catalog())
+
     def build(self, mission, proposal, *, correction=()):
         self.approve(mission, proposal)
         base = self.git.clean_baseline()

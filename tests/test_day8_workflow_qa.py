@@ -18,6 +18,9 @@ from products.triad import daily_verification
 
 def wire(engine, monkeypatch, *, fail_build=False, reject_first=False, debrief_rejections=0):
     dev = module.DailyDevelopment(Store(engine.host.store.settings, scope="triad"), engine.git)
+    # This orchestration fixture's tiny Git repository has no Core source tree.
+    # Exact real-source references are covered by test_day8_qa_reference.py.
+    monkeypatch.setattr(dev, "qa_references", lambda build: {})
     calls = []
     routing = []
     checks = []
