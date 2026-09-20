@@ -1,0 +1,137 @@
+{
+  "reviewer": "/root/day6_qa_c",
+  "verdict": "PASS",
+  "scope": "Artifact reader, fresh inspection snapshot and cycle labels; not whole Day8 acceptance",
+  "executed_revision": "600c5d53c70d430f81c0b6e3570f7d71203ce585",
+  "current_candidate": "49ae7bc06ee69c0141d6e6ff436c47a0f06bb188",
+  "git_sources_identical_between_revisions": true,
+  "executed_bytes_match_preserved_archive": true,
+  "source_sha256": {
+    "app/products/triad/development.py": {
+      "executed_archive_sha256": "f496eb1fd16435245fe3bbacb3e0734064c2c0b473b7811f2e190615a3dc13e7",
+      "git_blob_sha256": "f496eb1fd16435245fe3bbacb3e0734064c2c0b473b7811f2e190615a3dc13e7",
+      "exact_bytes_equal": true,
+      "archive_conversion": null,
+      "working_tree_sha256": "d21920d075aff26dff825ac00ce8989e671b6f23275e84141a25e8292918c02b",
+      "working_tree_matches_archive": false,
+      "working_tree_matches_git_after_crlf_normalization": true
+    },
+    "app/products/triad/daily_development.py": {
+      "executed_archive_sha256": "c24c7c36ce33d710e8eace96c8bca0205fcbfa4e3b4377800206ae4d8011c3ad",
+      "git_blob_sha256": "c24c7c36ce33d710e8eace96c8bca0205fcbfa4e3b4377800206ae4d8011c3ad",
+      "exact_bytes_equal": true,
+      "archive_conversion": null,
+      "working_tree_sha256": "e13166229db0241f0429f2b405192531f198680eb67ad64f0c842e0100d28e1c",
+      "working_tree_matches_archive": false,
+      "working_tree_matches_git_after_crlf_normalization": true
+    },
+    "app/products/triad/static/cycles.html": {
+      "executed_archive_sha256": "df2710084cad2ef26fd71506addb56b43d594cfc5a90c1295e5a5b794cbddf25",
+      "git_blob_sha256": "e0eea7dcc45de5b5d86201867230b81da7b7528be6101cc20b6bc0e358ebe986",
+      "exact_bytes_equal": false,
+      "archive_conversion": "CRLF only",
+      "working_tree_sha256": "df2710084cad2ef26fd71506addb56b43d594cfc5a90c1295e5a5b794cbddf25",
+      "working_tree_matches_archive": true,
+      "working_tree_matches_git_after_crlf_normalization": true
+    },
+    "app/products/triad/static/cycles.js": {
+      "executed_archive_sha256": "b019057f42e6f58f464ff3572cc1bf99e2433d71b7073931f6757ad4cb21693f",
+      "git_blob_sha256": "b6113db273e418ac6990a3cc4d6848124edf7438e4741f8170d17b3c40f81b1a",
+      "exact_bytes_equal": false,
+      "archive_conversion": "CRLF only",
+      "working_tree_sha256": "b019057f42e6f58f464ff3572cc1bf99e2433d71b7073931f6757ad4cb21693f",
+      "working_tree_matches_archive": true,
+      "working_tree_matches_git_after_crlf_normalization": true
+    },
+    "app/products/triad/daily.py": {
+      "executed_archive_sha256": "f44da6c4fe89ab2da58e0257acfe6007765c717041792e68a555651ba518a96f",
+      "git_blob_sha256": "f44da6c4fe89ab2da58e0257acfe6007765c717041792e68a555651ba518a96f",
+      "exact_bytes_equal": true,
+      "archive_conversion": null,
+      "working_tree_sha256": "f44da6c4fe89ab2da58e0257acfe6007765c717041792e68a555651ba518a96f",
+      "working_tree_matches_archive": true,
+      "working_tree_matches_git_after_crlf_normalization": true
+    },
+    "app/products/triad/cycle_history.py": {
+      "executed_archive_sha256": "390b4754347e38672b1e51cd52a8b5dd3ce0db58c075df0e375bbba5c80a1554",
+      "git_blob_sha256": "390b4754347e38672b1e51cd52a8b5dd3ce0db58c075df0e375bbba5c80a1554",
+      "exact_bytes_equal": true,
+      "archive_conversion": null,
+      "working_tree_sha256": "6fb6cac0e1000265e0ef3f612f3343eeb94a28e159d1c7fa9007f211daa9307c",
+      "working_tree_matches_archive": false,
+      "working_tree_matches_git_after_crlf_normalization": true
+    },
+    "app/trading_core/git_tools.py": {
+      "executed_archive_sha256": "7d4a0ea58fd18fc06c2a2473ee31ac8dc703c938880e563314b34a8050c87ef7",
+      "git_blob_sha256": "7d4a0ea58fd18fc06c2a2473ee31ac8dc703c938880e563314b34a8050c87ef7",
+      "exact_bytes_equal": true,
+      "archive_conversion": null,
+      "working_tree_sha256": "7d4a0ea58fd18fc06c2a2473ee31ac8dc703c938880e563314b34a8050c87ef7",
+      "working_tree_matches_archive": true,
+      "working_tree_matches_git_after_crlf_normalization": true
+    },
+    "app/trading_core/engineering.py": {
+      "executed_archive_sha256": "675810778fbc61b5d864c4b71b97c7fa429d008138e4334aa26e4f9c138e01e7",
+      "git_blob_sha256": "675810778fbc61b5d864c4b71b97c7fa429d008138e4334aa26e4f9c138e01e7",
+      "exact_bytes_equal": true,
+      "archive_conversion": null,
+      "working_tree_sha256": "675810778fbc61b5d864c4b71b97c7fa429d008138e4334aa26e4f9c138e01e7",
+      "working_tree_matches_archive": true,
+      "working_tree_matches_git_after_crlf_normalization": true
+    },
+    "app/trading_core/intelligence/records.py": {
+      "executed_archive_sha256": "54d3868e8babcea0eeb68ad8cadafbc35fd4e8fa1fcdf28152a69b6d31d82a9c",
+      "git_blob_sha256": "54d3868e8babcea0eeb68ad8cadafbc35fd4e8fa1fcdf28152a69b6d31d82a9c",
+      "exact_bytes_equal": true,
+      "archive_conversion": null,
+      "working_tree_sha256": "d41b729680c1aa2fe2c9ba51da5112c52b1fe49a3796df0863165966021a95d1",
+      "working_tree_matches_archive": false,
+      "working_tree_matches_git_after_crlf_normalization": true
+    },
+    "app/trading_core/store.py": {
+      "executed_archive_sha256": "3a32279b05dcb76d309a06bfd923fb0e10a29bb638653732bddbe1322a7181a2",
+      "git_blob_sha256": "3a32279b05dcb76d309a06bfd923fb0e10a29bb638653732bddbe1322a7181a2",
+      "exact_bytes_equal": true,
+      "archive_conversion": null,
+      "working_tree_sha256": "b5427d7f3eb62464bd61da80798bb8dcbeb89004174676d805988e7af6258fd3",
+      "working_tree_matches_archive": false,
+      "working_tree_matches_git_after_crlf_normalization": true
+    }
+  },
+  "test_results": {
+    "offline": {
+      "passed": 16,
+      "seconds": 0.59,
+      "exit": 0
+    },
+    "integration": {
+      "passed": 8,
+      "deselected": 3,
+      "warnings": 2,
+      "seconds": 180.67,
+      "exit": 0
+    }
+  },
+  "evidence_sha256": {
+    "logs/DAY8_ACCEPTANCE_GAPS_QA.md": "e228ffcce5f2745becf8126858b4ee4bc1b20c2c1d7fd4af056a782eaddb46cf",
+    "logs/day8-acceptance-gaps-source-hashes.json": "9bc52afe4a2f6739ec6e5bf87f87bf79e909f5b16204f6aa4c1da79ae642f14e",
+    "logs/day8-acceptance-gaps-600c5d5.zip": "c1df04a36cca34c2a7e56d6f04191f8b0bde82a0c04557d29792f1248c79c9e6",
+    "logs/test_day8_acceptance_gap_qa.py": "fb904e6bcc838cfdff0dc6edf2e08a0991a65bdde1961a7dd56bcf9cca30b060",
+    "logs/test_day8_inspection_scope_qa.py": "27fefe8c663db7b69716bdf4cc41307175dd01dbacda7c4597351128b11adf03",
+    "logs/day8-acceptance-gaps-runner.py": "834305e83893699cfe52cccba55e76506881e29abd222d42185215a8d68c6165",
+    "logs/day8-acceptance-gaps-integration-runner.py": "946b3e1cd27f7c98f5accb0416f07b955aff6fd74d372b7ddb51efdb004e6d07",
+    "logs/day8-acceptance-gaps-offline.log": "767d8f8665147fa28085db036540e068bb4aaa93c11849fdb590281374b19e41",
+    "logs/day8-acceptance-gaps-offline.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day8-acceptance-gaps-integration.log": "2e74b3d9e4808cbb2c6ed91fd48e8aef809b192c44a218b521b9fdf9ca0bc979",
+    "logs/day8-acceptance-gaps-integration.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/day8-artifact-seam-gap.json": "eef73382e10430744a20bd895b2c321c90c94eaf95d416270f6d748f9e343371",
+    "logs/day8-acceptance-gap-audit.json": "fbdd8bd21d3effdbb5294c9c9952965a4c67bd4b67ed23291282ccda4b705aa4",
+    "logs/day8-final-full-regression.log": "bb6c28c816a64f6891e4fe5ecb979d43341492000d0347fc77e084cdcd711bea",
+    "logs/day8-full-regression.log": "8f9b0c9f44167bfde555e517cd97b6e4445355a5184db04f9a934a065e71a708"
+  },
+  "frozen_workflow_test_sha256": "eca34cc3599f8072a0458076c98580d51f3e92a369c5ff791eec58a70d2dbd34",
+  "frozen_product_test_sha256": "7fe77b1d83d4692b18e877f646e71bd2619a126232fc5645e8ee590ce9267256",
+  "evidence_only_descendant": "ca03028662cdc11b8add3b801e74b16fa66e5eb0",
+  "descendant_application_unchanged": true,
+  "full_suite_baseline": "32bb237"
+}
