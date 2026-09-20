@@ -1,0 +1,37 @@
+{
+  "reviewer": "/root/day6_qa_c",
+  "reviewed_at": "2026-09-20T00:11:59.001814+00:00",
+  "verdict": "PASS",
+  "scope": "Checkpoint closeout document accuracy only; not Day8 completion, data quality approval, governed merge or deployment acceptance",
+  "head_at_review": "4682d6c1a60f96c9d086e7f21281a1a6b22ab5cc",
+  "branch": "codex/day8-observed-assets",
+  "main": "4b53134743dca86cdd7217414a12c8047ab8fd50",
+  "day8_complete_tag_absent": true,
+  "git_remote_absent": true,
+  "git_status_at_review": "?? docs/CLOSEOUT_2026-09-19.md",
+  "checks": [
+    "All three committed data-audit files match prior independent QA hashes exactly.",
+    "Stored closeout data state agrees: SPY950529, QQQ947519, ITOT627060 rows; REAL/FAIL, no canonical paths. Coverage and missing-bar counts match independent data QA.",
+    "Saved cycle remains BLOCKED/NativeProposalEvidenceMismatch with no merge; scheduler disabled, epoch2, paused/killed false, Aegis human-directed/CLOSED/zero work.",
+    "Data work is separated from autonomous Day8 attribution; future normalization remains deferred and qualityFAIL is not relabeled ready.",
+    "Full regression result670PASS and subsequent frozen delta results are accurately distinguished.",
+    "Resume sequence requires current exact governance, clean main, native separate QA, browser/postmerge checks, reviewed debrief, manual completion before schedule, and final acceptance before tag."
+  ],
+  "correction_verified": "Changed five OpenAPI warnings to five existing warnings: three OpenAPI and two dependency deprecations.",
+  "limitations": [
+    "No tests, provider calls, production writes, operational changes, or tracked-file edits performed.",
+    "Production assertions are checked against the supplied fresh closeout snapshot; this review did not independently reopen the database.",
+    "Raw data preservation relies on the accepted independent import audit; the three raw archives were not rehashed again for document closeout.",
+    "Only the untracked closeout draft was present at review; root will commit the document and this evidence afterward."
+  ],
+  "evidence_sha256": {
+    "docs/CLOSEOUT_2026-09-19.md": "d643e24381ee318dc13bd08d0c527eb71d05df6c0e41d2459b7245a1e4ee3d2c",
+    "logs/day8-data-closeout-state.json": "66da9d960d5889192c65cc4fb91211686c89478e6f636e395d7e54be26e98fb8",
+    "docs/qa/HFDATALIBRARY_INDEPENDENT_QA.json": "cff4ac5dc1d1715e4c52116b98146f84cd15b7edf9203fd14c63050ee780bd28",
+    "docs/HFDATALIBRARY_AUDIT.md": "d450eb790c2acbc6fe9bb29a779b5770fcc4f4eae6b3fa2c9873aef91e7db802",
+    "logs/day8-final-full-regression.log": "bb6c28c816a64f6891e4fe5ecb979d43341492000d0347fc77e084cdcd711bea",
+    "docs/qa/DAY8_OBSERVED_ASSETS_QA.md": "973ed8826aefd4d19156521309c0e53e4d140bb386b6ef418cd99229f99a8d2f",
+    "docs/qa/DAY8_OBSERVED_ASSETS_REAL_QA.md": "3b96c31eec3deaaa895a26caa36f65fde70edf1cac4e1467e6db988ec35f2b36",
+    "logs/DAY8_ACCEPTANCE_GAPS_QA.md": "e228ffcce5f2745becf8126858b4ee4bc1b20c2c1d7fd4af056a782eaddb46cf"
+  }
+}
