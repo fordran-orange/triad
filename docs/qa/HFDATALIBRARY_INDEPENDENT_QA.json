@@ -1,0 +1,175 @@
+{
+  "qa_time": "2026-09-19T23:42:00.591322+00:00",
+  "git_head": "32bb237d0fe9906c528c7dc17a70c5f6601f853f",
+  "reviewed_files": {
+    "tools/audit_hfdatalibrary.py": "af17bd6b382dd2dffbc7774b9572db805c0fc44d699cc08acf8f6d25dd4a246f",
+    "tests/test_hfdatalibrary_audit.py": "43853d0786cea2c7a07989f1f017f1c0342e53c3c916fbf20d79012596240424",
+    "docs/HFDATALIBRARY_AUDIT.md": "d450eb790c2acbc6fe9bb29a779b5770fcc4f4eae6b3fa2c9873aef91e7db802"
+  },
+  "datasets": {
+    "SPY": {
+      "compressed_hash": "3cb44d868a78c6b90c30bb98f6bd795f9c3618ba041c4fad3912905aa69e1d47",
+      "payload_hash": "cf2c5ada2b671bce11ab1aefcda2ecf71df57ed64fe8b7e1b8c97d4cfae173b6",
+      "extracted_hash": "cf2c5ada2b671bce11ab1aefcda2ecf71df57ed64fe8b7e1b8c97d4cfae173b6",
+      "uncompressed_size": 26345945,
+      "compressed_size": 20601644,
+      "stats": {
+        "total_rows": 950529,
+        "observed_dates": 2514,
+        "first_timestamp_local": "2016-09-19 09:30:00",
+        "last_timestamp_local": "2026-09-18 15:59:00",
+        "observed_trading_dates": 2514,
+        "expected_sessions": 2514,
+        "expected_regular_bars": 976680,
+        "actual_unique_regular_bars": 950493,
+        "regular_rows": 950493,
+        "pre_market_rows": 0,
+        "post_market_rows": 36,
+        "closed_or_other_rows": 0,
+        "regular_coverage_percent": 97.318774
+      },
+      "checks": {
+        "duplicate_timestamps": 0,
+        "out_of_order_records": 0,
+        "invalid_ohlc": 0,
+        "negative_price_rows": 0,
+        "zero_price_rows": 0,
+        "negative_volume": 0,
+        "zero_volume": 0,
+        "malformed_rows": 0,
+        "off_minute_timestamps": 0,
+        "dst_ambiguous_or_nonexistent": 0,
+        "unexpected_upstream_source": 0,
+        "source_boundary_inconsistencies": 0,
+        "missing_expected_bars": 26187,
+        "missing_expected_sessions": 0
+      },
+      "manifest_and_core_registration_verified": true,
+      "canonical_ineligible_verified": true,
+      "partial_sessions": 2475,
+      "post_close_rows_only_on_early_closes": true
+    },
+    "QQQ": {
+      "compressed_hash": "58ef2a8b11d4b67f169f3ab745023b1d79722fb856586caee55b50d6f41a5eb7",
+      "payload_hash": "ad3cdc78a91c9ba3bd16a9e42ae3a806c7b30c870177ed80a492885e3236a521",
+      "extracted_hash": "ad3cdc78a91c9ba3bd16a9e42ae3a806c7b30c870177ed80a492885e3236a521",
+      "uncompressed_size": 25818150,
+      "compressed_size": 20377960,
+      "stats": {
+        "total_rows": 947519,
+        "observed_dates": 2514,
+        "first_timestamp_local": "2016-09-19 09:30:00",
+        "last_timestamp_local": "2026-09-18 15:55:00",
+        "observed_trading_dates": 2514,
+        "expected_sessions": 2514,
+        "expected_regular_bars": 976680,
+        "actual_unique_regular_bars": 947456,
+        "regular_rows": 947456,
+        "pre_market_rows": 0,
+        "post_market_rows": 63,
+        "closed_or_other_rows": 0,
+        "regular_coverage_percent": 97.007822
+      },
+      "checks": {
+        "duplicate_timestamps": 0,
+        "out_of_order_records": 0,
+        "invalid_ohlc": 0,
+        "negative_price_rows": 0,
+        "zero_price_rows": 0,
+        "negative_volume": 0,
+        "zero_volume": 0,
+        "malformed_rows": 0,
+        "off_minute_timestamps": 0,
+        "dst_ambiguous_or_nonexistent": 0,
+        "unexpected_upstream_source": 0,
+        "source_boundary_inconsistencies": 0,
+        "missing_expected_bars": 29224,
+        "missing_expected_sessions": 0
+      },
+      "manifest_and_core_registration_verified": true,
+      "canonical_ineligible_verified": true,
+      "partial_sessions": 2488,
+      "post_close_rows_only_on_early_closes": true
+    },
+    "ITOT": {
+      "compressed_hash": "ae9603c267420d0ca812ae170f2fe60db5e7d59cb267ef686b53f39f455348c0",
+      "payload_hash": "2d103869d7929aee783862599c619a340ab51e4e002d8c58aa06897d831cec17",
+      "extracted_hash": "2d103869d7929aee783862599c619a340ab51e4e002d8c58aa06897d831cec17",
+      "uncompressed_size": 12130203,
+      "compressed_size": 9475607,
+      "stats": {
+        "total_rows": 627060,
+        "observed_dates": 2514,
+        "first_timestamp_local": "2016-09-19 09:30:00",
+        "last_timestamp_local": "2026-09-18 15:54:00",
+        "observed_trading_dates": 2514,
+        "expected_sessions": 2514,
+        "expected_regular_bars": 976680,
+        "actual_unique_regular_bars": 627060,
+        "regular_rows": 627060,
+        "pre_market_rows": 0,
+        "post_market_rows": 0,
+        "closed_or_other_rows": 0,
+        "regular_coverage_percent": 64.203219
+      },
+      "checks": {
+        "duplicate_timestamps": 0,
+        "out_of_order_records": 0,
+        "invalid_ohlc": 0,
+        "negative_price_rows": 0,
+        "zero_price_rows": 0,
+        "negative_volume": 0,
+        "zero_volume": 0,
+        "malformed_rows": 0,
+        "off_minute_timestamps": 0,
+        "dst_ambiguous_or_nonexistent": 0,
+        "unexpected_upstream_source": 0,
+        "source_boundary_inconsistencies": 0,
+        "missing_expected_bars": 349620,
+        "missing_expected_sessions": 0
+      },
+      "manifest_and_core_registration_verified": true,
+      "canonical_ineligible_verified": true,
+      "partial_sessions": 2513,
+      "post_close_rows_only_on_early_closes": true
+    }
+  },
+  "findings": [
+    {
+      "issue": "Optional calendar imported unconditionally could break fresh-environment test collection",
+      "status": "RESOLVED",
+      "correction": "Calendar import moved into inspect; data algorithm unchanged",
+      "verified": "Independent module import with exchange_calendars imports forcibly blocked passed; safety/regression tests rerun 11 passed, 2 skipped",
+      "original_implementation_hash": "5fe60d156eb21a64588fb0f91b37b3d136a53fb50e32287d144b0af4bcd5ea29",
+      "corrected_implementation_hash": "af17bd6b382dd2dffbc7774b9572db805c0fc44d699cc08acf8f6d25dd4a246f"
+    }
+  ],
+  "test_run": "11 passed, 2 integration tests skipped; tests/test_hfdatalibrary_audit.py tests/test_integration_data.py tests/test_research_review.py tests/test_external_integrations.py",
+  "report_path": "C:\\Triad\\data\\raw\\HFDataLibrary\\20260919T233952760505Z\\report.json",
+  "result": "PASS",
+  "limitations": [
+    "Full live integration suites intentionally not enabled: their fixtures initialize/reset state. Core registration and ineligibility independently verified via read-only real DB calls.",
+    "Naive source timestamps cannot authenticate offsets or interval-label convention.",
+    "Vendor adjustment/vintage claims require external evidence; QA confirms conservative FAIL handling."
+  ],
+  "initial_reviewed_files": {
+    "tools/audit_hfdatalibrary.py": "5fe60d156eb21a64588fb0f91b37b3d136a53fb50e32287d144b0af4bcd5ea29",
+    "tests/test_hfdatalibrary_audit.py": "43853d0786cea2c7a07989f1f017f1c0342e53c3c916fbf20d79012596240424"
+  },
+  "revision_note": "Data report correctly records the pre-correction script hash. Independent data recomputation verifies that run. Corrected final script has only lazy-import adjustment, independently reviewed and tested.",
+  "git_status": "?? docs/HFDATALIBRARY_AUDIT.md\n?? tests/test_hfdatalibrary_audit.py\n?? tools/audit_hfdatalibrary.py\n",
+  "adversarial_tests": {
+    "status": "PASS",
+    "tests": [
+      "CRC corruption rejected without output",
+      "Concurrent destination creation preserved",
+      "Embedded gzip filename ignored",
+      "Source unchanged"
+    ]
+  },
+  "qa_scripts": [
+    "logs/hfdatalibrary-independent-qa.py",
+    "logs/hfdatalibrary-qa-adversarial.py",
+    "logs/hfdatalibrary-qa-finalize.py"
+  ]
+}
