@@ -7,6 +7,9 @@ import re
 import subprocess
 from pathlib import Path
 
+from trading_core import work as work_module
+from trading_core.integrations import contracts as contracts_module
+from trading_core.integrations import readiness as readiness_module
 from trading_core.integrations.readiness import ReadinessRequest
 from trading_core.security import ensure_no_secret
 from trading_core.work import now
@@ -84,14 +87,13 @@ def readiness_reference(root, metadata, catalog):
         )
     # The generated schema must describe the same backend revision as the excerpts.
     # Changed/candidate backend sources are never accepted as trusted reference.
-    loaded_root = Path(__file__).resolve().parents[3]
-    for path in (
-        "app/trading_core/integrations/contracts.py",
-        "app/trading_core/integrations/readiness.py",
-        "app/trading_core/work.py",
-    ):
+    for path, module in {
+        "app/trading_core/integrations/contracts.py": contracts_module,
+        "app/trading_core/integrations/readiness.py": readiness_module,
+        "app/trading_core/work.py": work_module,
+    }.items():
         data = _blob(root, base, path)
-        if (loaded_root / path).read_text(encoding="utf-8") != data.decode("utf-8"):
+        if Path(module.__file__).read_text(encoding="utf-8") != data.decode("utf-8"):
             raise PermissionError("Loaded schema differs from trusted backend base: " + path)
     for wiring_path, required in {
         "app/trading_core/api.py": (

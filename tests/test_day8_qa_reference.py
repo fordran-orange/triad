@@ -116,6 +116,16 @@ def test_reference_ceiling_denies_instead_of_silent_truncation(metadata, monkeyp
         module.readiness_reference(ROOT, metadata, {})
 
 
+def test_schema_identity_uses_actual_loaded_package_path(metadata, monkeypatch, tmp_path):
+    installed = tmp_path / "installed" / "trading_core" / "integrations" / "readiness.py"
+    installed.parent.mkdir(parents=True)
+    installed.write_bytes(
+        module._blob(ROOT, metadata["base_commit"], "app/trading_core/integrations/readiness.py")
+    )
+    monkeypatch.setattr(module.readiness_module, "__file__", str(installed))
+    assert module.readiness_reference(ROOT, metadata, {})["request_schema"]["properties"]
+
+
 def test_legacy_empty_hook_and_review_packet_binding():
     dev = Development.__new__(Development)
     assert dev.qa_references({}) == {}
