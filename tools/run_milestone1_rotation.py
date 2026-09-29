@@ -15,14 +15,15 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from uuid import uuid4
+from urllib.error import URLError
 from urllib.request import urlopen
+from uuid import uuid4
 
 from trading_core.contracts import AgentRunRequest, AgentRunResult
 from trading_core.git_tools import GitChanges
 from trading_core.providers.autonomous_cli import AutonomousCLIRun
-from trading_core.providers.control import ProviderControl
 from trading_core.providers.contracts import PREFERRED
+from trading_core.providers.control import ProviderControl
 from trading_core.providers.process import clean_environment
 from trading_core.work import now
 
@@ -63,7 +64,7 @@ def machine_checks(root: Path) -> list[dict]:
 
 def core_live(url="http://127.0.0.1:8000/health/live") -> bool:
     try:
-        with urlopen(url, timeout=3) as response:  # noqa: S310 - fixed loopback URL
+        with urlopen(url, timeout=3) as response:
             data = json.loads(response.read().decode())
         return data.get("status") == "ok"
     except Exception:
@@ -158,59 +159,58 @@ def main():
     journal = []
     handoff: dict = {"from": "CORE", "summary": "Start of Milestone 1 rotation", "commit": base}
 
-    try:
-        for agent in ROTATION:
-            transport_id = PREFERRED[agent]
-            adapter = control.transport(transport_id)
-            detected = adapter.detect()
-            auth = adapter.authentication_status()
-            if detected.get("install_status") != "INSTALLED":
-                raise RuntimeError(f"{agent} provider is not installed: {detected}")
-            if detected.get("compatibility_status") == "VERSION_MISMATCH":
-                raise RuntimeError(f"{agent} provider version mismatch: {detected}")
-            if auth.get("auth_state") != "AUTHENTICATED":
-                raise RuntimeError(f"{agent} subscription is not authenticated: {auth}")
+    for agent in ROTATION:
+        transport_id = PREFERRED[agent]
+        adapter = control.transport(transport_id)
+        detected = adapter.detect()
+        auth = adapter.authentication_status()
+        if detected.get("install_status") != "INSTALLED":
+            raise RuntimeError(f"{agent} provider is not installed: {detected}")
+        if detected.get("compatibility_status") == "VERSION_MISMATCH":
+            raise RuntimeError(f"{agent} provider version mismatch: {detected}")
+        if auth.get("auth_state") != "AUTHENTICATED":
+            raise RuntimeError(f"{agent} subscription is not authenticated: {auth}")
 
-            request = request_for(agent, run_id, args.objective, workspace, handoff)
-            runner = AutonomousCLIRun(adapter.command(), agent)
-            result, inputs, outputs = runner.execute(request, workspace, adapter.model)
-            if not runner.actual_model:
-                raise RuntimeError(f"{agent} run did not provide evidence of the actual model")
+        request = request_for(agent, run_id, args.objective, workspace, handoff)
+        runner = AutonomousCLIRun(adapter.command(), agent)
+        result, inputs, outputs = runner.execute(request, workspace, adapter.model)
+        if not runner.actual_model:
+            raise RuntimeError(f"{agent} run did not provide evidence of the actual model")
 
-            metadata, diff_checks = git.commit_autonomous(
-                metadata, agent, summary="Milestone 1 autonomous rotation"
-            )
-            proof = {
-                "proof_id": request.run_id,
-                "success": True,
-                "mode": "REAL",
-                "agent": agent,
-                "transport": transport_id,
-                "provider": adapter.provider,
-                "actual_model": runner.actual_model,
-                "billing_source": "SUBSCRIPTION",
-                "completed_at": now().isoformat(),
-                "boundary": "CORE_RUN_WORKTREE",
-                "input_tokens": inputs if inputs is not None else "UNKNOWN",
-                "output_tokens": outputs if outputs is not None else "UNKNOWN",
-                "change_commit": metadata["change_commit"],
-                "files": diff_checks["files"],
-            }
-            journal.append(
-                {
-                    **proof,
-                    "summary": result.summary,
-                    "recommended_next_step": result.recommended_next_step,
-                    "handoff_request": result.handoff_request,
-                }
-            )
-            handoff = {
-                "from": agent,
+        metadata, diff_checks = git.commit_autonomous(
+            metadata, agent, summary="Milestone 1 autonomous rotation"
+        )
+        proof = {
+            "proof_id": request.run_id,
+            "success": True,
+            "mode": "REAL",
+            "agent": agent,
+            "transport": transport_id,
+            "provider": adapter.provider,
+            "actual_model": runner.actual_model,
+            "billing_source": "SUBSCRIPTION",
+            "completed_at": now().isoformat(),
+            "boundary": "CORE_RUN_WORKTREE",
+            "input_tokens": inputs if inputs is not None else "UNKNOWN",
+            "output_tokens": outputs if outputs is not None else "UNKNOWN",
+            "change_commit": metadata["change_commit"],
+            "files": diff_checks["files"],
+        }
+        journal.append(
+            {
+                **proof,
                 "summary": result.summary,
-                "commit": metadata["change_commit"],
-                "files": diff_checks["files"],
                 "recommended_next_step": result.recommended_next_step,
+                "handoff_request": result.handoff_request,
             }
+        )
+        handoff = {
+            "from": agent,
+            "summary": result.summary,
+            "commit": metadata["change_commit"],
+            "files": diff_checks["files"],
+            "recommended_next_step": result.recommended_next_step,
+        }
 
         checks = machine_checks(workspace)
 
