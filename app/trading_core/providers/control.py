@@ -159,6 +159,7 @@ class ProviderControl:
     def _refresh(self, transport_id):
         adapter = self.transport(transport_id)
         data = adapter.detect()
+        local_identity_unavailable = False
         if adapter.transport_type == "CLI":
             missing = data.get("install_status") in {"NOT_FOUND", "NOT_INSTALLED"}
             mismatch = data.get("compatibility_status") == "VERSION_MISMATCH"
@@ -209,14 +210,25 @@ class ProviderControl:
             if probe.status == "AVAILABLE":
                 data["auth_state"] = "AUTHENTICATED"
             if adapter.transport_type == "LOCAL":
+                local = adapter.adapter()
+                # The configured endpoint remains known even while its server is down.
+                data["endpoint"] = local.base
                 try:
                     data.update(adapter.list_models())
-                    data["local_version"] = (
-                        adapter.adapter().transport("/api/version").get("version")
+                    version = local.transport("/api/version").get("version")
+                    if not isinstance(version, str) or not version.strip():
+                        raise ProviderError("UNAVAILABLE", "LocalVersionUnavailable")
+                    data["local_version"] = version
+                except ProviderError as exc:
+                    local_identity_unavailable = True
+                    data.update(
+                        reachability="UNAVAILABLE", error=data.get("error") or exc.error_class
                     )
-                except ProviderError:
-                    pass
         previous = self.snapshot(transport_id)
+        if local_identity_unavailable and previous.get("endpoint") == data.get("endpoint"):
+            # Absence of a version probe is not evidence that the installed version changed.
+            # Retain identity/proofs, but the current probe error still blocks readiness.
+            data["local_version"] = previous.get("local_version")
         changed = any(
             previous.get(key) != data.get(key)
             for key in ("cli_version", "executable", "endpoint", "local_version")
