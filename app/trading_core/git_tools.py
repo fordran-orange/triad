@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 from trading_core.control import beneath, relative_path
+from trading_core.governance import assert_product_merge_allowed
 from trading_core.security import ensure_no_secret
 from trading_core.settings import ROOT
 
@@ -235,7 +236,8 @@ class GitChanges:
             raise PermissionError("Review commit no longer matches")
         if self.clean_baseline() != metadata["base_commit"]:
             raise PermissionError("Baseline moved; fresh review required")
-        self.verify(metadata, limits)
+        proof = self.verify(metadata, limits)
+        assert_product_merge_allowed(proof["files"])
         self.git(
             "-c",
             "core.autocrlf=false",
