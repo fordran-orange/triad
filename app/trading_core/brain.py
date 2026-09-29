@@ -291,8 +291,15 @@ class Brain:
                 version_id = entity_id + ":" + data["dataset_version"]
                 node(tx, "DatasetVersion", version_id, checksum=data["checksum"])
                 edge(tx, "DatasetVersion", version_id, "PART_OF", "Dataset", entity_id)
-                for raw in data["raw_sources"]:
-                    edge(tx, "RawDataset", raw["raw_id"], "NORMALIZED_INTO", "Dataset", entity_id)
+                # Failed retained archives are catalog evidence, not normalized datasets.
+                # Older importers retained source metadata without RawDataset identities.
+                # Keep their FAIL node/version, without inventing IDs or normalization links.
+                retained_failure = data["quality_status"] == "FAIL" and not data.get(
+                    "canonical_paths"
+                )
+                if not retained_failure:
+                    for raw in data["raw_sources"]:
+                        edge(tx, "RawDataset", raw["raw_id"], "NORMALIZED_INTO", "Dataset", entity_id)
                 if data["provenance"].get("parent_dataset"):
                     edge(
                         tx,
