@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from trading_core.contracts import AgentRunResult
 from trading_core.providers.process import ManagedProcess
 from trading_core.runtime import ProviderError
@@ -79,8 +81,8 @@ def _extract_result(text: str, run_id: str) -> AgentRunResult:
         if candidate.get("run_id") == run_id:
             try:
                 return AgentRunResult.model_validate(candidate)
-            except Exception:
-                continue
+            except ValidationError:
+                pass
         for key in ("structured_output", "result", "output", "text", "message"):
             nested = candidate.get(key)
             if isinstance(nested, str):
