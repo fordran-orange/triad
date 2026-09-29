@@ -86,7 +86,8 @@ def _validate(records, definition, request, *, conn):
         if (
             snapshot.get("proof_id") != identifier
             or proof_row["work_item_id"] != proof.get("work_item_id")
-            or not proof.get("success")
+            or snapshot.get("success") is not True
+            or proof.get("success") is not True
             or proof.get("mode") != "REAL"
             or proof.get("kind") != name
             or any(
@@ -119,7 +120,17 @@ def _validate(records, definition, request, *, conn):
             or run["payload"].get("status") != "SUCCESS"
             or run["work_item_id"] != proof["work_item_id"]
             or usage["work_item_id"] != proof["work_item_id"]
-            or not usage["payload"].get("usage_known")
+            or usage["payload"].get("usage_known") is not True
+            or any(
+                run["payload"].get(k) != v
+                for k, v in {
+                    "agent": request.agent_id,
+                    "provider": request.provider,
+                    "transport": request.transport,
+                    "actual_model": request.model,
+                    "billing_source": "SUBSCRIPTION",
+                }.items()
+            )
             or any(
                 usage["payload"].get(k) != v
                 for k, v in {
@@ -127,6 +138,7 @@ def _validate(records, definition, request, *, conn):
                     "mode": "REAL",
                     "run_id": proof["run_id"],
                     "actual_model": request.model,
+                    "provider": request.provider,
                     "transport": request.transport,
                     "billing_source": "SUBSCRIPTION",
                     "agent": request.agent_id,

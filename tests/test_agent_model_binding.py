@@ -41,7 +41,17 @@ def setup(engine):
         records.store.create(work)
         run_id = uid()
         records.ledger.put(
-            "TransportRun", {"run_id": run_id, "status": "SUCCESS"}, work_id=work.work_item_id
+            "TransportRun",
+            {
+                "run_id": run_id,
+                "status": "SUCCESS",
+                "actual_model": "grok-4.7",
+                "agent": "GROK",
+                "provider": "xai",
+                "transport": "grok_build_cli",
+                "billing_source": "SUBSCRIPTION",
+            },
+            work_id=work.work_item_id,
         )
         usage_id = records.ledger.put(
             "Usage",
@@ -51,6 +61,7 @@ def setup(engine):
                 "usage_known": True,
                 "mode": "REAL",
                 "actual_model": "grok-4.7",
+                "provider": "xai",
                 "transport": "grok_build_cli",
                 "billing_source": "SUBSCRIPTION",
                 "agent": "GROK",
@@ -291,3 +302,84 @@ def test_binding_rejects_active_run_and_becomes_ineligible_on_capability_superse
         proposal, implementation.implementation_run_id, implementation.change_commit
     )
     assert not agents.get("GROK")["execution_eligible"]
+
+
+def test_proof_and_usage_success_flags_are_strict_booleans(engine):
+    agents, records, _, request, status, _ = setup(engine)
+    implementation = approve(records, request)
+    original = deepcopy(status["workitem"])
+    for value in ("false", "true", 1, [], None):
+        proof = {**original, "success": value}
+        proof.pop("proof_id")
+        records.ledger.put(
+            "TransportVerification",
+            proof,
+            identifier=request.work_proof,
+            work_id=original["work_item_id"],
+        )
+        with pytest.raises(PermissionError):
+            publish(agents, request, implementation)
+    proof = dict(original)
+    proof.pop("proof_id")
+    records.ledger.put(
+        "TransportVerification",
+        proof,
+        identifier=request.work_proof,
+        work_id=original["work_item_id"],
+    )
+    status["workitem"]["success"] = "false"
+    records.ledger.put("TransportStatus", status, identifier="transport-status-grok_build_cli")
+    with pytest.raises(PermissionError):
+        publish(agents, request, implementation)
+    status["workitem"]["success"] = True
+    records.ledger.put("TransportStatus", status, identifier="transport-status-grok_build_cli")
+    usage = records.ledger.get(original["usage_id"])
+    for value in ("false", "true", 1, None):
+        data = {k: v for k, v in usage.items() if k not in {"id", "kind", "work_item_id"}}
+        data["usage_known"] = value
+        records.ledger.put(
+            "Usage", data, identifier=original["usage_id"], work_id=original["work_item_id"]
+        )
+        with pytest.raises(PermissionError):
+            publish(agents, request, implementation)
+
+
+def test_run_and_usage_provider_identity_must_match(engine):
+    agents, records, _, request, status, _ = setup(engine)
+    implementation = approve(records, request)
+    proof = status["workitem"]
+    run = next(
+        r for r in records.ledger.records("TransportRun", 100) if r["run_id"] == proof["run_id"]
+    )
+    run_data = {k: v for k, v in run.items() if k not in {"id", "kind", "work_item_id"}}
+    for key, value in (
+        ("agent", "CLAUDE"),
+        ("provider", "anthropic"),
+        ("transport", "claude_code_cli"),
+        ("billing_source", "API"),
+        ("actual_model", "grok-4.6"),
+    ):
+        records.ledger.put(
+            "TransportRun",
+            {**run_data, key: value},
+            identifier=run["id"],
+            work_id=proof["work_item_id"],
+        )
+        with pytest.raises(PermissionError):
+            publish(agents, request, implementation)
+    records.ledger.put(
+        "TransportRun", run_data, identifier=run["id"], work_id=proof["work_item_id"]
+    )
+    usage = records.ledger.get(proof["usage_id"])
+    data = {k: v for k, v in usage.items() if k not in {"id", "kind", "work_item_id"}}
+    records.ledger.put(
+        "Usage",
+        {**data, "provider": "anthropic"},
+        identifier=usage["id"],
+        work_id=proof["work_item_id"],
+    )
+    with pytest.raises(PermissionError):
+        publish(agents, request, implementation)
+    records.ledger.put("Usage", data, identifier=usage["id"], work_id=proof["work_item_id"])
+    publish(agents, request, implementation)
+    assert agents.get("GROK")["model"] == "grok-4.7"
