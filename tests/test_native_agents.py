@@ -144,6 +144,7 @@ def test_acp_subscription_metadata_required():
         [
             {
                 "_meta": {"agentVersion": native.VERSIONS["GROK"]},
+                "protocolVersion": 1,
                 "authMethods": [{"id": "cached_token"}],
             },
             {

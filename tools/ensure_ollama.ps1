@@ -61,9 +61,11 @@ try {
     if (!$tags) {
         $listener = Get-NetTCPConnection -LocalPort $endpoint.Port -State Listen -ErrorAction SilentlyContinue
         if ($listener) { throw 'Configured Ollama port is occupied but its model API is unavailable; no process was stopped' }
-        $binary = Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe'
-        if (!(Test-Path -LiteralPath $binary -PathType Leaf)) {
-            throw 'Ollama executable is missing from the current user installation; install or repair explicitly'
+        $resolver = Join-Path $TriadRoot 'tools/resolve_provider.py'
+        $python = Join-Path $TriadRoot '.venv/Scripts/python.exe'
+        $binary = & $python $resolver
+        if ($LASTEXITCODE -ne 0 -or !$binary -or !(Test-Path -LiteralPath $binary -PathType Leaf)) {
+            throw 'No responsive Ollama installation found; configure TRIAD_OLLAMA_EXECUTABLE'
         }
         $modelPath = [Environment]::GetEnvironmentVariable('OLLAMA_MODELS', 'User')
         if (!$modelPath) { $modelPath = $env:OLLAMA_MODELS }

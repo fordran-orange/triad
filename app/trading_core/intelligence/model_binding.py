@@ -43,7 +43,7 @@ def _record(conn, identifier, kind):
     return row
 
 
-def _validate(records, definition, request, *, conn):
+def _validate(records, definition, request, *, conn, check_capabilities=True):
     if (
         definition["agent_type"] != "static"
         or definition["agent_id"] != request.agent_id
@@ -53,11 +53,13 @@ def _validate(records, definition, request, *, conn):
         or fingerprint(definition) != request.base_definition_digest
         or definition["provider"] != request.provider
         or definition["preferred_transport"] != request.transport
-        or SPECS.get(request.transport, {}).get("type") != "CLI"
+        or SPECS.get(request.transport, {}).get("type")
+        not in ({"CLI"} if check_capabilities else {"CLI", "LOCAL"})
         or SPECS[request.transport]["agent"] != request.agent_id
         or SPECS[request.transport]["provider"] != request.provider
     ):
         raise PermissionError("Model binding does not match the immutable static grant")
+    billing = "LOCAL" if request.transport == "ollama" else "SUBSCRIPTION"
     status = _record(conn, "transport-status-" + request.transport, "TransportStatus")["payload"]
     policy_row = conn.execute(
         "SELECT owner,payload FROM core.day3_records WHERE id=%s AND kind='ProviderPolicy'",
@@ -72,7 +74,7 @@ def _validate(records, definition, request, *, conn):
     )
     if (
         not ProviderControl.proven(status)
-        or status.get("billing_source") != "SUBSCRIPTION"
+        or status.get("billing_source") != billing
         or policy.agent != request.agent_id
         or policy.preferred_transport != request.transport
         or policy.models.get(request.transport, "Auto") not in {"Auto", request.model}
@@ -97,7 +99,7 @@ def _validate(records, definition, request, *, conn):
                     "provider": request.provider,
                     "transport": request.transport,
                     "actual_model": request.model,
-                    "billing_source": "SUBSCRIPTION",
+                    "billing_source": billing,
                 }.items()
             )
             or any(
@@ -128,7 +130,7 @@ def _validate(records, definition, request, *, conn):
                     "provider": request.provider,
                     "transport": request.transport,
                     "actual_model": request.model,
-                    "billing_source": "SUBSCRIPTION",
+                    "billing_source": billing,
                 }.items()
             )
             or any(
@@ -140,13 +142,21 @@ def _validate(records, definition, request, *, conn):
                     "actual_model": request.model,
                     "provider": request.provider,
                     "transport": request.transport,
-                    "billing_source": "SUBSCRIPTION",
+                    "billing_source": billing,
                     "agent": request.agent_id,
                 }.items()
             )
         ):
             raise PermissionError("Model binding requires matching successful run and known usage")
+        identity = getattr(request, "runtime_identity", None)
+        if identity is not None and any(
+            record.get("runtime_identity") != identity
+            for record in (status, proof, usage["payload"], run["payload"])
+        ):
+            raise PermissionError("Compatibility evidence belongs to a different installation")
         proofs[name] = proof
+    if not check_capabilities:
+        return proofs
     current = {v["id"]: v for v in Capabilities(records).current(conn=conn)}
     names = set()
     for identifier in request.capability_versions:
@@ -226,6 +236,11 @@ def publish_model_binding(records, request, implementation_id, commit):
 
 
 def effective_model(records, definition, *, conn):
+    from trading_core.providers.recovery import effective
+
+    recovered = effective(records, definition, conn)
+    if recovered is not None:
+        return recovered
     rows = [
         r
         for r in records.list("AgentModelBinding", conn=conn)

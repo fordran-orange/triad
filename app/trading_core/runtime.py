@@ -513,7 +513,16 @@ class Runtime:
             output.append(data)
         return output
 
-    def execute(self, request, *, mode="REAL", day=None, adapter=None, transport_id=None):
+    def execute(
+        self,
+        request,
+        *,
+        mode="REAL",
+        day=None,
+        adapter=None,
+        transport_id=None,
+        compatibility_probe=False,
+    ):
         from trading_core.intelligence.agents import Agents
         from trading_core.intelligence.records import Records
 
@@ -529,6 +538,7 @@ class Runtime:
                     day=day,
                     adapter=adapter,
                     transport_id=transport_id,
+                    compatibility_probe=compatibility_probe,
                     configured_agent=agents.get(reservation) if reservation else None,
                 )
             finally:
@@ -543,6 +553,7 @@ class Runtime:
         adapter=None,
         transport_id=None,
         configured_agent=None,
+        compatibility_probe=False,
     ):
         request = AgentRunRequest.model_validate(request.model_dump())
         select_transport = adapter is None and mode == "REAL"
@@ -633,6 +644,20 @@ class Runtime:
             adapter = TransportRouter(ProviderControl(self.ledger)).select(
                 request, input_ceiling, transport_id
             )
+        if (
+            select_transport
+            and hasattr(adapter, "identity_data")
+            and adapter.transport_type != "API"
+        ):
+            adapter.verified_runtime_identity = adapter.identity_data()
+            if not compatibility_probe:
+                snapshot = adapter.control.snapshot(adapter.transport_id)
+                if not adapter.control.proven(snapshot) or any(
+                    (snapshot.get(k) or {}).get("runtime_identity")
+                    != adapter.verified_runtime_identity
+                    for k in ("test", "workitem")
+                ):
+                    raise ProviderError("UNAVAILABLE", "RuntimeCompatibilityCheckRequired")
         capability_route = None
         if mode == "REAL":
             from trading_core.intelligence.records import Records
@@ -641,6 +666,23 @@ class Runtime:
             capability_route = Routing(Records(self.ledger.store)).validate_execution(
                 request, adapter
             )
+        if (
+            select_transport
+            and getattr(adapter, "model", None) == "Auto"
+            and (not compatibility_probe or request.role == "IMPLEMENT")
+        ):
+            # Freeze the verified model for this job; a later default-model update
+            # is reconciled for subsequent assignments, never silently substituted.
+            selected_model = (
+                capability_route["model"]
+                if capability_route
+                else (adapter.control.snapshot(adapter.transport_id).get("workitem") or {}).get(
+                    "actual_model"
+                )
+            )
+            if not selected_model:
+                raise ProviderError("UNAVAILABLE", "RuntimeCompatibilityCheckRequired")
+            adapter.model = selected_model
         if getattr(adapter, "transport_type", None) == "CLI":
             # Native harnesses add tool definitions and protocol context. Reserve
             # this overhead rather than pretending the user prompt is the whole input.
@@ -788,6 +830,13 @@ class Runtime:
                 result.model_dump(mode="json") | {"mode": mode},
                 work_id=request.work_item_id,
             )
+            if (
+                select_transport
+                and hasattr(adapter, "identity_data")
+                and adapter.transport_type != "API"
+                and adapter.identity_data() != adapter.verified_runtime_identity
+            ):
+                raise ProviderError("UNAVAILABLE", "RuntimeChangedDuringExecution")
             status = "SUCCESS"
             error = None
         except Exception as exc:

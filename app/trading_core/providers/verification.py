@@ -11,10 +11,10 @@ from trading_core.support import support
 from trading_core.work import ComputeBudget, State, WorkItem, now, uid
 
 
-def verify(control, transport_id, acceptance=False):
+def verify(control, transport_id, acceptance=False, *, expected_epoch=None):
     adapter = control.transport(transport_id)
     ledger = control.ledger
-    ledger.guard(adapter.agent)
+    ledger.guard(adapter.agent, epoch=expected_epoch)
     if adapter.transport_type == "API" and not control.secrets.has_secret(transport_id):
         return {
             "transport": transport_id,
@@ -58,7 +58,7 @@ def verify(control, transport_id, acceptance=False):
                         review_required=False,
                     )
                 )
-                parent, _ = cycles.start_work(parent)
+                parent, _ = cycles.start_work(parent, epoch=expected_epoch)
                 proof["parent_work_item_id"] = parent.work_item_id
                 source = (
                     (
@@ -77,7 +77,13 @@ def verify(control, transport_id, acceptance=False):
                     )
                 )
                 result = support(
-                    cycles, parent.work_item_id, "CODEX", "SUMMARY", source, objective=objective
+                    cycles,
+                    parent.work_item_id,
+                    "CODEX",
+                    "SUMMARY",
+                    source,
+                    objective=objective,
+                    compatibility_probe=True,
                 )
                 proof["work_item_id"] = result["work_item_id"]
                 summary = result["result"]["summary"]
@@ -109,7 +115,7 @@ def verify(control, transport_id, acceptance=False):
                         reasoning_budget=1024,
                     )
                 )
-                work, policy = cycles.start_work(work)
+                work, policy = cycles.start_work(work, epoch=expected_epoch)
                 proof["work_item_id"] = work.work_item_id
                 request = AgentRunRequest(
                     agent_id=adapter.agent,
@@ -128,7 +134,9 @@ def verify(control, transport_id, acceptance=False):
                     required_output_schema=AgentRunResult.model_json_schema(),
                     control_epoch=ledger.get("authority-" + work.work_item_id)["epoch"],
                 )
-                response = cycles.runtime.execute(request, transport_id=transport_id)
+                response = cycles.runtime.execute(
+                    request, transport_id=transport_id, compatibility_probe=True
+                )
                 summary = response.summary
                 journal = cycles.host.journal(work, kind="review", result=summary, mode="REAL")
                 cycles.host.advance(
@@ -153,6 +161,7 @@ def verify(control, transport_id, acceptance=False):
                 actual_model=usages[0].get("actual_model"),
                 billing_source=usages[0].get("billing_source"),
                 run_id=usages[0]["run_id"],
+                runtime_identity=usages[0].get("runtime_identity"),
             )
         except Exception as exc:  # noqa: BLE001 - fixed error codes only
             proof["error"] = (

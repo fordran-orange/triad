@@ -252,7 +252,7 @@ class GrokSession:
                 },
             },
         )
-        if init.get("_meta", {}).get("agentVersion") != VERSIONS["GROK"]:
+        if init.get("protocolVersion") != 1:
             raise ProviderError("UNAVAILABLE", "NativeVersionUnsupported")
         if "cached_token" not in {m.get("id") for m in init.get("authMethods", [])}:
             raise ProviderError("AUTH_FAILED", "AuthenticationRequired")

@@ -28,7 +28,9 @@ def manifest():
     ]
 
 
-def support(cycles, parent_id, requester, capability, text, *, objective=None):
+def support(
+    cycles, parent_id, requester, capability, text, *, objective=None, compatibility_probe=False
+):
     ledger = cycles.ledger
     parent = cycles.host.store.get(parent_id)
     ensure_no_secret(text)
@@ -124,7 +126,9 @@ def support(cycles, parent_id, requester, capability, text, *, objective=None):
             },
         )
         try:
-            result = cycles.runtime.execute(request, mode="REAL", day=cycles.day)
+            result = cycles.runtime.execute(
+                request, mode="REAL", day=cycles.day, compatibility_probe=compatibility_probe
+            )
             checks = {
                 "checks": ["Validated structured helper response; not independently verified"],
                 "hashes": {},

@@ -267,6 +267,117 @@ class DailyDevelopment(Development):
 
         return readiness_reference(self.git.root, build["git"], Readiness().catalog())
 
+    def build_assignment(self, mission, objective, context, parent=None):
+        return (
+            WorkItem(
+                owner="triad",
+                mission_id=mission,
+                parent_work_item_id=parent,
+                title="Bounded product UI implementation",
+                description=objective,
+                work_type="development",
+                authority_tier=2,
+                allowed_tools=("read_file", "write_artifact"),
+                allowed_paths=FILES,
+                execution_permissions=("read", "write_code"),
+                reasoning_budget=8192,
+                compute_budget=ComputeBudget(
+                    max_input_chars=24000,
+                    max_output_tokens=6144,
+                    timeout_seconds=480,
+                    max_tool_calls=60,
+                ),
+                review_required=True,
+                reviewer="CODEX",
+                acceptance_criteria=(
+                    "Research readiness contract",
+                    "No fake real data",
+                    "Independent QA and exact governed merge",
+                ),
+            ),
+            Requirements(
+                role="IMPLEMENT",
+                capabilities=CAPS,
+                preferred_agent="CLAUDE",
+                context_chars=len(json.dumps(context)) + len(objective),
+                reason="Verified bounded UI engineering profile; independent Codex QA",
+            ),
+        )
+
+    def readiness(self, mission):
+        from trading_core.intelligence.capabilities import Capabilities
+
+        self.routing.control.monitor_connections()
+        stages = []
+        for agent in ("CODEX", "CLAUDE", "GROK"):
+            stages.append(
+                (
+                    "inspection",
+                    self.call(
+                        mission,
+                        agent,
+                        "REVIEW",
+                        "Readiness",
+                        {},
+                        paths=("app/products/triad/static/product.html",),
+                        _preview=True,
+                    ),
+                )
+            )
+        stages.append(
+            (
+                "local synthesis",
+                self.call(mission, "LOCAL_QWEN", "SUPPORT", "Readiness", {}, _preview=True),
+            )
+        )
+        stages.append(
+            ("selection", self.call(mission, "CODEX", "REVIEW", "Readiness", {}, _preview=True))
+        )
+        stages.append(("implementation", self.build_assignment(mission, "Readiness", {})))
+        stages.append(
+            (
+                "independent QA",
+                self.call(
+                    mission,
+                    "CODEX",
+                    "REVIEW",
+                    "Readiness",
+                    {},
+                    paths=FILES,
+                    excluded=("CLAUDE",),
+                    _preview=True,
+                ),
+            )
+        )
+        for agent in ("CODEX", "CLAUDE", "GROK"):
+            stages.append(
+                ("debrief", self.call(mission, agent, "REVIEW", "Readiness", {}, _preview=True))
+            )
+        versions = Capabilities(self.routing.records).current()
+        checks = []
+        for stage, (work, requirements) in stages:
+            agent = self.routing.agents.get(requirements.preferred_agent)
+            result = self.routing._candidate(agent, work, requirements, versions)
+            checks.append(
+                {
+                    "stage": stage,
+                    "agent": requirements.preferred_agent,
+                    "ready": result["eligible"],
+                    "reasons": result["exclusions"],
+                }
+            )
+        self.record("DailyReadiness", mission, checks=checks)
+        blocked = [c for c in checks if not c["ready"]]
+        if blocked:
+            raise PermissionError(
+                "Daily cycle cannot start: "
+                + "; ".join(
+                    c["agent"] + " (" + c["stage"] + "): " + ", ".join(c["reasons"])
+                    for c in blocked
+                )
+            )
+        return checks
+
     def build(self, mission, proposal, *, correction=()):
         self.approve(mission, proposal)
         base = self.git.clean_baseline()
@@ -338,39 +449,9 @@ class DailyDevelopment(Development):
             "Do not repeat file contents in the final JSON. No tests/commands/actions/claims. Host runs checks, Codex independently reviews."
         )
         work = self.routing.create(
-            WorkItem(
-                owner="triad",
-                mission_id=mission,
-                parent_work_item_id=self.daily.current(mission)["parent_work_item_id"],
-                title="Bounded product UI implementation",
-                description=objective,
-                work_type="development",
-                authority_tier=2,
-                allowed_tools=("read_file", "write_artifact"),
-                allowed_paths=FILES,
-                execution_permissions=("read", "write_code"),
-                reasoning_budget=8192,
-                compute_budget=ComputeBudget(
-                    max_input_chars=24000,
-                    max_output_tokens=6144,
-                    timeout_seconds=480,
-                    max_tool_calls=60,
-                ),
-                review_required=True,
-                reviewer="CODEX",
-                acceptance_criteria=(
-                    "Research readiness contract",
-                    "No fake real data",
-                    "Independent QA and exact governed merge",
-                ),
-            ),
-            Requirements(
-                role="IMPLEMENT",
-                capabilities=CAPS,
-                preferred_agent="CLAUDE",
-                context_chars=len(json.dumps(context)) + len(objective),
-                reason="Verified bounded UI engineering profile; independent Codex QA",
-            ),
+            *self.build_assignment(
+                mission, objective, context, self.daily.current(mission)["parent_work_item_id"]
+            )
         )
         work, policy = self.start_work(work)
         grant = issue_grant(
@@ -632,6 +713,7 @@ class DailyDevelopment(Development):
                 )
             mission = cycle.cycle_id
             try:
+                self.readiness(mission)
                 self.transition(mission, "INSPECTING", ["Current service/product inspection"])
                 self.inspect(mission)
                 self.transition(

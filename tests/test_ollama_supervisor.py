@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,18 +19,32 @@ def run(tmp_path, script, setup="", args=(), env=None):
     tools.mkdir(exist_ok=True)
     for name in ("ensure_core.ps1", "ensure_ollama.ps1", "install_core_supervisor.ps1"):
         shutil.copyfile(ROOT / "tools" / name, tools / name)
+    # Keep supervisor behavior real, but supply a fixture resolver; no vendor process runs.
+    supervisor = tools / "ensure_ollama.ps1"
+    supervisor.write_text(
+        supervisor.read_text().replace(
+            "$python = Join-Path $TriadRoot '.venv/Scripts/python.exe'",
+            "$python = '" + sys.executable + "'",
+        )
+    )
+    existing = Path(os.environ["LOCALAPPDATA"]) / "Programs/Ollama/ollama.exe"
+    (tools / "resolve_provider.py").write_text("print(" + repr(str(existing)) + ")")
     wrapper = tmp_path / "probe.ps1"
     wrapper.write_text(
-        setup + "\n& '" + str(tools / script) + "' " + " ".join(args)
-        + "\nexit $LASTEXITCODE", encoding="utf-8"
+        setup + "\n& '" + str(tools / script) + "' " + " ".join(args) + "\nexit $LASTEXITCODE",
+        encoding="utf-8",
     )
     values = os.environ.copy()
     for key in ("OLLAMA_URL", "OLLAMA_MODEL"):
         values.pop(key, None)
     values.update(env or {})
     return subprocess.run(
-        [PS, "-NoProfile", "-File", str(wrapper)], capture_output=True,
-        text=True, timeout=40, env=values, check=False,
+        [PS, "-NoProfile", "-File", str(wrapper)],
+        capture_output=True,
+        text=True,
+        timeout=40,
+        env=values,
+        check=False,
     )
 
 
@@ -38,8 +53,9 @@ TAGS = "[pscustomobject]@{models=@([pscustomobject]@{name='qwen3:4b'})}"
 
 
 def test_available_model_requires_no_launch(tmp_path):
-    result = run(tmp_path, "ensure_ollama.ps1", NO_START +
-                 "\nfunction Invoke-RestMethod { " + TAGS + " }")
+    result = run(
+        tmp_path, "ensure_ollama.ps1", NO_START + "\nfunction Invoke-RestMethod { " + TAGS + " }"
+    )
     assert result.returncode == 0, result.stderr
     assert "no inference performed" in (tmp_path / "logs/ollama-supervisor.log").read_text()
 
@@ -98,7 +114,9 @@ function Start-Process {
 
 
 def test_live_core_still_checks_ollama_without_core_restart(tmp_path):
-    setup = NO_START + """
+    setup = (
+        NO_START
+        + """
 function Invoke-RestMethod {
  param($Uri)
  if ($Uri -like '*/health/live') {return [pscustomobject]@{status='ok'}}
@@ -107,6 +125,7 @@ function Invoke-RestMethod {
 function Get-NetTCPConnection { [pscustomobject]@{OwningProcess=123} }
 function docker { throw 'LIVE_CORE_MUST_NOT_RESTART_DATABASES' }
 """
+    )
     result = run(tmp_path, "ensure_core.ps1", setup)
     assert result.returncode == 1
     assert "Core healthy" in (tmp_path / "logs/core-supervisor.log").read_text()
@@ -115,8 +134,10 @@ function docker { throw 'LIVE_CORE_MUST_NOT_RESTART_DATABASES' }
 
 def test_task_has_logon_and_indefinite_retry_without_registration(tmp_path):
     result = run(
-        tmp_path, "install_core_supervisor.ps1",
-        "function Register-ScheduledTask { throw 'MUST_NOT_REGISTER' }", ["-ValidateOnly"],
+        tmp_path,
+        "install_core_supervisor.ps1",
+        "function Register-ScheduledTask { throw 'MUST_NOT_REGISTER' }",
+        ["-ValidateOnly"],
     )
     assert result.returncode == 0, result.stderr
     task = json.loads(result.stdout)

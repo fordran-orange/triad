@@ -31,6 +31,13 @@ class Capabilities:
                     capability[name] for name in ("provider", "model", "transport", "capability")
                 )
                 versions[key] = row
+        from trading_core.providers.recovery import capabilities
+
+        for row in capabilities(self.records, conn=conn):
+            c = row["capability"]
+            key = tuple(c[name] for name in ("provider", "model", "transport", "capability"))
+            if key not in versions:
+                versions[key] = row
         return list(versions.values())
 
     def propose(self, capability: Capability, *, actor, work_id=None):

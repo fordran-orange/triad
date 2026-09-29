@@ -211,13 +211,21 @@ class Agents:
             if (not parent or parent["status"] in TERMINAL_WORK) and status == "ACTIVE":
                 status = "TERMINATED"
         definition = dict(row["definition"])
+        from trading_core.engineering import effective_ui_role
+
+        authority = effective_ui_role(self.host, definition, conn=conn)
         if row["owner"] == "core" and definition["agent_type"] == "static":
             from trading_core.intelligence.model_binding import effective_model
 
             definition = effective_model(self.host, definition, conn=conn)
-        from trading_core.engineering import effective_ui_role
-
-        definition = effective_ui_role(self.host, definition, conn=conn)
+        definition = {
+            **authority,
+            **{
+                k: definition[k]
+                for k in ("model", "execution_eligible", "model_binding_status")
+                if k in definition
+            },
+        }
         if definition["agent_type"] == "static" and identifier in {
             "CODEX",
             "CLAUDE",

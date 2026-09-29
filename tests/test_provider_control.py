@@ -234,7 +234,7 @@ def fake_control(agent="CODEX"):
 
 def test_missing_cli_and_untrusted_isolation_never_execute(monkeypatch):
     adapter = CLITransport("codex_cli", fake_control())
-    monkeypatch.setattr(adapter, "command", lambda: None)
+    monkeypatch.setattr("trading_core.providers.discovery.candidates", lambda name: [])
     assert adapter.detect()["install_status"] == "NOT_FOUND"
     assert adapter.authentication_status()["auth_state"] == "NOT_FOUND"
     with pytest.raises(ProviderError, match="OuterBoundaryUnavailable"):
@@ -244,6 +244,7 @@ def test_missing_cli_and_untrusted_isolation_never_execute(monkeypatch):
 def test_auth_metadata_does_not_retain_cli_output(monkeypatch):
     adapter = CLITransport("codex_cli", fake_control())
     monkeypatch.setattr(adapter, "command", lambda: ["fixture.exe"])
+    monkeypatch.setattr(adapter, "assert_identity", lambda: None)
     monkeypatch.setattr(
         ManagedProcess,
         "run",
@@ -274,6 +275,7 @@ def test_grok_unverified_login_is_not_reported_as_signed_out(monkeypatch):
     monkeypatch.setattr(native_agents, "grok_authentication", unavailable)
     adapter = CLITransport("grok_build_cli", fake_control("GROK"))
     monkeypatch.setattr(adapter, "command", lambda: ["fixture.exe"])
+    monkeypatch.setattr(adapter, "assert_identity", lambda: None)
     monkeypatch.setattr(adapter, "readonly_ready", lambda: False)
     auth = adapter.authentication_status()
     assert auth["auth_state"] == "UNKNOWN"

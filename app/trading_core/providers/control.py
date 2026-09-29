@@ -232,9 +232,34 @@ class ProviderControl:
             # Absence of a version probe is not evidence that the installed version changed.
             # Retain identity/proofs, but the current probe error still blocks readiness.
             data["local_version"] = previous.get("local_version")
+            data["model_digest"] = previous.get("model_digest")
+        if data.get("install_status") in {
+            "NOT_FOUND",
+            "NOT_INSTALLED",
+            "UNAVAILABLE",
+            "DETECTION_FAILED",
+        }:
+            for key in ("cli_version", "executable", "executable_identity"):
+                data[key] = previous.get(key)
+        if adapter.transport_type == "LOCAL" and not local_identity_unavailable:
+            selected = getattr(adapter, "model", "qwen3:4b")
+            data["model_digest"] = next(
+                (m.get("digest") for m in data.get("installed", []) if m.get("name") == selected),
+                None,
+            )
+        from trading_core.providers.discovery import runtime_identity
+
+        data["runtime_identity"] = runtime_identity(data, transport_id)
         changed = any(
             previous.get(key) != data.get(key)
-            for key in ("cli_version", "executable", "endpoint", "local_version")
+            for key in (
+                "cli_version",
+                "executable",
+                "executable_identity",
+                "endpoint",
+                "local_version",
+                "model_digest",
+            )
         )
         data.update(
             test=None if changed else previous.get("test"),
@@ -338,7 +363,7 @@ class ProviderControl:
             return False
         for key in ("test", "workitem"):
             evidence = snapshot.get(key) or {}
-            if not evidence.get("success") or evidence.get("mode") != "REAL":
+            if evidence.get("success") is not True or evidence.get("mode") != "REAL":
                 return False
             try:
                 age = now() - datetime.fromisoformat(evidence["completed_at"])
@@ -349,7 +374,7 @@ class ProviderControl:
         return snapshot.get("auth_state") == "AUTHENTICATED" and not snapshot.get("error")
 
     def monitor_connections(self):
-        """Refresh selected non-API connections without inference, login or replay."""
+        """Refresh and recover approved non-API runtimes; never login or replay work."""
         import logging
 
         from trading_core.store import ConcurrentUpdate
@@ -361,6 +386,9 @@ class ProviderControl:
             try:
                 with self.ledger.store.lease("provider-auth-" + tid):
                     self.refresh(tid)
+                    from trading_core.providers.recovery import recover
+
+                    recover(self, tid)
             except ConcurrentUpdate:
                 continue  # An operator login or real verification owns the connection.
             except Exception:  # noqa: BLE001 - keep monitoring other providers during outages
@@ -404,9 +432,11 @@ class ProviderControl:
         return "NOT_CHECKED"
 
     def dashboard(self):
-        identifiers = ["provider-policy-" + a for a in AGENTS] + [
-            "transport-status-" + t for t in SPECS
-        ]
+        identifiers = (
+            ["provider-policy-" + a for a in AGENTS]
+            + ["provider-recovery-" + self.policy(a).preferred_transport for a in AGENTS]
+            + ["transport-status-" + t for t in SPECS]
+        )
         with self.ledger.store.connect() as conn:
             rows = conn.execute(
                 "SELECT id,kind,work_item_id,payload FROM core.day3_records WHERE id=ANY(%s)",
@@ -472,6 +502,7 @@ class ProviderControl:
                         (r["timestamp"] for r in rows if r["status"] == "SUCCESS"), None
                     ),
                     "last_error": latest.get("error_class"),
+                    "recovery": self.read("provider-recovery-" + policy.preferred_transport),
                     "latency": latest.get("duration"),
                     "actual_model": latest.get("actual_model"),
                     "today": {

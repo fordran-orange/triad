@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from trading_core.contracts import ProviderHealth
 from trading_core.providers import transports as module
+from trading_core.providers import discovery
 from trading_core.providers.contracts import PREFERRED, ProviderPolicy
 from trading_core.providers.control import ProviderControl
 from trading_core.providers.transports import CLITransport
@@ -22,7 +23,7 @@ def adapter(agent="CODEX"):
 
 @pytest.fixture
 def locations(tmp_path, monkeypatch):
-    monkeypatch.setattr(module, "ROOT", tmp_path / "triad")
+    monkeypatch.setattr(discovery, "ROOT", tmp_path / "triad")
     for key, sub in (
         ("USERPROFILE", "home"),
         ("LOCALAPPDATA", "local"),
@@ -30,7 +31,22 @@ def locations(tmp_path, monkeypatch):
         ("PROGRAMFILES", "program"),
     ):
         monkeypatch.setenv(key, str(tmp_path / sub))
-    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(discovery.shutil, "which", lambda name: None)
+    monkeypatch.setattr(
+        module.ManagedProcess,
+        "run",
+        lambda self, args, **kw: SimpleNamespace(
+            exit_code=0,
+            status="EXITED",
+            stdout=(
+                "codex-cli 0.155.0-alpha.2.6"
+                if "codex" in str(args)
+                else "2.1.276 (Claude Code)"
+                if "claude" in str(args)
+                else "grok 1.0.34 (3736acbc8658)"
+            ),
+        ),
+    )
     return tmp_path
 
 
@@ -46,7 +62,7 @@ def test_durable_codex_precedes_desktop_and_old_prefix(locations, monkeypatch):
     touch(locations / "triad/data/temp/provider-cli/node_modules/@openai/codex/bin/codex.js")
     desktop = touch(locations / "local/OpenAI/Codex/bin/version/codex.exe")
     monkeypatch.setattr(
-        module.shutil, "which", lambda name: desktop if name == "codex.exe" else None
+        discovery.shutil, "which", lambda name: desktop if name == "codex.exe" else None
     )
     assert adapter().command() == [node, script]
 
@@ -54,7 +70,6 @@ def test_durable_codex_precedes_desktop_and_old_prefix(locations, monkeypatch):
 def test_stale_path_finds_desktop_but_mismatch_never_ready(locations, monkeypatch):
     desktop = touch(locations / "local/OpenAI/Codex/bin/version/codex.exe")
     a = adapter()
-    assert a.command() == [desktop]
     monkeypatch.setattr(
         module.ManagedProcess,
         "run",
@@ -63,6 +78,7 @@ def test_stale_path_finds_desktop_but_mismatch_never_ready(locations, monkeypatc
         ),
     )
     assert a.detect()["compatibility_status"] == "VERSION_MISMATCH"
+    assert a.command() is None
     monkeypatch.setattr(
         a, "authentication_status", lambda: pytest.fail("version drift must block login probe")
     )
@@ -112,7 +128,7 @@ def test_setup_state_takes_precedence_over_stale_auth(snapshot, expected):
     assert not ProviderControl.proven({**state, "auth_state": "AUTHENTICATED", "error": None})
 
 
-def test_missing_refresh_skips_auth_and_invalidates_previous_evidence():
+def test_missing_refresh_skips_auth_preserves_identity_but_stays_unavailable():
     a = SimpleNamespace(
         agent="CODEX",
         transport_type="CLI",
@@ -133,7 +149,8 @@ def test_missing_refresh_skips_auth_and_invalidates_previous_evidence():
     )
     state = control._refresh("codex_cli")
     assert state["health"] == state["auth_state"] == "NOT_FOUND"
-    assert state["test"] is state["workitem"] is None
+    assert state["test"]["success"] is True
+    assert not ProviderControl.proven(state)
 
 
 def test_context_workspace_does_not_enable_codex_implementation(monkeypatch):

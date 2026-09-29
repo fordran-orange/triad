@@ -67,6 +67,7 @@ class Development(ExecutionServices):
         excluded=(),
         parent=None,
         keep_open=False,
+        _preview=False,
     ):
         write = role == "IMPLEMENT"
         reasoning = 256 if agent == "LOCAL_QWEN" else 8192
@@ -83,7 +84,7 @@ class Development(ExecutionServices):
         size = len(json.dumps(context)) + len(objective)
         if size > 1000000:
             raise ValueError("Product context exceeds the physical serialization ceiling")
-        work = self.routing.create(
+        assignment = (
             WorkItem(
                 owner="triad",
                 mission_id=mission,
@@ -122,6 +123,9 @@ class Development(ExecutionServices):
                 reason=objective[:1000],
             ),
         )
+        if _preview:
+            return assignment
+        work = self.routing.create(*assignment)
         if write:
             self.ledger.reserve(agent, work.work_item_id, improvement=True, day=self.day)
         work, policy = self.start_work(work)

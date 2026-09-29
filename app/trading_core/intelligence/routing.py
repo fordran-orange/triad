@@ -57,8 +57,14 @@ class Routing:
             reasons.append("Required provider capability lacks current verified evidence")
         if not set(requirements.capabilities) <= set(agent["capabilities"]):
             reasons.append("Configured role does not grant required capabilities")
-        if agent["status"] != "ACTIVE" or not agent["execution_eligible"]:
+        if agent["status"] != "ACTIVE":
             reasons.append("Configured agent is inactive")
+        elif not agent["execution_eligible"]:
+            reasons.append(
+                "Provider compatibility evidence is being renewed"
+                if agent.get("model_binding_status")
+                else "Configured agent is not eligible"
+            )
         if executor in requirements.excluded_executors:
             reasons.append("Independent execution identity required")
         if requirements.role == "REVIEW" and not agent["review_eligible"]:
@@ -267,6 +273,10 @@ class Routing:
             requirements,
             Capabilities(self.records).current(),
         )
+        if candidate["model"] != selected["model"]:
+            raise PermissionError(
+                "Verified model changed after assignment; a fresh assignment is required"
+            )
         if not candidate["eligible"]:
             raise PermissionError(
                 "Capability route is no longer eligible: " + "; ".join(candidate["exclusions"])

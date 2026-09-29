@@ -3,8 +3,6 @@ from trading_core.resources import resource
 """Vendor status adapters. Unverified native isolation fails closed before inference."""
 
 import json
-import os
-import shutil
 from pathlib import Path
 
 from trading_core.contracts import ProviderHealth
@@ -39,8 +37,12 @@ class BaseTransport:
         self.agent_id = self.agent = self.spec["agent"]
         self.provider = self.spec["provider"]
         self.transport_type = self.spec["type"]
+        settings = getattr(
+            getattr(getattr(control, "ledger", None), "store", None), "settings", None
+        )
         self.model = control.policy(self.agent).models.get(
-            transport_id, "qwen3:4b" if transport_id == "ollama" else "Auto"
+            transport_id,
+            getattr(settings, "ollama_model", "qwen3:4b") if transport_id == "ollama" else "Auto",
         )
         self.actual_model = None
 
@@ -56,7 +58,27 @@ class BaseTransport:
             "billing_source": self.billing_source(),
             "requested_model": self.model,
             "actual_model": self.actual_model,
+            "runtime_identity": getattr(self, "verified_runtime_identity", None),
         }
+
+    def identity_data(self):
+        from trading_core.providers.discovery import runtime_identity
+
+        if self.transport_type == "CLI":
+            self.assert_identity()
+            return runtime_identity(self.detect(), self.transport_id)
+        if self.transport_type == "LOCAL":
+            adapter = self.adapter()
+            tags = self.list_models()
+            digest = next(
+                (m.get("digest") for m in tags.get("installed", []) if m.get("name") == self.model),
+                None,
+            )
+            version = adapter.transport("/api/version").get("version")
+            if not digest or not version:
+                raise ProviderError("UNAVAILABLE", "LocalIdentityUnavailable")
+            return {"endpoint": adapter.base, "local_version": version, "model_digest": digest}
+        return None
 
     def usage(self):
         return [
@@ -80,46 +102,24 @@ class CLITransport(BaseTransport):
     def cli_ready(self):
         """Pinned executable + exact version + subscription authentication; no inference."""
         detected = self.detect()
-        if (
-            detected.get("install_status") != "INSTALLED"
-            or detected.get("compatibility_status") != "VERIFIED"
-        ):
+        if detected.get("install_status") != "INSTALLED" or detected.get(
+            "compatibility_status"
+        ) not in {"VERIFIED", "CANDIDATE"}:
             return False
         return self.authentication_status().get("auth_state") == "AUTHENTICATED"
 
     def readonly_ready(self):
-        if hasattr(self, "_readonly_ready"):
-            return self._readonly_ready
-        if self.agent in {"CLAUDE", "GROK"}:
-            from trading_core.providers.isolation import OfflineSandbox
-            from trading_core.providers.native_agents import VERSIONS
-
-            command = self.command()
-            self._readonly_ready = False
-            if command:
-                try:
-                    version = ManagedProcess().run(command + ["--version"], cwd=ROOT)
-                    expected = (
-                        VERSIONS[self.agent] + " (Claude Code)"
-                        if self.agent == "CLAUDE"
-                        else "grok " + VERSIONS[self.agent] + " (3736acbc8658)"
-                    )
-                    self._readonly_ready = (
-                        version.exit_code == 0
-                        and version.stdout.strip() == expected
-                        and OfflineSandbox.available()
-                    )
-                except (OSError, RuntimeError):
-                    pass
-            return self._readonly_ready
         from trading_core.providers.codex_executor import TAG, VERSION
         from trading_core.providers.isolation import OfflineSandbox
 
+        if hasattr(self, "_readonly_ready"):
+            return self._readonly_ready
         self._readonly_ready = False
-        command = self.command()
-        if command:
-            try:
-                version = ManagedProcess().run(command + ["--version"], cwd=ROOT)
+        if not self.command():
+            return False
+        self.assert_identity()
+        try:
+            if self.agent == "CODEX":
                 image_version = OfflineSandbox._docker(
                     [
                         "image",
@@ -129,112 +129,78 @@ class CLITransport(BaseTransport):
                         '{{index .Config.Labels "triad.executor.version"}}',
                     ]
                 )
-                self._readonly_ready = (
-                    version.exit_code == 0
-                    and version.stdout.strip() == "codex-cli " + VERSION
-                    and image_version == VERSION
-                )
-            except (OSError, RuntimeError):
-                pass
+                self._readonly_ready = image_version == VERSION
+            else:
+                self._readonly_ready = OfflineSandbox.available()
+        except (OSError, RuntimeError):
+            pass
         return self._readonly_ready
 
     def command(self):
-        """Prefer the durable pinned install; discover installed fallbacks without shell shims.
-
-        Explicit user/program locations also work when a long-running service inherited
-        an obsolete PATH. Detection still checks the exact supported vendor version.
-        """
-        name = self.spec["cli"]
-        home = Path(os.environ.get("USERPROFILE", str(Path.home())))
-        local = Path(os.environ.get("LOCALAPPDATA", str(home / "AppData/Local")))
-        roaming = Path(os.environ.get("APPDATA", str(home / "AppData/Roaming")))
-        program = Path(os.environ.get("PROGRAMFILES", "C:/Program Files"))
-        node = shutil.which("node.exe") or shutil.which("node")
-        if not node and (program / "nodejs/node.exe").is_file():
-            node = str(program / "nodejs/node.exe")
-        scripts = {
-            "codex": "@openai/codex/bin/codex.js",
-            "claude": "@anthropic-ai/claude-code/cli.js",
-            "grok": "@xai-official/grok/bin/grok",
-        }
-        if name not in scripts:
-            return None
-        for prefix in (
-            ROOT / "data/provider-cli/node_modules",
-            ROOT / "data/temp/provider-cli/node_modules",
-        ):
-            native = prefix / "@anthropic-ai/claude-code/bin/claude.exe"
-            if name == "claude" and native.is_file():
-                return [str(native)]
-            script = prefix / scripts[name]
-            if node and script.is_file():
-                return [node, str(script)]
-        found = shutil.which(name + ".exe") or shutil.which(name)
-        if found and Path(found).suffix.lower() == ".exe":
-            return [found]
-        native = home / ".local/bin" / (name + ".exe")
-        if native.is_file():
-            return [str(native)]
-        script = roaming / "npm/node_modules" / scripts[name]
-        if node and script.is_file():
-            return [node, str(script)]
-        if name == "codex":
-            desktop = local / "OpenAI/Codex/bin"
-            candidates = sorted(
-                desktop.glob("*/codex.exe"), key=lambda p: p.stat().st_mtime, reverse=True
-            )
-            if candidates:
-                return [str(candidates[0])]
-        return None
+        # An adapter instance keeps one resolved installation for its whole operation.
+        if not hasattr(self, "_resolved_command"):
+            self.detect()
+        return self._resolved_command
 
     def detect(self):
-        command = self.command()
+        from trading_core.providers.discovery import candidates, compatible, identity
+
+        if hasattr(self, "_detection"):
+            return dict(self._detection)
         data = {
             "transport": self.transport_id,
             "detected_at": now().isoformat(),
             "cli_name": self.spec["cli"],
-            "executable": command,
+            "executable": None,
             "cli_version": None,
-            "minimum_supported_version": None,
+            "minimum_supported_version": "Isolated protocol compatibility required",
             "compatibility_status": "NOT_VERIFIED",
             "install_status": "NOT_FOUND",
             "installation_instructions": self.spec["docs"],
+            "discovery_failures": [],
         }
-        if command:
+        self._resolved_command = None
+        for command in candidates(self.spec["cli"]):
             try:
                 result = ManagedProcess().run(command + ["--version"], cwd=ROOT)
-                if result.exit_code == 0 and result.status == "EXITED":
-                    version = result.stdout.strip()[:200]
-                    data.update(install_status="INSTALLED", cli_version=version)
-                    try:
-                        if self.agent in {"CLAUDE", "GROK"}:
-                            from trading_core.providers.native_agents import VERSIONS
-
-                            expected = (
-                                VERSIONS[self.agent] + " (Claude Code)"
-                                if self.agent == "CLAUDE"
-                                else "grok " + VERSIONS[self.agent] + " (3736acbc8658)"
-                            )
-                        else:
-                            from trading_core.providers.codex_executor import VERSION
-
-                            expected = "codex-cli " + VERSION
-                        data["minimum_supported_version"] = expected
-                        data["compatibility_status"] = (
-                            "VERIFIED" if version == expected else "VERSION_MISMATCH"
-                        )
-                    except (ImportError, KeyError):
-                        data["compatibility_status"] = "NOT_VERIFIED"
+                version = result.stdout.strip()[:200]
+                if result.exit_code != 0 or result.status != "EXITED":
+                    reason = "Executable did not respond"
+                elif not compatible(self.agent, version):
+                    reason = "Unsupported protocol family"
                 else:
-                    data["install_status"] = "UNAVAILABLE"
+                    self._resolved_command = command
+                    self._launch_identity = identity(command)
+                    data.update(
+                        executable=command,
+                        cli_version=version,
+                        executable_identity=self._launch_identity,
+                        install_status="INSTALLED",
+                        compatibility_status="CANDIDATE",
+                    )
+                    break
             except (OSError, RuntimeError):
-                data["install_status"] = "DETECTION_FAILED"
-        return data
+                reason = "Executable unavailable"
+            data["discovery_failures"].append({"command": command, "reason": reason})
+        if not self._resolved_command and data["discovery_failures"]:
+            data.update(install_status="UNAVAILABLE", compatibility_status="VERSION_MISMATCH")
+        self._detection = data
+        return dict(data)
+
+    def assert_identity(self):
+        from trading_core.providers.discovery import identity
+
+        command = self.command()
+        if not command:
+            raise ProviderError("UNAVAILABLE", "OuterBoundaryUnavailable")
+        if identity(command) != self._launch_identity:
+            raise ProviderError("UNAVAILABLE", "ExecutableChangedDuringOperation")
 
     def authentication_status(self):
         command = self.command()
         if not command:
             return {"auth_state": "NOT_FOUND", "billing_source": "UNKNOWN"}
+        self.assert_identity()
         if self.agent == "GROK":
             from trading_core.providers.native_agents import grok_authentication
 
@@ -273,11 +239,13 @@ class CLITransport(BaseTransport):
     def _auth_action(self, logout):
         command = self.command()
         detected = self.detect()
+        if detected.get("compatibility_status") == "VERSION_MISMATCH":
+            raise ValueError("CLI version mismatch: supported protocol verification is required")
         if not command or detected["install_status"] != "INSTALLED":
             raise ValueError(
                 "Install the supported CLI with tools/install_provider_clis.ps1 before signing in"
             )
-        if detected.get("compatibility_status") != "VERIFIED":
+        if detected.get("compatibility_status") not in {"VERIFIED", "CANDIDATE"}:
             raise ValueError(
                 "CLI version mismatch; install the pinned supported version before signing in"
             )
@@ -313,10 +281,9 @@ class CLITransport(BaseTransport):
                 error_class="VERSION_MISMATCH",
             )
 
-        if (
-            detected.get("install_status") != "INSTALLED"
-            or detected.get("compatibility_status") != "VERIFIED"
-        ):
+        if detected.get("install_status") != "INSTALLED" or detected.get(
+            "compatibility_status"
+        ) not in {"VERIFIED", "CANDIDATE"}:
             return ProviderHealth(
                 agent=self.agent,
                 provider=self.provider,
@@ -397,6 +364,7 @@ class CLITransport(BaseTransport):
         return 0.0  # reservation only; subscription monetary usage remains null
 
     def execute(self, request):
+        self.assert_identity()
         if self.agent in {"CLAUDE", "GROK"}:
             return self._execute_isolated(request)
         if (
@@ -530,7 +498,24 @@ class HTTPTransport(BaseTransport):
             )
         else:
             # Local endpoint is host-owned. UI cannot redirect keys or prompts.
-            values["OLLAMA_URL"] = "http://127.0.0.1:11434"
+            from urllib.parse import urlsplit
+
+            settings = getattr(
+                getattr(getattr(self.control, "ledger", None), "store", None), "settings", None
+            )
+            endpoint = getattr(settings, "ollama_url", "http://127.0.0.1:11434")
+            parsed = urlsplit(endpoint)
+            if (
+                parsed.scheme != "http"
+                or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+                or parsed.path not in {"", "/"}
+            ):
+                raise ProviderError("UNAVAILABLE", "LocalEndpointMustBeLoopback")
+            values["OLLAMA_URL"] = endpoint
         return HttpProvider(self.agent, config, values)
 
     def detect(self):
