@@ -660,7 +660,7 @@ class DailyDevelopment(Development):
                     implementation_runs=(build,),
                     qa_runs=(qa.model_dump(mode="json"),),
                 )
-                merged = self.merge(mission, proposal, build, qa, operator_authorized=True)
+                merged = self.merge(mission, proposal, build, qa)
                 self.transition(
                     mission,
                     "VERIFYING",
