@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 from trading_core.contracts import ProviderHealth
-from trading_core.providers import transports as module
 from trading_core.providers import discovery
+from trading_core.providers import transports as module
 from trading_core.providers.contracts import PREFERRED, ProviderPolicy
 from trading_core.providers.control import ProviderControl
 from trading_core.providers.transports import CLITransport
@@ -68,7 +68,7 @@ def test_durable_codex_precedes_desktop_and_old_prefix(locations, monkeypatch):
 
 
 def test_stale_path_finds_desktop_but_mismatch_never_ready(locations, monkeypatch):
-    desktop = touch(locations / "local/OpenAI/Codex/bin/version/codex.exe")
+    touch(locations / "local/OpenAI/Codex/bin/version/codex.exe")
     a = adapter()
     monkeypatch.setattr(
         module.ManagedProcess,
