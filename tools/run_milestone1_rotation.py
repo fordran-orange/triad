@@ -69,7 +69,7 @@ def core_live(url="http://127.0.0.1:8000/health/live") -> bool:
         with urlopen(url, timeout=3) as response:
             data = json.loads(response.read().decode())
         return data.get("status") == "ok"
-    except Exception:
+    except (URLError, TimeoutError, json.JSONDecodeError, OSError):
         return False
 
 
