@@ -83,6 +83,7 @@ def restart_core(root: Path) -> bool:
                     "Bypass",
                     "-File",
                     str(ensure),
+                    "-Restart",
                 ],
                 cwd=root,
                 env=clean_environment(),
