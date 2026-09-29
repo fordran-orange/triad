@@ -1,0 +1,74 @@
+{
+  "revision": "c2da56d16e6e031fc34cd025ca4bd7345cf8695d",
+  "started_at": "2026-09-29T18:53:59.326890+00:00",
+  "decision": "PASS",
+  "inference_calls": 0,
+  "source_sha256": "dee32fcd66b9c706ac2dba9d6ae941b74336f24aca003172a7d2dbed8d20b481",
+  "core_pids_before": [
+    40220
+  ],
+  "before_proofs": {
+    "test": "f23160e8-239f-46ce-96de-9b58468eb750",
+    "workitem": "1e044d0b-6aa5-436a-8d49-d156e971f726"
+  },
+  "before_digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+  "task_before": {
+    "State": 3,
+    "LastRunTime": "2026-09-29T18:51:21.0000000Z",
+    "LastTaskResult": 0,
+    "Actions": [
+      {
+        "Execute": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "Arguments": "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"C:\\Triad\\tools\\ensure_core.ps1\"",
+        "WorkingDirectory": "C:\\Triad"
+      }
+    ]
+  },
+  "stopped_process": {
+    "ProcessId": 6304,
+    "ExecutablePath": "C:\\Users\\fordr\\AppData\\Local\\Programs\\Ollama\\ollama.exe",
+    "CommandLine": "\"C:\\Users\\fordr\\AppData\\Local\\Programs\\Ollama\\ollama.exe\" serve ",
+    "CreationDate": "/Date(1790707192893)/"
+  },
+  "outage": {
+    "health": "OFFLINE",
+    "reachability": "UNAVAILABLE",
+    "error": "TransportUnavailable",
+    "local_version": "0.34.1",
+    "endpoint": "http://127.0.0.1:11434"
+  },
+  "outage_proofs": {
+    "test": "f23160e8-239f-46ce-96de-9b58468eb750",
+    "workitem": "1e044d0b-6aa5-436a-8d49-d156e971f726"
+  },
+  "task_after": {
+    "State": 3,
+    "LastRunTime": "2026-09-29T18:54:26.0000000Z",
+    "LastTaskResult": 0,
+    "Actions": [
+      {
+        "Execute": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "Arguments": "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"C:\\Triad\\tools\\ensure_core.ps1\"",
+        "WorkingDirectory": "C:\\Triad"
+      }
+    ]
+  },
+  "after_digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+  "after_proofs": {
+    "test": "f23160e8-239f-46ce-96de-9b58468eb750",
+    "workitem": "1e044d0b-6aa5-436a-8d49-d156e971f726"
+  },
+  "core_pids_after": [
+    40220
+  ],
+  "after_readiness": "ONLINE",
+  "live_api": {
+    "gate": "PASS",
+    "local_state": "ONLINE",
+    "proof_ids": {
+      "test": "f23160e8-239f-46ce-96de-9b58468eb750",
+      "workitem": "1e044d0b-6aa5-436a-8d49-d156e971f726"
+    }
+  },
+  "completed_at": "2026-09-29T18:54:48.361113+00:00"
+}

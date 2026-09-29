@@ -1,0 +1,105 @@
+{
+  "decision": "PASS",
+  "reviewer": "/root/day6_qa_c",
+  "revision": "912fa2def1a82f85b5febbff56e021d8cd9ddd77",
+  "scope": "Read-only actual registered Windows supervisor and live Core/Ollama deployment",
+  "task_observation": {
+    "ObservedAt": "2026-09-29T13:42:08.7880943-05:00",
+    "CurrentIdentity": "RAGNAROK\\fordr",
+    "TaskName": "Triad Core Supervisor",
+    "State": "Ready",
+    "Principal": {
+      "UserId": "fordr",
+      "LogonType": "Interactive",
+      "RunLevel": "Limited"
+    },
+    "Actions": [
+      {
+        "Execute": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "Arguments": "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"C:\\Triad\\tools\\ensure_core.ps1\"",
+        "WorkingDirectory": "C:\\Triad"
+      }
+    ],
+    "Triggers": [
+      {
+        "ClassName": "MSFT_TaskLogonTrigger",
+        "Enabled": true,
+        "UserId": "RAGNAROK\\fordr",
+        "StartBoundary": null,
+        "RepetitionInterval": null,
+        "RepetitionDuration": null
+      },
+      {
+        "ClassName": "MSFT_TaskTimeTrigger",
+        "Enabled": true,
+        "UserId": null,
+        "StartBoundary": "2026-09-29T13:41:20-05:00",
+        "RepetitionInterval": "PT5M",
+        "RepetitionDuration": null
+      }
+    ],
+    "Settings": {
+      "StartWhenAvailable": true,
+      "RestartCount": 3,
+      "RestartInterval": "PT1M",
+      "MultipleInstances": "IgnoreNew"
+    },
+    "LastTaskResult": 0,
+    "LastRunTime": "2026-09-29T13:41:20-05:00",
+    "NextRunTime": "2026-09-29T13:46:20-05:00",
+    "UserOllamaModels": "C:\\AI\\Models\\Ollama",
+    "UserOllamaHost": "127.0.0.1:11434",
+    "OllamaProcesses": [
+      {
+        "ProcessId": 6304,
+        "ExecutablePath": "C:\\Users\\fordr\\AppData\\Local\\Programs\\Ollama\\ollama.exe"
+      }
+    ]
+  },
+  "core_live": {
+    "status": "ok",
+    "scope": "api_process_only"
+  },
+  "live_model": {
+    "name": "qwen3:4b",
+    "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7"
+  },
+  "model_store": "C:/AI/Models/Ollama",
+  "server_model_store_log_evidence": [
+    {
+      "log": "C:\\Triad\\logs\\ollama-20260929T133952806.stderr.log",
+      "model_path_values": [
+        "C:\\\\AI\\\\Models\\\\Ollama"
+      ]
+    },
+    {
+      "log": "C:\\Triad\\logs\\ollama-20260929T111438150.stderr.log",
+      "model_path_values": [
+        "C:\\\\AI\\\\Models\\\\Ollama"
+      ]
+    },
+    {
+      "log": "C:\\Triad\\logs\\ollama-day5a.stderr.log",
+      "model_path_values": [
+        "C:\\\\AI\\\\Models\\\\Ollama"
+      ]
+    }
+  ],
+  "source_sha256": {
+    "tools/ensure_core.ps1": "cd5119bc019477f284586171569d2084a531bd4a92742e02021bdd57f0fd1396",
+    "tools/ensure_ollama.ps1": "2dffae66c500365f5b9cf8da6ec0273ae14e1151017b68080d56484e02c8dbfd",
+    "tools/install_core_supervisor.ps1": "5ddc8c363540bb08f0c2e8db11db328a638c7a72c1ae30b6aa7e1aee8089023c"
+  },
+  "evidence_sha256": {
+    "logs/reconcile-supervisor-independent-observation.json": "bc776159b3c4b61a2324bd9172947eee13e5c5914eddbf92e11ead08da63f144",
+    "logs/reconcile-supervisor-acceptance.json": "9151e27b831203a5f9e9b433bfd4f6efa1e22a71f861feb20f915d8900b98629",
+    "C:\\Triad\\logs\\ollama-20260929T133952806.stderr.log": "6231e65d50053610d85c0904729232f8027f545adca1e6c28574acd0109a38b4"
+  },
+  "limits": [
+    "No reboot or real logout/login tested.",
+    "Task current interactive-user session and latest successful execution were observed; no machine-service claim.",
+    "No task/process/model changes, service restart or inference during this audit."
+  ],
+  "principal_matches_current_user_sid": true,
+  "live_server_config_model_store_matches_baseline": true
+}

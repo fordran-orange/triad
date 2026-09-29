@@ -1,0 +1,21 @@
+{
+  "revision": "912fa2def1a82f85b5febbff56e021d8cd9ddd77",
+  "reviewer": "/root",
+  "method": "Read-only native in-app browser accessibility inspection",
+  "decision": "PASS_FOR_LISTED_VIEWS",
+  "checks": [
+    "Core dashboard loaded live database content and all six infrastructure services UP after restart",
+    "Core Permissions & limits rendered labeled values rather than raw JSON",
+    "Core Diagnostics rendered service, projection, budget and exchange details; main branch clean and projection errors zero",
+    "Triad overview loaded with all infrastructure connected and main clean",
+    "Triad journal loaded existing records and Inspect record opened labeled fields with canonical UTC and technical detail disclosures",
+    "Triad Proposals rendered its honest empty state",
+    "Provider settings distinguished signed-in subscription CLI, actual verification status and unconfigured paid API",
+    "Codex Diagnostics rendered dedicated installed program path, supported version, signed-in status and both successful test records"
+  ],
+  "limitations": [
+    "Provider final readiness is covered by separate postdeployment acceptance evidence",
+    "No operator control, login, policy, trading or product-cycle action was clicked",
+    "This is representative UI acceptance, not every possible interactive workflow"
+  ]
+}

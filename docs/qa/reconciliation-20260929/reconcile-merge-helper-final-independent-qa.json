@@ -1,0 +1,21 @@
+{
+  "decision": "PASS",
+  "reviewer": "/root/day6_qa_b",
+  "scope": "Narrow follow-up source review and read-only package byte check; merge helper never executed",
+  "helper_sha256": "a9ff367ace9857e98a60532cce99cfe7ce93a754ed5483c795eaf4f0d1a22ed6",
+  "revision": "912fa2def1a82f85b5febbff56e021d8cd9ddd77",
+  "package_files_verified": 131,
+  "mismatches": [],
+  "previous_review": "reconcile-merge-helper-archive-independent-qa.json",
+  "checks": [
+    "Archive generated directly from exact final revision; archive.read requires each reported package member; exact SHA256 equality retained",
+    "Package revision remains bound to independently tested code revision",
+    "All reviewed source/document comparisons remain raw Git blob SHA256",
+    "Core independent quality gates and immediately pre-CAS clean/identity checks remain intact"
+  ],
+  "limits": [
+    "Does not authorize execution before pending final document and corrected regression prerequisites pass",
+    "No production DB writes, model calls, merge, switch or restart performed"
+  ],
+  "schema_correction": "Final hash already includes actual_passed_tests correction; verified against retained independent report with all three original failures among 23 actual corrected passes"
+}

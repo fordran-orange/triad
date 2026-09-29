@@ -1,0 +1,303 @@
+{
+  "decision": "PASS",
+  "installed_files": {
+    "app/trading_core/api.py": "21a5b6a693d99ca905af3c3e888429eba8ce3c0752d10092e4191367c6f3938a",
+    "app/trading_core/brain.py": "1d7aabc9be5394154b6b44d83f11e07c096885f56726e2c1f5e7a80b255fd372",
+    "app/trading_core/context.py": "c3d66b38ff21235dec24d58936a310fad3a8f16b6e187864e93e5e79e13d66b2",
+    "app/trading_core/contracts.py": "4a9479f752acae5d687c411a0934fbb3a31c9ed7067d0971e732a886721ab1a7",
+    "app/trading_core/control.py": "2e4f8bdf941521953882edeabce988abac5b0da586eb287058c426668ce6bc41",
+    "app/trading_core/cycle_records.py": "54d607f6a1764330a2de03e86f01d3da275890433e60a4a474b3435bd251494e",
+    "app/trading_core/engineering.py": "675810778fbc61b5d864c4b71b97c7fa429d008138e4334aa26e4f9c138e01e7",
+    "app/trading_core/exchange.py": "7db486cba1cdb7964ae1355ba00a274e5d3d2b7410160411caea17920df7995c",
+    "app/trading_core/execution.py": "0b04ae8449adcdea3a903c4484c89400746cbbdd292ccdf2440dbdc545608aab",
+    "app/trading_core/gateway.py": "69dbd26e71a3d73a7eadb771af0e4badee835283637f1f99f313033ebc5982d8",
+    "app/trading_core/git_tools.py": "4d6f9d52cb8457fcd7e46a7448452bc2d5067429c54bdac90a4a7d85bf8bc8a5",
+    "app/trading_core/governance.py": "d1ef191bb0c006e5d4e05a518fdf3714a5dffba4b7d55d421c45f79c765ccfc6",
+    "app/trading_core/ledger.py": "1e5db1993464e692818df817dacbfc592098039d2e55a91a3f1af859861ba4b6",
+    "app/trading_core/legacy_providers.py": "81a8eb4197423952fdafbb2beddd54787e39af83f39aaa0efeaaa1457192d8b8",
+    "app/trading_core/market.py": "3b312fe49f26c38419c653e97ce0bc3393a28ae14e1ae2957602df4700263493",
+    "app/trading_core/operator_api.py": "477a94b60cf31695797cc8b4b350e10b105cd9142691646f7b919ce74ace1452",
+    "app/trading_core/orchestrator.py": "bbce73d934d2b5aa7e8b95d6aa587d72b37c79564da14a97b93f35755da8ec29",
+    "app/trading_core/ownership.py": "eb6f5e52c66939e182ef1052e0f85034c22894b27e79380e5ef905d1f1958e2f",
+    "app/trading_core/policy.py": "1a9d5b38baee8ab7c5203e87d14c5db5a3d55a6465e6283c45b29464aa8be27b",
+    "app/trading_core/product_identity.py": "b7a0a4a4a377f9698fb32a6176de3c1fe5ebcdb772dbf044b7aeb4c48d0dc4c3",
+    "app/trading_core/research_review.py": "f9ac129db733f2a3d8d2132c330eadb0e34c744f2a16f64e0e25d315114e49bc",
+    "app/trading_core/resources.py": "4b7190b011c1325a73efd93c9368137b33085f6d39ab64aedaf5fc9a5aaf16bf",
+    "app/trading_core/resource_policy.py": "e89bdf84b3e760ec45430a923b35a9a5833a35d6e6d1f9f508bca2b727945490",
+    "app/trading_core/runtime.py": "79c95fceeaf021ea7ad45ad49478e09d63b1ee418d7af1c7e3000c041f9e45d9",
+    "app/trading_core/security.py": "6535d28a980e88f847001a22009143076e8ec91857e7d24b164ffade6d82692f",
+    "app/trading_core/settings.py": "40c421f7c1a7c4170a08f848c1272621341cb9404cef86e03310852e06029497",
+    "app/trading_core/status.py": "faf2bc138436e554fac2e2feda40600ba13277b0e0c3cbaf5538b0d38e5cb55b",
+    "app/trading_core/store.py": "3a32279b05dcb76d309a06bfd923fb0e10a29bb638653732bddbe1322a7181a2",
+    "app/trading_core/support.py": "63c47c6e77869efd13c1ba3bece12fca6250078d99d9fe707692d1edfb7acd76",
+    "app/trading_core/upgrade.py": "209df934379c196a57f41dd374da438356e9f31d90674984291f82bd4b3a8c98",
+    "app/trading_core/work.py": "b09b624df9ff69774a0482e604df4b76fbd23990a270e3ef1e52673726d01466",
+    "app/trading_core/__init__.py": "61febd50f9196e2fd177f7f88718248e7106878651cd86e78df64bc71459d313",
+    "app/trading_core/integrations/adapters.py": "3f098ed14fdb321883027b922db3a35be8c4e08daf104516842169153b6feb99",
+    "app/trading_core/integrations/api.py": "54ff49129d127b4cd3fc98ed261ea1503583a06da43eec59b946d1262ec38889",
+    "app/trading_core/integrations/contracts.py": "3d89e39b10561bc8b108d872f7907df0395d8f8caf5341f03ba4cb11dd797a74",
+    "app/trading_core/integrations/data.py": "64f8163d0b27f045bb5e17ac109cb22f4ba668582b9f64791d2ecd4340232f72",
+    "app/trading_core/integrations/readiness.py": "79dfc77394fae036e2f13bf58caf9a3bc6ccaf40f6f0aee431c8e0164c6121d9",
+    "app/trading_core/integrations/registry.py": "7716015a48d31023e94d6e90d6d403e97d842c4057a4214aa389ebda2b579493",
+    "app/trading_core/integrations/__init__.py": "137254e4f2646eb68136c5b802161f4bdc07d1af9a7f0fb96db136a604862402",
+    "app/trading_core/intelligence/agents.py": "60743ab72ea57d92d515935cd41fbd134ecc44216019d39b6c34c1ef73940c31",
+    "app/trading_core/intelligence/api.py": "fd17143701e45a2a40db4497d407713929f7d3bdf3dcfcd7f4cec084d9bf6932",
+    "app/trading_core/intelligence/capabilities.py": "4eb9bdceff978a2a7cb01e0eefd79d4f3e3bc7edb96e365f7ea8a7040dd0af28",
+    "app/trading_core/intelligence/contracts.py": "33d8917fd62fa737a95bf0036f815d537acd1220a7d8db9326b8bdf521b51529",
+    "app/trading_core/intelligence/quality.py": "0c3aa7df28a30e584d9ff43bda787c5c4c86cccb305fbb790ca66e6afe5e4db5",
+    "app/trading_core/intelligence/records.py": "54d3868e8babcea0eeb68ad8cadafbc35fd4e8fa1fcdf28152a69b6d31d82a9c",
+    "app/trading_core/intelligence/routing.py": "314dfdde645041773d274723e4b6aa05581568d9eecafb3c970d9bc5f43d0e20",
+    "app/trading_core/intelligence/__init__.py": "9e696ceb245afc300d149d795b54abe192352a36e8436ac776f4b3a5bb4bfb9a",
+    "app/trading_core/providers/api.py": "26c9b14c35d456919121d012707bb98ea73ea9542f06e1b12e69b3ea1c3c331e",
+    "app/trading_core/providers/autonomous_cli.py": "f76b95befdece3e06f611ff4a94acb63c0a8f42ec919b92bdb96eb00647673d6",
+    "app/trading_core/providers/bounded_tools.py": "5071dcc5746da0c68d898c00a49418a0e3a9110080cd9d1a1a325b6b0d6e2b36",
+    "app/trading_core/providers/codex_executor.py": "518487b7fb5379ddca6aaa14e0de9c605752f280b5f3b04112a6a43a9972fab7",
+    "app/trading_core/providers/contracts.py": "a5ee3ea6cafb60a07724eb44fbdf68b6ab4e3dadf0cd6065c75db3441fb4e386",
+    "app/trading_core/providers/control.py": "dee32fcd66b9c706ac2dba9d6ae941b74336f24aca003172a7d2dbed8d20b481",
+    "app/trading_core/providers/isolation.py": "3166761af2d619e3c64700afd0840ed03f8d7ff33355a71606efe38cdc1b6ee2",
+    "app/trading_core/providers/native_agents.py": "13fed9339450504e5351eab4f1167f561bec4c8f7a9fe2f9874b926d61e9444f",
+    "app/trading_core/providers/process.py": "ff9680321fe261b772039da05705ea7575a4f65fa7b16b7c615462bd771d21a8",
+    "app/trading_core/providers/secrets.py": "49c749680dcc65d31bd110b79e37fceb9faf6f19c527cd1a9484018f7aa62e65",
+    "app/trading_core/providers/transports.py": "957e8f465c8e8725c18cabecf39749908f2146bceb18ae4de81004ae3f12ce70",
+    "app/trading_core/providers/verification.py": "4be537569c1063c5859687a8e92aef179307b978f06585f5f46e128379e09877",
+    "app/trading_core/providers/__init__.py": "61febd50f9196e2fd177f7f88718248e7106878651cd86e78df64bc71459d313",
+    "app/trading_core/research/api.py": "870f443de483705e97f81d1d306421506a48d4caf763a5a6897e90e95d138223",
+    "app/trading_core/research/calendar.py": "8c03971838f81a7b039a68c6ede7c79209430e016f44724425d46e71a1cb27c5",
+    "app/trading_core/research/contracts.py": "cd3583abaabaa87ef2b0e2624b40390c3de15a6c3c47aa41b7383b7c657e48b0",
+    "app/trading_core/research/data.py": "440999bc893c30efdad1f9ef4d5096dc3a6acaad841b1c3b4881a60cec0ae6a8",
+    "app/trading_core/research/engine.py": "d76e162d5bb1bb1497b4f93759f338eb6d991adc6c01954124cc1d584833a7e6",
+    "app/trading_core/research/planning.py": "665a7ff6d596e16d7c2dead72a475187040e498defee6cdcb321bd010cc6509e",
+    "app/trading_core/research/service.py": "1f821952f59d42afa1635023149f349ceef2a4c6bb77fa9aa07b8ea1769793fb",
+    "app/trading_core/research/__init__.py": "61febd50f9196e2fd177f7f88718248e7106878651cd86e78df64bc71459d313",
+    "app/trading_core/static/core.html": "3f5bc96f766ae5fab9e9e900c93431f34e3b0d0f32b9e4fcfe2e4e7583bf7a98",
+    "app/trading_core/static/index.html": "de49eb604e461eb18d69f8111f9e44dda54ce5f17bf3933df9c7bf4f9bd7f3c6",
+    "app/trading_core/static/integrations.html": "1b31448661400528a982cb90a82c1f22fd942d73da17074ecc0d21afc7763db2",
+    "app/trading_core/static/integrations.js": "157f20c57b6193f67766b2965cb3117c70d11f979ba37f1abd519881810fd606",
+    "app/trading_core/static/intelligence.html": "1c6123b2ba14c19861dcc410b7a2e79b5607ab2a777df6019ec016058e09cbcd",
+    "app/trading_core/static/intelligence.js": "75f457d8989559f3085e3e86b6d35879defd17710dec56114f3a837fe3dceae2",
+    "app/trading_core/static/launch.html": "e6acf764e607d34484718b23256d3b5730d0dd8aa1b02072d90c48c593e1ee24",
+    "app/trading_core/static/providers.html": "79873fb44e80f7f37e8291bfd64c48a94aeec35716597a85dcf99eca7cbe4e13",
+    "app/trading_core/static/record-view.css": "9c4fcf2daa9df4527ebcdfbecce2fdae93b2f0d90594e76f6283932b357d7e4a",
+    "app/trading_core/static/record-view.js": "422e42d81d1d7761bda2e5283d2991a9331221fbeee0be2d6785c6a8e5f0be8d",
+    "app/trading_core/static/research.html": "70ef680b4821eb73459343a28504bdd872a4fe45ca17d0cca4be4e71ca9ec0ec",
+    "app/trading_core/resources/config/agents.json": "baa1a6eb7190f5ddbf12435a2af844108836c77a360f90cb5561bfdabd83e77c",
+    "app/trading_core/resources/config/research.json": "032d7562faaddc1ee58459dcc01bcca391a41e0dbd2787f4a29d4dcea89b0c23",
+    "app/trading_core/resources/config/runtime.json": "31aaf3986788d8080754cdd16c21f14ed42a58822e246faf75a37eb0db3eb046",
+    "app/trading_core/resources/sql/001_foundation.sql": "21781142579e9e84f60888fd473e5679040f1b361d8291ef2eaba6d891eab68e",
+    "app/trading_core/resources/sql/002_orchestration.sql": "1dfcb731a36089f910100c5c85f4acd38941df5a7b9742864bf7e3ce9dc75272",
+    "app/trading_core/resources/sql/003_autonomy.sql": "eabdb0fbf3c1a538467d7b17351b8499c8b5205cda9eb059c1aa3deeb735e54f",
+    "app/trading_core/resources/sql/005_core_namespaces.down.sql": "965d231f5adc3eb7ea6875b3178799ada9a3756f3560aba2d1b64056ee83e22d",
+    "app/trading_core/resources/sql/005_core_namespaces.sql": "fd0d1c77ce76f840d3f7fcd4b98b1f1d835aca194ed86673afb201542a72973a",
+    "app/trading_core/resources/sql/006_record_ownership.down.sql": "e17b69fbaf1a1d2c3640ac8744ecec0bd43dcf21223752fc95b4f5ffd00e6175",
+    "app/trading_core/resources/sql/006_record_ownership.sql": "ff7053f4a7a9b1325242a104cccab843be387c71e2cdb2641b8d1b572fa0091d",
+    "app/trading_core/resources/sql/008_artifact_ownership.sql": "7733b8bebf55604213244a1b871b71517eb537571e9412d18b8882f2e39bd125",
+    "app/trading_core/resources/sql/009_product_audit_ownership.sql": "ce57842844fa61f99fb8819079c52d6282058376ded1239b3561268e50edad1e",
+    "app/trading_core/resources/sql/010_intelligence.sql": "04f20ff99e55c4b7944737883d71d0aeb345204ad77c9ff1dabb7f7a1a420dc3",
+    "app/trading_core/resources/sql/011_agent_lifecycle.sql": "44b51f857ff3cab9e5fe14c4796e47cdb5bcfcb36a3df8939b7c8ee8e9a8810e",
+    "app/trading_core/resources/sql/012_aegis_lineage.sql": "1ec9c60ea64b2b33c22ac872502f836527ca64eb4f13565082add3457e15c4b9",
+    "app/trading_core/resources/sql/013_resource_allocations.sql": "37b2fe371111aca539116f543b8c4f68edf8d7e70536e3be5486e33b377ab4d1",
+    "app/products/triad/acceptance.py": "3d7cd27f50ea2a425b28cf4b83c40086f0105dd78ba432e8ecfe5f363dd9fd59",
+    "app/products/triad/api.py": "a2b7a12ee38c51c79b8351dfe3775a6aeb0014b9f7ec3eadc976f6c2886c87b6",
+    "app/products/triad/contracts.py": "8b7c6effa09fd009caa92505ad37c6a1eeccc849442584709be10fa46dbd07d1",
+    "app/products/triad/cycles.py": "87cdb0f088345b73ec47dd8f03969044646ecf8984b460bf70323f7167d744fd",
+    "app/products/triad/cycle_history.py": "390b4754347e38672b1e51cd52a8b5dd3ce0db58c075df0e375bbba5c80a1554",
+    "app/products/triad/daily.py": "f44da6c4fe89ab2da58e0257acfe6007765c717041792e68a555651ba518a96f",
+    "app/products/triad/daily_api.py": "dddd168a0ebbd0ca1631f3f883b515cecbdfb73d7be7453a097d6dba499bf5b0",
+    "app/products/triad/daily_development.py": "56e1445cce407139506404c2d9d65fcea72902b6d19d395ccee6a51ffa501ce7",
+    "app/products/triad/daily_scheduler.py": "2bd887995f7f19c25e724d9d348450ef2e830ad5eacde3f04861956121093631",
+    "app/products/triad/daily_verification.py": "e6921c9c7d26d9440f9c69e86b2edd8f64ff883fa45a90fc79444a4cbf4cde36",
+    "app/products/triad/development.py": "d4e21a84e7612c54f5e8e5e67e0d945ac056efea5c709bbd8f90d99085ebdf8a",
+    "app/products/triad/development_api.py": "cc6592bcde40684fcffc2814ef6b85dbefbbe782708279fa88fb92dbdc4913b4",
+    "app/products/triad/development_contracts.py": "0133b94558c9d4e4dcb72deb873ae0e71167c11cd29e98b643f3ef2ba9d683b7",
+    "app/products/triad/jobs.py": "63a838219229a1780fda099f06845ca72f4b0090aa9790d1744d6ad6ea651c9f",
+    "app/products/triad/ledger.py": "614263ddcb60f1e4aff3e19ba9ac9c3aba95a27e1ffe196d9c77fa00a282dfa3",
+    "app/products/triad/qa_reference.py": "d77aba19b00e8c37e3e73ab99e51a43a5ad72154ca96364c8e68ae5b724acbde",
+    "app/products/triad/readiness.py": "abd316bb98910189c3983e88e1acf4c448701731b41347a32abb307a1a1ef1bd",
+    "app/products/triad/resources.py": "b0c94f3ee75d8829d1f8000f01be561c93576750c3f41612cb96812e104f5f30",
+    "app/products/triad/scheduler.py": "89aa7a16fb93fcafeca646303e3934160f2dc8966955d431ccff17cdce9f7e7b",
+    "app/products/triad/server.py": "292783f16b21b7739d3fcd354b9127ff7573b3dd8bbf18eb14ca23d83e4dac0a",
+    "app/products/triad/__init__.py": "61febd50f9196e2fd177f7f88718248e7106878651cd86e78df64bc71459d313",
+    "app/products/triad/resources/004_jobs.sql": "d9151c6763d634c8dd1bdf22ed4bd05aa3ce16b27e036868d3d2d17db4f0c627",
+    "app/products/triad/resources/007_triad.sql": "40159de1e81ee669a89f3bea7302f2ca68d1a27fe30b5ecb3e34cf82a4d0cd89",
+    "app/products/triad/resources/product.json": "20bc020432c9cbdf0db649a0b36628d268e7654500b42fa995a88fdcbd7133b5",
+    "app/products/triad/static/cycles.html": "df2710084cad2ef26fd71506addb56b43d594cfc5a90c1295e5a5b794cbddf25",
+    "app/products/triad/static/cycles.js": "b019057f42e6f58f464ff3572cc1bf99e2433d71b7073931f6757ad4cb21693f",
+    "app/products/triad/static/daily.html": "e92ef266a6bc1f3a796c7ea8bfca4a7880a31833bbad911a6b7a113f85615a33",
+    "app/products/triad/static/daily.js": "5c477bbb302a58be274c7358a7c03fbfad836bdc3e9c187f77ff02da60cc83d3",
+    "app/products/triad/static/day3.html": "1252dfde6560148a570fae8038acbd0cde84e4069b45c655cdabc75f05870ea4",
+    "app/products/triad/static/development.html": "a46e510dbae96926ea967d6299ee804eb51d9ae3976956f0625f720664428e68",
+    "app/products/triad/static/development.js": "02f88a7461e6409ec93989a8b52ba74d17a0674e3bfa32f5dd1a0b39a46409ac",
+    "app/products/triad/static/product.html": "60c6627666f6c48ddaab925dbbbe0c4ac650b595105205526322b9a09908b67e",
+    "app/products/aegis/server.py": "b8c02da448fce5e74a12a4688f8b40f97d96456283a7d3cc819f4e7a7c11c20f",
+    "app/products/aegis/__init__.py": "61febd50f9196e2fd177f7f88718248e7106878651cd86e78df64bc71459d313",
+    "app/products/aegis/resources/product.json": "b6f4c422ff89660054d5aab83165f7a96cdd7fd0df6405e21a2cd3728a5b6f6a",
+    "app/products/aegis/static/index.html": "cfecfe7047aaffa6997057716899873d1e1f5023c9036349959398fdbe7a31e0"
+  },
+  "routes": [
+    {
+      "app": "core",
+      "path": "/core",
+      "status": 200
+    },
+    {
+      "app": "core",
+      "path": "/day2",
+      "status": 200
+    },
+    {
+      "app": "core",
+      "path": "/research",
+      "status": 200
+    },
+    {
+      "app": "core",
+      "path": "/settings/ai-providers",
+      "status": 200
+    },
+    {
+      "app": "core",
+      "path": "/assets/record-view.js",
+      "status": 200
+    },
+    {
+      "app": "core",
+      "path": "/assets/record-view.css",
+      "status": 200
+    },
+    {
+      "app": "core",
+      "path": "/core/integrations",
+      "status": 200
+    },
+    {
+      "app": "core",
+      "path": "/assets/integrations.js",
+      "status": 200
+    },
+    {
+      "app": "core",
+      "path": "/launch",
+      "status": 200
+    },
+    {
+      "app": "core",
+      "path": "/triad/api/daily-debriefs",
+      "status": 404
+    },
+    {
+      "app": "core",
+      "path": "/aegis/api/status",
+      "status": 404
+    },
+    {
+      "app": "triad",
+      "path": "/health/live",
+      "status": 200
+    },
+    {
+      "app": "triad",
+      "path": "/triad",
+      "status": 200
+    },
+    {
+      "app": "triad",
+      "path": "/triad/product",
+      "status": 200
+    },
+    {
+      "app": "triad",
+      "path": "/triad/development",
+      "status": 200
+    },
+    {
+      "app": "triad",
+      "path": "/triad/cycles",
+      "status": 200
+    },
+    {
+      "app": "triad",
+      "path": "/triad/assets/cycles.js",
+      "status": 200
+    },
+    {
+      "app": "triad",
+      "path": "/triad/daily-debrief",
+      "status": 200
+    },
+    {
+      "app": "triad",
+      "path": "/triad/assets/daily.js",
+      "status": 200
+    },
+    {
+      "app": "triad",
+      "path": "/api/core/research-readiness/catalog",
+      "status": 404
+    },
+    {
+      "app": "triad",
+      "path": "/aegis/api/status",
+      "status": 404
+    },
+    {
+      "app": "triad",
+      "path": "/triad/product/research-readiness",
+      "status": 503,
+      "expected": "Feature remains unmerged"
+    },
+    {
+      "app": "triad",
+      "path": "/triad/assets/research-readiness.js",
+      "status": 503,
+      "expected": "Feature remains unmerged"
+    },
+    {
+      "app": "aegis",
+      "path": "/aegis",
+      "status": 200
+    },
+    {
+      "app": "aegis",
+      "path": "/health/live",
+      "status": 200
+    },
+    {
+      "app": "aegis",
+      "path": "/triad/api/daily-debriefs",
+      "status": 404
+    },
+    {
+      "app": "aegis",
+      "path": "/api/core/research-readiness/catalog",
+      "status": 404
+    }
+  ],
+  "qa_reference": {
+    "module": "C:\\Users\\fordr\\AppData\\Local\\Temp\\reconcile-package-qa-8urtdimm\\installed\\products\\triad\\qa_reference.py",
+    "source_revision": "c2da56d16e6e031fc34cd025ca4bd7345cf8695d",
+    "bundle_sha256": "ac89d226bbb0b7887b90f10d880f6932c2dc63cf7357ebf659756530dcd553a0",
+    "sources": 7
+  },
+  "sql_assets": [
+    "app/trading_core/resources/sql/001_foundation.sql",
+    "app/trading_core/resources/sql/002_orchestration.sql",
+    "app/trading_core/resources/sql/003_autonomy.sql",
+    "app/trading_core/resources/sql/005_core_namespaces.down.sql",
+    "app/trading_core/resources/sql/005_core_namespaces.sql",
+    "app/trading_core/resources/sql/006_record_ownership.down.sql",
+    "app/trading_core/resources/sql/006_record_ownership.sql",
+    "app/trading_core/resources/sql/008_artifact_ownership.sql",
+    "app/trading_core/resources/sql/009_product_audit_ownership.sql",
+    "app/trading_core/resources/sql/010_intelligence.sql",
+    "app/trading_core/resources/sql/011_agent_lifecycle.sql",
+    "app/trading_core/resources/sql/012_aegis_lineage.sql",
+    "app/trading_core/resources/sql/013_resource_allocations.sql"
+  ],
+  "revision": "c2da56d16e6e031fc34cd025ca4bd7345cf8695d",
+  "wheel": "C:\\Users\\fordr\\AppData\\Local\\Temp\\reconcile-package-qa-8urtdimm\\wheels\\triad_foundation-0.2.0-py3-none-any.whl",
+  "wheel_sha256": "f6eba36236340a75bd077a53e65c598253cc363035aeaa0a5309fee863f2777d",
+  "source_archive_sha256": "ba1903789185161d722879e4860ff9854a7fc33e95c744d0c4b91c88c6684ea7",
+  "evidence_directory": "C:\\Users\\fordr\\AppData\\Local\\Temp\\reconcile-package-qa-8urtdimm",
+  "script_sha256": "471c10e7a63dcc400e621b99d30390196d2a3ef7f690f9722f1ff94606d8569d",
+  "limits": "Offline package static/API-route smoke only. No application lifespan, provider inference, DB writes or real readiness feature acceptance."
+}

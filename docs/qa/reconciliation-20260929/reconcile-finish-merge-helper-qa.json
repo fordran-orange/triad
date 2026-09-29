@@ -1,0 +1,29 @@
+{
+  "decision": "PASS",
+  "reviewer": "/root/day6_qa_c",
+  "builder": "/root",
+  "scope": "Source-only review of local follow-up merge helper; not execution or approval of any future manifest",
+  "helper": "C:\\Triad\\logs\\reconcile_finish_merge.py",
+  "helper_sha256": "8575f35805eacc457674be9d60f95f33f88bf573876f1d5bc465f4e1a056ad42",
+  "verified": [
+    "Clean exact candidate/base and checked-out main; ancestry required",
+    "Independent PASS report file hash plus exact reviewed revision; builder/reviewer identities bound to report and distinct",
+    "Coverage map comes exactly from report; bytes compared at reviewed and merge revisions; full changed-path set equality",
+    "Typed Core implementation/QA records with exact commit and host-independent provenance; require_pass",
+    "Final mutation within shared product lease and Ledger.gate control-row lock; base/branch/clean rechecked",
+    "Latest QA and exact recorded QA ID rechecked within held merge gate",
+    "Bounded ff-only merge of checked-out main, post-merge exact revision and clean check; output marked PASS only afterward"
+  ],
+  "resolved_findings": [
+    "Coverage and reviewer identity originally trusted caller fields without exact report binding",
+    "Final source/control checks originally outside shared lease/control transaction",
+    "Latest QA originally checked only before acquiring merge lease"
+  ],
+  "limits": [
+    "No helper execution, database writes, Git mutation or fake independent verdict occurred in this review.",
+    "Run with ordinary Python assertions enabled, as the reviewed helper uses assert for preconditions.",
+    "Lease serializes canonical product execution; unrelated external Git edits do not participate, so Git locks and post-checks remain additional safeguards.",
+    "A failing/timeout Git operation retains GATED rather than PASS evidence and requires operator reconciliation.",
+    "Each later manifest still requires exact independent source/report coverage; this helper review cannot authorize unreviewed code."
+  ]
+}

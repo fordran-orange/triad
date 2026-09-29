@@ -1,0 +1,58 @@
+{
+  "decision": "PASS",
+  "revision": "c2da56d16e6e031fc34cd025ca4bd7345cf8695d",
+  "base_revision": "912fa2def1a82f85b5febbff56e021d8cd9ddd77",
+  "builder": "/root/day6_qa_a",
+  "reviewer": "/root/day6_qa_c",
+  "scope": "Preserve verified local Ollama identity/proofs through temporary metadata outages while persisting current unavailability; genuine endpoint/version changes invalidate",
+  "git_blob_sha256": {
+    "app/trading_core/providers/control.py": "dee32fcd66b9c706ac2dba9d6ae941b74336f24aca003172a7d2dbed8d20b481",
+    "tests/test_provider_outage_identity.py": "8f22ca78482506d2bebed6cb25cf44559299b69fca9edc60daed655da393c209"
+  },
+  "disk_sha256": {
+    "app/trading_core/providers/control.py": "12b253aceb31b66a263404222b102f60abc7251069636109a13994dc801379e3",
+    "tests/test_provider_outage_identity.py": "a37abf4d40018596bd848b0c7780b4306b0186596d414c7016c7412a4dc204d3"
+  },
+  "tests": {
+    "passed": 63,
+    "independent_cases": 11,
+    "warnings": 2,
+    "seconds": 5.7,
+    "exit": 0,
+    "ruff": "PASS"
+  },
+  "checks": [
+    "63 focused provider/outage/reconciliation tests passed, including 11 independent adversarial cases",
+    "Ruff passed for both changed files",
+    "Exact two-file source diff and committed byte hashes verified"
+  ],
+  "evidence_sha256": {
+    "C:\\Triad\\logs\\reconcile-local-outage-independent-initial.log": "656a957e6518aa651ee341be35fe76dc5749360fc35b57ba9298445c4f4c9e66",
+    "C:\\Triad\\logs\\reconcile-local-outage-independent-initial.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04",
+    "C:\\Triad\\logs\\reconcile-local-outage-independent-final.log": "2caf6e778a6fc2e78142fd7e3435fa6b35f1940710c11bbf0c84998b1c3c5096",
+    "C:\\Triad\\logs\\reconcile-local-outage-independent-final.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "C:\\Triad\\logs\\test_reconcile_local_outage_independent.py": "67d19a2874f9fe463b66bda5a02279264f1a4fdef0b40330b39cda63c92066ff",
+    "C:\\Triad\\logs\\reconcile-local-outage-builder.json": "9385f00a35bd0f6cbf3de321d39bc98be7e8a8bd96682543e2a2e06232747667",
+    "C:\\Triad\\logs\\reconcile-local-outage-correction-builder.json": "9a0275176ea177025243b66037b7f0ee259442b82eb9de540a58b54ba71958fe"
+  },
+  "retained_failures": {
+    "revision": "2cf1166ecbcaab2ed959bd4cf8332e7a94fb58a7",
+    "failed": 4,
+    "passed": 16,
+    "finding": "Non-object version JSON raised before writing unavailable state, leaving prior ONLINE status; corrected at c2da56d and original test cases now pass"
+  },
+  "verified": [
+    "Known endpoint captured independently of probe; previous version reused only for identical endpoint",
+    "Real connection/model-list/version failure retains old proofs but persists current error and reachability UNAVAILABLE; cannot be ONLINE",
+    "Missing, non-string, whitespace-only version fields and None/list/int/string envelopes fail unavailable; no stale ONLINE snapshot",
+    "Successful health with failed metadata remains unavailable; failed health cannot be overridden by successful metadata",
+    "Original identity recovery can reuse proofs; version or endpoint change clears both; repeated failures at changed endpoint do not revive old evidence",
+    "CLI detection/auth/executable/version invalidation behavior remains unchanged and regression-tested",
+    "Only two expected files differ from deployed912fa2d, no new permissions or provider execution"
+  ],
+  "limits": [
+    "Offline in-memory fixtures and mocked HTTP/process seams only; no live provider/network/DB writes or service restart",
+    "No new actual model verification or completed autonomous cycle claimed",
+    "Production deployment remains root governed action after this PASS"
+  ]
+}

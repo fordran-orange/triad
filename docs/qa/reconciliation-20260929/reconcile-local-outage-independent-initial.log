@@ -1,0 +1,332 @@
+FFFF................                                                     [100%]
+================================== FAILURES ===================================
+_ test_malformed_version_envelope_retains_proof_but_persists_unavailable[None] _
+
+payload = None
+
+    @pytest.mark.parametrize('payload',[None,[],7,'bad'])
+    def test_malformed_version_envelope_retains_proof_but_persists_unavailable(payload):
+        host,adapter,state,proof=fixture()
+        adapter.transport=lambda _:payload
+>       result=ProviderControl._refresh(host,'ollama')
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Triad\logs\test_reconcile_local_outage_independent.py:28: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = namespace(transport=<function fixture.<locals>.<lambda> at 0x000002A653612700>, snapshot=<function fixture.<locals>.<lambda> at 0x000002A6536125C0>, ledger=namespace(put=<function fixture.<locals>.put at 0x000002A653612480>))
+transport_id = 'ollama'
+
+    def _refresh(self, transport_id):
+        adapter = self.transport(transport_id)
+        data = adapter.detect()
+        local_identity_unavailable = False
+        if adapter.transport_type == "CLI":
+            missing = data.get("install_status") in {"NOT_FOUND", "NOT_INSTALLED"}
+            mismatch = data.get("compatibility_status") == "VERSION_MISMATCH"
+            unavailable = data.get("install_status") != "INSTALLED"
+            data.update(
+                {"auth_state": "NOT_FOUND" if missing else "UNKNOWN", "billing_source": "UNKNOWN"}
+                if unavailable or mismatch
+                else adapter.authentication_status()
+            )
+            capabilities = (
+                adapter.capabilities()
+                if not unavailable and not mismatch
+                else {
+                    "native": [],
+                    "granted": [],
+                    "outer_boundary": "NOT_READY",
+                    "execution_blocker": "NOT_FOUND"
+                    if missing
+                    else "VERSION_MISMATCH"
+                    if mismatch
+                    else "UNAVAILABLE",
+                }
+            )
+            data.update(
+                health="NOT_FOUND"
+                if missing
+                else "VERSION_MISMATCH"
+                if mismatch
+                else "AUTH_REQUIRED"
+                if data["auth_state"] in {"NOT_AUTHENTICATED", "AUTH_FAILED"}
+                else "OFFLINE",
+                error=capabilities["execution_blocker"],
+                capabilities=capabilities,
+            )
+            self.ledger.event(
+                "cli_detected" if data["install_status"] == "INSTALLED" else "cli_missing",
+                agent=adapter.agent,
+                **data,
+            )
+        else:
+            probe = adapter.health_check()
+            data.update(
+                reachability=probe.status,
+                error=probe.error_class,
+                latency=probe.latency,
+                health="OFFLINE",
+            )
+            if probe.status == "AVAILABLE":
+                data["auth_state"] = "AUTHENTICATED"
+            if adapter.transport_type == "LOCAL":
+                local = adapter.adapter()
+                # The configured endpoint remains known even while its server is down.
+                data["endpoint"] = local.base
+                try:
+                    data.update(adapter.list_models())
+>                   version = local.transport("/api/version").get("version")
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                   AttributeError: 'NoneType' object has no attribute 'get'
+
+app\trading_core\providers\control.py:218: AttributeError
+_ test_malformed_version_envelope_retains_proof_but_persists_unavailable[payload1] _
+
+payload = []
+
+    @pytest.mark.parametrize('payload',[None,[],7,'bad'])
+    def test_malformed_version_envelope_retains_proof_but_persists_unavailable(payload):
+        host,adapter,state,proof=fixture()
+        adapter.transport=lambda _:payload
+>       result=ProviderControl._refresh(host,'ollama')
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Triad\logs\test_reconcile_local_outage_independent.py:28: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = namespace(transport=<function fixture.<locals>.<lambda> at 0x000002A653612840>, snapshot=<function fixture.<locals>.<lambda> at 0x000002A653611760>, ledger=namespace(put=<function fixture.<locals>.put at 0x000002A653611940>))
+transport_id = 'ollama'
+
+    def _refresh(self, transport_id):
+        adapter = self.transport(transport_id)
+        data = adapter.detect()
+        local_identity_unavailable = False
+        if adapter.transport_type == "CLI":
+            missing = data.get("install_status") in {"NOT_FOUND", "NOT_INSTALLED"}
+            mismatch = data.get("compatibility_status") == "VERSION_MISMATCH"
+            unavailable = data.get("install_status") != "INSTALLED"
+            data.update(
+                {"auth_state": "NOT_FOUND" if missing else "UNKNOWN", "billing_source": "UNKNOWN"}
+                if unavailable or mismatch
+                else adapter.authentication_status()
+            )
+            capabilities = (
+                adapter.capabilities()
+                if not unavailable and not mismatch
+                else {
+                    "native": [],
+                    "granted": [],
+                    "outer_boundary": "NOT_READY",
+                    "execution_blocker": "NOT_FOUND"
+                    if missing
+                    else "VERSION_MISMATCH"
+                    if mismatch
+                    else "UNAVAILABLE",
+                }
+            )
+            data.update(
+                health="NOT_FOUND"
+                if missing
+                else "VERSION_MISMATCH"
+                if mismatch
+                else "AUTH_REQUIRED"
+                if data["auth_state"] in {"NOT_AUTHENTICATED", "AUTH_FAILED"}
+                else "OFFLINE",
+                error=capabilities["execution_blocker"],
+                capabilities=capabilities,
+            )
+            self.ledger.event(
+                "cli_detected" if data["install_status"] == "INSTALLED" else "cli_missing",
+                agent=adapter.agent,
+                **data,
+            )
+        else:
+            probe = adapter.health_check()
+            data.update(
+                reachability=probe.status,
+                error=probe.error_class,
+                latency=probe.latency,
+                health="OFFLINE",
+            )
+            if probe.status == "AVAILABLE":
+                data["auth_state"] = "AUTHENTICATED"
+            if adapter.transport_type == "LOCAL":
+                local = adapter.adapter()
+                # The configured endpoint remains known even while its server is down.
+                data["endpoint"] = local.base
+                try:
+                    data.update(adapter.list_models())
+>                   version = local.transport("/api/version").get("version")
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                   AttributeError: 'list' object has no attribute 'get'
+
+app\trading_core\providers\control.py:218: AttributeError
+__ test_malformed_version_envelope_retains_proof_but_persists_unavailable[7] __
+
+payload = 7
+
+    @pytest.mark.parametrize('payload',[None,[],7,'bad'])
+    def test_malformed_version_envelope_retains_proof_but_persists_unavailable(payload):
+        host,adapter,state,proof=fixture()
+        adapter.transport=lambda _:payload
+>       result=ProviderControl._refresh(host,'ollama')
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Triad\logs\test_reconcile_local_outage_independent.py:28: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = namespace(transport=<function fixture.<locals>.<lambda> at 0x000002A653610F40>, snapshot=<function fixture.<locals>.<lambda> at 0x000002A653612A20>, ledger=namespace(put=<function fixture.<locals>.put at 0x000002A653610D60>))
+transport_id = 'ollama'
+
+    def _refresh(self, transport_id):
+        adapter = self.transport(transport_id)
+        data = adapter.detect()
+        local_identity_unavailable = False
+        if adapter.transport_type == "CLI":
+            missing = data.get("install_status") in {"NOT_FOUND", "NOT_INSTALLED"}
+            mismatch = data.get("compatibility_status") == "VERSION_MISMATCH"
+            unavailable = data.get("install_status") != "INSTALLED"
+            data.update(
+                {"auth_state": "NOT_FOUND" if missing else "UNKNOWN", "billing_source": "UNKNOWN"}
+                if unavailable or mismatch
+                else adapter.authentication_status()
+            )
+            capabilities = (
+                adapter.capabilities()
+                if not unavailable and not mismatch
+                else {
+                    "native": [],
+                    "granted": [],
+                    "outer_boundary": "NOT_READY",
+                    "execution_blocker": "NOT_FOUND"
+                    if missing
+                    else "VERSION_MISMATCH"
+                    if mismatch
+                    else "UNAVAILABLE",
+                }
+            )
+            data.update(
+                health="NOT_FOUND"
+                if missing
+                else "VERSION_MISMATCH"
+                if mismatch
+                else "AUTH_REQUIRED"
+                if data["auth_state"] in {"NOT_AUTHENTICATED", "AUTH_FAILED"}
+                else "OFFLINE",
+                error=capabilities["execution_blocker"],
+                capabilities=capabilities,
+            )
+            self.ledger.event(
+                "cli_detected" if data["install_status"] == "INSTALLED" else "cli_missing",
+                agent=adapter.agent,
+                **data,
+            )
+        else:
+            probe = adapter.health_check()
+            data.update(
+                reachability=probe.status,
+                error=probe.error_class,
+                latency=probe.latency,
+                health="OFFLINE",
+            )
+            if probe.status == "AVAILABLE":
+                data["auth_state"] = "AUTHENTICATED"
+            if adapter.transport_type == "LOCAL":
+                local = adapter.adapter()
+                # The configured endpoint remains known even while its server is down.
+                data["endpoint"] = local.base
+                try:
+                    data.update(adapter.list_models())
+>                   version = local.transport("/api/version").get("version")
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                   AttributeError: 'int' object has no attribute 'get'
+
+app\trading_core\providers\control.py:218: AttributeError
+_ test_malformed_version_envelope_retains_proof_but_persists_unavailable[bad] _
+
+payload = 'bad'
+
+    @pytest.mark.parametrize('payload',[None,[],7,'bad'])
+    def test_malformed_version_envelope_retains_proof_but_persists_unavailable(payload):
+        host,adapter,state,proof=fixture()
+        adapter.transport=lambda _:payload
+>       result=ProviderControl._refresh(host,'ollama')
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Triad\logs\test_reconcile_local_outage_independent.py:28: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = namespace(transport=<function fixture.<locals>.<lambda> at 0x000002A653612CA0>, snapshot=<function fixture.<locals>.<lambda> at 0x000002A653612DE0>, ledger=namespace(put=<function fixture.<locals>.put at 0x000002A653612AC0>))
+transport_id = 'ollama'
+
+    def _refresh(self, transport_id):
+        adapter = self.transport(transport_id)
+        data = adapter.detect()
+        local_identity_unavailable = False
+        if adapter.transport_type == "CLI":
+            missing = data.get("install_status") in {"NOT_FOUND", "NOT_INSTALLED"}
+            mismatch = data.get("compatibility_status") == "VERSION_MISMATCH"
+            unavailable = data.get("install_status") != "INSTALLED"
+            data.update(
+                {"auth_state": "NOT_FOUND" if missing else "UNKNOWN", "billing_source": "UNKNOWN"}
+                if unavailable or mismatch
+                else adapter.authentication_status()
+            )
+            capabilities = (
+                adapter.capabilities()
+                if not unavailable and not mismatch
+                else {
+                    "native": [],
+                    "granted": [],
+                    "outer_boundary": "NOT_READY",
+                    "execution_blocker": "NOT_FOUND"
+                    if missing
+                    else "VERSION_MISMATCH"
+                    if mismatch
+                    else "UNAVAILABLE",
+                }
+            )
+            data.update(
+                health="NOT_FOUND"
+                if missing
+                else "VERSION_MISMATCH"
+                if mismatch
+                else "AUTH_REQUIRED"
+                if data["auth_state"] in {"NOT_AUTHENTICATED", "AUTH_FAILED"}
+                else "OFFLINE",
+                error=capabilities["execution_blocker"],
+                capabilities=capabilities,
+            )
+            self.ledger.event(
+                "cli_detected" if data["install_status"] == "INSTALLED" else "cli_missing",
+                agent=adapter.agent,
+                **data,
+            )
+        else:
+            probe = adapter.health_check()
+            data.update(
+                reachability=probe.status,
+                error=probe.error_class,
+                latency=probe.latency,
+                health="OFFLINE",
+            )
+            if probe.status == "AVAILABLE":
+                data["auth_state"] = "AUTHENTICATED"
+            if adapter.transport_type == "LOCAL":
+                local = adapter.adapter()
+                # The configured endpoint remains known even while its server is down.
+                data["endpoint"] = local.base
+                try:
+                    data.update(adapter.list_models())
+>                   version = local.transport("/api/version").get("version")
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                   AttributeError: 'str' object has no attribute 'get'
+
+app\trading_core\providers\control.py:218: AttributeError
+=========================== short test summary info ===========================
+FAILED ..\..\..\logs\test_reconcile_local_outage_independent.py::test_malformed_version_envelope_retains_proof_but_persists_unavailable[None]
+FAILED ..\..\..\logs\test_reconcile_local_outage_independent.py::test_malformed_version_envelope_retains_proof_but_persists_unavailable[payload1]
+FAILED ..\..\..\logs\test_reconcile_local_outage_independent.py::test_malformed_version_envelope_retains_proof_but_persists_unavailable[7]
+FAILED ..\..\..\logs\test_reconcile_local_outage_independent.py::test_malformed_version_envelope_retains_proof_but_persists_unavailable[bad]
+4 failed, 16 passed in 2.83s

@@ -1,0 +1,48 @@
+{
+  "TaskName": "Triad Core Supervisor",
+  "State": "Ready",
+  "Actions": [
+    {
+      "Execute": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "Arguments": "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"C:\\Triad\\tools\\ensure_core.ps1\"",
+      "WorkingDirectory": "C:\\Triad"
+    }
+  ],
+  "Principal": {
+    "UserId": "fordr",
+    "LogonType": 3,
+    "RunLevel": 0
+  },
+  "Triggers": [
+    {
+      "Type": "MSFT_TaskLogonTrigger",
+      "Enabled": true,
+      "UserId": "RAGNAROK\\fordr",
+      "StartBoundary": null,
+      "Interval": null,
+      "Duration": null
+    },
+    {
+      "Type": "MSFT_TaskTimeTrigger",
+      "Enabled": true,
+      "UserId": null,
+      "StartBoundary": "2026-09-29T13:41:20-05:00",
+      "Interval": "PT5M",
+      "Duration": null
+    }
+  ],
+  "LastRunTime": "2026-09-29T13:40:33.0000000-05:00",
+  "LastTaskResult": 0,
+  "NextRunTime": "2026-09-29T13:41:20.0000000-05:00",
+  "Core": {
+    "status": "ok",
+    "scope": "api_process_only"
+  },
+  "OllamaModels": [
+    {
+      "name": "qwen3:4b",
+      "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7"
+    }
+  ],
+  "PersistentModelPath": "C:\\AI\\Models\\Ollama"
+}

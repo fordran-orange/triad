@@ -1,0 +1,360 @@
+{
+  "decision": "PASS",
+  "source_revision": "912fa2def1a82f85b5febbff56e021d8cd9ddd77",
+  "scope": "Eight explicit connection/read-only WorkItem checks using subscription CLI and local model only; no product implementation, API fallback, policy or login changes",
+  "initial_snapshot_decision": "BLOCKED",
+  "initial_block_reason": "Codex connection and read-only checks both passed; all-provider gate was blocked solely because Grok/Claude/Ollama refreshed proofs were still missing",
+  "runs": [
+    {
+      "acceptance": false,
+      "proof": {
+        "proof_id": "32539644-8aae-4661-9838-32c610a57dfb",
+        "work_item_id": "2c5c9216-4893-4d21-a9bd-34a336082cc6",
+        "run_id": "04c259a8-edcb-4d8c-b542-a4d68083a626",
+        "usage_id": "d82e46ba-e2c5-430f-8b3c-460815317cfb",
+        "transport": "codex_cli",
+        "agent": "CODEX",
+        "provider": "openai",
+        "mode": "REAL",
+        "success": true,
+        "kind": "test",
+        "actual_model": "gpt-6-astra",
+        "requested_model": "Auto",
+        "billing_source": "SUBSCRIPTION",
+        "started_at": "2026-09-29T18:41:02.054153+00:00",
+        "completed_at": "2026-09-29T18:41:33.523543+00:00"
+      },
+      "usage": [
+        {
+          "id": "d82e46ba-e2c5-430f-8b3c-460815317cfb",
+          "work_item_id": "2c5c9216-4893-4d21-a9bd-34a336082cc6",
+          "run_id": "04c259a8-edcb-4d8c-b542-a4d68083a626",
+          "agent": "CODEX",
+          "provider": "openai",
+          "transport": "codex_cli",
+          "actual_model": "gpt-6-astra",
+          "mode": "REAL",
+          "billing_source": "SUBSCRIPTION",
+          "input_tokens": 11945,
+          "output_tokens": 173,
+          "reasoning_tokens": null,
+          "duration": 28.094000000040978,
+          "status": "SUCCESS",
+          "usage_known": true,
+          "estimated_cost": 0.0,
+          "error_class": null
+        }
+      ]
+    },
+    {
+      "acceptance": true,
+      "proof": {
+        "proof_id": "445e0d05-5bcb-4148-ab61-db32f59f73b8",
+        "work_item_id": "3808a0bc-904a-44b9-a035-91ca22174578",
+        "run_id": "6ae8ecff-7b89-4836-aab0-926ad571ec2e",
+        "usage_id": "59a1e13c-80ee-4082-b075-8540ad43e54a",
+        "transport": "codex_cli",
+        "agent": "CODEX",
+        "provider": "openai",
+        "mode": "REAL",
+        "success": true,
+        "kind": "workitem",
+        "actual_model": "gpt-6-astra",
+        "requested_model": "Auto",
+        "billing_source": "SUBSCRIPTION",
+        "started_at": "2026-09-29T18:41:42.257921+00:00",
+        "completed_at": "2026-09-29T18:42:23.043593+00:00"
+      },
+      "usage": [
+        {
+          "id": "59a1e13c-80ee-4082-b075-8540ad43e54a",
+          "work_item_id": "3808a0bc-904a-44b9-a035-91ca22174578",
+          "run_id": "6ae8ecff-7b89-4836-aab0-926ad571ec2e",
+          "agent": "CODEX",
+          "provider": "openai",
+          "transport": "codex_cli",
+          "actual_model": "gpt-6-astra",
+          "mode": "REAL",
+          "billing_source": "SUBSCRIPTION",
+          "input_tokens": 37080,
+          "output_tokens": 251,
+          "reasoning_tokens": null,
+          "duration": 37.48399999993853,
+          "status": "SUCCESS",
+          "usage_known": true,
+          "estimated_cost": 0.0,
+          "error_class": null
+        }
+      ]
+    },
+    {
+      "acceptance": false,
+      "proof": {
+        "proof_id": "64a4a44c-072c-49f1-9fe5-068b4c166b74",
+        "work_item_id": "667d931a-c014-498d-823e-1a7b3f0bbf35",
+        "run_id": "d5fe4fbc-b0ef-463a-b047-d978412f4dd6",
+        "usage_id": "f5c2f9fe-b7b1-474c-b48e-42b8f7c536be",
+        "transport": "grok_build_cli",
+        "agent": "GROK",
+        "provider": "xai",
+        "mode": "REAL",
+        "success": true,
+        "kind": "test",
+        "actual_model": "grok-4.7",
+        "requested_model": "Auto",
+        "billing_source": "SUBSCRIPTION",
+        "started_at": "2026-09-29T18:42:42.764273+00:00",
+        "completed_at": "2026-09-29T18:43:23.021898+00:00"
+      },
+      "usage": [
+        {
+          "id": "f5c2f9fe-b7b1-474c-b48e-42b8f7c536be",
+          "work_item_id": "667d931a-c014-498d-823e-1a7b3f0bbf35",
+          "run_id": "d5fe4fbc-b0ef-463a-b047-d978412f4dd6",
+          "agent": "GROK",
+          "provider": "xai",
+          "transport": "grok_build_cli",
+          "actual_model": "grok-4.7",
+          "mode": "REAL",
+          "billing_source": "SUBSCRIPTION",
+          "input_tokens": 4681,
+          "output_tokens": 924,
+          "reasoning_tokens": null,
+          "duration": 35.95299999997951,
+          "status": "SUCCESS",
+          "usage_known": true,
+          "estimated_cost": 0.0,
+          "error_class": null
+        }
+      ]
+    },
+    {
+      "acceptance": true,
+      "proof": {
+        "proof_id": "2a71303b-fdb0-4442-a0c9-8a5755c41976",
+        "work_item_id": "a399741d-81b4-481f-939c-d3a665c1b49f",
+        "run_id": "2a361c6c-0eb5-4b5c-9009-3f1c91e869e1",
+        "usage_id": "822daf2b-98ca-4331-9827-e005ff981a68",
+        "transport": "grok_build_cli",
+        "agent": "GROK",
+        "provider": "xai",
+        "mode": "REAL",
+        "success": true,
+        "kind": "workitem",
+        "actual_model": "grok-4.7",
+        "requested_model": "Auto",
+        "billing_source": "SUBSCRIPTION",
+        "started_at": "2026-09-29T18:43:26.734487+00:00",
+        "completed_at": "2026-09-29T18:44:20.112214+00:00"
+      },
+      "usage": [
+        {
+          "id": "822daf2b-98ca-4331-9827-e005ff981a68",
+          "work_item_id": "a399741d-81b4-481f-939c-d3a665c1b49f",
+          "run_id": "2a361c6c-0eb5-4b5c-9009-3f1c91e869e1",
+          "agent": "GROK",
+          "provider": "xai",
+          "transport": "grok_build_cli",
+          "actual_model": "grok-4.7",
+          "mode": "REAL",
+          "billing_source": "SUBSCRIPTION",
+          "input_tokens": 12390,
+          "output_tokens": 682,
+          "reasoning_tokens": null,
+          "duration": 47.84400000004098,
+          "status": "SUCCESS",
+          "usage_known": true,
+          "estimated_cost": 0.0,
+          "error_class": null
+        }
+      ]
+    },
+    {
+      "acceptance": false,
+      "proof": {
+        "proof_id": "8bf0769d-6d9c-4fdf-91a6-98d180f6072a",
+        "work_item_id": "13a5bdee-a033-4229-b48a-380174697289",
+        "run_id": "7c61e367-1d47-4fa7-943c-458568565769",
+        "usage_id": "42c4b9b4-5f28-4a7e-8a9a-6b6076e4e208",
+        "transport": "claude_code_cli",
+        "agent": "CLAUDE",
+        "provider": "anthropic",
+        "mode": "REAL",
+        "success": true,
+        "kind": "test",
+        "actual_model": "claude-sonnet-5",
+        "requested_model": "Auto",
+        "billing_source": "SUBSCRIPTION",
+        "started_at": "2026-09-29T18:44:23.299912+00:00",
+        "completed_at": "2026-09-29T18:44:38.112330+00:00"
+      },
+      "usage": [
+        {
+          "id": "42c4b9b4-5f28-4a7e-8a9a-6b6076e4e208",
+          "work_item_id": "13a5bdee-a033-4229-b48a-380174697289",
+          "run_id": "7c61e367-1d47-4fa7-943c-458568565769",
+          "agent": "CLAUDE",
+          "provider": "anthropic",
+          "transport": "claude_code_cli",
+          "actual_model": "claude-sonnet-5",
+          "mode": "REAL",
+          "billing_source": "SUBSCRIPTION",
+          "input_tokens": 8428,
+          "output_tokens": 646,
+          "reasoning_tokens": null,
+          "duration": 9.077999999979511,
+          "status": "SUCCESS",
+          "usage_known": true,
+          "estimated_cost": 0.0,
+          "error_class": null
+        }
+      ]
+    },
+    {
+      "acceptance": true,
+      "proof": {
+        "proof_id": "096322e0-bf23-48cf-8a6e-1ef836a433c6",
+        "work_item_id": "14396578-dad7-401c-b67f-c2c388ffd576",
+        "run_id": "6c4d372e-fda6-46bb-80e1-0782ef1e6cfb",
+        "usage_id": "9aa11d93-ac80-41ac-a019-eb6ae1b55d83",
+        "transport": "claude_code_cli",
+        "agent": "CLAUDE",
+        "provider": "anthropic",
+        "mode": "REAL",
+        "success": true,
+        "kind": "workitem",
+        "actual_model": "claude-sonnet-5",
+        "requested_model": "Auto",
+        "billing_source": "SUBSCRIPTION",
+        "started_at": "2026-09-29T18:44:41.658071+00:00",
+        "completed_at": "2026-09-29T18:45:00.501335+00:00"
+      },
+      "usage": [
+        {
+          "id": "9aa11d93-ac80-41ac-a019-eb6ae1b55d83",
+          "work_item_id": "14396578-dad7-401c-b67f-c2c388ffd576",
+          "run_id": "6c4d372e-fda6-46bb-80e1-0782ef1e6cfb",
+          "agent": "CLAUDE",
+          "provider": "anthropic",
+          "transport": "claude_code_cli",
+          "actual_model": "claude-sonnet-5",
+          "mode": "REAL",
+          "billing_source": "SUBSCRIPTION",
+          "input_tokens": 18523,
+          "output_tokens": 910,
+          "reasoning_tokens": null,
+          "duration": 14.327999999979511,
+          "status": "SUCCESS",
+          "usage_known": true,
+          "estimated_cost": 0.0,
+          "error_class": null
+        }
+      ]
+    },
+    {
+      "acceptance": false,
+      "proof": {
+        "proof_id": "f23160e8-239f-46ce-96de-9b58468eb750",
+        "work_item_id": "345ad745-8b72-4a40-ab0a-d7b1b5f431cb",
+        "run_id": "d5776b40-8146-417f-b6d3-88c321ae4a69",
+        "usage_id": "001d3aa7-1d21-4857-8f8b-d5d2eaf4e3fd",
+        "transport": "ollama",
+        "agent": "LOCAL_QWEN",
+        "provider": "ollama",
+        "mode": "REAL",
+        "success": true,
+        "kind": "test",
+        "actual_model": "qwen3:4b",
+        "requested_model": "qwen3:4b",
+        "billing_source": "LOCAL",
+        "started_at": "2026-09-29T18:45:03.739980+00:00",
+        "completed_at": "2026-09-29T18:45:59.959385+00:00"
+      },
+      "usage": [
+        {
+          "id": "001d3aa7-1d21-4857-8f8b-d5d2eaf4e3fd",
+          "work_item_id": "345ad745-8b72-4a40-ab0a-d7b1b5f431cb",
+          "run_id": "d5776b40-8146-417f-b6d3-88c321ae4a69",
+          "agent": "LOCAL_QWEN",
+          "provider": "ollama",
+          "transport": "ollama",
+          "actual_model": "qwen3:4b",
+          "mode": "REAL",
+          "billing_source": "LOCAL",
+          "input_tokens": 605,
+          "output_tokens": 22,
+          "reasoning_tokens": 0,
+          "duration": 47.76600000006147,
+          "status": "SUCCESS",
+          "usage_known": true,
+          "estimated_cost": 0.0,
+          "error_class": null
+        }
+      ]
+    },
+    {
+      "acceptance": true,
+      "proof": {
+        "proof_id": "1e044d0b-6aa5-436a-8d49-d156e971f726",
+        "work_item_id": "4aaf7bd8-dd88-4cf4-b689-98fa958240ed",
+        "run_id": "836b5f82-3d44-4de7-a660-34cbc7b70dab",
+        "usage_id": "ed0e0f87-aa49-425a-a982-221cc4d3da88",
+        "transport": "ollama",
+        "agent": "LOCAL_QWEN",
+        "provider": "ollama",
+        "mode": "REAL",
+        "success": true,
+        "kind": "workitem",
+        "actual_model": "qwen3:4b",
+        "requested_model": "qwen3:4b",
+        "billing_source": "LOCAL",
+        "started_at": "2026-09-29T18:46:01.595141+00:00",
+        "completed_at": "2026-09-29T18:47:15.224129+00:00"
+      },
+      "usage": [
+        {
+          "id": "ed0e0f87-aa49-425a-a982-221cc4d3da88",
+          "work_item_id": "4aaf7bd8-dd88-4cf4-b689-98fa958240ed",
+          "run_id": "836b5f82-3d44-4de7-a660-34cbc7b70dab",
+          "agent": "LOCAL_QWEN",
+          "provider": "ollama",
+          "transport": "ollama",
+          "actual_model": "qwen3:4b",
+          "mode": "REAL",
+          "billing_source": "LOCAL",
+          "input_tokens": 623,
+          "output_tokens": 84,
+          "reasoning_tokens": 0,
+          "duration": 63.375,
+          "status": "SUCCESS",
+          "usage_known": true,
+          "estimated_cost": 0.0,
+          "error_class": null
+        }
+      ]
+    }
+  ],
+  "final_api": {
+    "gate": "PASS",
+    "states": {
+      "CODEX": "ONLINE",
+      "CLAUDE": "ONLINE",
+      "GROK": "ONLINE",
+      "LOCAL_QWEN": "ONLINE"
+    },
+    "active_runs": 0,
+    "aegis": {
+      "status": "INACTIVE",
+      "mode": "human_directed",
+      "exchange": "CLOSED"
+    },
+    "aegis_work_items": 0,
+    "schedule_enabled": false,
+    "timestamp": "2026-09-29T18:48:02.071417+00:00"
+  },
+  "evidence_sha256": {
+    "reconcile-postdeploy-acceptance.json": "e649cc3f5289d7ffbb3deca27b63cc9fe75ca445d378f6924e07a22c08cdcf38",
+    "reconcile-postdeploy-remaining-providers.json": "aee0894c3810153eda8bbd81f63b5586ae8020d296cc274fa6d56ef6a5681ec0",
+    "reconcile-postdeploy-final-http.json": "73c753cdc3b6939072be4d1954f925d2a478767171dbdcff61faa194a20c946e"
+  }
+}
