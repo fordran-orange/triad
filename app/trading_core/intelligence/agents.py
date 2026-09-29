@@ -102,6 +102,11 @@ class Agents:
         self.host = Records(Store(self.store.settings))
         self.policy = DelegationPolicy()
 
+    def bind_model(self, request, implementation_id, commit):
+        from trading_core.intelligence.model_binding import publish_model_binding
+
+        return publish_model_binding(self.records, request, implementation_id, commit)
+
     def seed_static(self, control):
         if self.store.scope is not None:
             raise PermissionError("Static definitions are Core-owned")
@@ -206,6 +211,10 @@ class Agents:
             if (not parent or parent["status"] in TERMINAL_WORK) and status == "ACTIVE":
                 status = "TERMINATED"
         definition = dict(row["definition"])
+        if row["owner"] == "core" and definition["agent_type"] == "static":
+            from trading_core.intelligence.model_binding import effective_model
+
+            definition = effective_model(self.host, definition, conn=conn)
         from trading_core.engineering import effective_ui_role
 
         definition = effective_ui_role(self.host, definition, conn=conn)

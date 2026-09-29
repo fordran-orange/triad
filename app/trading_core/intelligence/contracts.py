@@ -14,6 +14,7 @@ HOST_RECORD_KINDS = frozenset(
         "QualityDebt",
         "CapabilityVersion",
         "AgentDefinition",
+        "AgentModelBinding",
         "AgentCreationRequest",
         "AgentCreationDecision",
         "AgentDelegation",
