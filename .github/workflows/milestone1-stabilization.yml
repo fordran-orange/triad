@@ -24,9 +24,11 @@ jobs:
         run: python -m compileall -q app tests tools
       - name: Lint changed stabilization surface
         run: >-
-          ruff check app/trading_core/providers/transports.py app/trading_core/contracts.py
+          ruff check app/trading_core/providers/transports.py app/trading_core/providers/autonomous_cli.py
+          app/trading_core/contracts.py
           app/trading_core/governance.py app/trading_core/git_tools.py
           app/products/triad/development.py app/products/triad/daily_development.py
+          tools/run_milestone1_rotation.py
           tests/test_provider_control.py tests/test_product_development.py tests/test_governance.py
       - name: Focused unit tests
         run: pytest -q tests/test_provider_control.py tests/test_product_development.py tests/test_governance.py
