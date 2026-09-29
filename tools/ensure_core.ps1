@@ -1,6 +1,7 @@
 param(
     [int]$Port = 8000,
-    [string]$LogPath = ""
+    [string]$LogPath = "",
+    [switch]$Restart
 )
 $ErrorActionPreference = 'Stop'
 $TriadRoot = Split-Path $PSScriptRoot -Parent
@@ -22,12 +23,12 @@ function Test-CoreLive {
     }
 }
 
-if (Test-CoreLive) {
+if ((Test-CoreLive) -and -not $Restart) {
     Write-SupervisorLog "Core healthy on port $Port"
     exit 0
 }
 
-Write-SupervisorLog 'Core unavailable; ensuring database dependencies'
+Write-SupervisorLog $(if ($Restart) { 'Core restart requested; ensuring database dependencies' } else { 'Core unavailable; ensuring database dependencies' })
 Push-Location $TriadRoot
 try {
     docker compose up -d --wait --wait-timeout 240 | Out-Null
