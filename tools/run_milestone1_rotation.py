@@ -212,59 +212,56 @@ def main():
             "recommended_next_step": result.recommended_next_step,
         }
 
-        checks = machine_checks(workspace)
+    checks = machine_checks(workspace)
 
-        # Capability truth is recorded only after the whole rotation survives machine validation.
-        for proof in journal:
-            control.ledger.put(
-                "AutonomousProviderProof",
-                proof,
-                identifier="autonomous-proof-" + proof["transport"],
-            )
-            snapshot = control.snapshot(proof["transport"])
-            control.ledger.put(
-                "TransportStatus",
-                {
-                    **snapshot,
-                    "transport": proof["transport"],
-                    "auth_state": "AUTHENTICATED",
-                    "billing_source": "SUBSCRIPTION",
-                    "health": "ONLINE",
-                    "error": None,
-                    "autonomous_worktree": proof,
-                    "updated_at": now().isoformat(),
-                },
-                identifier="transport-status-" + proof["transport"],
-            )
-
-        evidence = {
-            "run_id": run_id,
-            "base_commit": base,
-            "branch": metadata["branch"],
-            "final_change_commit": metadata["change_commit"],
-            "providers": journal,
-            "machine_checks": checks,
-            "merge": "SKIPPED" if args.no_merge else "PENDING",
-        }
-
-        if not args.no_merge:
-            git.merge_autonomous(metadata)
-            evidence["merge"] = metadata["merge_commit"]
-            if not restart_core(git.root):
-                # main is a clean fast-forward from the pre-run tag; restore it deterministically.
-                git.git("reset", "--hard", base)
-                evidence["merge"] = "REVERTED_CORE_HEALTH_FAILURE"
-                raise RuntimeError("Core failed post-merge health check; main restored to pre-run tag")
-
+    # Capability truth is recorded only after the whole rotation survives machine validation.
+    for proof in journal:
         control.ledger.put(
-            "Milestone1Rotation",
-            evidence,
-            identifier="milestone1-rotation-" + run_id,
+            "AutonomousProviderProof",
+            proof,
+            identifier="autonomous-proof-" + proof["transport"],
         )
-        print(json.dumps(evidence, indent=2, default=str))
-    except Exception:
-        # Never delete the worktree/branch on failure: it is the evidence packet.
-        raise
+        snapshot = control.snapshot(proof["transport"])
+        control.ledger.put(
+            "TransportStatus",
+            {
+                **snapshot,
+                "transport": proof["transport"],
+                "auth_state": "AUTHENTICATED",
+                "billing_source": "SUBSCRIPTION",
+                "health": "ONLINE",
+                "error": None,
+                "autonomous_worktree": proof,
+                "updated_at": now().isoformat(),
+            },
+            identifier="transport-status-" + proof["transport"],
+        )
+
+    evidence = {
+        "run_id": run_id,
+        "base_commit": base,
+        "branch": metadata["branch"],
+        "final_change_commit": metadata["change_commit"],
+        "providers": journal,
+        "machine_checks": checks,
+        "merge": "SKIPPED" if args.no_merge else "PENDING",
+    }
+
+    if not args.no_merge:
+        git.merge_autonomous(metadata)
+        evidence["merge"] = metadata["merge_commit"]
+        if not restart_core(git.root):
+            # main is a clean fast-forward from the pre-run tag; restore it deterministically.
+            git.git("reset", "--hard", base)
+            evidence["merge"] = "REVERTED_CORE_HEALTH_FAILURE"
+            raise RuntimeError("Core failed post-merge health check; main restored to pre-run tag")
+
+    control.ledger.put(
+        "Milestone1Rotation",
+        evidence,
+        identifier="milestone1-rotation-" + run_id,
+    )
+    print(json.dumps(evidence, indent=2, default=str))
 
 
 if __name__ == "__main__":
