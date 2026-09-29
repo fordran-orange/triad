@@ -385,6 +385,9 @@ def recover(control, transport):
                 )
             with records.store.connect() as conn:
                 control.ledger.check(control.ledger.control(conn, True), agent=agent, epoch=epoch)
+                current_policy = policy(records, conn)
+                if not current_policy or current_policy["id"] != approved["id"]:
+                    raise PermissionError("Recovery policy changed before publication")
                 validate_attestation(records, raw, value, approved, conn)
                 records.append("ProviderRuntimeAttestation", value, conn=conn)
             control.ledger.put(
