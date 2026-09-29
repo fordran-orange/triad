@@ -8,6 +8,8 @@ before an automatic fast-forward merge to main.
 
 from __future__ import annotations
 
+# ruff: noqa: I001
+
 import argparse
 import json
 import os
