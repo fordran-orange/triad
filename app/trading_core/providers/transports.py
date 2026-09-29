@@ -258,7 +258,7 @@ class CLITransport(BaseTransport):
                 agent=self.agent,
                 provider=self.provider,
                 model=self.model,
-                status="UNAVAILABLE",
+                status="NOT_FOUND",
                 error_class="NOT_FOUND",
             )
         if detected.get("compatibility_status") == "VERSION_MISMATCH":
@@ -266,7 +266,7 @@ class CLITransport(BaseTransport):
                 agent=self.agent,
                 provider=self.provider,
                 model=self.model,
-                status="UNAVAILABLE",
+                status="VERSION_MISMATCH",
                 error_class="VERSION_MISMATCH",
             )
 
@@ -276,7 +276,7 @@ class CLITransport(BaseTransport):
                 agent=self.agent,
                 provider=self.provider,
                 model=self.model,
-                status="UNAVAILABLE",
+                status="NOT_AUTHENTICATED",
                 error_class="NOT_AUTHENTICATED",
             )
         if auth["auth_state"] == "UNKNOWN":
