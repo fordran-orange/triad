@@ -76,6 +76,16 @@ class CLITransport(BaseTransport):
         super().__init__(transport_id, control)
         self.runner = ManagedProcess()
 
+    def cli_ready(self):
+        """Pinned executable + exact version + subscription authentication; no inference."""
+        detected = self.detect()
+        if (
+            detected.get("install_status") != "INSTALLED"
+            or detected.get("compatibility_status") == "VERSION_MISMATCH"
+        ):
+            return False
+        return self.authentication_status().get("auth_state") == "AUTHENTICATED"
+
     def readonly_ready(self):
         if hasattr(self, "_readonly_ready"):
             return self._readonly_ready
@@ -287,7 +297,7 @@ class CLITransport(BaseTransport):
                 status="UNAVAILABLE",
                 error_class="UNAVAILABLE",
             )
-        if self.readonly_ready() and auth["auth_state"] == "AUTHENTICATED":
+        if self.cli_ready() and auth["auth_state"] == "AUTHENTICATED":
             return ProviderHealth(
                 agent=self.agent,
                 provider=self.provider,
@@ -316,43 +326,83 @@ class CLITransport(BaseTransport):
         return self.control.snapshot(self.transport_id).get("billing_source", "UNKNOWN")
 
     def capabilities(self):
-        if self.agent in {"CLAUDE", "GROK"} and self.readonly_ready():
+        native = [
+            "file_read",
+            "file_write",
+            "shell",
+            "git",
+            "web",
+            "MCP",
+            "structured_output",
+            "tool_use",
+            "worktree_support",
+        ]
+        if self.cli_ready():
             return {
-                "native": ["file_read", "file_proposals", "structured_output"],
-                "granted": ["read_supplied_files", "stage_reviewed_text_proposals"],
-                "outer_boundary": "DOCKER_OFFLINE_TOOLS",
+                "native": native,
+                "granted": [
+                    "autonomous_worktree",
+                    "repository_editing",
+                    "shell_execution",
+                    "git_operations",
+                    "network_research",
+                    "structured_output",
+                ],
+                "outer_boundary": "CORE_RUN_WORKTREE",
                 "execution_blocker": None,
-                "limitation": "Explicit text snapshots and reviewed proposals only; no host shell, Git or network tools",
-            }
-        if self.agent == "CODEX" and self.readonly_ready():
-            return {
-                "native": ["file_read", "structured_output"],
-                "granted": ["read_supplied_files"],
-                "outer_boundary": "DOCKER_REMOTE_EXECUTOR_READ_ONLY",
-                "execution_blocker": None,
-                "limitation": "Read-only reviews only; shell is restricted to cat on supplied files",
+                "limitation": (
+                    "Autonomous implementation is confined to a Core-created run worktree; "
+                    "protected governance, secret scan, tests and merge remain Core-owned"
+                ),
+                "review_boundary": (
+                    "DOCKER_OFFLINE_TOOLS" if self.readonly_ready() else "AUTONOMOUS_ONLY"
+                ),
             }
         return {
-            "native": [
-                "file_read",
-                "file_write",
-                "shell",
-                "git",
-                "web",
-                "MCP",
-                "structured_output",
-                "tool_use",
-                "worktree_support",
-            ],
+            "native": native,
             "granted": [],
-            "outer_boundary": "NOT_IMPLEMENTED",
-            "execution_blocker": "OuterBoundaryUnavailable",
+            "outer_boundary": "NOT_READY",
+            "execution_blocker": "ProviderCLIUnavailable",
         }
 
     def estimate_cost(self, input_tokens, output_tokens):
         return 0.0  # reservation only; subscription monetary usage remains null
 
     def execute(self, request):
+        if getattr(request, "role", None) == "IMPLEMENT":
+            if not self.cli_ready():
+                raise ProviderError("UNAVAILABLE", "ProviderCLIUnavailable")
+            execution = request.context_packet.get("_core_execution") or {}
+            workspace = execution.get("workspace")
+            if not workspace:
+                raise PermissionError("Autonomous implementation requires a Core run worktree")
+            if "write_code" not in request.execution_permissions:
+                raise PermissionError("Autonomous implementation requires write_code authority")
+            from trading_core.providers.autonomous_cli import AutonomousCLIRun
+
+            work = self.control.ledger.store.get(request.work_item_id)
+            guard = lambda: self.control.ledger.guard(
+                request.agent_id, request.work_item_id, request.control_epoch
+            )
+            self.native_run = AutonomousCLIRun(
+                self.command(),
+                self.agent,
+                guard=guard,
+                resources=getattr(self, "resources", None),
+            )
+            try:
+                result = self.native_run.execute(request, workspace, self.model)
+                self.actual_model = self.native_run.actual_model
+                self.evidence = self.native_run.evidence
+                return result
+            finally:
+                self.control.ledger.event(
+                    "native_executor_evidence",
+                    request.work_item_id,
+                    run_id=request.run_id,
+                    **getattr(self.native_run, "evidence", {}),
+                )
+
         if self.agent in {"CLAUDE", "GROK"}:
             return self._execute_isolated(request)
         if (
