@@ -27,7 +27,7 @@ def classify_failure(text):
     ]:
         if any(word in lower for word in words):
             return code
-    return "UNAVAILABLE"
+    return "ERROR"
 
 
 class BaseTransport:
