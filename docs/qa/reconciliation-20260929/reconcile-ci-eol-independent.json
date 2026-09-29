@@ -1,0 +1,51 @@
+{
+  "decision": "PASS",
+  "reviewer": "/root/day6_qa_c",
+  "scope": "CI focused-test inclusion and immutable readiness LF checkout correction",
+  "temporary_fixture": "C:\\Users\\fordr\\AppData\\Local\\Temp\\triad-eol-qa-vxy5jims",
+  "fresh_checkout_core_autocrlf": true,
+  "checkout_hashes": {
+    "docs/improvements/real-market-readiness-criteria.md": "d5d1f6d00dc93a5e569b2e73bbed2ae1629c47ce372d403e15503aa7097e84f9",
+    "docs/improvements/real-market-readiness-definitions-v2.md": "9542a822398e252302dc3a79358732675d30f24c15429cc9e1611c9cc8d32fba"
+  },
+  "git_check_attr": "docs/improvements/real-market-readiness-criteria.md: text: set\ndocs/improvements/real-market-readiness-criteria.md: eol: lf\ndocs/improvements/real-market-readiness-definitions-v2.md: text: set\ndocs/improvements/real-market-readiness-definitions-v2.md: eol: lf\n",
+  "ci_argv": [
+    "pytest",
+    "-q",
+    "tests/test_provider_control.py",
+    "tests/test_product_development.py",
+    "tests/test_governance.py",
+    "tests/test_provider_reconcile.py",
+    "tests/test_reconcile_governance.py",
+    "tests/test_milestone_reconcile.py",
+    "tests/test_ollama_supervisor.py"
+  ],
+  "notes": [
+    "Readiness files on disk match f556 Git bytes exactly; no document Git-content edit.",
+    "Linux CI skips Windows-only supervisor runtime cases; separate actual Windows tests supply their evidence.",
+    "CI workflow reviewed structurally; no remote CI run claimed."
+  ],
+  "disk_sha256": {
+    ".gitattributes": "1f8b67401f0407dd8cf32c4845d70f0810ed498bcbd8124326a8417ac08d6071",
+    ".github/workflows/milestone1-stabilization.yml": "ad2d16812fc840a8fd9e4830dbce7d0fd6afe08cb252c676c5c831b2b16ed625",
+    "docs/improvements/real-market-readiness-criteria.md": "d5d1f6d00dc93a5e569b2e73bbed2ae1629c47ce372d403e15503aa7097e84f9",
+    "docs/improvements/real-market-readiness-definitions-v2.md": "9542a822398e252302dc3a79358732675d30f24c15429cc9e1611c9cc8d32fba"
+  },
+  "git_blob_sha256": {
+    ".gitattributes": "a69c30a26f34fc3805a4f06117b339792b03cb9a75aef3cd3e315011afeb872e",
+    ".github/workflows/milestone1-stabilization.yml": "8731867ad99bba188ea5813876fa5ce138443b63ba7e8357596e88fc787d89d3",
+    "docs/improvements/real-market-readiness-criteria.md": "d5d1f6d00dc93a5e569b2e73bbed2ae1629c47ce372d403e15503aa7097e84f9",
+    "docs/improvements/real-market-readiness-definitions-v2.md": "9542a822398e252302dc3a79358732675d30f24c15429cc9e1611c9cc8d32fba"
+  },
+  "test_result": {
+    "passed": 1,
+    "warnings": 2,
+    "seconds": 2.89,
+    "exit": 0,
+    "case": "tests/test_day7_ghi_qa.py::test_readiness_v2_preserves_original_and_declares_nonexecuting_scope"
+  },
+  "evidence_sha256": {
+    "logs/reconcile-eol-independent-test.log": "7d3ce73d0134f226422ccd2e0c62c02ee804713a29c3dfcd56edd51adf989a0f",
+    "logs/reconcile-eol-independent-test.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+  }
+}

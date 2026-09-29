@@ -1,0 +1,19 @@
+{
+  "decision": "PASS",
+  "reviewer": "/root/day6_qa_b",
+  "builder": "/root/day6_qa_a",
+  "checkout": "C:\\Triad\\data\\temp\\reconcile-stabilization-20260929",
+  "files_sha256": {
+    "app/trading_core/governance.py": "873ccbbd7a24e5b795a3f812aa2a85d111d40a37cda2267713366fd648b8c8e6",
+    "app/trading_core/git_tools.py": "9385e2929e6c0a917a55c7d111a6f89833910c20ace4b42936c5191f2c444d31",
+    "app/trading_core/runtime.py": "79c95fceeaf021ea7ad45ad49478e09d63b1ee418d7af1c7e3000c041f9e45d9",
+    "tests/test_governance.py": "b959b5c17f514c8da05a8c07a456b36ab68cf7abf352d3de5388b69025a75b73",
+    "tests/test_reconcile_governance.py": "8c13ae7b2f5b80450aa85bef18f74a2f8afe51efa938c74f42abd1746efab835"
+  },
+  "tests": "107 passed,1 deselected17.17s",
+  "evidence_sha256": {
+    "C:\\Triad\\logs\\reconcile-governance-independent-qa.md": "d9aae8441a4a2e496cc86219896f261861698636bdd5109b948c30002bfd66c0",
+    "C:\\Triad\\logs\\test_reconcile_governance_independent.py": "48c472fecf7a11315fcfdd242256f4d97602511ffc6305fd403eacb8518fcb06",
+    "C:\\Triad\\logs\\reconcile-governance-independent-tests.log": "ea9433e8756280ada71aee3a2678e9a1bc3604b8699208e1c575396238e665b6"
+  }
+}

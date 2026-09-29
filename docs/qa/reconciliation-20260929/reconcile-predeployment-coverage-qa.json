@@ -1,0 +1,869 @@
+{
+  "decision": "PASS",
+  "scope": "Revision-bound predeployment source/evidence coverage only; integration and graph projection blocker remain outside this verdict",
+  "revision": "beea93c53c7d36e70906fb4695ca475e7a064fd3",
+  "production_base": "f556caeb303310a17ece9679f97f0f4acedcc261",
+  "main_base": "517260ff0b73be7eb48504a8d13a853ff43e569d",
+  "reviewer": "/root/day6_qa_a",
+  "coverage_map": {
+    ".gitattributes": {
+      "git_blob_sha256": "a69c30a26f34fc3805a4f06117b339792b03cb9a75aef3cd3e315011afeb872e",
+      "disk_sha256": "1f8b67401f0407dd8cf32c4845d70f0810ed498bcbd8124326a8417ac08d6071",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-ci-eol-independent.json",
+          "hash_kind": "disk_sha256",
+          "matched": true
+        },
+        {
+          "report": "reconcile-ci-eol-independent.json",
+          "hash_kind": "git_blob_sha256",
+          "matched": true
+        }
+      ]
+    },
+    ".github/workflows/milestone1-stabilization.yml": {
+      "git_blob_sha256": "8731867ad99bba188ea5813876fa5ce138443b63ba7e8357596e88fc787d89d3",
+      "disk_sha256": "ad2d16812fc840a8fd9e4830dbce7d0fd6afe08cb252c676c5c831b2b16ed625",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-ci-eol-independent.json",
+          "hash_kind": "disk_sha256",
+          "matched": true
+        },
+        {
+          "report": "reconcile-ci-eol-independent.json",
+          "hash_kind": "git_blob_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "app/products/triad/daily_development.py": {
+      "git_blob_sha256": "56e1445cce407139506404c2d9d65fcea72902b6d19d395ccee6a51ffa501ce7",
+      "disk_sha256": "56e1445cce407139506404c2d9d65fcea72902b6d19d395ccee6a51ffa501ce7",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "disk_sha256",
+          "matched": true
+        },
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "git_blob_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "app/products/triad/development.py": {
+      "git_blob_sha256": "d4e21a84e7612c54f5e8e5e67e0d945ac056efea5c709bbd8f90d99085ebdf8a",
+      "disk_sha256": "d4e21a84e7612c54f5e8e5e67e0d945ac056efea5c709bbd8f90d99085ebdf8a",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "disk_sha256",
+          "matched": true
+        },
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "git_blob_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "app/products/triad/qa_reference.py": {
+      "git_blob_sha256": "d77aba19b00e8c37e3e73ab99e51a43a5ad72154ca96364c8e68ae5b724acbde",
+      "disk_sha256": "d77aba19b00e8c37e3e73ab99e51a43a5ad72154ca96364c8e68ae5b724acbde",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "d77aba19b00e8c37e3e73ab99e51a43a5ad72154ca96364c8e68ae5b724acbde"
+        }
+      ]
+    },
+    "app/products/triad/resources/product.json": {
+      "git_blob_sha256": "089bd060f9c77468bbc01ea7c549d053f3bcb54f01b2b8d6d2efdc0784eee61b",
+      "disk_sha256": "524583cb8d9e3534099fe59c1d2de49fb568cec0f8de85c252dd51e42ab19e3e",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "disk_sha256",
+          "matched": true
+        },
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "git_blob_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "app/trading_core/contracts.py": {
+      "git_blob_sha256": "4a9479f752acae5d687c411a0934fbb3a31c9ed7067d0971e732a886721ab1a7",
+      "disk_sha256": "3458da1c1dea11e49c443cf14504350c9d257fa42a5c4ae2d1d9a79d02d9de9b",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-provider-independent-qa.json",
+          "hash_kind": "files_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "app/trading_core/git_tools.py": {
+      "git_blob_sha256": "4d6f9d52cb8457fcd7e46a7448452bc2d5067429c54bdac90a4a7d85bf8bc8a5",
+      "disk_sha256": "9385e2929e6c0a917a55c7d111a6f89833910c20ace4b42936c5191f2c444d31",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-governance-independent-qa.json",
+          "hash_kind": "files_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "app/trading_core/governance.py": {
+      "git_blob_sha256": "d1ef191bb0c006e5d4e05a518fdf3714a5dffba4b7d55d421c45f79c765ccfc6",
+      "disk_sha256": "873ccbbd7a24e5b795a3f812aa2a85d111d40a37cda2267713366fd648b8c8e6",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-governance-independent-qa.json",
+          "hash_kind": "files_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "app/trading_core/providers/autonomous_cli.py": {
+      "git_blob_sha256": "f76b95befdece3e06f611ff4a94acb63c0a8f42ec919b92bdb96eb00647673d6",
+      "disk_sha256": "f76b95befdece3e06f611ff4a94acb63c0a8f42ec919b92bdb96eb00647673d6",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "disk_sha256",
+          "matched": true
+        },
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "git_blob_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "app/trading_core/providers/control.py": {
+      "git_blob_sha256": "ed5caccfd060ad5050320cf68e5b7fbb86a7fdbdcb41bc2eb1680c1c15a0e898",
+      "disk_sha256": "ed5caccfd060ad5050320cf68e5b7fbb86a7fdbdcb41bc2eb1680c1c15a0e898",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-provider-independent-qa.json",
+          "hash_kind": "files_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "app/trading_core/providers/transports.py": {
+      "git_blob_sha256": "957e8f465c8e8725c18cabecf39749908f2146bceb18ae4de81004ae3f12ce70",
+      "disk_sha256": "ded19010f8386cc7c9afa99e05579597e3d073e5177694db158f14935cc45df1",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-provider-independent-qa.json",
+          "hash_kind": "files_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "app/trading_core/runtime.py": {
+      "git_blob_sha256": "79c95fceeaf021ea7ad45ad49478e09d63b1ee418d7af1c7e3000c041f9e45d9",
+      "disk_sha256": "79c95fceeaf021ea7ad45ad49478e09d63b1ee418d7af1c7e3000c041f9e45d9",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-governance-independent-qa.json",
+          "hash_kind": "files_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "app/trading_core/static/providers.html": {
+      "git_blob_sha256": "91d11526335813ffc6641744d297b61e7f1e14de10728f7a24ee48ca7c0bd85c",
+      "disk_sha256": "79873fb44e80f7f37e8291bfd64c48a94aeec35716597a85dcf99eca7cbe4e13",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-provider-independent-qa.json",
+          "hash_kind": "files_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "docs/CLOSEOUT_2026-09-19.md": {
+      "git_blob_sha256": "f95c0b83d3e1c8c1ef24b86daf59cc995d5d2e57e2a5d501182a24d84402eaf1",
+      "disk_sha256": "0641660add41ad04f6bdadc339f681322ee2b994faac447628b376c8c09b77cb",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "f95c0b83d3e1c8c1ef24b86daf59cc995d5d2e57e2a5d501182a24d84402eaf1"
+        }
+      ]
+    },
+    "docs/DAY8_PROGRESS.md": {
+      "git_blob_sha256": "28a12116400403f7d669f74d5f3676816de0bbfd8d95bf5b01459b194d45d264",
+      "disk_sha256": "8b6a698fda6aee7a00e8f4463a46e46756d7109fba88d556bbf29ac4a9732c8b",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "28a12116400403f7d669f74d5f3676816de0bbfd8d95bf5b01459b194d45d264"
+        }
+      ]
+    },
+    "docs/DAY8_REPORT.md": {
+      "git_blob_sha256": "9afd938ab55ac9916bcba7b31b31758e6d80c9cf5e28c640b4da05a02881893d",
+      "disk_sha256": "31981e6c279a72692b7566a6ac2e69c9024f95c4c82910cb6c00802b11982c23",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "9afd938ab55ac9916bcba7b31b31758e6d80c9cf5e28c640b4da05a02881893d"
+        }
+      ]
+    },
+    "docs/OLLAMA_SUPERVISION.md": {
+      "git_blob_sha256": "5f20f9fe481cf38f65fc8daa5f04c5d0ebda113540c9e625c07551cbd03e8e63",
+      "disk_sha256": "5f20f9fe481cf38f65fc8daa5f04c5d0ebda113540c9e625c07551cbd03e8e63",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-ollama-independent-qa.json",
+          "hash_kind": "normalized_lf_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "docs/qa/DAY8_CLOSEOUT_SERVICES.json": {
+      "git_blob_sha256": "b32cb828b6a1ec94a74a662a796f6c0e74e89abfe86be77e39c9398fd121ea64",
+      "disk_sha256": "b86bc10cebdebb3b9407c0b04d5e5086d0273c4b70d82ae974336b08c3be06cd",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "b32cb828b6a1ec94a74a662a796f6c0e74e89abfe86be77e39c9398fd121ea64"
+        }
+      ]
+    },
+    "docs/qa/DAY8_CLOSEOUT_STATE_QA.json": {
+      "git_blob_sha256": "3347eb03515633426e9757a86f00f272aaeaff9fb69e659b232265524ee46cc7",
+      "disk_sha256": "42e02ca571a001ebc22ccd631dad45a738f3c01d9735d3f54f2806ad5b5a4083",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "3347eb03515633426e9757a86f00f272aaeaff9fb69e659b232265524ee46cc7"
+        }
+      ]
+    },
+    "docs/qa/DAY8_CYCLE_EVIDENCE.json": {
+      "git_blob_sha256": "da316778448653cca472d5c8e0131ed50beb3dde3b7b2698b0a4d182c44a4c21",
+      "disk_sha256": "70daffb430f8db0be95ca7cb3bf2e280464ad06cf2f53befd00d312ef9860d87",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "da316778448653cca472d5c8e0131ed50beb3dde3b7b2698b0a4d182c44a4c21"
+        }
+      ]
+    },
+    "docs/qa/DAY8_FULL_REGRESSION_SUMMARY.json": {
+      "git_blob_sha256": "10c4b8c3b64759bc0d284c88cafd462f70dc7671edec378cb3133ca987ad60af",
+      "disk_sha256": "c252c3dced0c413987210e5c8b40a3154c5ece3ad276fa6f9fdaf9ab4c297218",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "10c4b8c3b64759bc0d284c88cafd462f70dc7671edec378cb3133ca987ad60af"
+        }
+      ]
+    },
+    "docs/qa/day8-corrected-candidate-independent-qa.json": {
+      "git_blob_sha256": "0033401aa51f16c68229c12a030f303e509e235c9e212d27299bb263029fe053",
+      "disk_sha256": "0149c3d2ebb562a6ab6c23048f7150bba63eb5d3ec7ae1dae589b400231408fc",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "0033401aa51f16c68229c12a030f303e509e235c9e212d27299bb263029fe053"
+        }
+      ]
+    },
+    "docs/qa/day8-corrected-candidate-independent-qa.md": {
+      "git_blob_sha256": "29e936be24838608b2abe48f113e3e27188d7b22f58844f72e1525522d6ab4a5",
+      "disk_sha256": "d280e3b21ab675b509cbba48f55a5849ce0c122dab73c49d3b7a1ac48c8ef310",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "29e936be24838608b2abe48f113e3e27188d7b22f58844f72e1525522d6ab4a5"
+        }
+      ]
+    },
+    "docs/qa/day8-corrected-ui-dom-qa.json": {
+      "git_blob_sha256": "a3ef40a26250df12d88d2be570c23877baf6dd8c199ccdef6163eede32264ef0",
+      "disk_sha256": "d3191e551b70d056c0e59c9acd5c874a56418a8a25299c3c35b6ed6c39a146f3",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "a3ef40a26250df12d88d2be570c23877baf6dd8c199ccdef6163eede32264ef0"
+        }
+      ]
+    },
+    "docs/qa/day8-navigation-contract-qa.json": {
+      "git_blob_sha256": "b350aca41bff00d605976e2e489f9b6d4a11c5211e2bff3a408b8f10b71b8893",
+      "disk_sha256": "8568142a474d0180f86d14a87526617f60edab976e1a890c314ee7444edc3e0b",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "b350aca41bff00d605976e2e489f9b6d4a11c5211e2bff3a408b8f10b71b8893"
+        }
+      ]
+    },
+    "docs/qa/day8-navigation-contract-qa.md": {
+      "git_blob_sha256": "4f2b14e67eceb3f1a84ef56a3fa4fde0ff72c3684bf9b746a098f16832f4bbf8",
+      "disk_sha256": "90a872a6d3b58c9b99eb937c94e21234c2d0758b9862a98ed11e7caf8ba58bc9",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "4f2b14e67eceb3f1a84ef56a3fa4fde0ff72c3684bf9b746a098f16832f4bbf8"
+        }
+      ]
+    },
+    "docs/qa/day8-navigation-governance.json": {
+      "git_blob_sha256": "75c5cab3a26d5ad2e1af166fea25325b2ebe13b70e8e3c4ffe932de36df050a4",
+      "disk_sha256": "b9da945b61335e5755885cc561033570ccc867be493a898828267cb3c9f7a26b",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "75c5cab3a26d5ad2e1af166fea25325b2ebe13b70e8e3c4ffe932de36df050a4"
+        }
+      ]
+    },
+    "docs/qa/day8-qa-reference-build.json": {
+      "git_blob_sha256": "2ae2975b9a9658abd5af57210432fc7614f4aec734dc2df3bd50990dcce5dd4c",
+      "disk_sha256": "d40f4af1c835cb1b79d54f5d04c010f9b76e12b8cad8dde2a61661091716ccc9",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "2ae2975b9a9658abd5af57210432fc7614f4aec734dc2df3bd50990dcce5dd4c"
+        }
+      ]
+    },
+    "docs/qa/day8-qa-reference-gap-audit.json": {
+      "git_blob_sha256": "dc9854c0c16b1b937ef5dadbda7abd4ea88653848c5bd70bbfa57b89199c94d9",
+      "disk_sha256": "80f6f355f12c86e6fbdd195cf4538e6b2bf4c5fc483253bb9b90ddf70ec97a81",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "dc9854c0c16b1b937ef5dadbda7abd4ea88653848c5bd70bbfa57b89199c94d9"
+        }
+      ]
+    },
+    "docs/qa/day8-qa-reference-gap-audit.md": {
+      "git_blob_sha256": "cba3980d34150b8905fced3cb0b4666c99bde30222f5b52741058cb450a8a11b",
+      "disk_sha256": "33c41a5bcf7355d1a16d3c639ccd36b359dc8c508ee1b110ac932d0d5f5b3ffb",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "cba3980d34150b8905fced3cb0b4666c99bde30222f5b52741058cb450a8a11b"
+        }
+      ]
+    },
+    "docs/qa/day8-qa-reference-independent-qa.json": {
+      "git_blob_sha256": "9d751c65915a17d8b5ebb14f9bb15b3c49971ee685939f9e6e0ee3be2e086e6d",
+      "disk_sha256": "5032b6e913cbaecf28006a76430581197aea2f7b0455d7753e2ddeb06e864105",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "9d751c65915a17d8b5ebb14f9bb15b3c49971ee685939f9e6e0ee3be2e086e6d"
+        }
+      ]
+    },
+    "docs/qa/day8-qa-reference-independent-qa.md": {
+      "git_blob_sha256": "6d2a14541f65b12b3a8a6f1b0d74b1eca9cb7c228f7c0374852c2ae83fa22e3f",
+      "disk_sha256": "88e0c75cfd87fefa6afdbd465cf54026b7db8efbade14805a6d8aae32d049bb3",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "6d2a14541f65b12b3a8a6f1b0d74b1eca9cb7c228f7c0374852c2ae83fa22e3f"
+        }
+      ]
+    },
+    "docs/qa/day8-recovery-deployment-governance.json": {
+      "git_blob_sha256": "dff6b4531e125ddbbdd43fc853f92c6cb6f0cabae25eda3152b4f60bb1026990",
+      "disk_sha256": "112940b3e4d5a7466103f4e24c66daab12ce272ed81aa131f1e96e64bf01f46c",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "dff6b4531e125ddbbdd43fc853f92c6cb6f0cabae25eda3152b4f60bb1026990"
+        }
+      ]
+    },
+    "docs/qa/day8-recovery-deployment-qa.json": {
+      "git_blob_sha256": "d2d8562baec18aa27d0500b78ec9126d28c02e16d50477a999f28035b01612bc",
+      "disk_sha256": "7bfb18fbc756ee8faf956c9ecc242588af6cfffdb9076d2917aa4598b9da906c",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "d2d8562baec18aa27d0500b78ec9126d28c02e16d50477a999f28035b01612bc"
+        }
+      ]
+    },
+    "docs/qa/day8-recovery-deployment-qa.md": {
+      "git_blob_sha256": "5def680ee5e073bd07d03d135eace6ee5a314344f0278c8ebb273a0ed6c6dc6a",
+      "disk_sha256": "f793af642e2b788edf178973629c512cf1fb7b81a3f500fe1ad412eb61987e95",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "5def680ee5e073bd07d03d135eace6ee5a314344f0278c8ebb273a0ed6c6dc6a"
+        }
+      ]
+    },
+    "tests/test_day8_qa_reference.py": {
+      "git_blob_sha256": "4dbdc73076945b1673c73756b9730b4d5493bc6dd638f33291b8ace800126068",
+      "disk_sha256": "4dbdc73076945b1673c73756b9730b4d5493bc6dd638f33291b8ace800126068",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "4dbdc73076945b1673c73756b9730b4d5493bc6dd638f33291b8ace800126068"
+        }
+      ]
+    },
+    "tests/test_day8_workflow_qa.py": {
+      "git_blob_sha256": "8071c51134c0c283758975e943664115e413cafebe8c8675724d58017c917ab6",
+      "disk_sha256": "8071c51134c0c283758975e943664115e413cafebe8c8675724d58017c917ab6",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "source": "f556cae preserved byte-for-byte",
+          "sha256": "8071c51134c0c283758975e943664115e413cafebe8c8675724d58017c917ab6"
+        }
+      ]
+    },
+    "tests/test_governance.py": {
+      "git_blob_sha256": "856af3ac3a6257d4e9d0e34bade6e666a5336be40b4f3e2839d62b267cf39c7e",
+      "disk_sha256": "b959b5c17f514c8da05a8c07a456b36ab68cf7abf352d3de5388b69025a75b73",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-governance-independent-qa.json",
+          "hash_kind": "files_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "tests/test_milestone_reconcile.py": {
+      "git_blob_sha256": "3e138714f13e212ff33df5ab964111eb1d6dffc0d4708bbcbb366084f5f715ff",
+      "disk_sha256": "3e138714f13e212ff33df5ab964111eb1d6dffc0d4708bbcbb366084f5f715ff",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "disk_sha256",
+          "matched": true
+        },
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "git_blob_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "tests/test_ollama_supervisor.py": {
+      "git_blob_sha256": "97b6c9a0e7674ce8d0a6b4660296f143c4e2f5dc2b88017c651442cbe75a86c5",
+      "disk_sha256": "97b6c9a0e7674ce8d0a6b4660296f143c4e2f5dc2b88017c651442cbe75a86c5",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-ollama-independent-qa.json",
+          "hash_kind": "normalized_lf_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "tests/test_product_development.py": {
+      "git_blob_sha256": "299a98c5d12fc6cbe1f8e9d053cdaa7efabf43fe250dbdf1491b312c1fbbc487",
+      "disk_sha256": "299a98c5d12fc6cbe1f8e9d053cdaa7efabf43fe250dbdf1491b312c1fbbc487",
+      "changed_from_production": true,
+      "changed_from_main": false,
+      "coverage": [
+        {
+          "source": "Independent one-line delta review and actual AST-extracted _run probe",
+          "evidence": "logs/reconcile-interrupted-test-delta.json",
+          "judgment": "PASS: existing checkpoint denies before inspection for both authorization values. No test assertion removed and explicit reconciliation remains required."
+        }
+      ]
+    },
+    "tests/test_provider_control.py": {
+      "git_blob_sha256": "313dd040878a1161514c687079b077ac12dd94881c111ae7f0860c6113a29921",
+      "disk_sha256": "313dd040878a1161514c687079b077ac12dd94881c111ae7f0860c6113a29921",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-provider-independent-qa.json",
+          "hash_kind": "files_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "tests/test_provider_reconcile.py": {
+      "git_blob_sha256": "0022d389abd25819e74d5724fc73ac4c5476f2fd6cc7d1b72b0e313c8bb7b52b",
+      "disk_sha256": "0022d389abd25819e74d5724fc73ac4c5476f2fd6cc7d1b72b0e313c8bb7b52b",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-provider-independent-qa.json",
+          "hash_kind": "files_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "tests/test_reconcile_governance.py": {
+      "git_blob_sha256": "8c13ae7b2f5b80450aa85bef18f74a2f8afe51efa938c74f42abd1746efab835",
+      "disk_sha256": "8c13ae7b2f5b80450aa85bef18f74a2f8afe51efa938c74f42abd1746efab835",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-governance-independent-qa.json",
+          "hash_kind": "files_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "tools/ensure_core.ps1": {
+      "git_blob_sha256": "cd5119bc019477f284586171569d2084a531bd4a92742e02021bdd57f0fd1396",
+      "disk_sha256": "928632ce3f07d1e2396edd45076b25e175a40c9fee2dd72da9f2c93d7f233728",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-ollama-independent-qa.json",
+          "hash_kind": "normalized_lf_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "tools/ensure_ollama.ps1": {
+      "git_blob_sha256": "2dffae66c500365f5b9cf8da6ec0273ae14e1151017b68080d56484e02c8dbfd",
+      "disk_sha256": "2dffae66c500365f5b9cf8da6ec0273ae14e1151017b68080d56484e02c8dbfd",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-ollama-independent-qa.json",
+          "hash_kind": "normalized_lf_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "tools/install_core_supervisor.ps1": {
+      "git_blob_sha256": "5ddc8c363540bb08f0c2e8db11db328a638c7a72c1ae30b6aa7e1aee8089023c",
+      "disk_sha256": "189ea8fb6f23a6bd10d0496a561348d41864a913b7a362659190a974aa6dba9f",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-ollama-independent-qa.json",
+          "hash_kind": "normalized_lf_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "tools/install_provider_clis.ps1": {
+      "git_blob_sha256": "14300f2e9f63bced2c9483bda4c430525061fc9d348cb75c6a514b285a5b5ea9",
+      "disk_sha256": "f12c1d65f297fd13686668013902a1368969e0bbd37e9d0eca1b109d50f4702c",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-provider-independent-qa.json",
+          "hash_kind": "files_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "tools/run_milestone1.ps1": {
+      "git_blob_sha256": "7cb53805dbe847bd86ae81a1e03bd2a5196a280800b36b389d365e2a993e3432",
+      "disk_sha256": "adbd4876be49185bc278a57c063ca07fd6da32c085404d8b38bb3eac6ebb50e0",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "disk_sha256",
+          "matched": true
+        },
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "git_blob_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "tools/run_milestone1_rotation.py": {
+      "git_blob_sha256": "2baba7179d36130959634eb014530302a939aec7cdbb8c91126d66caf3064afe",
+      "disk_sha256": "2baba7179d36130959634eb014530302a939aec7cdbb8c91126d66caf3064afe",
+      "changed_from_production": true,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "disk_sha256",
+          "matched": true
+        },
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "git_blob_sha256",
+          "matched": true
+        }
+      ]
+    },
+    "tools/run_product_cycle.py": {
+      "git_blob_sha256": "c4c63dfd089589ada5e214362e956e9c7e50a23bac000316f8a53f0b5a8c488d",
+      "disk_sha256": "c4c63dfd089589ada5e214362e956e9c7e50a23bac000316f8a53f0b5a8c488d",
+      "changed_from_production": false,
+      "changed_from_main": true,
+      "coverage": [
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "disk_sha256",
+          "matched": true
+        },
+        {
+          "report": "reconcile-milestone-independent-qa.json",
+          "hash_kind": "git_blob_sha256",
+          "matched": true
+        }
+      ]
+    }
+  },
+  "preserved_f556_branch_delta": {
+    "app/products/triad/daily_development.py": {
+      "f556_sha256": "56e1445cce407139506404c2d9d65fcea72902b6d19d395ccee6a51ffa501ce7",
+      "candidate_sha256": "56e1445cce407139506404c2d9d65fcea72902b6d19d395ccee6a51ffa501ce7",
+      "identical": true
+    },
+    "app/products/triad/development.py": {
+      "f556_sha256": "d4e21a84e7612c54f5e8e5e67e0d945ac056efea5c709bbd8f90d99085ebdf8a",
+      "candidate_sha256": "d4e21a84e7612c54f5e8e5e67e0d945ac056efea5c709bbd8f90d99085ebdf8a",
+      "identical": true
+    },
+    "app/products/triad/qa_reference.py": {
+      "f556_sha256": "d77aba19b00e8c37e3e73ab99e51a43a5ad72154ca96364c8e68ae5b724acbde",
+      "candidate_sha256": "d77aba19b00e8c37e3e73ab99e51a43a5ad72154ca96364c8e68ae5b724acbde",
+      "identical": true
+    },
+    "docs/CLOSEOUT_2026-09-19.md": {
+      "f556_sha256": "f95c0b83d3e1c8c1ef24b86daf59cc995d5d2e57e2a5d501182a24d84402eaf1",
+      "candidate_sha256": "f95c0b83d3e1c8c1ef24b86daf59cc995d5d2e57e2a5d501182a24d84402eaf1",
+      "identical": true
+    },
+    "docs/DAY8_PROGRESS.md": {
+      "f556_sha256": "28a12116400403f7d669f74d5f3676816de0bbfd8d95bf5b01459b194d45d264",
+      "candidate_sha256": "28a12116400403f7d669f74d5f3676816de0bbfd8d95bf5b01459b194d45d264",
+      "identical": true
+    },
+    "docs/DAY8_REPORT.md": {
+      "f556_sha256": "9afd938ab55ac9916bcba7b31b31758e6d80c9cf5e28c640b4da05a02881893d",
+      "candidate_sha256": "9afd938ab55ac9916bcba7b31b31758e6d80c9cf5e28c640b4da05a02881893d",
+      "identical": true
+    },
+    "docs/qa/DAY8_CLOSEOUT_SERVICES.json": {
+      "f556_sha256": "b32cb828b6a1ec94a74a662a796f6c0e74e89abfe86be77e39c9398fd121ea64",
+      "candidate_sha256": "b32cb828b6a1ec94a74a662a796f6c0e74e89abfe86be77e39c9398fd121ea64",
+      "identical": true
+    },
+    "docs/qa/DAY8_CLOSEOUT_STATE_QA.json": {
+      "f556_sha256": "3347eb03515633426e9757a86f00f272aaeaff9fb69e659b232265524ee46cc7",
+      "candidate_sha256": "3347eb03515633426e9757a86f00f272aaeaff9fb69e659b232265524ee46cc7",
+      "identical": true
+    },
+    "docs/qa/DAY8_CYCLE_EVIDENCE.json": {
+      "f556_sha256": "da316778448653cca472d5c8e0131ed50beb3dde3b7b2698b0a4d182c44a4c21",
+      "candidate_sha256": "da316778448653cca472d5c8e0131ed50beb3dde3b7b2698b0a4d182c44a4c21",
+      "identical": true
+    },
+    "docs/qa/DAY8_FULL_REGRESSION_SUMMARY.json": {
+      "f556_sha256": "10c4b8c3b64759bc0d284c88cafd462f70dc7671edec378cb3133ca987ad60af",
+      "candidate_sha256": "10c4b8c3b64759bc0d284c88cafd462f70dc7671edec378cb3133ca987ad60af",
+      "identical": true
+    },
+    "docs/qa/day8-corrected-candidate-independent-qa.json": {
+      "f556_sha256": "0033401aa51f16c68229c12a030f303e509e235c9e212d27299bb263029fe053",
+      "candidate_sha256": "0033401aa51f16c68229c12a030f303e509e235c9e212d27299bb263029fe053",
+      "identical": true
+    },
+    "docs/qa/day8-corrected-candidate-independent-qa.md": {
+      "f556_sha256": "29e936be24838608b2abe48f113e3e27188d7b22f58844f72e1525522d6ab4a5",
+      "candidate_sha256": "29e936be24838608b2abe48f113e3e27188d7b22f58844f72e1525522d6ab4a5",
+      "identical": true
+    },
+    "docs/qa/day8-corrected-ui-dom-qa.json": {
+      "f556_sha256": "a3ef40a26250df12d88d2be570c23877baf6dd8c199ccdef6163eede32264ef0",
+      "candidate_sha256": "a3ef40a26250df12d88d2be570c23877baf6dd8c199ccdef6163eede32264ef0",
+      "identical": true
+    },
+    "docs/qa/day8-navigation-contract-qa.json": {
+      "f556_sha256": "b350aca41bff00d605976e2e489f9b6d4a11c5211e2bff3a408b8f10b71b8893",
+      "candidate_sha256": "b350aca41bff00d605976e2e489f9b6d4a11c5211e2bff3a408b8f10b71b8893",
+      "identical": true
+    },
+    "docs/qa/day8-navigation-contract-qa.md": {
+      "f556_sha256": "4f2b14e67eceb3f1a84ef56a3fa4fde0ff72c3684bf9b746a098f16832f4bbf8",
+      "candidate_sha256": "4f2b14e67eceb3f1a84ef56a3fa4fde0ff72c3684bf9b746a098f16832f4bbf8",
+      "identical": true
+    },
+    "docs/qa/day8-navigation-governance.json": {
+      "f556_sha256": "75c5cab3a26d5ad2e1af166fea25325b2ebe13b70e8e3c4ffe932de36df050a4",
+      "candidate_sha256": "75c5cab3a26d5ad2e1af166fea25325b2ebe13b70e8e3c4ffe932de36df050a4",
+      "identical": true
+    },
+    "docs/qa/day8-qa-reference-build.json": {
+      "f556_sha256": "2ae2975b9a9658abd5af57210432fc7614f4aec734dc2df3bd50990dcce5dd4c",
+      "candidate_sha256": "2ae2975b9a9658abd5af57210432fc7614f4aec734dc2df3bd50990dcce5dd4c",
+      "identical": true
+    },
+    "docs/qa/day8-qa-reference-gap-audit.json": {
+      "f556_sha256": "dc9854c0c16b1b937ef5dadbda7abd4ea88653848c5bd70bbfa57b89199c94d9",
+      "candidate_sha256": "dc9854c0c16b1b937ef5dadbda7abd4ea88653848c5bd70bbfa57b89199c94d9",
+      "identical": true
+    },
+    "docs/qa/day8-qa-reference-gap-audit.md": {
+      "f556_sha256": "cba3980d34150b8905fced3cb0b4666c99bde30222f5b52741058cb450a8a11b",
+      "candidate_sha256": "cba3980d34150b8905fced3cb0b4666c99bde30222f5b52741058cb450a8a11b",
+      "identical": true
+    },
+    "docs/qa/day8-qa-reference-independent-qa.json": {
+      "f556_sha256": "9d751c65915a17d8b5ebb14f9bb15b3c49971ee685939f9e6e0ee3be2e086e6d",
+      "candidate_sha256": "9d751c65915a17d8b5ebb14f9bb15b3c49971ee685939f9e6e0ee3be2e086e6d",
+      "identical": true
+    },
+    "docs/qa/day8-qa-reference-independent-qa.md": {
+      "f556_sha256": "6d2a14541f65b12b3a8a6f1b0d74b1eca9cb7c228f7c0374852c2ae83fa22e3f",
+      "candidate_sha256": "6d2a14541f65b12b3a8a6f1b0d74b1eca9cb7c228f7c0374852c2ae83fa22e3f",
+      "identical": true
+    },
+    "docs/qa/day8-recovery-deployment-governance.json": {
+      "f556_sha256": "dff6b4531e125ddbbdd43fc853f92c6cb6f0cabae25eda3152b4f60bb1026990",
+      "candidate_sha256": "dff6b4531e125ddbbdd43fc853f92c6cb6f0cabae25eda3152b4f60bb1026990",
+      "identical": true
+    },
+    "docs/qa/day8-recovery-deployment-qa.json": {
+      "f556_sha256": "d2d8562baec18aa27d0500b78ec9126d28c02e16d50477a999f28035b01612bc",
+      "candidate_sha256": "d2d8562baec18aa27d0500b78ec9126d28c02e16d50477a999f28035b01612bc",
+      "identical": true
+    },
+    "docs/qa/day8-recovery-deployment-qa.md": {
+      "f556_sha256": "5def680ee5e073bd07d03d135eace6ee5a314344f0278c8ebb273a0ed6c6dc6a",
+      "candidate_sha256": "5def680ee5e073bd07d03d135eace6ee5a314344f0278c8ebb273a0ed6c6dc6a",
+      "identical": true
+    },
+    "tests/test_day8_qa_reference.py": {
+      "f556_sha256": "4dbdc73076945b1673c73756b9730b4d5493bc6dd638f33291b8ace800126068",
+      "candidate_sha256": "4dbdc73076945b1673c73756b9730b4d5493bc6dd638f33291b8ace800126068",
+      "identical": true
+    },
+    "tests/test_day8_workflow_qa.py": {
+      "f556_sha256": "8071c51134c0c283758975e943664115e413cafebe8c8675724d58017c917ab6",
+      "candidate_sha256": "8071c51134c0c283758975e943664115e413cafebe8c8675724d58017c917ab6",
+      "identical": true
+    }
+  },
+  "uncommitted_docs_ignore_sha256": {
+    ".gitignore": "bd38dce51ae55cbc4e51bc58c109e77215ec0c83786bae6a8800cae8cbc1b214",
+    "docs/RECONCILIATION_2026-09-29.md": "79ed53808105c70b21984a9f2162f01cf3a4cd67645ea0c2e77183dc9766603f",
+    "docs/qa/reconciliation-20260929/reconcile-ci-eol-independent.json": "63e40b89a17cc22eab3724ac62e7806f622f5e29a6824037ae0d15842389cc4d",
+    "docs/qa/reconciliation-20260929/reconcile-governance-independent-qa.json": "86eba28792a6e545c705a60d46591a8b576f060b7ab1740fae946d498fc12b5d",
+    "docs/qa/reconciliation-20260929/reconcile-governance-independent-qa.md": "d9aae8441a4a2e496cc86219896f261861698636bdd5109b948c30002bfd66c0",
+    "docs/qa/reconciliation-20260929/reconcile-installed-providers.json": "cad9f847daf44b1b4f2e8e4ed44df36795122063598f0080f313602c7a567848",
+    "docs/qa/reconciliation-20260929/reconcile-integration-source-manifest.json": "623e2a48ce837066fa7246d673599a240c697fa6c059b96b588f9ba9fc1cef6e",
+    "docs/qa/reconciliation-20260929/reconcile-live-provider-acceptance-summary.json": "985be116fb3df8de02e44de8aca814e33a696ccd862172cefc5301c1a0b10e72",
+    "docs/qa/reconciliation-20260929/reconcile-milestone-independent-qa.json": "99a7b5301e5e7b4b461dc00dd0298b66804dc1d226940765ad7fe1df9e0f3ec8",
+    "docs/qa/reconciliation-20260929/reconcile-milestone-independent-qa.md": "48975cccce6d4feb00d2fae385e73a8273584143710c97317a19610fda45c6ff",
+    "docs/qa/reconciliation-20260929/reconcile-ollama-independent-qa.json": "c387e8b8c87ba6a3f076ffa7cc5ee6012d1807478094e622758ee0f67283cc75",
+    "docs/qa/reconciliation-20260929/reconcile-package-qa.json": "dae62232d1873c75bf95d0cd61852e569b4428e2c7f853bb452ed6edad0e5542",
+    "docs/qa/reconciliation-20260929/reconcile-package-qa.md": "a6b472ace1767af0bb6a1d1b298f18c4761174431425b9f71b71f6d2124062cf",
+    "docs/qa/reconciliation-20260929/reconcile-provider-independent-qa.json": "0bcbb016a03e92fa498df9d2b9ed88490ce3698de9c6c74faac80cfc8a68e144",
+    "docs/qa/reconciliation-20260929/reconcile-provider-independent-qa.md": "76ac19211eace7f985c8351af905bfcbfe6935703f02a31ee07e182398ae95ef"
+  },
+  "mismatches": [],
+  "uncovered": [],
+  "test_delta_probe_sha256": "fa86d725289df4870d878b97475e3ed213357a0dcf408ea64b2b1666aa45d694",
+  "limits": [
+    "No model calls, production DB mutation, deployment or new integration suite",
+    "Graph correction not in candidate; requires separate independent QA before deployment",
+    "Working tree documentation and ignore addition must preserve bound bytes in final commit"
+  ]
+}

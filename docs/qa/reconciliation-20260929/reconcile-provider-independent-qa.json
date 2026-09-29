@@ -1,0 +1,45 @@
+{
+  "decision": "PASS",
+  "scope": "Provider discovery, isolation routing, truthful diagnostics, installer; not entire reconciliation",
+  "reviewer": "/root/day6_qa_a",
+  "builder": "/root/day6_qa_b",
+  "checkout": "C:\\Triad\\data\\temp\\reconcile-stabilization-20260929",
+  "base_head": "f556caeb303310a17ece9679f97f0f4acedcc261",
+  "revision_binding": "Pending integration commit; exact reviewed working-file hashes authoritative",
+  "files_sha256": {
+    "app/trading_core/providers/transports.py": "ded19010f8386cc7c9afa99e05579597e3d073e5177694db158f14935cc45df1",
+    "app/trading_core/providers/control.py": "ed5caccfd060ad5050320cf68e5b7fbb86a7fdbdcb41bc2eb1680c1c15a0e898",
+    "app/trading_core/contracts.py": "3458da1c1dea11e49c443cf14504350c9d257fa42a5c4ae2d1d9a79d02d9de9b",
+    "app/trading_core/static/providers.html": "79873fb44e80f7f37e8291bfd64c48a94aeec35716597a85dcf99eca7cbe4e13",
+    "tools/install_provider_clis.ps1": "f12c1d65f297fd13686668013902a1368969e0bbd37e9d0eca1b109d50f4702c",
+    "tests/test_provider_reconcile.py": "0022d389abd25819e74d5724fc73ac4c5476f2fd6cc7d1b72b0e313c8bb7b52b",
+    "tests/test_provider_control.py": "313dd040878a1161514c687079b077ac12dd94881c111ae7f0860c6113a29921"
+  },
+  "tests": {
+    "passed": 99,
+    "warnings": 2,
+    "seconds": 14.08,
+    "exit": 0
+  },
+  "installer_fixture_scenarios": 3,
+  "evidence_sha256": {
+    "logs/reconcile-provider-independent-qa.md": "76ac19211eace7f985c8351af905bfcbfe6935703f02a31ee07e182398ae95ef",
+    "logs/reconcile-provider-initial-qa.json": "8dad2167f8c5b388d4855d02e354fdc7475d19c765114e8f784de5bd6e302e5c",
+    "logs/reconcile-provider-health-failure-probe.json": "a301660f9743257c10f3438251f5baa1d4d3dcce44b8fda6b15b06e425300d15",
+    "logs/reconcile-provider-independent-tests.log": "677ff7e29a0f60ce9f28b2cf56c16d26eee045a385940e8732fcbd46ff35345a",
+    "logs/reconcile-provider-independent-tests.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "logs/test_reconcile_provider_independent.py": "b3b27b1d2eee66dc5c31357373a76c5bb46a7ea13b133976400a175da4a79d65",
+    "logs/reconcile-provider-installer-independent.py": "536d1a362c7cd8d873d9ca9caab40c1edaaec32479e4d74f307887fcf9ad5b55",
+    "logs/reconcile-provider-installer-independent.json": "e118b9262f208ef7d5c3541d5b72e9e73c1bdb71ec8a15fa06816902830bf53d",
+    "logs/reconcile-provider-independent-syntax.log": "f79f8bf6a29dce895163955ff2ef51ecc072eaca4b0255041ba7a95e69daada7",
+    "logs/provider-reconcile-correction-builder.json": "8aa437db4383e75ac742f920560b7dff007d14b75c0f8db1fce7c6f44579a3e0",
+    "logs/provider-reconcile-correction-tests.log": "72d443d34ec3f7a2223a749da84394c6228c45280d9709ea6e1ffddce732c440",
+    "logs/provider-reconcile-correction-final-tests.log": "fe001d1b421025ae508b8e099d6d755d2ae01c748c469ad742b1779c3cce8c6b"
+  },
+  "initial_finding": "CHANGES_REQUIRED, fresh failed detection could reuse cached AVAILABLE; corrected and freshly verified",
+  "limits": [
+    "No real install, login, inference or production database mutation",
+    "No browser rendering claim",
+    "Other integration files not covered; separate independent review required"
+  ]
+}

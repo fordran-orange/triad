@@ -1,0 +1,29 @@
+{
+  "decision": "PASS",
+  "implementation_revision": "beea93c53c7d36e70906fb4695ca475e7a064fd3",
+  "scope": "Uncommitted .gitignore and draft reconciliation doc only",
+  "reviewer": "/root/day6_qa_a",
+  "files_sha256": {
+    ".gitignore": "bd38dce51ae55cbc4e51bc58c109e77215ec0c83786bae6a8800cae8cbc1b214",
+    "docs/RECONCILIATION_2026-09-29.md": "79ed53808105c70b21984a9f2162f01cf3a4cd67645ea0c2e77183dc9766603f"
+  },
+  "ignore_decision": "PASS",
+  "checks": [
+    "Only added rule is data/provider-cli/",
+    "git check-ignore --no-index confirms package.json, nested CLI command, nested .gitkeep all ignored",
+    "Installer source, provider source and sibling data/provider-cli-backup remain unignored",
+    "No tracked files under data/provider-cli",
+    "Existing .env and credential suffix rules unchanged; this delta contains no credentials",
+    "465 passed,291 deselected,5 warnings and exit0 verified in final unit log",
+    "Installed package independent PASS and retained real-provider transient failure evidence observed"
+  ],
+  "findings": [],
+  "limits": "Not deployment acceptance, runtime ownership validation, full secret audit, or Day8 completion.",
+  "correction": "Draft now explicitly states integration running and deployment/UI/supervisor pending. Actual package/native results are attributed correctly with retained Claude rejection and unchanged retry.",
+  "prior_report": "reconcile-final-ignore-initial-qa.json",
+  "evidence_sha256": {
+    "reconcile-live-provider-acceptance-summary.json": "985be116fb3df8de02e44de8aca814e33a696ccd862172cefc5301c1a0b10e72",
+    "reconcile-package-qa.json": "dae62232d1873c75bf95d0cd61852e569b4428e2c7f853bb452ed6edad0e5542",
+    "reconcile-full-unit-final.log": "e6c22061be705d805fb86f705673342165e2d9d121528c8f7b1a325ea760268c"
+  }
+}

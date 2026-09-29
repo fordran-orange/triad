@@ -1,0 +1,63 @@
+{
+  "decision": "PASS",
+  "reviewer": "/root/day6_qa_a",
+  "builder": "/root/day6_qa_b",
+  "base_revision": "beea93c53c7d36e70906fb4695ca475e7a064fd3",
+  "scope": "Offline reviewed Brain projection overlay; exact later application required",
+  "file_hashes": {
+    "brain.py": {
+      "raw_sha256": "b60778485256cc41d4aec3832ca4a7dc1b774801ed947cd7b77075497bb343cd",
+      "normalized_lf_sha256": "1d7aabc9be5394154b6b44d83f11e07c096885f56726e2c1f5e7a80b255fd372"
+    },
+    "brain.patch": {
+      "raw_sha256": "b63a6548083a7eca8e58b6f01acf207e60c3901a3c8b34a7326ff762341a90a3",
+      "normalized_lf_sha256": "418c500a4c9b152d3bd9fdae0e53542edb2a867224d2441b9cbbd0ab3b1d8677"
+    },
+    "production-input.json": {
+      "raw_sha256": "51f7afcece77138ef743ae09253ff696176a0fdb3a8022c348f80f0a5abdf1ea",
+      "normalized_lf_sha256": "13a349992a0afa285bda9e40008124a2acac7c7f4fc930e4a6fa18d21e773338"
+    },
+    "test_retained_dataset_projection.py": {
+      "raw_sha256": "0c910dc4d13b729b4b8d7dcc5891feb96369dace13bdd68a5ba6ccaa185569a4",
+      "normalized_lf_sha256": "b6eeb5d5bfcaa17d202cc25a91b312980c8ebe546a69f992565455ac162165c4"
+    },
+    "test_projection_retained_failure.py": {
+      "raw_sha256": "a5224c3bf8f962d5b55d0e7b5bef14053e4223088748b43fbcf68c7b276ee6aa",
+      "normalized_lf_sha256": "a5224c3bf8f962d5b55d0e7b5bef14053e4223088748b43fbcf68c7b276ee6aa"
+    }
+  },
+  "target": "app/trading_core/brain.py",
+  "target_normalized_lf_sha256": "1d7aabc9be5394154b6b44d83f11e07c096885f56726e2c1f5e7a80b255fd372",
+  "tests": [
+    {
+      "command": "pytest overlay/test_projection_retained_failure.py logs/test_reconcile_projection_independent.py -q",
+      "passed": 24,
+      "independent_cases": 12,
+      "seconds": 3.89
+    },
+    {
+      "command": "python logs/reconcile-projection-overlay/test_overlay_runner.py",
+      "passed": 11,
+      "seconds": 0.2
+    }
+  ],
+  "evidence_sha256": {
+    "reconcile-projection-independent-tests.log": "88fe2040d81f1e1d7189ac6d9136d91d8e76b3516f0ba8bcaa9f375cdef96b4f",
+    "reconcile-projection-independent-tests.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "reconcile-projection-portable-independent.log": "9242f58f61ff1285534e0e894013eb066631d9619ab0d9eaa5f1afd2fe96641d",
+    "test_reconcile_projection_independent.py": "5208f10bba2eb86f15cfcc1603acfabe8ce9c39edf2e66865afece84a47da5c9"
+  },
+  "observations": [
+    "Exact retained SPY outbox payload read previously by builder reproduces original KeyError(raw_id) offline; current production database was not queried in this QA.",
+    "Corrected dataset/version query retains REAL/FAIL/checksum and omits invented RawDataset identity and NORMALIZED_INTO links.",
+    "PASS, WARN, lowercase fail and FAIL-with-canonical output still reject missing raw_id; no generic missing-field error suppression.",
+    "Valid canonical two-source manifests emit byte-equivalent queries/properties to old implementation for Core,Triad,Aegis owners; repeated query sequences identical.",
+    "Input manifest untouched; unchanged flush and other Brain methods confirmed by AST equality. Following WorkItem owner context remains Triad after Aegis retained manifest.",
+    "Portable tracked test uses synthetic fixture and normal import; no fixed local paths or production input dependency."
+  ],
+  "limitations": [
+    "No live Neo4j execution or production flush; query-spy idempotency is not a live transactional test.",
+    "Does not repair deferred data contracts, raw archives, calendar coverage, normalization or eligibility.",
+    "Recovery helper/deployment require separate review and exact applied source identity."
+  ]
+}

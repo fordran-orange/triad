@@ -1,0 +1,228 @@
+{
+  "decision": "PASS_WITH_RETAINED_TRANSIENT_FAILURE",
+  "source_revision": "beea93c53c7d36e70906fb4695ca475e7a064fd3",
+  "reviewer": "/root/day6_qa_b",
+  "summary": [
+    {
+      "transport": "grok_build_cli",
+      "acceptance": false,
+      "success": true,
+      "error": null,
+      "proof_id": "10d99bf6-eaa5-4308-9c83-80cfaee8047e",
+      "work_item_id": "481aea49-1084-4836-8cc6-75d031d2afd7",
+      "run_id": "2927b73f-d324-4ee2-8b6d-43d2d40b6406",
+      "actual_model": "grok-4.7",
+      "usage": [
+        {
+          "id": "32c2e345-cb8d-4479-b4b5-21f1149e9a8a",
+          "status": "SUCCESS",
+          "input_tokens": 4628,
+          "output_tokens": 626,
+          "actual_model": "grok-4.7",
+          "usage_known": true,
+          "billing_source": "SUBSCRIPTION"
+        }
+      ],
+      "native_model": [
+        "grok-4.7"
+      ]
+    },
+    {
+      "transport": "grok_build_cli",
+      "acceptance": true,
+      "success": true,
+      "error": null,
+      "proof_id": "bb232589-7933-4dad-8412-5fec215b078b",
+      "work_item_id": "a55c95dd-e399-461c-8120-fec9cb932890",
+      "run_id": "a89f79c1-47f2-4bef-a6c9-454fa0637878",
+      "actual_model": "grok-4.7",
+      "usage": [
+        {
+          "id": "94fff0ea-f1de-4f18-ae21-668914fdfb8d",
+          "status": "SUCCESS",
+          "input_tokens": 12422,
+          "output_tokens": 640,
+          "actual_model": "grok-4.7",
+          "usage_known": true,
+          "billing_source": "SUBSCRIPTION"
+        }
+      ],
+      "native_model": [
+        "grok-4.7"
+      ]
+    },
+    {
+      "transport": "claude_code_cli",
+      "acceptance": false,
+      "success": true,
+      "error": null,
+      "proof_id": "c5a6a694-a317-4854-9fda-bac90c9de8fb",
+      "work_item_id": "ee9d5717-e09f-4f0d-ba32-d53b394b5c02",
+      "run_id": "4571fbdc-ae47-45b8-a506-a4c09f13438f",
+      "actual_model": "claude-sonnet-5",
+      "usage": [
+        {
+          "id": "a15dc141-ca34-42d0-a0c2-653b7ee47251",
+          "status": "SUCCESS",
+          "input_tokens": 5400,
+          "output_tokens": 660,
+          "actual_model": "claude-sonnet-5",
+          "usage_known": true,
+          "billing_source": "SUBSCRIPTION"
+        }
+      ],
+      "native_model": [
+        "claude-sonnet-5"
+      ]
+    },
+    {
+      "transport": "claude_code_cli",
+      "acceptance": true,
+      "success": false,
+      "error": "NativeResultViolation",
+      "proof_id": "76316721-371f-41ec-9650-7b903208ebf4",
+      "work_item_id": "a1807381-43f0-4cf2-a2be-367e4ff2d75b",
+      "run_id": "79d6affe-0826-411c-96b4-c4c3eb16da71",
+      "actual_model": null,
+      "usage": [
+        {
+          "id": "5144e46f-68b3-49c0-8f58-d667a6e139e1",
+          "status": "DEGRADED",
+          "input_tokens": 18533,
+          "output_tokens": 954,
+          "actual_model": null,
+          "usage_known": true,
+          "billing_source": "SUBSCRIPTION"
+        }
+      ],
+      "native_model": [
+        "claude-sonnet-5"
+      ]
+    },
+    {
+      "transport": "codex_cli",
+      "acceptance": false,
+      "success": true,
+      "error": null,
+      "proof_id": "12d3504f-7139-4c07-9ba4-2b3107ff06b3",
+      "work_item_id": "f65a6099-b2ea-4d42-9935-868bf835614c",
+      "run_id": "d701e941-978f-4897-87d7-b932d0474023",
+      "actual_model": "gpt-6-astra",
+      "usage": [
+        {
+          "id": "3f4c2956-a68f-44f5-9556-a74620f562da",
+          "status": "SUCCESS",
+          "input_tokens": 11939,
+          "output_tokens": 173,
+          "actual_model": "gpt-6-astra",
+          "usage_known": true,
+          "billing_source": "SUBSCRIPTION"
+        }
+      ],
+      "native_model": [
+        "gpt-6-astra"
+      ]
+    },
+    {
+      "transport": "codex_cli",
+      "acceptance": true,
+      "success": true,
+      "error": null,
+      "proof_id": "9f1378b3-2e28-4757-acd6-3901017d5902",
+      "work_item_id": "bf9936e8-e17c-411b-a52b-e98428d07b88",
+      "run_id": "2bf196a8-5944-4ea8-ab8c-a524ba3a192c",
+      "actual_model": "gpt-6-astra",
+      "usage": [
+        {
+          "id": "7f0a913d-cb20-4de8-89ee-2b7dc74c5a1e",
+          "status": "SUCCESS",
+          "input_tokens": 24878,
+          "output_tokens": 252,
+          "actual_model": "gpt-6-astra",
+          "usage_known": true,
+          "billing_source": "SUBSCRIPTION"
+        }
+      ],
+      "native_model": [
+        "gpt-6-astra"
+      ]
+    },
+    {
+      "transport": "ollama",
+      "acceptance": false,
+      "success": true,
+      "error": null,
+      "proof_id": "e5d31493-7033-4903-a1bf-296e874978ef",
+      "work_item_id": "498b7cbc-1a44-4e77-8dc6-b10ddced85d6",
+      "run_id": "d08a1c19-859a-4fe0-a8dd-80ae687b8d87",
+      "actual_model": "qwen3:4b",
+      "usage": [
+        {
+          "id": "d093702d-72fb-4b4e-9879-6c46c150ce0e",
+          "status": "SUCCESS",
+          "input_tokens": 602,
+          "output_tokens": 22,
+          "actual_model": "qwen3:4b",
+          "usage_known": true,
+          "billing_source": "LOCAL"
+        }
+      ],
+      "native_model": []
+    },
+    {
+      "transport": "ollama",
+      "acceptance": true,
+      "success": true,
+      "error": null,
+      "proof_id": "892e98a2-43ed-42e5-8e2d-dea5e6d0bbe1",
+      "work_item_id": "edb3dc49-114c-499a-8fa4-4fa70aa13cb7",
+      "run_id": "f9ef0ce8-8f9f-4a5d-b321-625b07746169",
+      "actual_model": "qwen3:4b",
+      "usage": [
+        {
+          "id": "a7694a48-93b9-402d-b574-3d0c69deafb0",
+          "status": "SUCCESS",
+          "input_tokens": 617,
+          "output_tokens": 84,
+          "actual_model": "qwen3:4b",
+          "usage_known": true,
+          "billing_source": "LOCAL"
+        }
+      ],
+      "native_model": []
+    },
+    {
+      "transport": "claude_code_cli",
+      "acceptance": true,
+      "success": true,
+      "error": null,
+      "proof_id": "998a8ab1-59be-4fc1-bcd3-ad5511f06f8a",
+      "work_item_id": "508ba647-a652-4bd2-84e4-28377ccf08db",
+      "run_id": "1d55b3b1-a571-4dfd-a55a-2807e4e8055a",
+      "actual_model": "claude-sonnet-5",
+      "usage": [
+        {
+          "id": "3cb5cf3f-c788-41ff-83b9-77e87728eecb",
+          "status": "SUCCESS",
+          "input_tokens": 18528,
+          "output_tokens": 866,
+          "actual_model": "claude-sonnet-5",
+          "usage_known": true,
+          "billing_source": "SUBSCRIPTION"
+        }
+      ],
+      "native_model": [
+        "claude-sonnet-5"
+      ]
+    }
+  ],
+  "limits": "Only explicit read-only verification WorkItems; no API fallback, product writes, live trading, deployment or service restart. First Claude failure retained; one authorized unchanged retry passed. Running old Core monitor may invalidate snapshots until corrected deployment refresh.",
+  "evidence_sha256": {
+    "reconcile-live-provider-acceptance.json": "f8895d631ac93cb4698eb45bec920d934ca8028804e40e84053752540341501c",
+    "reconcile-live-provider-acceptance.log": "fb301119e876215327a632307446889e71c195355b803ee90952cc3e674e7174",
+    "reconcile-live-claude-retry.json": "d6572225569eec5e383dcb36d3300f65adfc9aafd376b79137b610b8c9a84646",
+    "reconcile-live-claude-retry.log": "f6bab3c18b94db870863aafddc53cbc9b601ac8327a8677faa956760ff5c847c",
+    "reconcile_live_provider_acceptance.py": "4a9b9735188bb107ca8b888752986e35f29562cbeb6d1664c47117ba06708bcd",
+    "reconcile_live_claude_retry.py": "534b067d82e5949f1b8bb20cf06e323752bb1df1a4b2c8cabb933f0151b94d5f"
+  }
+}

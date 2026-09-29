@@ -1,0 +1,67 @@
+[
+  {
+    "transport": "codex_cli",
+    "detection": {
+      "transport": "codex_cli",
+      "detected_at": "2026-09-29T16:24:22.272785+00:00",
+      "cli_name": "codex",
+      "executable": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\Triad\\data\\provider-cli\\node_modules\\@openai\\codex\\bin\\codex.js"
+      ],
+      "cli_version": "codex-cli 0.155.0-alpha.2.6",
+      "minimum_supported_version": "codex-cli 0.155.0-alpha.2.6",
+      "compatibility_status": "VERIFIED",
+      "install_status": "INSTALLED",
+      "installation_instructions": "https://developers.openai.com/codex/cli"
+    },
+    "authentication": {
+      "auth_state": "AUTHENTICATED",
+      "billing_source": "SUBSCRIPTION"
+    },
+    "isolated_boundary_ready": true
+  },
+  {
+    "transport": "claude_code_cli",
+    "detection": {
+      "transport": "claude_code_cli",
+      "detected_at": "2026-09-29T16:24:23.230895+00:00",
+      "cli_name": "claude",
+      "executable": [
+        "C:\\Triad\\data\\provider-cli\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"
+      ],
+      "cli_version": "2.1.276 (Claude Code)",
+      "minimum_supported_version": "2.1.276 (Claude Code)",
+      "compatibility_status": "VERIFIED",
+      "install_status": "INSTALLED",
+      "installation_instructions": "https://code.claude.com/docs/en/setup"
+    },
+    "authentication": {
+      "auth_state": "AUTHENTICATED",
+      "billing_source": "SUBSCRIPTION"
+    },
+    "isolated_boundary_ready": true
+  },
+  {
+    "transport": "grok_build_cli",
+    "detection": {
+      "transport": "grok_build_cli",
+      "detected_at": "2026-09-29T16:24:26.024329+00:00",
+      "cli_name": "grok",
+      "executable": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\Triad\\data\\provider-cli\\node_modules\\@xai-official\\grok\\bin\\grok"
+      ],
+      "cli_version": "grok 1.0.34 (3736acbc8658)",
+      "minimum_supported_version": "grok 1.0.34 (3736acbc8658)",
+      "compatibility_status": "VERIFIED",
+      "install_status": "INSTALLED",
+      "installation_instructions": "https://docs.x.ai/build/overview"
+    },
+    "authentication": {
+      "auth_state": "AUTHENTICATED",
+      "billing_source": "SUBSCRIPTION"
+    },
+    "isolated_boundary_ready": true
+  }
+]

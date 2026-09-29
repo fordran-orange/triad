@@ -1,0 +1,52 @@
+{
+  "decision": "CHANGES_REQUIRED",
+  "reviewer": "/root/day6_qa_c",
+  "revision": "beea93c53c7d36e70906fb4695ca475e7a064fd3",
+  "suite": "Entire pytest -m integration selection",
+  "command": "C:/Triad/.venv/Scripts/python.exe -m pytest -m integration -q",
+  "environment": {
+    "PYTHONPATH": "C:\\Triad\\data\\temp\\reconcile-stabilization-20260929\\app",
+    "TRADING_HOME": "C:/Triad",
+    "TRIAD_INTEGRATION": "1"
+  },
+  "result": {
+    "passed": 288,
+    "failed": 3,
+    "deselected": 465,
+    "warnings": 2,
+    "seconds": 1892.9,
+    "exit": 1
+  },
+  "failures": [
+    {
+      "test": "tests/test_day2_integration.py::test_full_lifecycle_persists_review_journal_handoff_and_lineage",
+      "line": 98,
+      "observed": "Generated JournalEntry Markdown does not exist; work otherwise COMPLETED."
+    },
+    {
+      "test": "tests/test_day2_integration.py::test_projection_failure_retries_without_duplicate_lineage",
+      "line": 236,
+      "observed": "Brain.flush returns KeyError after restoring the real projection method."
+    },
+    {
+      "test": "tests/test_day2_integration.py::test_authenticated_api_and_no_privilege_mutation",
+      "line": 274,
+      "observed": "Work COMPLETED but lineage empty; earlier auth/origin checks passed."
+    }
+  ],
+  "source_drift_after_run": [],
+  "evidence_sha256": {
+    "reconcile-full-integration.log": "46a14f93eecc7c022c0d19dbe42c4e3a425443620373b7246a21ce36b4c64803",
+    "reconcile-full-integration.exit": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04",
+    "reconcile-integration-collected.log": "468542eeabb2d02bb224420d61ee84fa09d8d8bd9bdf464a31b2e4066f90ca94",
+    "reconcile-integration-source-manifest.json": "623e2a48ce837066fa7246d673599a240c697fa6c059b96b588f9ba9fc1cef6e"
+  },
+  "scope_notes": [
+    "No native model invocation was initiated by this test command.",
+    "Legacy Day2 fixture uses the default shared PostgreSQL database and cleans up exactly its own synthetic records; many newer fixtures use disposable databases.",
+    "An initial claim that all fixtures were disposable was corrected after source inspection.",
+    "Root separately traced pending graph projection to a preserved failed DatasetManifest lacking raw_id. That cause is contextual evidence, while this report records the actual suite assertions.",
+    "Do not overwrite this failure evidence when running the independently reviewed projection correction.",
+    "No source edits or Git commits by this reviewer during the run."
+  ]
+}

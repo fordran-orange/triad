@@ -1,0 +1,193 @@
+{
+  "started_at": "2026-09-29T16:57:54.836481+00:00",
+  "decision": "PASS",
+  "cutoff": 20052,
+  "initial_pending": 11813,
+  "before": {
+    "hf-itot-20260919T233952760505Z": {
+      "canonical_sha256": "688d91635606cb84eff9061e76a0eb8de635e6863cb972e8670c24d66695a0a3",
+      "raw_files": {
+        "data/raw/HFDataLibrary/20260919T233952760505Z/ITOT_1m_10y.parquet.gz": "ae9603c267420d0ca812ae170f2fe60db5e7d59cb267ef686b53f39f455348c0"
+      }
+    },
+    "hf-qqq-20260919T233952760505Z": {
+      "canonical_sha256": "20c28ea972d00c61760cab12525b3e2b84667a43281229112d429314be2479bc",
+      "raw_files": {
+        "data/raw/HFDataLibrary/20260919T233952760505Z/QQQ_1m_10y.parquet.gz": "58ef2a8b11d4b67f169f3ab745023b1d79722fb856586caee55b50d6f41a5eb7"
+      }
+    },
+    "hf-spy-20260919T233952760505Z": {
+      "canonical_sha256": "20e39fb0c9ec6e42f7d302c303ca4c664a361de01cf5b831d708bf87e15992a6",
+      "raw_files": {
+        "data/raw/HFDataLibrary/20260919T233952760505Z/SPY_1m_10y.parquet.gz": "3cb44d868a78c6b90c30bb98f6bd795f9c3618ba041c4fad3912905aa69e1d47"
+      }
+    }
+  },
+  "batches": [
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 11313
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 10813
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 10313
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 9813
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 9313
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 8813
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 8313
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 7813
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 7313
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 6813
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 6313
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 5813
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 5313
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 4813
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 4313
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 3813
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 3313
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 2813
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 2313
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 1813
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 1313
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 813
+    },
+    {
+      "delivered": 500,
+      "error": null,
+      "pending_before_cutoff": 313
+    },
+    {
+      "delivered": 313,
+      "error": null,
+      "pending_before_cutoff": 0
+    }
+  ],
+  "scope": "Existing ordered outbox replay; cutoff is the completion target, not a row exclusion filter. Concurrent delivery can allow newer rows in the last batch. Maximum 25000 total deliveries; a 40-minute admission deadline is checked between batches and does not interrupt an in-flight flush or hash read.",
+  "after": {
+    "hf-itot-20260919T233952760505Z": {
+      "canonical_sha256": "688d91635606cb84eff9061e76a0eb8de635e6863cb972e8670c24d66695a0a3",
+      "raw_files": {
+        "data/raw/HFDataLibrary/20260919T233952760505Z/ITOT_1m_10y.parquet.gz": "ae9603c267420d0ca812ae170f2fe60db5e7d59cb267ef686b53f39f455348c0"
+      }
+    },
+    "hf-qqq-20260919T233952760505Z": {
+      "canonical_sha256": "20c28ea972d00c61760cab12525b3e2b84667a43281229112d429314be2479bc",
+      "raw_files": {
+        "data/raw/HFDataLibrary/20260919T233952760505Z/QQQ_1m_10y.parquet.gz": "58ef2a8b11d4b67f169f3ab745023b1d79722fb856586caee55b50d6f41a5eb7"
+      }
+    },
+    "hf-spy-20260919T233952760505Z": {
+      "canonical_sha256": "20e39fb0c9ec6e42f7d302c303ca4c664a361de01cf5b831d708bf87e15992a6",
+      "raw_files": {
+        "data/raw/HFDataLibrary/20260919T233952760505Z/SPY_1m_10y.parquet.gz": "3cb44d868a78c6b90c30bb98f6bd795f9c3618ba041c4fad3912905aa69e1d47"
+      }
+    }
+  },
+  "catalog_graph": [
+    {
+      "id": "hf-itot-20260919T233952760505Z",
+      "quality": "FAIL",
+      "mode": "REAL",
+      "owner": "core",
+      "normalization_edges": 0
+    },
+    {
+      "id": "hf-qqq-20260919T233952760505Z",
+      "quality": "FAIL",
+      "mode": "REAL",
+      "owner": "core",
+      "normalization_edges": 0
+    },
+    {
+      "id": "hf-spy-20260919T233952760505Z",
+      "quality": "FAIL",
+      "mode": "REAL",
+      "owner": "core",
+      "normalization_edges": 0
+    }
+  ],
+  "completed_at": "2026-09-29T17:16:05.398195+00:00"
+}

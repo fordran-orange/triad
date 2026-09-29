@@ -1,0 +1,22 @@
+{
+  "decision": "PASS",
+  "builder": "/root/day6_qa_c",
+  "reviewer": "/root",
+  "revision": "beea93c53c7d36e70906fb4695ca475e7a064fd3",
+  "normalized_lf_sha256": {
+    "tools/ensure_ollama.ps1": "2dffae66c500365f5b9cf8da6ec0273ae14e1151017b68080d56484e02c8dbfd",
+    "tools/ensure_core.ps1": "cd5119bc019477f284586171569d2084a531bd4a92742e02021bdd57f0fd1396",
+    "tools/install_core_supervisor.ps1": "5ddc8c363540bb08f0c2e8db11db328a638c7a72c1ae30b6aa7e1aee8089023c",
+    "tests/test_ollama_supervisor.py": "97b6c9a0e7674ce8d0a6b4660296f143c4e2f5dc2b88017c651442cbe75a86c5",
+    "docs/OLLAMA_SUPERVISION.md": "5f20f9fe481cf38f65fc8daa5f04c5d0ebda113540c9e625c07551cbd03e8e63"
+  },
+  "validation": [
+    "10 independent rerun tests passed in7.29s",
+    "Independent actual Windows ValidateOnly task construction: current interactive user, Limited, logon and five-minute triggers, no registration",
+    "Independent live ensure_ollama call succeeded; configured existing Qwen model found; no inference/model relocation"
+  ],
+  "limitations": [
+    "No reboot exercised",
+    "Actual task registration follows governed deployment"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "decision": "PASS",
+  "reviewer": "/root/day6_qa_a",
+  "scope": "Offline independent review of recovery helper; not execution approval of unreviewed app source",
+  "helper_path": "logs/reconcile_projection_recovery.py",
+  "helper_sha256": "b7231028145604b512668a5f069dbfed6d759fd1b8fe941f2b7fb69404e81d79",
+  "required_brain_normalized_lf_sha256": "1d7aabc9be5394154b6b44d83f11e07c096885f56726e2c1f5e7a80b255fd372",
+  "tests": {
+    "passed": 4,
+    "seconds": 1.96,
+    "evidence": {
+      "test_reconcile_recovery_helper_qa.py": "7e3ffc4f6229972075db0f7a6e3947fa65fe5e20b3f65728ce412efe6a011e49",
+      "reconcile-recovery-helper-tests.log": "1a599bdb63216464a8b502322d787f1600e8a42934a303aee93e7b4fc8299284",
+      "reconcile-recovery-helper-tests.exit": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    }
+  },
+  "observations": [
+    "Exact source guard before Store or mutation; existing evidence file cannot be overwritten.",
+    "Only mutation mechanism is existing Brain.flush; no deletion, canonical-manifest update, fabricated raw identity or outbox skip.",
+    "Ledger guard before start and every batch; max50 batches and max500 per batch (25000 deliveries); count capped to pending cutoff count.",
+    "Cutoff defines completion target, not exact exclusion of concurrent newer events; explicitly documented.",
+    "Read-only snapshots require all three retained datasets REAL/FAIL with empty canonical paths; hash complete canonical rows and validate raw-file checksums beneath data/raw.",
+    "After replay asserts unchanged canonical/raw snapshot, three Core-owned graph nodes REAL/FAIL with zero NORMALIZED_INTO edges.",
+    "Any flush error/no progress fails immediately and preserves evidence; tested without actual DB or graph calls."
+  ],
+  "limits": [
+    "The 40-minute deadline is checked between batches, not a hard interruption of in-flight flush or file hashing.",
+    "No production execution/flush, DB writes or provider calls performed by QA.",
+    "Actual graph acceptance and retained-data equality remain runtime assertions, not yet observed."
+  ],
+  "final_wording": "Final source explicitly states deadline admission occurs between batches and does not interrupt an in-flight flush/hash."
+}
