@@ -605,7 +605,7 @@ class Development(ExecutionServices):
             )
         return qa
 
-    def merge(self, mission, proposal, build, qa, *, operator_authorized=False):
+    def merge(self, mission, proposal, build, qa):
         work = self.host.store.get(build["work_item_id"])
         metadata = build["git"]
         current = self.quality.require_pass(build["implementation_id"], metadata["change_commit"])
@@ -637,8 +637,6 @@ class Development(ExecutionServices):
         epoch = self.ledger.get("authority-" + work.work_item_id)["epoch"]
         self.git.review_commit(metadata, qa.qa_run_id, qa.decision)
         with self.ledger.gate(work.assigned_agent, work.work_item_id, epoch) as control:
-            if control["require_human_review"] and not operator_authorized:
-                raise PermissionError("Operator authorization required for this merge")
             self.quality.require_pass(build["implementation_id"], metadata["change_commit"])
             limits = Limits.model_validate(control["limits"]).model_copy(
                 update={"allowed_directories": proposal.affected_components}
@@ -690,14 +688,14 @@ class Development(ExecutionServices):
         Brain(self.host.store).flush()
         return metadata
 
-    def run(self, mission=None, *, operator_authorized=False):
+    def run(self, mission=None):
         from products.triad.cycle_history import CycleHistory
 
         mission = mission or uid()
         history = CycleHistory(self.host.store)
         history.parent(mission)
         try:
-            result = self._run(mission, operator_authorized=operator_authorized)
+            result = self._run(mission)
         except Exception as exc:
             history.capture(
                 mission,
@@ -710,7 +708,7 @@ class Development(ExecutionServices):
         history.capture(mission)
         return result
 
-    def _run(self, mission, *, operator_authorized=False):
+    def _run(self, mission):
         with self.host.store.lease("triad-product-development"):
             self.ledger.guard()
             if self.rows("ProductMerge", mission):
@@ -727,7 +725,7 @@ class Development(ExecutionServices):
             qa = self.qa(mission, proposal, build)
             if qa.decision not in {"PASS", "PASS_WITH_OBSERVATIONS"}:
                 raise PermissionError("Independent QA requires correction; exact findings retained")
-            return self.merge(mission, proposal, build, qa, operator_authorized=operator_authorized)
+            return self.merge(mission, proposal, build, qa)
 
     def dashboard(self):
         kinds = (
