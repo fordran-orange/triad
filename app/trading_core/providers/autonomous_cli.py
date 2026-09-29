@@ -6,11 +6,11 @@ Core's protected-path/secret/test merge gate. Provider login remains vendor-mana
 
 from __future__ import annotations
 
+# ruff: noqa: I001
+
 import json
 from pathlib import Path
 from typing import Any
-
-from pydantic import ValidationError
 
 from trading_core.contracts import AgentRunResult
 from trading_core.providers.process import ManagedProcess
@@ -81,7 +81,7 @@ def _extract_result(text: str, run_id: str) -> AgentRunResult:
         if candidate.get("run_id") == run_id:
             try:
                 return AgentRunResult.model_validate(candidate)
-            except ValidationError:
+            except ValueError:
                 pass
         for key in ("structured_output", "result", "output", "text", "message"):
             nested = candidate.get(key)
