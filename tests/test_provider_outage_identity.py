@@ -126,3 +126,22 @@ def test_outage_without_prior_identity_does_not_create_proof(local_control):
     failed = ProviderControl._refresh(host, "ollama")
     assert failed["test"] is failed["workitem"] is None
     assert not ProviderControl.proven(failed)
+
+
+@pytest.mark.parametrize("response", [None, [], 17, "0.17.0"])
+def test_malformed_version_envelope_persists_unavailable_then_recovers(local_control, response):
+    host, adapter, proof, history = local_control
+    online = ProviderControl._refresh(host, "ollama")
+    assert ProviderControl.readiness_state(online) == "ONLINE"
+    original_transport = adapter.transport
+    adapter.transport = lambda path: response
+    failed = ProviderControl._refresh(host, "ollama")
+    assert failed["error"] == "LocalVersionUnavailable"
+    assert failed["reachability"] == "UNAVAILABLE"
+    assert failed["test"] == failed["workitem"] == proof
+    assert ProviderControl.readiness_state(history[-1]) == "CONNECTION_ERROR"
+    assert not ProviderControl.proven(history[-1])
+    adapter.transport = original_transport
+    recovered = ProviderControl._refresh(host, "ollama")
+    assert ProviderControl.readiness_state(recovered) == "ONLINE"
+    assert recovered["test"] == recovered["workitem"] == proof

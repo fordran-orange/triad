@@ -215,7 +215,10 @@ class ProviderControl:
                 data["endpoint"] = local.base
                 try:
                     data.update(adapter.list_models())
-                    version = local.transport("/api/version").get("version")
+                    response = local.transport("/api/version")
+                    if not isinstance(response, dict):
+                        raise ProviderError("UNAVAILABLE", "LocalVersionUnavailable")
+                    version = response.get("version")
                     if not isinstance(version, str) or not version.strip():
                         raise ProviderError("UNAVAILABLE", "LocalVersionUnavailable")
                     data["local_version"] = version
