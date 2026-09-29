@@ -1,8 +1,8 @@
 {
   "rotation": [
-    "CODEX",
+    "GROK",
     "CLAUDE",
-    "GROK"
+    "CODEX"
   ],
   "scheduler": {
     "enabled": false,
@@ -11,7 +11,7 @@
     "mode": "REAL"
   },
   "mission": "Triad is an autonomous system whose mission is to continuously build and improve the best trading application it can create.",
-  "authority": "Existing bounded text proposals only; broader product development permissions require separate review.",
+  "authority": "Autonomous product development inside Triad; protected Core-governance paths remain machine-enforced and out of agent authority.",
   "product_scope": [
     "architecture",
     "UI/UX",

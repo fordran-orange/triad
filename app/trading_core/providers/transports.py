@@ -15,13 +15,15 @@ from trading_core.work import now
 
 
 def classify_failure(text):
+    """Normalize provider failures without conflating install, auth, quota, and availability."""
     lower = text.lower()
     for words, code in [
-        (("usage limit", "quota exceeded", "limit reached"), "USAGE_LIMIT_REACHED"),
+        (("usage limit", "quota exceeded", "limit reached", "quota exhausted"), "QUOTA_EXHAUSTED"),
         (("rate limit", "429"), "RATE_LIMITED"),
-        (("expired",), "AUTH_EXPIRED"),
-        (("unauthorized", "401", "invalid api key"), "AUTH_FAILED"),
-        (("not logged in", "login required", "not authenticated"), "AUTH_REQUIRED"),
+        (("expired", "not logged in", "login required", "not authenticated"), "NOT_AUTHENTICATED"),
+        (("unauthorized", "401", "invalid api key"), "NOT_AUTHENTICATED"),
+        (("not found", "no such file", "is not recognized"), "NOT_FOUND"),
+        (("version mismatch", "unsupported version"), "VERSION_MISMATCH"),
     ]:
         if any(word in lower for word in words):
             return code
@@ -73,6 +75,16 @@ class CLITransport(BaseTransport):
     def __init__(self, transport_id, control):
         super().__init__(transport_id, control)
         self.runner = ManagedProcess()
+
+    def cli_ready(self):
+        """Pinned executable + exact version + subscription authentication; no inference."""
+        detected = self.detect()
+        if (
+            detected.get("install_status") != "INSTALLED"
+            or detected.get("compatibility_status") == "VERSION_MISMATCH"
+        ):
+            return False
+        return self.authentication_status().get("auth_state") == "AUTHENTICATED"
 
     def readonly_ready(self):
         if hasattr(self, "_readonly_ready"):
@@ -126,13 +138,20 @@ class CLITransport(BaseTransport):
         return self._readonly_ready
 
     def command(self):
+        """Resolve only the Triad-owned pinned CLI installation.
+
+        Provider desktop applications and arbitrary PATH entries are intentionally ignored:
+        an app update must not silently change the executable used by Core.
+        """
         name = self.spec["cli"]
-        found = shutil.which(name + ".exe") or shutil.which(name)
-        if found and Path(found).suffix.lower() == ".exe":
-            return [found]
-        # npm scripts are invoked through Node, never cmd.exe / shell=True.
-        prefix = ROOT / "data/temp/provider-cli/node_modules"
-        if name == "claude":
+        prefix = ROOT / "data/provider-cli/node_modules"
+        node = shutil.which("node.exe") or shutil.which("node")
+        if not node:
+            return None
+
+        if name == "codex":
+            script = prefix / "@openai/codex/bin/codex.js"
+        elif name == "claude":
             native = prefix / "@anthropic-ai/claude-code/bin/claude.exe"
             if native.is_file():
                 return [str(native)]
@@ -141,9 +160,8 @@ class CLITransport(BaseTransport):
             script = prefix / "@xai-official/grok/bin/grok"
         else:
             return None
-        if script.is_file() and (node := shutil.which("node.exe")):
-            return [node, str(script)]
-        return None
+
+        return [node, str(script)] if script.is_file() else None
 
     def detect(self):
         command = self.command()
@@ -155,16 +173,34 @@ class CLITransport(BaseTransport):
             "cli_version": None,
             "minimum_supported_version": None,
             "compatibility_status": "NOT_VERIFIED",
-            "install_status": "NOT_INSTALLED",
+            "install_status": "NOT_FOUND",
             "installation_instructions": self.spec["docs"],
         }
         if command:
             try:
                 result = ManagedProcess().run(command + ["--version"], cwd=ROOT)
                 if result.exit_code == 0 and result.status == "EXITED":
-                    data.update(install_status="INSTALLED", cli_version=result.stdout.strip()[:200])
+                    version = result.stdout.strip()[:200]
+                    data.update(install_status="INSTALLED", cli_version=version)
+                    try:
+                        if self.agent in {"CLAUDE", "GROK"}:
+                            from trading_core.providers.native_agents import VERSIONS
+                            expected = (
+                                VERSIONS[self.agent] + " (Claude Code)"
+                                if self.agent == "CLAUDE"
+                                else "grok " + VERSIONS[self.agent] + " (3736acbc8658)"
+                            )
+                        else:
+                            from trading_core.providers.codex_executor import VERSION
+                            expected = "codex-cli " + VERSION
+                        data["minimum_supported_version"] = expected
+                        data["compatibility_status"] = (
+                            "VERIFIED" if version == expected else "VERSION_MISMATCH"
+                        )
+                    except (ImportError, KeyError):
+                        data["compatibility_status"] = "NOT_VERIFIED"
                 else:
-                    data["install_status"] = "DETECTION_FAILED"
+                    data["install_status"] = "UNAVAILABLE"
             except (OSError, RuntimeError):
                 data["install_status"] = "DETECTION_FAILED"
         return data
@@ -172,7 +208,7 @@ class CLITransport(BaseTransport):
     def authentication_status(self):
         command = self.command()
         if not command:
-            return {"auth_state": "NOT_AUTHENTICATED", "billing_source": "UNKNOWN"}
+            return {"auth_state": "NOT_FOUND", "billing_source": "UNKNOWN"}
         if self.agent == "GROK":
             from trading_core.providers.native_agents import grok_authentication
 
@@ -226,8 +262,42 @@ class CLITransport(BaseTransport):
         }
 
     def health_check(self):
+        detected = self.detect()
+        if detected["install_status"] == "NOT_FOUND":
+            return ProviderHealth(
+                agent=self.agent,
+                provider=self.provider,
+                model=self.model,
+                status="NOT_FOUND",
+                error_class="NOT_FOUND",
+            )
+        if detected.get("compatibility_status") == "VERSION_MISMATCH":
+            return ProviderHealth(
+                agent=self.agent,
+                provider=self.provider,
+                model=self.model,
+                status="VERSION_MISMATCH",
+                error_class="VERSION_MISMATCH",
+            )
+
         auth = self.authentication_status()
-        if self.readonly_ready() and auth["auth_state"] == "AUTHENTICATED":
+        if auth["auth_state"] == "NOT_AUTHENTICATED":
+            return ProviderHealth(
+                agent=self.agent,
+                provider=self.provider,
+                model=self.model,
+                status="NOT_AUTHENTICATED",
+                error_class="NOT_AUTHENTICATED",
+            )
+        if auth["auth_state"] == "UNKNOWN":
+            return ProviderHealth(
+                agent=self.agent,
+                provider=self.provider,
+                model=self.model,
+                status="UNAVAILABLE",
+                error_class="UNAVAILABLE",
+            )
+        if self.cli_ready() and auth["auth_state"] == "AUTHENTICATED":
             return ProviderHealth(
                 agent=self.agent,
                 provider=self.provider,
@@ -240,13 +310,7 @@ class CLITransport(BaseTransport):
             provider=self.provider,
             model=self.model,
             status="UNAVAILABLE",
-            error_class=(
-                "OuterBoundaryUnavailable"
-                if auth["auth_state"] == "AUTHENTICATED"
-                else "AuthenticationStatusUnknown"
-                if auth["auth_state"] == "UNKNOWN"
-                else "AuthenticationRequired"
-            ),
+            error_class="UNAVAILABLE",
         )
 
     def list_models(self):
@@ -262,43 +326,83 @@ class CLITransport(BaseTransport):
         return self.control.snapshot(self.transport_id).get("billing_source", "UNKNOWN")
 
     def capabilities(self):
-        if self.agent in {"CLAUDE", "GROK"} and self.readonly_ready():
+        native = [
+            "file_read",
+            "file_write",
+            "shell",
+            "git",
+            "web",
+            "MCP",
+            "structured_output",
+            "tool_use",
+            "worktree_support",
+        ]
+        if self.cli_ready():
             return {
-                "native": ["file_read", "file_proposals", "structured_output"],
-                "granted": ["read_supplied_files", "stage_reviewed_text_proposals"],
-                "outer_boundary": "DOCKER_OFFLINE_TOOLS",
+                "native": native,
+                "granted": [
+                    "autonomous_worktree",
+                    "repository_editing",
+                    "shell_execution",
+                    "git_operations",
+                    "network_research",
+                    "structured_output",
+                ],
+                "outer_boundary": "CORE_RUN_WORKTREE",
                 "execution_blocker": None,
-                "limitation": "Explicit text snapshots and reviewed proposals only; no host shell, Git or network tools",
-            }
-        if self.agent == "CODEX" and self.readonly_ready():
-            return {
-                "native": ["file_read", "structured_output"],
-                "granted": ["read_supplied_files"],
-                "outer_boundary": "DOCKER_REMOTE_EXECUTOR_READ_ONLY",
-                "execution_blocker": None,
-                "limitation": "Read-only reviews only; shell is restricted to cat on supplied files",
+                "limitation": (
+                    "Autonomous implementation is confined to a Core-created run worktree; "
+                    "protected governance, secret scan, tests and merge remain Core-owned"
+                ),
+                "review_boundary": (
+                    "DOCKER_OFFLINE_TOOLS" if self.readonly_ready() else "AUTONOMOUS_ONLY"
+                ),
             }
         return {
-            "native": [
-                "file_read",
-                "file_write",
-                "shell",
-                "git",
-                "web",
-                "MCP",
-                "structured_output",
-                "tool_use",
-                "worktree_support",
-            ],
+            "native": native,
             "granted": [],
-            "outer_boundary": "NOT_IMPLEMENTED",
-            "execution_blocker": "OuterBoundaryUnavailable",
+            "outer_boundary": "NOT_READY",
+            "execution_blocker": "ProviderCLIUnavailable",
         }
 
     def estimate_cost(self, input_tokens, output_tokens):
         return 0.0  # reservation only; subscription monetary usage remains null
 
     def execute(self, request):
+        if getattr(request, "role", None) == "IMPLEMENT":
+            if not self.cli_ready():
+                raise ProviderError("UNAVAILABLE", "ProviderCLIUnavailable")
+            execution = request.context_packet.get("_core_execution") or {}
+            workspace = execution.get("workspace")
+            if not workspace:
+                raise PermissionError("Autonomous implementation requires a Core run worktree")
+            if "write_code" not in request.execution_permissions:
+                raise PermissionError("Autonomous implementation requires write_code authority")
+            from trading_core.providers.autonomous_cli import AutonomousCLIRun
+
+            work = self.control.ledger.store.get(request.work_item_id)
+            guard = lambda: self.control.ledger.guard(
+                request.agent_id, request.work_item_id, request.control_epoch
+            )
+            self.native_run = AutonomousCLIRun(
+                self.command(),
+                self.agent,
+                guard=guard,
+                resources=getattr(self, "resources", None),
+            )
+            try:
+                result = self.native_run.execute(request, workspace, self.model)
+                self.actual_model = self.native_run.actual_model
+                self.evidence = self.native_run.evidence
+                return result
+            finally:
+                self.control.ledger.event(
+                    "native_executor_evidence",
+                    request.work_item_id,
+                    run_id=request.run_id,
+                    **getattr(self.native_run, "evidence", {}),
+                )
+
         if self.agent in {"CLAUDE", "GROK"}:
             return self._execute_isolated(request)
         if (
