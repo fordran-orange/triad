@@ -53,10 +53,14 @@ def run_check(argv: list[str], cwd: Path, timeout: int = 900) -> dict:
 
 
 def machine_checks(root: Path) -> list[dict]:
+    scripts_dir = Path(sys.executable).parent
+    ruff = scripts_dir / ("ruff.exe" if os.name == "nt" else "ruff")
+    if not ruff.is_file():
+        raise RuntimeError(f"Required dev tool not installed in active venv: {ruff}")
     checks = [
         run_check([sys.executable, "-m", "compileall", "-q", "app", "tests", "tools"], root),
-        run_check(["ruff", "check", "app", "tests", "tools"], root),
-        run_check(["pytest", "-q"], root, timeout=1800),
+        run_check([str(ruff), "check", "app", "tests", "tools"], root),
+        run_check([sys.executable, "-m", "pytest", "-q"], root, timeout=1800),
     ]
     failed = [item for item in checks if item["exit_code"] != 0]
     if failed:
