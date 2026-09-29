@@ -136,7 +136,15 @@ class ProviderHealth(Record):
     provider: str
     model: str
     status: Literal[
-        "AVAILABLE", "DEGRADED", "RATE_LIMITED", "AUTH_FAILED", "UNAVAILABLE", "DISABLED"
+        "AVAILABLE",
+        "DEGRADED",
+        "NOT_FOUND",
+        "VERSION_MISMATCH",
+        "NOT_AUTHENTICATED",
+        "QUOTA_EXHAUSTED",
+        "RATE_LIMITED",
+        "UNAVAILABLE",
+        "DISABLED",
     ]
     mode: Mode = "UNAVAILABLE"
     checked_at: datetime = Field(default_factory=now)
