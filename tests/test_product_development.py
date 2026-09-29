@@ -93,7 +93,7 @@ def test_interrupted_build_never_replays(engine, monkeypatch):
         dev, "inspect", lambda mission: pytest.fail("Must not replay uncertain execution")
     )
     with pytest.raises(PermissionError, match="reconciliation"):
-        dev.run("interrupted", operator_authorized=True)
+        dev.run("interrupted")
 
 
 def test_missing_qa_blocks_merge_before_git(engine, monkeypatch):

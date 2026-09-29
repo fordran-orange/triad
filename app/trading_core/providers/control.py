@@ -160,13 +160,38 @@ class ProviderControl:
         adapter = self.transport(transport_id)
         data = adapter.detect()
         if adapter.transport_type == "CLI":
-            data.update(adapter.authentication_status())
+            missing = data.get("install_status") in {"NOT_FOUND", "NOT_INSTALLED"}
+            mismatch = data.get("compatibility_status") == "VERSION_MISMATCH"
+            unavailable = data.get("install_status") != "INSTALLED"
             data.update(
-                health="AUTH_REQUIRED"
+                {"auth_state": "NOT_FOUND" if missing else "UNKNOWN", "billing_source": "UNKNOWN"}
+                if unavailable or mismatch
+                else adapter.authentication_status()
+            )
+            capabilities = (
+                adapter.capabilities()
+                if not unavailable and not mismatch
+                else {
+                    "native": [],
+                    "granted": [],
+                    "outer_boundary": "NOT_READY",
+                    "execution_blocker": "NOT_FOUND"
+                    if missing
+                    else "VERSION_MISMATCH"
+                    if mismatch
+                    else "UNAVAILABLE",
+                }
+            )
+            data.update(
+                health="NOT_FOUND"
+                if missing
+                else "VERSION_MISMATCH"
+                if mismatch
+                else "AUTH_REQUIRED"
                 if data["auth_state"] in {"NOT_AUTHENTICATED", "AUTH_FAILED"}
                 else "OFFLINE",
-                error=adapter.capabilities()["execution_blocker"],
-                capabilities=adapter.capabilities(),
+                error=capabilities["execution_blocker"],
+                capabilities=capabilities,
             )
             self.ledger.event(
                 "cli_detected" if data["install_status"] == "INSTALLED" else "cli_missing",
@@ -193,7 +218,7 @@ class ProviderControl:
                     pass
         previous = self.snapshot(transport_id)
         changed = any(
-            previous.get(key) and data.get(key) and previous[key] != data[key]
+            previous.get(key) != data.get(key)
             for key in ("cli_version", "executable", "endpoint", "local_version")
         )
         data.update(
@@ -290,6 +315,12 @@ class ProviderControl:
     def proven(snapshot):
         from datetime import datetime
 
+        if (
+            snapshot.get("install_status")
+            in {"NOT_FOUND", "NOT_INSTALLED", "DETECTION_FAILED", "UNAVAILABLE"}
+            or snapshot.get("compatibility_status") == "VERSION_MISMATCH"
+        ):
+            return False
         for key in ("test", "workitem"):
             evidence = snapshot.get(key) or {}
             if not evidence.get("success") or evidence.get("mode") != "REAL":
@@ -327,6 +358,10 @@ class ProviderControl:
         """Distinguish missing or stale evidence from a reported connection failure."""
         if snapshot.get("configuration") == "NOT_CONFIGURED":
             return "NOT_CONFIGURED"
+        if snapshot.get("install_status") in {"NOT_FOUND", "NOT_INSTALLED"}:
+            return "NOT_FOUND"
+        if snapshot.get("compatibility_status") == "VERSION_MISMATCH":
+            return "VERSION_MISMATCH"
         if snapshot.get("auth_state") in {"NOT_AUTHENTICATED", "AUTH_FAILED"}:
             return "AUTH_REQUIRED"
         if snapshot.get("error"):

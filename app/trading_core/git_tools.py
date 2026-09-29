@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 from trading_core.control import beneath, relative_path
+from trading_core.governance import assert_product_merge_allowed
 from trading_core.security import ensure_no_secret
 from trading_core.settings import ROOT
 
@@ -197,6 +198,17 @@ class GitChanges:
             "diff": diff,
         }
 
+    def stage_autonomous(self, metadata):
+        """Unreviewed provider-authored repositories are not a supported grant."""
+        raise PermissionError("Autonomous worktree staging requires a governed implementation")
+
+    def commit_autonomous(self, metadata, agent, summary="autonomous product improvement"):
+        raise PermissionError("Autonomous worktree commits require a governed implementation")
+
+    def merge_autonomous(self, metadata):
+        """A worktree and passing tests cannot substitute for exact independent QA."""
+        raise PermissionError("Merge requires exact independent QA and the Core authority gate")
+
     def commit(self, metadata, agent):
         self.git(
             "commit",
@@ -235,7 +247,8 @@ class GitChanges:
             raise PermissionError("Review commit no longer matches")
         if self.clean_baseline() != metadata["base_commit"]:
             raise PermissionError("Baseline moved; fresh review required")
-        self.verify(metadata, limits)
+        proof = self.verify(metadata, limits)
+        assert_product_merge_allowed(proof["files"])
         self.git(
             "-c",
             "core.autocrlf=false",

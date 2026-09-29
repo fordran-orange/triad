@@ -2,3 +2,5 @@
 *.sh text eol=lf
 *.py text eol=lf
 *.sql text eol=lf
+# Readiness evidence carries immutable byte hashes across Windows checkouts.
+docs/improvements/real-market-readiness-*.md text eol=lf

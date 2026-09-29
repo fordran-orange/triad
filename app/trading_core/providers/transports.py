@@ -3,6 +3,7 @@ from trading_core.resources import resource
 """Vendor status adapters. Unverified native isolation fails closed before inference."""
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -15,13 +16,15 @@ from trading_core.work import now
 
 
 def classify_failure(text):
+    """Normalize provider failures without conflating install, auth, quota, and availability."""
     lower = text.lower()
     for words, code in [
-        (("usage limit", "quota exceeded", "limit reached"), "USAGE_LIMIT_REACHED"),
+        (("usage limit", "quota exceeded", "limit reached", "quota exhausted"), "QUOTA_EXHAUSTED"),
         (("rate limit", "429"), "RATE_LIMITED"),
-        (("expired",), "AUTH_EXPIRED"),
-        (("unauthorized", "401", "invalid api key"), "AUTH_FAILED"),
-        (("not logged in", "login required", "not authenticated"), "AUTH_REQUIRED"),
+        (("expired", "not logged in", "login required", "not authenticated"), "NOT_AUTHENTICATED"),
+        (("unauthorized", "401", "invalid api key"), "NOT_AUTHENTICATED"),
+        (("not found", "no such file", "is not recognized"), "NOT_FOUND"),
+        (("version mismatch", "unsupported version"), "VERSION_MISMATCH"),
     ]:
         if any(word in lower for word in words):
             return code
@@ -73,6 +76,16 @@ class CLITransport(BaseTransport):
     def __init__(self, transport_id, control):
         super().__init__(transport_id, control)
         self.runner = ManagedProcess()
+
+    def cli_ready(self):
+        """Pinned executable + exact version + subscription authentication; no inference."""
+        detected = self.detect()
+        if (
+            detected.get("install_status") != "INSTALLED"
+            or detected.get("compatibility_status") != "VERIFIED"
+        ):
+            return False
+        return self.authentication_status().get("auth_state") == "AUTHENTICATED"
 
     def readonly_ready(self):
         if hasattr(self, "_readonly_ready"):
@@ -126,23 +139,52 @@ class CLITransport(BaseTransport):
         return self._readonly_ready
 
     def command(self):
+        """Prefer the durable pinned install; discover installed fallbacks without shell shims.
+
+        Explicit user/program locations also work when a long-running service inherited
+        an obsolete PATH. Detection still checks the exact supported vendor version.
+        """
         name = self.spec["cli"]
+        home = Path(os.environ.get("USERPROFILE", str(Path.home())))
+        local = Path(os.environ.get("LOCALAPPDATA", str(home / "AppData/Local")))
+        roaming = Path(os.environ.get("APPDATA", str(home / "AppData/Roaming")))
+        program = Path(os.environ.get("PROGRAMFILES", "C:/Program Files"))
+        node = shutil.which("node.exe") or shutil.which("node")
+        if not node and (program / "nodejs/node.exe").is_file():
+            node = str(program / "nodejs/node.exe")
+        scripts = {
+            "codex": "@openai/codex/bin/codex.js",
+            "claude": "@anthropic-ai/claude-code/cli.js",
+            "grok": "@xai-official/grok/bin/grok",
+        }
+        if name not in scripts:
+            return None
+        for prefix in (
+            ROOT / "data/provider-cli/node_modules",
+            ROOT / "data/temp/provider-cli/node_modules",
+        ):
+            native = prefix / "@anthropic-ai/claude-code/bin/claude.exe"
+            if name == "claude" and native.is_file():
+                return [str(native)]
+            script = prefix / scripts[name]
+            if node and script.is_file():
+                return [node, str(script)]
         found = shutil.which(name + ".exe") or shutil.which(name)
         if found and Path(found).suffix.lower() == ".exe":
             return [found]
-        # npm scripts are invoked through Node, never cmd.exe / shell=True.
-        prefix = ROOT / "data/temp/provider-cli/node_modules"
-        if name == "claude":
-            native = prefix / "@anthropic-ai/claude-code/bin/claude.exe"
-            if native.is_file():
-                return [str(native)]
-            script = prefix / "@anthropic-ai/claude-code/cli.js"
-        elif name == "grok":
-            script = prefix / "@xai-official/grok/bin/grok"
-        else:
-            return None
-        if script.is_file() and (node := shutil.which("node.exe")):
+        native = home / ".local/bin" / (name + ".exe")
+        if native.is_file():
+            return [str(native)]
+        script = roaming / "npm/node_modules" / scripts[name]
+        if node and script.is_file():
             return [node, str(script)]
+        if name == "codex":
+            desktop = local / "OpenAI/Codex/bin"
+            candidates = sorted(
+                desktop.glob("*/codex.exe"), key=lambda p: p.stat().st_mtime, reverse=True
+            )
+            if candidates:
+                return [str(candidates[0])]
         return None
 
     def detect(self):
@@ -155,16 +197,36 @@ class CLITransport(BaseTransport):
             "cli_version": None,
             "minimum_supported_version": None,
             "compatibility_status": "NOT_VERIFIED",
-            "install_status": "NOT_INSTALLED",
+            "install_status": "NOT_FOUND",
             "installation_instructions": self.spec["docs"],
         }
         if command:
             try:
                 result = ManagedProcess().run(command + ["--version"], cwd=ROOT)
                 if result.exit_code == 0 and result.status == "EXITED":
-                    data.update(install_status="INSTALLED", cli_version=result.stdout.strip()[:200])
+                    version = result.stdout.strip()[:200]
+                    data.update(install_status="INSTALLED", cli_version=version)
+                    try:
+                        if self.agent in {"CLAUDE", "GROK"}:
+                            from trading_core.providers.native_agents import VERSIONS
+
+                            expected = (
+                                VERSIONS[self.agent] + " (Claude Code)"
+                                if self.agent == "CLAUDE"
+                                else "grok " + VERSIONS[self.agent] + " (3736acbc8658)"
+                            )
+                        else:
+                            from trading_core.providers.codex_executor import VERSION
+
+                            expected = "codex-cli " + VERSION
+                        data["minimum_supported_version"] = expected
+                        data["compatibility_status"] = (
+                            "VERIFIED" if version == expected else "VERSION_MISMATCH"
+                        )
+                    except (ImportError, KeyError):
+                        data["compatibility_status"] = "NOT_VERIFIED"
                 else:
-                    data["install_status"] = "DETECTION_FAILED"
+                    data["install_status"] = "UNAVAILABLE"
             except (OSError, RuntimeError):
                 data["install_status"] = "DETECTION_FAILED"
         return data
@@ -172,7 +234,7 @@ class CLITransport(BaseTransport):
     def authentication_status(self):
         command = self.command()
         if not command:
-            return {"auth_state": "NOT_AUTHENTICATED", "billing_source": "UNKNOWN"}
+            return {"auth_state": "NOT_FOUND", "billing_source": "UNKNOWN"}
         if self.agent == "GROK":
             from trading_core.providers.native_agents import grok_authentication
 
@@ -210,8 +272,15 @@ class CLITransport(BaseTransport):
 
     def _auth_action(self, logout):
         command = self.command()
-        if not command:
-            raise ValueError("CLI not installed; open installation instructions")
+        detected = self.detect()
+        if not command or detected["install_status"] != "INSTALLED":
+            raise ValueError(
+                "Install the supported CLI with tools/install_provider_clis.ps1 before signing in"
+            )
+        if detected.get("compatibility_status") != "VERIFIED":
+            raise ValueError(
+                "CLI version mismatch; install the pinned supported version before signing in"
+            )
         args = (["auth"] if self.agent == "CLAUDE" else []) + ["logout" if logout else "login"]
         if not logout and self.agent == "CLAUDE":
             args.append("--claudeai")
@@ -226,7 +295,52 @@ class CLITransport(BaseTransport):
         }
 
     def health_check(self):
+        detected = self.detect()
+        if detected["install_status"] == "NOT_FOUND":
+            return ProviderHealth(
+                agent=self.agent,
+                provider=self.provider,
+                model=self.model,
+                status="NOT_FOUND",
+                error_class="NOT_FOUND",
+            )
+        if detected.get("compatibility_status") == "VERSION_MISMATCH":
+            return ProviderHealth(
+                agent=self.agent,
+                provider=self.provider,
+                model=self.model,
+                status="VERSION_MISMATCH",
+                error_class="VERSION_MISMATCH",
+            )
+
+        if (
+            detected.get("install_status") != "INSTALLED"
+            or detected.get("compatibility_status") != "VERIFIED"
+        ):
+            return ProviderHealth(
+                agent=self.agent,
+                provider=self.provider,
+                model=self.model,
+                status="UNAVAILABLE",
+                error_class="CLICompatibilityUnverified",
+            )
         auth = self.authentication_status()
+        if auth["auth_state"] == "NOT_AUTHENTICATED":
+            return ProviderHealth(
+                agent=self.agent,
+                provider=self.provider,
+                model=self.model,
+                status="NOT_AUTHENTICATED",
+                error_class="NOT_AUTHENTICATED",
+            )
+        if auth["auth_state"] == "UNKNOWN":
+            return ProviderHealth(
+                agent=self.agent,
+                provider=self.provider,
+                model=self.model,
+                status="UNAVAILABLE",
+                error_class="UNAVAILABLE",
+            )
         if self.readonly_ready() and auth["auth_state"] == "AUTHENTICATED":
             return ProviderHealth(
                 agent=self.agent,
@@ -240,13 +354,7 @@ class CLITransport(BaseTransport):
             provider=self.provider,
             model=self.model,
             status="UNAVAILABLE",
-            error_class=(
-                "OuterBoundaryUnavailable"
-                if auth["auth_state"] == "AUTHENTICATED"
-                else "AuthenticationStatusUnknown"
-                if auth["auth_state"] == "UNKNOWN"
-                else "AuthenticationRequired"
-            ),
+            error_class="UNAVAILABLE",
         )
 
     def list_models(self):
@@ -279,17 +387,7 @@ class CLITransport(BaseTransport):
                 "limitation": "Read-only reviews only; shell is restricted to cat on supplied files",
             }
         return {
-            "native": [
-                "file_read",
-                "file_write",
-                "shell",
-                "git",
-                "web",
-                "MCP",
-                "structured_output",
-                "tool_use",
-                "worktree_support",
-            ],
+            "native": [],
             "granted": [],
             "outer_boundary": "NOT_IMPLEMENTED",
             "execution_blocker": "OuterBoundaryUnavailable",

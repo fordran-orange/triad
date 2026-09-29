@@ -130,11 +130,11 @@ def test_automatic_monitor_skips_paid_api_and_continues_after_outage():
 @pytest.mark.parametrize(
     "message,expected",
     [
-        ("usage limit reached", "USAGE_LIMIT_REACHED"),
+        ("usage limit reached", "QUOTA_EXHAUSTED"),
         ("HTTP 429", "RATE_LIMITED"),
-        ("session expired", "AUTH_EXPIRED"),
-        ("401 unauthorized", "AUTH_FAILED"),
-        ("not logged in", "AUTH_REQUIRED"),
+        ("session expired", "NOT_AUTHENTICATED"),
+        ("401 unauthorized", "NOT_AUTHENTICATED"),
+        ("not logged in", "NOT_AUTHENTICATED"),
         ("failure", "ERROR"),
     ],
 )
@@ -235,8 +235,8 @@ def fake_control(agent="CODEX"):
 def test_missing_cli_and_untrusted_isolation_never_execute(monkeypatch):
     adapter = CLITransport("codex_cli", fake_control())
     monkeypatch.setattr(adapter, "command", lambda: None)
-    assert adapter.detect()["install_status"] == "NOT_INSTALLED"
-    assert adapter.authentication_status()["auth_state"] == "NOT_AUTHENTICATED"
+    assert adapter.detect()["install_status"] == "NOT_FOUND"
+    assert adapter.authentication_status()["auth_state"] == "NOT_FOUND"
     with pytest.raises(ProviderError, match="OuterBoundaryUnavailable"):
         adapter.execute(None)
 
@@ -279,8 +279,12 @@ def test_grok_unverified_login_is_not_reported_as_signed_out(monkeypatch):
     assert auth["auth_state"] == "UNKNOWN"
     assert auth["billing_source"] == "UNKNOWN"
     assert "does not need to be repeated" in auth["auth_detail"]
-    assert adapter.health_check().error_class == "AuthenticationStatusUnknown"
-    monkeypatch.setattr(adapter, "detect", lambda: {"install_status": "INSTALLED"})
+    monkeypatch.setattr(
+        adapter,
+        "detect",
+        lambda: {"install_status": "INSTALLED", "compatibility_status": "VERIFIED"},
+    )
+    assert adapter.health_check().error_class == "UNAVAILABLE"
     recorded = []
     control = SimpleNamespace(
         transport=lambda tid: adapter,
