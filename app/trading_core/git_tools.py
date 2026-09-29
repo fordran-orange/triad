@@ -198,6 +198,64 @@ class GitChanges:
             "diff": diff,
         }
 
+
+    def stage_autonomous(self, metadata):
+        """Stage and validate an agent-authored run-worktree diff.
+
+        Autonomous agents may edit broadly inside the run worktree. Core keeps authority:
+        protected governance, secret scanning, diff validity and merge remain host-owned.
+        """
+        root = Path(metadata["worktree"]).resolve()
+        if not root.is_relative_to(self.worktrees) or not root.exists():
+            raise PermissionError("Autonomous diff must come from a Core-created worktree")
+        self.git("add", "-A", cwd=root)
+        paths = self.git("diff", "--cached", "--name-only", cwd=root).splitlines()
+        if not paths:
+            raise ValueError("Autonomous run produced no effective change")
+        assert_product_merge_allowed(paths)
+        for path in paths:
+            relative_path(path)
+            if any(part.startswith(".") and part not in {".github"} for part in Path(path).parts):
+                raise PermissionError("Hidden or credential-bearing paths are not product output")
+        diff = self.git("diff", "--cached", "--", cwd=root)
+        ensure_no_secret(diff)
+        self.git("diff", "--check", "--cached", cwd=root)
+        hashes = {}
+        for path in paths:
+            target = root / path
+            if target.is_file():
+                hashes[path] = hashlib.sha256(target.read_bytes()).hexdigest()
+        return {
+            "passed": True,
+            "checks": [
+                "protected Core governance exclusion",
+                "secret scan",
+                "git diff --check",
+            ],
+            "hashes": hashes,
+            "files": paths,
+            "diff": diff,
+        }
+
+    def commit_autonomous(self, metadata, agent, summary="autonomous product improvement"):
+        checks = self.stage_autonomous(metadata)
+        self.git("commit", "-m", f"Triad {agent}: {summary}"[:180], cwd=metadata["worktree"])
+        metadata["change_commit"] = self.git("rev-parse", "HEAD", cwd=metadata["worktree"])
+        return metadata, checks
+
+    def merge_autonomous(self, metadata):
+        """Fast-forward an already machine-validated run branch; no human approval gate."""
+        if self.clean_baseline() != metadata["base_commit"]:
+            raise PermissionError("Main moved since the autonomous run started")
+        paths = self.git(
+            "diff", "--name-only", metadata["base_commit"], metadata["change_commit"],
+            cwd=metadata["worktree"],
+        ).splitlines()
+        assert_product_merge_allowed(paths)
+        self.git("merge", "--ff-only", metadata["change_commit"])
+        metadata["merge_commit"] = self.git("rev-parse", "HEAD")
+        return metadata
+
     def commit(self, metadata, agent):
         self.git(
             "commit",
