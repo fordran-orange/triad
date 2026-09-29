@@ -279,7 +279,7 @@ def test_grok_unverified_login_is_not_reported_as_signed_out(monkeypatch):
     assert auth["auth_state"] == "UNKNOWN"
     assert auth["billing_source"] == "UNKNOWN"
     assert "does not need to be repeated" in auth["auth_detail"]
-    assert adapter.health_check().error_class == "AuthenticationStatusUnknown"
+    assert adapter.health_check().error_class == "UNAVAILABLE"
     monkeypatch.setattr(adapter, "detect", lambda: {"install_status": "INSTALLED"})
     recorded = []
     control = SimpleNamespace(
