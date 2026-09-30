@@ -5,6 +5,8 @@ import json
 from zoneinfo import ZoneInfo
 
 from pydantic import Field
+
+from products.triad.development import ProductResponseFormatError
 from trading_core.contracts import FileChange
 from trading_core.intelligence.contracts import ImplementationRun, QARun
 from trading_core.product_changes import (
@@ -124,7 +126,7 @@ class SequentialCycle:
                     parent=self.s.daily.current(mission)["parent_work_item_id"],
                 )
             except (PermissionError, ValueError) as exc:
-                if str(exc) not in {
+                if not isinstance(exc, ProductResponseFormatError) and str(exc) not in {
                     "Read-only product inspection cannot change files",
                     "Expected exactly one structured product artifact",
                 }:
@@ -137,7 +139,8 @@ class SequentialCycle:
                     + str(exc)
                     + ". Set top-level files_changed to [] and proposal to null. "
                     "Place the requested Proposal/Patch/AcceptanceAssessment JSON only in "
-                    "analysis_artifacts as one JSON string. Do not claim host writes."
+                    "analysis_artifacts as one JSON string. Match the supplied schema exactly: no extra fields. "
+                    "Fix the validation locations listed above. Do not claim host writes."
                 )
                 if attempt == 3:
                     raise

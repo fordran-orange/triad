@@ -9,6 +9,8 @@ import json
 import stat
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from trading_core.brain import Brain
 from trading_core.contracts import AgentRunRequest, AgentRunResult, Limits
 from trading_core.execution import ExecutionServices
@@ -29,6 +31,10 @@ INSPECTION_PATHS = (
     "app/products/triad/server.py",
     "app/products/triad/development_contracts.py",
 )
+
+
+class ProductResponseFormatError(ValueError):
+    """A native result cannot be parsed as the requested product artifact."""
 
 
 class Development(ExecutionServices):
@@ -181,7 +187,15 @@ class Development(ExecutionServices):
                 raise PermissionError("Provider blocked this assignment: " + result.summary)
             if schema and len(result.analysis_artifacts) != 1:
                 raise ValueError("Expected exactly one structured product artifact")
-            payload = schema.model_validate_json(result.analysis_artifacts[0]) if schema else None
+            try:
+                payload = (
+                    schema.model_validate_json(result.analysis_artifacts[0]) if schema else None
+                )
+            except ValidationError as exc:
+                raise ProductResponseFormatError(
+                    "Invalid product artifact: "
+                    + json.dumps(exc.errors(include_input=False, include_url=False))
+                ) from exc
             if not write and (result.files_changed or result.proposal):
                 raise PermissionError("Read-only product inspection cannot change files")
             journal = self.host.journal(

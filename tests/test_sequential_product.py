@@ -422,3 +422,27 @@ def test_native_envelope_retry_preserves_authority(error, retry):
         with pytest.raises(PermissionError, match=error):
             flow.call("mission", "CLAUDE", "Objective", {})
         assert len(calls) == 1
+
+
+def test_artifact_schema_error_retries_without_silently_dropping_fields():
+    from products.triad.development import ProductResponseFormatError
+
+    flow = object.__new__(SequentialCycle)
+    seen = []
+    flow.guard = lambda _: None
+
+    def call(*args, **kwargs):
+        seen.append(args)
+        if len(seen) == 1:
+            raise ProductResponseFormatError(
+                "Invalid product artifact: acceptance.0.extra forbidden"
+            )
+        return "corrected"
+
+    flow.s = NS(
+        call=call,
+        record=lambda *a, **k: None,
+        daily=NS(current=lambda _: {"parent_work_item_id": "parent"}),
+    )
+    assert flow.call("mission", "CLAUDE", "Objective", {}) == "corrected"
+    assert "acceptance.0.extra" in seen[1][4]["response_format_feedback"][0]
