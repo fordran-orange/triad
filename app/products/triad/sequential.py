@@ -5,8 +5,6 @@ import json
 from zoneinfo import ZoneInfo
 
 from pydantic import Field
-
-from products.triad.development import ProductResponseFormatError
 from trading_core.contracts import FileChange
 from trading_core.intelligence.contracts import ImplementationRun, QARun
 from trading_core.product_changes import (
@@ -19,6 +17,8 @@ from trading_core.product_changes import (
     product_path,
 )
 from trading_core.work import Record, now, uid
+
+from products.triad.development import ProductResponseFormatError
 
 ORDER = ("CODEX", "CLAUDE", "GROK")
 REVIEWERS = {"CODEX": "CLAUDE", "CLAUDE": "GROK", "GROK": "CODEX"}
