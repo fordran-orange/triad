@@ -386,3 +386,39 @@ def test_exact_host_test_ids_accept_recognized_labels(prefixed):
     assessment["checks"][0]["evidence_ids"] = ids
     proofs["one"]["commit"] = "stale"
     assert acceptance_problems(required, assessment, "exact", proofs)
+
+
+@pytest.mark.parametrize(
+    "error,retry",
+    [
+        ("Read-only product inspection cannot change files", True),
+        ("Expected exactly one structured product artifact", True),
+        ("Run cancelled or autonomy paused", False),
+        ("Provider blocked this assignment", False),
+    ],
+)
+def test_native_envelope_retry_preserves_authority(error, retry):
+    flow = object.__new__(SequentialCycle)
+    calls = []
+    flow.guard = lambda _: None
+
+    def call(*args, **kwargs):
+        calls.append(args)
+        if len(calls) == 1:
+            raise PermissionError(error)
+        return "corrected"
+
+    flow.s = NS(
+        call=call,
+        record=lambda *a, **k: None,
+        daily=NS(current=lambda _: {"parent_work_item_id": "parent"}),
+    )
+    if retry:
+        assert flow.call("mission", "CLAUDE", "Objective", {}) == "corrected"
+        assert len(calls) == 2
+        assert calls[1][4]["response_format_feedback"]
+        assert calls[1][1] == "CLAUDE"
+    else:
+        with pytest.raises(PermissionError, match=error):
+            flow.call("mission", "CLAUDE", "Objective", {})
+        assert len(calls) == 1

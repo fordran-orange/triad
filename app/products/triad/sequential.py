@@ -94,18 +94,49 @@ class SequentialCycle:
         objective += (
             " Token guidance: aim for 8192 reasoning and 6144 output tokens; these are targets, "
             "not cutoffs. Use what is needed for a complete correct result. "
-            "Do not execute commands or claim host tests. Return no files_changed; proposed code is data in analysis_artifacts."
+            "Do not execute commands or claim host tests. Top-level files_changed must be [] and proposal must be null; "
+            "the requested Proposal or Patch is data inside analysis_artifacts, not the outer proposal field."
         )
-        return self.s.call(
-            mission,
-            agent,
-            "REVIEW",
-            objective,
-            context,
-            schema=schema,
-            paths=paths,
-            parent=self.s.daily.current(mission)["parent_work_item_id"],
-        )
+        feedback = []
+        for attempt in range(1, 4):
+            self.guard(mission)
+            try:
+                return self.s.call(
+                    mission,
+                    agent,
+                    "REVIEW",
+                    objective,
+                    {
+                        **context,
+                        "response_format_feedback": feedback,
+                        "response_envelope": {
+                            "files_changed": [],
+                            "proposal": None,
+                            "analysis_artifacts": "Exactly one JSON string for the requested schema",
+                        },
+                    },
+                    schema=schema,
+                    paths=paths,
+                    parent=self.s.daily.current(mission)["parent_work_item_id"],
+                )
+            except (PermissionError, ValueError) as exc:
+                if str(exc) not in {
+                    "Read-only product inspection cannot change files",
+                    "Expected exactly one structured product artifact",
+                }:
+                    raise
+                self.s.record(
+                    "ProductResponseRetry", mission, agent=agent, attempt=attempt, reason=str(exc)
+                )
+                feedback.append(
+                    "Your previous response used an invalid envelope: "
+                    + str(exc)
+                    + ". Set top-level files_changed to [] and proposal to null. "
+                    "Place the requested Proposal/Patch/AcceptanceAssessment JSON only in "
+                    "analysis_artifacts as one JSON string. Do not claim host writes."
+                )
+                if attempt == 3:
+                    raise
 
     def readiness(self, mission):
         from trading_core.intelligence.capabilities import Capabilities
