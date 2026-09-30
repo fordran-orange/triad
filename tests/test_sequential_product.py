@@ -65,7 +65,7 @@ def test_approval_cannot_authorize_another_proposal():
         problem="Observed",
         change="Fix",
         files=("app/products/triad/product_app.py",),
-        acceptance=("Test",),
+        acceptance=({"check_id": "source", "method": "SOURCE_REVIEW", "description": "Test"},),
         evidence=("Source",),
     )
     row = {
@@ -228,3 +228,80 @@ def test_detached_runner_reconciliation(monkeypatch, state, identity, blocked):
     monkeypatch.setattr(module, "process_info", lambda _: {"state": state, "creation_id": identity})
     module.reconcile(service)
     assert bool(changes) == blocked
+
+
+@pytest.mark.parametrize("status", ["NOT_VERIFIED", "BLOCKED"])
+def test_approval_cannot_waive_mandatory_checks(status):
+    from trading_core.product_changes import acceptance_problems
+
+    required = [
+        {
+            "check_id": "source",
+            "method": "SOURCE_REVIEW",
+            "description": "Verify heading in exact source",
+        }
+    ]
+    assessment = {
+        "checks": [
+            {
+                "check_id": "source",
+                "status": status,
+                "evidence_ids": ["candidate:commit"],
+                "reason": "Not performed",
+            }
+        ]
+    }
+    assert acceptance_problems(required, assessment, "commit", {})
+    assessment["checks"][0]["status"] = "VERIFIED"
+    assert not acceptance_problems(required, assessment, "commit", {})
+    assessment["checks"][0]["evidence_ids"] = ["candidate:old"]
+    assert acceptance_problems(required, assessment, "commit", {})
+    assert acceptance_problems(required, {"checks": []}, "commit", {})
+
+
+def test_unit_acceptance_requires_actual_exact_passing_tests():
+    from trading_core.product_changes import acceptance_problems
+
+    required = [
+        {"check_id": "tests", "method": "PYTHON_UNIT_TEST", "description": "Exercise behavior"}
+    ]
+    assessment = {
+        "checks": [
+            {
+                "check_id": "tests",
+                "status": "VERIFIED",
+                "evidence_ids": ["first", "repeat"],
+                "reason": "Actual host checks",
+            }
+        ]
+    }
+    proof = {"status": "PASS", "test_status": "PASSED", "executed_tests": 2, "commit": "commit"}
+    proofs = {"first": dict(proof), "repeat": dict(proof)}
+    assert not acceptance_problems(required, assessment, "commit", proofs)
+    for changes in (
+        {"executed_tests": 0},
+        {"commit": "old"},
+        {"status": "FAILED"},
+        {"test_status": "NOT_PRESENT"},
+    ):
+        assert acceptance_problems(
+            required, assessment, "commit", {**proofs, "repeat": {**proof, **changes}}
+        )
+
+
+def test_restart_does_not_capture_pipes_inherited_by_worker(monkeypatch):
+    import subprocess
+
+    from trading_core import product_deployment as module
+
+    calls = []
+
+    def run(*args, **kwargs):
+        calls.append(kwargs)
+        return NS(returncode=0)
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+    module.restart()
+    assert calls[0]["stdout"] == subprocess.DEVNULL
+    assert calls[0]["stderr"] == subprocess.DEVNULL
+    assert not calls[0].get("capture_output")

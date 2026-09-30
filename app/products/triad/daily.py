@@ -388,6 +388,49 @@ class Daily:
                 )
                 if reviewed["id"] != turn["qa_id"] or reviewed["qa_agent"] != turn["reviewer"]:
                     raise PermissionError("Daily turn QA is stale or mismatched")
+                if programs[-1].get("acceptance_contract") == "required-checks-v1":
+                    from trading_core.product_changes import acceptance_problems
+
+                    refs = [
+                        e.removeprefix("acceptance-review:")
+                        for e in reviewed["evidence"]
+                        if e.startswith("acceptance-review:")
+                    ]
+                    if len(refs) != 1:
+                        raise PermissionError("Daily turn requires mandatory-check evidence")
+                    accepted = self.host.get(refs[0], conn=conn)
+                    approved = self.host.get(accepted["approval_id"], conn=conn)
+                    if (
+                        accepted["kind"] != "ProductAcceptanceReview"
+                        or accepted["owner"] != "triad"
+                        or accepted["cycle_id"] != cycle_id
+                        or accepted["qa_id"] != reviewed["id"]
+                        or accepted["implementation_id"] != turn["implementation_id"]
+                        or accepted["commit"] != implementation["change_commit"]
+                        or accepted["reviewer"] != turn["reviewer"]
+                        or approved["kind"] != "ProductTurnApproval"
+                        or approved["owner"] != "triad"
+                        or approved["cycle_id"] != cycle_id
+                        or accepted["required"] != approved["proposal"]["acceptance"]
+                    ):
+                        raise PermissionError("Daily acceptance evidence mismatch")
+                    proofs = {
+                        key: self.host.get(key, conn=conn) for key in accepted["test_record_ids"]
+                    }
+                    if (
+                        len(proofs) != 2
+                        or any(
+                            p["kind"] != "EngineeringTestRun"
+                            or p["owner"] != "triad"
+                            or p.get("commit") != accepted["commit"]
+                            or p.get("status") != "PASS"
+                            for p in proofs.values()
+                        )
+                        or acceptance_problems(
+                            accepted["required"], accepted["assessment"], accepted["commit"], proofs
+                        )
+                    ):
+                        raise PermissionError("Daily turn has missing mandatory verification")
                 checks = [
                     r
                     for r in self.product.list("DailyVerification", conn=conn)

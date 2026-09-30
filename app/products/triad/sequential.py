@@ -7,8 +7,16 @@ from zoneinfo import ZoneInfo
 from pydantic import Field
 from trading_core.contracts import FileChange
 from trading_core.intelligence.contracts import ImplementationRun, QARun
-from trading_core.product_changes import ProductGit, active_policy, check_candidate, product_path
-from trading_core.work import Record, now
+from trading_core.product_changes import (
+    AcceptanceAssessment,
+    ProductGit,
+    RequiredCheck,
+    acceptance_problems,
+    active_policy,
+    check_candidate,
+    product_path,
+)
+from trading_core.work import Record, now, uid
 
 ORDER = ("CODEX", "CLAUDE", "GROK")
 REVIEWERS = {"CODEX": "CLAUDE", "CLAUDE": "GROK", "GROK": "CODEX"}
@@ -19,7 +27,7 @@ class Proposal(Record):
     problem: str = Field(min_length=1)
     change: str = Field(min_length=1)
     files: tuple[str, ...] = Field(min_length=1)
-    acceptance: tuple[str, ...] = Field(min_length=1)
+    acceptance: tuple[RequiredCheck, ...] = Field(min_length=1)
     evidence: tuple[str, ...] = Field(min_length=1)
 
 
@@ -32,6 +40,8 @@ class SequentialCycle:
         self.s = service
         self.root = service.git.root
         self.policy = active_policy(service.canonical)
+        if self.policy.get("acceptance_contract") != "required-checks-v1":
+            raise PermissionError("Reviewed required-check acceptance policy must be activated")
 
     def guard(self, mission):
         cycle = self.s.daily.current(mission)
@@ -147,6 +157,11 @@ class SequentialCycle:
             "Inspect the current product and propose one useful improvement of your choice. You may change product UI, "
             "backend modules, data-processing logic, documentation and product tests. Governance, orchestration and other products are protected. "
             "Choose exact existing/new product file paths. The following turn sees the prior deployed change. "
+            "Every acceptance criterion must name its verification method and unique check_id. Available premerge methods are "
+            "SOURCE_REVIEW (exact source/diff inspection; no executed browser or interaction claims) and PYTHON_UNIT_TEST "
+            "(offline Python unittest with installed project dependencies). Browser rendering/keyboard/viewport checks are NOT available. "
+            "Do not require unsupported checks or pretend source review proves browser behavior. For behavioral changes include meaningful "
+            "unit tests and their tests/products/triad file paths in the initial manifest. "
             "Return exactly one Proposal JSON string in analysis_artifacts using the supplied schema.",
             {
                 "inventory": inventory,
@@ -161,6 +176,12 @@ class SequentialCycle:
             product_path(p)
         if len({p.casefold() for p in proposal.files}) != len(proposal.files):
             raise PermissionError("Duplicate or ambiguous proposed files")
+        if len({c.check_id for c in proposal.acceptance}) != len(proposal.acceptance):
+            raise PermissionError("Acceptance check IDs must be unique")
+        if any(c.method == "PYTHON_UNIT_TEST" for c in proposal.acceptance) and not any(
+            p.startswith("tests/products/triad/") and p.endswith(".py") for p in proposal.files
+        ):
+            raise PermissionError("Required unit tests must be in the approved manifest")
         self.s.record(
             "ProductProposal", mission, proposer=agent, proposal=proposal.model_dump(mode="json")
         )
@@ -174,6 +195,10 @@ class SequentialCycle:
                 "proposal": proposal.model_dump(mode="json"),
                 "inventory": inventory,
                 "base_commit": baseline,
+                "available_checks": {
+                    "SOURCE_REVIEW": "Exact source/diff inspection only; cannot establish rendered, responsive or keyboard behavior",
+                    "PYTHON_UNIT_TEST": "Offline Python unittest with pinned project dependencies; include test paths in manifest",
+                },
                 "sources": {
                     p: ProductGit(proposal.files, root=self.root)
                     .path(self.root, p)
@@ -317,27 +342,66 @@ class SequentialCycle:
             },
             owner="triad",
         )
-        work, result, _, usage = self.call(
+        work, result, assessment, usage = self.call(
             mission,
             REVIEWERS[agent],
             "Independently review this exact candidate code and diff against the approved proposal and test evidence. "
             "Check behavior, failure cases, regressions, product isolation and any attempt to bypass governance through product code. "
             "Reject unsafe imports/access to private storage, orchestration, credentials or permission changes. "
-            "Require meaningful tests for behavior changes; syntax alone is insufficient. Return review_decision and findings; no claimed tool execution.",
+            "Require meaningful tests for behavior changes; syntax alone is insufficient. "
+            "Return exactly one AcceptanceAssessment JSON in analysis_artifacts using the supplied schema, plus review_decision/findings. "
+            "Assess EVERY required check separately; VERIFIED requires its supplied exact evidence ID, otherwise NOT_VERIFIED/BLOCKED. "
+            "Source review cannot verify rendering, keyboard interaction or viewport behavior. Never APPROVE while any mandatory criterion "
+            "is unmet or unverified. Do not claim tool execution; evaluate the supplied host test results.",
             {
                 "proposal": proposal.model_dump(mode="json"),
                 "exact_commit": build["git"]["change_commit"],
                 "checks": build["checks"],
                 "repeated_test_result": repeated,
                 "repeated_test_record_id": repeated_id,
+                "assessment_schema": AcceptanceAssessment.model_json_schema(),
+                "source_evidence_id": "candidate:" + build["git"]["change_commit"],
             },
+            AcceptanceAssessment,
         )
         decision = {
             "APPROVE": "PASS_WITH_OBSERVATIONS" if result.findings else "PASS",
             "REQUEST_CHANGES": "CHANGES_REQUIRED",
             "REJECT": "REJECT",
         }.get(result.review_decision, "BLOCKED")
+        proofs = {
+            identifier: self.s.canonical.get(identifier)
+            for identifier in (build["checks"]["test_record_id"], repeated_id)
+        }
+        missing = acceptance_problems(
+            [c.model_dump() for c in proposal.acceptance],
+            assessment,
+            build["git"]["change_commit"],
+            proofs,
+        )
+        if missing:
+            decision = "CHANGES_REQUIRED"
+        qa_id, acceptance_id = uid(), uid()
+        self.s.canonical.append(
+            "ProductAcceptanceReview",
+            {
+                "cycle_id": mission,
+                "implementation_id": build["implementation_id"],
+                "commit": build["git"]["change_commit"],
+                "qa_id": qa_id,
+                "reviewer": REVIEWERS[agent],
+                "run_id": usage["run_id"],
+                "assessment": assessment.model_dump(mode="json"),
+                "test_record_ids": list(proofs),
+                "problems": list(missing),
+                "required": [c.model_dump(mode="json") for c in proposal.acceptance],
+                "approval_id": build["approval"],
+            },
+            owner="triad",
+            identifier=acceptance_id,
+        )
         qa = QARun(
+            qa_run_id=qa_id,
             implementation_run_id=build["implementation_id"],
             qa_work_item_id=work.work_item_id,
             qa_agent=REVIEWERS[agent],
@@ -345,12 +409,14 @@ class SequentialCycle:
             qa_model=usage["actual_model"],
             reviewed_commit=build["git"]["change_commit"],
             agent_capabilities_used=("structured_output", "document_analysis"),
-            findings=result.findings,
+            findings=tuple(result.findings) + missing,
+            required_changes=missing,
             tests_repeated=tuple(build["checks"]["checks"]),
             evidence=(
                 "run:" + usage["run_id"],
                 "offline-check:" + build["checks"]["test_record_id"],
                 "offline-check:" + repeated_id,
+                "acceptance-review:" + acceptance_id,
             ),
             decision=decision,
             execution_mode="REAL_PROVIDER",
@@ -367,6 +433,43 @@ class SequentialCycle:
         self.s.quality.require_pass(build["implementation_id"], build["git"]["change_commit"])
         return qa
 
+    def require_acceptance(self, mission, build, qa):
+        references = [
+            e.removeprefix("acceptance-review:")
+            for e in qa.evidence
+            if e.startswith("acceptance-review:")
+        ]
+        if len(references) != 1:
+            raise PermissionError("Exact independent acceptance evidence required")
+        row = self.s.canonical.get(references[0])
+        approved = self.s.canonical.get(build["approval"])
+        if (
+            row["kind"] != "ProductAcceptanceReview"
+            or row["owner"] != "triad"
+            or row["cycle_id"] != mission
+            or row["implementation_id"] != build["implementation_id"]
+            or row["commit"] != build["git"]["change_commit"]
+            or row["qa_id"] != qa.qa_run_id
+            or row["reviewer"] != qa.qa_agent
+            or row["required"] != approved["proposal"]["acceptance"]
+        ):
+            raise PermissionError("Acceptance evidence differs from the exact reviewed candidate")
+        proofs = {
+            identifier: self.s.canonical.get(identifier) for identifier in row["test_record_ids"]
+        }
+        if len(proofs) != 2 or any(
+            p["kind"] != "EngineeringTestRun"
+            or p["owner"] != "triad"
+            or p.get("commit") != row["commit"]
+            or p.get("status") != "PASS"
+            for p in proofs.values()
+        ):
+            raise PermissionError("Exact candidate test evidence is missing")
+        missing = acceptance_problems(row["required"], row["assessment"], row["commit"], proofs)
+        if missing:
+            raise PermissionError("Mandatory acceptance checks unverified: " + "; ".join(missing))
+        return row["id"]
+
     def merge(self, mission, agent, git, build, qa):
         metadata = build["git"]
         approved = self.s.canonical.get(build["approval"])
@@ -379,6 +482,7 @@ class SequentialCycle:
         ):
             raise PermissionError("Build differs from the approved proposal manifest")
         self.guard(mission)
+        self.require_acceptance(mission, build, qa)
         self.s.quality.require_pass(build["implementation_id"], metadata["change_commit"])
         git.review_commit(metadata, qa.qa_run_id, qa.decision)
         with self.s.ledger.store.lease("triad-product-development"), self.s.ledger.gate():
@@ -388,6 +492,7 @@ class SequentialCycle:
             )
             if current["id"] != qa.qa_run_id:
                 raise PermissionError("Independent QA changed before merge")
+            self.require_acceptance(mission, build, qa)
             self.s.check_ownership(
                 [type("PathRecord", (), {"path": p}) for p in build["checks"]["files"]]
             )
@@ -457,6 +562,7 @@ class SequentialCycle:
                     "order": list(ORDER),
                     "local_date": self.improvement_day,
                     "timezone": timezone,
+                    "acceptance_contract": "required-checks-v1",
                 },
                 owner="triad",
             )

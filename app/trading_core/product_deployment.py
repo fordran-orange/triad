@@ -28,7 +28,10 @@ def restart():
             "triad",
         ],
         cwd=ROOT,
-        capture_output=True,
+        # No captured pipes: a detached Windows worker may inherit a pipe and
+        # keep communicate() waiting after the launcher has exited.
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         text=True,
         timeout=45,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),

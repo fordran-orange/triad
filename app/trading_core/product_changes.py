@@ -5,14 +5,80 @@ import json
 import stat
 import subprocess
 from pathlib import Path
+from typing import Literal
+
+from pydantic import Field
 
 from trading_core.control import beneath, relative_path
 from trading_core.git_tools import GitChanges
 from trading_core.governance import assert_product_merge_allowed
 from trading_core.providers.isolation import OfflineSandbox
 from trading_core.security import ensure_no_secret
+from trading_core.work import Record
 
 PRODUCT_ROOTS = ("app/products/triad", "products/triad", "tests/products/triad")
+
+
+class RequiredCheck(Record):
+    check_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    method: Literal["SOURCE_REVIEW", "PYTHON_UNIT_TEST"]
+    description: str = Field(min_length=1)
+
+
+class CheckAssessment(Record):
+    check_id: str
+    status: Literal["VERIFIED", "NOT_VERIFIED", "BLOCKED"]
+    evidence_ids: tuple[str, ...]
+    reason: str = Field(min_length=1)
+
+
+class AcceptanceAssessment(Record):
+    checks: tuple[CheckAssessment, ...]
+
+
+def acceptance_problems(required, assessment, commit, proofs):
+    """An approval cannot waive missing, stale or unsuccessful required checks."""
+    required = [RequiredCheck.model_validate(c) for c in required]
+    assessment = AcceptanceAssessment.model_validate(assessment)
+    expected = {c.check_id for c in required}
+    actual = [c.check_id for c in assessment.checks]
+    if (
+        not required
+        or len(expected) != len(required)
+        or len(actual) != len(set(actual))
+        or set(actual) != expected
+    ):
+        return ("Every mandatory criterion requires exactly one assessment",)
+    source = "candidate:" + commit
+    evidence = {source, *proofs}
+    failures = []
+    for required_check in required:
+        checked = next(c for c in assessment.checks if c.check_id == required_check.check_id)
+        if (
+            checked.status != "VERIFIED"
+            or not checked.evidence_ids
+            or not set(checked.evidence_ids) <= evidence
+        ):
+            failures.append(required_check.check_id + ": evidence is missing or unverified")
+        if required_check.method == "SOURCE_REVIEW" and source not in checked.evidence_ids:
+            failures.append(required_check.check_id + ": exact candidate source review required")
+        if required_check.method == "PYTHON_UNIT_TEST" and (
+            not proofs
+            or not set(proofs) <= set(checked.evidence_ids)
+            or any(
+                p.get("status") != "PASS"
+                or p.get("test_status") != "PASSED"
+                or p.get("executed_tests", 0) < 1
+                or p.get("commit") != commit
+                for p in proofs.values()
+            )
+        ):
+            failures.append(
+                required_check.check_id + ": passing exact-candidate unit tests required"
+            )
+    return tuple(failures)
+
+
 # The autonomous developers cannot rewrite their own coordinator or its tests.
 ORCHESTRATION = (
     "__init__.py",
@@ -78,6 +144,7 @@ def activate(records, implementation, commit):
             "enabled": True,
             "order": ["CODEX", "CLAUDE", "GROK"],
             "token_policy": "TARGET",
+            "acceptance_contract": "required-checks-v1",
             "maintenance_only": ["LOCAL_QWEN"],
             "test_image": image,
         },

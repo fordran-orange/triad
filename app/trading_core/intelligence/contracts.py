@@ -40,6 +40,7 @@ HOST_RECORD_KINDS = frozenset(
         "SequentialDailyProgram",
         "ProductTurnApproval",
         "ProductTurn",
+        "ProductAcceptanceReview",
         "ProductCyclePolicy",
         "TokenTargetObservation",
         "ResourceAllocation",
