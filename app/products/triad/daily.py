@@ -494,11 +494,14 @@ class Daily:
             active = [r for r in history if r["status"] not in TERMINAL]
             if (
                 prior["status"] != "BLOCKED"
-                or prior.get("failure_code") != "ProductResponseFormatError"
+                or prior.get("failure_code")
+                not in {"ProductResponseFormatError", "UniqueViolation"}
                 or not active
                 or active[-1]["status"] != "DEBRIEFING"
             ):
-                raise PermissionError("Only a blocked debrief-format failure may resume")
+                raise PermissionError(
+                    "Only a blocked debrief format or draft-identity failure may resume"
+                )
             self.product.ledger.guard(
                 work_id=prior["parent_work_item_id"], epoch=prior["control_epoch"]
             )

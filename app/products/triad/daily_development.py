@@ -636,6 +636,8 @@ class DailyDevelopment(Development):
         )
         if document.cycle_id != mission:
             raise PermissionError("Debrief refers to another cycle")
+        # Draft identity belongs to Core; native revisions may reuse their suggested ID.
+        document = document.model_copy(update={"debrief_id": uid()})
         draft_id = self.daily.draft(document)
         commit = "debrief:" + digest(document.model_dump(mode="json"))
         build = ImplementationRun(
