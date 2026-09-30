@@ -59,8 +59,11 @@ def normalize_repo_path(path: str) -> str:
 
 def is_protected_core_path(path: str) -> bool:
     value = normalize_repo_path(path).casefold()
+    from trading_core.product_changes import protected_orchestration
+
     return (
-        value in PROTECTED_CORE_PATHS
+        protected_orchestration(value)
+        or value in PROTECTED_CORE_PATHS
         or (value.startswith("app/") and not value.startswith("app/products/triad/"))
         or (value.startswith("products/") and not value.startswith("products/triad/"))
         or PurePosixPath(value).name == "agents.md"

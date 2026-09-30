@@ -811,13 +811,19 @@ class Runtime:
             self.ledger.guard(request.agent_id, request.work_item_id, epoch)
             result = AgentRunResult.model_validate(result.model_dump())
             ensure_no_secret(result.model_dump(mode="json"))
+            if resources.advisory_tokens:
+                from trading_core.token_targets import advisory
+
+                if not advisory(self.ledger, request, adapter.billing_source()):
+                    raise PermissionError("Subscription token policy changed during execution")
+                resources.ensure(ResourceType.INPUT, inputs)
             resources.ensure(ResourceType.OUTPUT, outputs)
             reasoning = getattr(adapter, "reasoning_tokens", None)
             if type(reasoning) is int and reasoning >= 0:
                 resources.ensure(ResourceType.REASONING, reasoning)
             if (
                 result.run_id != request.run_id
-                or inputs > input_ceiling
+                or (inputs > input_ceiling and not resources.advisory_tokens)
                 or result.commands_executed
                 or any(c.kind in {"FACT", "TEST_RESULT"} for c in result.claims)
             ):

@@ -347,7 +347,8 @@ class CycleHistory:
             changes_accepted=tuple(r["implementation_id"] for r in merges)
             or tuple(summary.get("changes_accepted", ())),
             changes_rejected=tuple(summary.get("changes_rejected", ())),
-            changes_rolled_back=tuple(summary.get("changes_rolled_back", ())),
+            changes_rolled_back=tuple(r["implementation_id"] for r in kinds("ProductRollback"))
+            or tuple(summary.get("changes_rolled_back", ())),
             tests=tuple(
                 dict.fromkeys(
                     [t for r in kinds("ProductQA") for t in r.get("checks", {}).get("checks", ())]

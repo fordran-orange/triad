@@ -696,7 +696,12 @@ class DailyDevelopment(Development):
         )
         return {"decision": decision, "draft_id": draft_id}
 
-    def run_daily(
+    def run_daily(self, **kwargs):
+        from products.triad.sequential import SequentialCycle
+
+        return SequentialCycle(self).run(**kwargs)
+
+    def run_legacy_daily(
         self, *, scheduled=False, cycle_id=None, verify=None, expected_epoch=None, schedule_id=None
     ):
         if verify is None:

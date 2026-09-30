@@ -106,6 +106,9 @@ class ResourceSession:
             raise ValueError("Every resource requires a positive initial allocation")
         self.scope = scope_digest(self.work)
         self.billing_source = billing_source
+        from trading_core.token_targets import advisory
+
+        self.advisory_tokens = advisory(ledger, request, billing_source)
         self.review_reason = review_reason
         self.started = time.monotonic()
         self.time_allocation = self.initial[ResourceType.TIME]
@@ -210,6 +213,25 @@ class ResourceSession:
         if type(required) is not int or required < 0:
             raise ValueError("Resource measurement must be a nonnegative integer")
         self._guard()
+        if self.advisory_tokens and resource_type in {
+            ResourceType.INPUT,
+            ResourceType.OUTPUT,
+            ResourceType.REASONING,
+        }:
+            if required > self.initial[resource_type]:
+                with self.host.store.connect() as conn:
+                    self._append(
+                        conn,
+                        "TokenTargetObservation",
+                        {
+                            "resource_type": resource_type,
+                            "target": self.initial[resource_type],
+                            "actual": required,
+                            "enforced": False,
+                            "observed_at": now().isoformat(),
+                        },
+                    )
+            return max(required, self.initial[resource_type])
         with self.host.store.connect() as conn:
             conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (self.request.run_id,)

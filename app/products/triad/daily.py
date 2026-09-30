@@ -29,7 +29,7 @@ NEXT = {
     "AWAITING_QA": {"CORRECTING", "MERGING"},
     "CORRECTING": {"AWAITING_QA"},
     "MERGING": {"VERIFYING"},
-    "VERIFYING": {"DEBRIEFING"},
+    "VERIFYING": {"INSPECTING", "DEBRIEFING"},
     "DEBRIEFING": {"COMPLETED"},
 }
 
@@ -170,6 +170,11 @@ class Daily:
                 raise PermissionError("Scheduled authority was disabled or replaced")
             if expected_epoch != config["control_epoch"]:
                 raise PermissionError("Scheduled authority epoch differs")
+            policies = self.host.list("ProductCyclePolicy")
+            if policies and config.get("product_policy_id") != policies[-1]["id"]:
+                raise PermissionError(
+                    "Scheduled authority requires acceptance of the current product policy"
+                )
         cycle_id = cycle_id or uid()
         with self.host.store.connect() as conn:
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (cycle_id,))
@@ -302,7 +307,7 @@ class Daily:
             stamp = now()
             payload = {k: v for k, v in prior.items() if k in CycleRecord.model_fields}
             payload.update(updates, status=state, recorded_at=stamp)
-            if state == "INSPECTING":
+            if state == "INSPECTING" and not prior.get("started_at"):
                 payload["started_at"] = stamp
             if state in TERMINAL:
                 payload["finished_at"] = stamp
@@ -329,6 +334,71 @@ class Daily:
 
     def require_complete(self, cycle_id, prior=None, conn=None):
         prior = prior or self.current(cycle_id, conn)
+        programs = [
+            r
+            for r in self.product.list("SequentialDailyProgram", conn=conn)
+            if r["cycle_id"] == cycle_id
+        ]
+        if programs:
+            turns = [
+                r
+                for r in self.product.list("ProductTurn", conn=conn)
+                if r.get("mission_id") == cycle_id
+            ]
+            if [r.get("agent") for r in turns] != ["CODEX", "CLAUDE", "GROK"] or any(
+                r.get("status") != "COMPLETED" for r in turns
+            ):
+                raise PermissionError(
+                    "All three provider turns must finish before daily completion"
+                )
+            for turn in turns:
+                implementation = self.host.get(turn["implementation_id"], conn=conn)
+                work = self.host.store.get(implementation["work_item_id"], conn=conn)
+                required_reviewer = {"CODEX": "CLAUDE", "CLAUDE": "GROK", "GROK": "CODEX"}
+                if (
+                    implementation["owner"] != "triad"
+                    or implementation["builder"] != turn["agent"]
+                    or work.owner != "triad"
+                    or work.mission_id != cycle_id
+                    or work.parent_work_item_id != prior["parent_work_item_id"]
+                    or work.assigned_agent != turn["agent"]
+                    or turn["reviewer"] != required_reviewer[turn["agent"]]
+                ):
+                    raise PermissionError("Daily turn does not belong to this cycle and provider")
+                merges = [
+                    r
+                    for r in self.product.list("ProductMerge", conn=conn)
+                    if r.get("mission_id") == cycle_id
+                    and r.get("implementation_id") == turn["implementation_id"]
+                    and r.get("qa_id") == turn["qa_id"]
+                    and r.get("git", {}).get("change_commit") == implementation["change_commit"]
+                    and r.get("git", {}).get("merge_commit") == turn["merge_commit"]
+                ]
+                rollbacks = [
+                    r
+                    for r in self.product.list("ProductRollback", conn=conn)
+                    if r.get("implementation_id") == turn["implementation_id"]
+                ]
+                if not merges or rollbacks:
+                    raise PermissionError("Daily turn lacks its exact retained merge")
+                reviewed = Quality(self.host).require_pass(
+                    turn["implementation_id"],
+                    implementation["change_commit"],
+                    conn=conn,
+                )
+                if reviewed["id"] != turn["qa_id"] or reviewed["qa_agent"] != turn["reviewer"]:
+                    raise PermissionError("Daily turn QA is stale or mismatched")
+                checks = [
+                    r
+                    for r in self.product.list("DailyVerification", conn=conn)
+                    if r["cycle_id"] == cycle_id
+                    and r.get("agent") == turn["agent"]
+                    and r.get("merge_commit") == turn["merge_commit"]
+                ]
+                if not checks or checks[-1].get("status") != "PASS":
+                    raise PermissionError(
+                        "Each daily turn requires successful deployment verification"
+                    )
         verification = [
             r
             for r in self.product.list("DailyVerification", conn=conn)
@@ -444,7 +514,17 @@ class Daily:
         config = DailySchedule.model_validate(config)
         control = self.product.ledger.guard()
         prerequisite = None
+        policy_id = None
         if config.enabled:
+            if self.host.list("ProductCyclePolicy"):
+                from trading_core.product_changes import active_policy
+
+                policy_id = active_policy(self.host)["id"]
+            accepted_programs = {
+                r["cycle_id"]
+                for r in self.product.list("SequentialDailyProgram")
+                if r["policy_id"] == policy_id
+            }
             cycles = [
                 r
                 for r in self.history.list()
@@ -452,6 +532,7 @@ class Daily:
                 and r["execution_mode"] == "REAL"
                 and r["status"] == "COMPLETED"
                 and r["scheduled"] is False
+                and (policy_id is None or r["cycle_id"] in accepted_programs)
             ]
             if not cycles:
                 raise PermissionError("A completed manual REAL daily cycle is required")
@@ -467,6 +548,7 @@ class Daily:
                 "control_epoch": control["epoch"],
                 "effective_after": next_day.isoformat(),
                 "manual_prerequisite": prerequisite,
+                "product_policy_id": policy_id,
             },
             owner="triad",
         )

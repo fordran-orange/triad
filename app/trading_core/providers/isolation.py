@@ -105,7 +105,10 @@ class OfflineSandbox:
     Supply the WorkItem/control-epoch guard for production use.
     """
 
-    def __init__(self):
+    def __init__(self, image=None):
+        if image is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", image):
+            raise ValueError("Test image must use an immutable local image ID")
+        self.image = image or IMAGE
         self.cancelled = threading.Event()
         self.runner = None
 
@@ -169,7 +172,7 @@ class OfflineSandbox:
             "import time; time.sleep(180)",
         ]
 
-    def run(self, argv, files, *, writable=(), timeout=30, guard=lambda: None):
+    def run(self, argv, files, *, writable=(), timeout=30, guard=lambda: None, max_bytes=MAX_BYTES):
         if (
             not isinstance(argv, list)
             or not argv
@@ -178,13 +181,15 @@ class OfflineSandbox:
             or not 0 < timeout <= 120
         ):
             raise ValueError("A bounded argument vector and timeout are required")
+        if type(max_bytes) is not int or not MAX_BYTES <= max_bytes <= 1000000:
+            raise ValueError("Invalid host snapshot capacity")
         if not isinstance(files, dict) or len(files) > 64 or len(writable) > 5:
             raise ValueError("Workspace exceeds file/directory limit")
         files = {safe_path(k): v for k, v in files.items()}
         writable = tuple(safe_path(p) for p in writable)
         if not all(isinstance(v, str) for v in files.values()):
             raise ValueError("Only text snapshots are supported")
-        if sum(len(v.encode()) for v in files.values()) > MAX_BYTES:
+        if sum(len(v.encode()) for v in files.values()) > max_bytes:
             raise ValueError("Input snapshot too large")
         ensure_no_secret({"argv": argv, "files": files})
 
@@ -197,7 +202,7 @@ class OfflineSandbox:
         name = "triad-tools-" + uuid4().hex
         # No option comes from model output. In particular: no -v, env-file,
         # device, published port, privileged mode or host namespace is exposed.
-        options = self.create_options(name)
+        options = self.create_options(name, self.image)
         try:
             self._docker(options)
             check()
@@ -223,8 +228,12 @@ class OfflineSandbox:
                     result.duration,
                     {},
                     (),
+                    image=self.image,
                 )
-            exported = json.loads(self._docker(["exec", name, "python", "-I", "-c", EXPORT]))
+            export_script = EXPORT.replace("48001", str(max_bytes + 1)).replace(
+                ">48000", ">" + str(max_bytes)
+            )
+            exported = json.loads(self._docker(["exec", name, "python", "-I", "-c", export_script]))
             check()
             if not isinstance(exported, dict):
                 raise TypeError("Invalid workspace export")
@@ -251,6 +260,7 @@ class OfflineSandbox:
                 result.duration,
                 changed,
                 tuple(sorted(deleted)),
+                image=self.image,
             )
         finally:
             # Killing the docker client alone would leave the daemon's process

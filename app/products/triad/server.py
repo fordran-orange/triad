@@ -19,18 +19,16 @@ async def lifespan(app):
     stop = threading.Event()
 
     def loop():
-        from products.triad.daily_development import DailyDevelopment
+        from products.triad.daily_process import launch, reconcile
         from products.triad.daily_scheduler import tick as daily_tick
-        from products.triad.daily_verification import verify
         from products.triad.jobs import Jobs
         from products.triad.scheduler import tick
 
         while not stop.is_set():
             try:
                 jobs = Jobs()
-                daily_tick(
-                    run=lambda **kwargs: DailyDevelopment().run_daily(verify=verify, **kwargs)
-                )
+                reconcile()
+                daily_tick(run=launch)
                 tick(jobs.cycles, submit=jobs.submit)
                 jobs.once()
             except Exception:  # noqa: BLE001 - retryable worker boundary
@@ -48,6 +46,11 @@ async def lifespan(app):
     worker.join(timeout=1)
 
 
+import subprocess
+
+from trading_core.settings import ROOT
+
+LOADED_REVISION = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
 app = FastAPI(title="Triad product", lifespan=lifespan)
 app.middleware("http")(local_headers)
 app.add_exception_handler(KeyError, not_found)
@@ -56,6 +59,9 @@ app.add_exception_handler(PermissionError, denied_operation)
 app.include_router(router)
 app.include_router(development_router)
 app.include_router(daily_router)
+from products.triad.product_app import app as product_app
+
+app.mount("/triad/product-api", product_app)
 
 
 @app.get("/triad")
@@ -65,7 +71,7 @@ def shell():
 
 @app.get("/health/live")
 def live():
-    return {"status": "ok", "product": "triad"}
+    return {"status": "ok", "product": "triad", "loaded_revision": LOADED_REVISION}
 
 
 @app.get("/triad/api/work")

@@ -177,6 +177,10 @@ class Development(ExecutionServices):
         )
         try:
             result = self.runtime.execute(request)
+            if result.status == "BLOCKED":
+                raise PermissionError("Provider blocked this assignment: " + result.summary)
+            if schema and len(result.analysis_artifacts) != 1:
+                raise ValueError("Expected exactly one structured product artifact")
             payload = schema.model_validate_json(result.analysis_artifacts[0]) if schema else None
             if not write and (result.files_changed or result.proposal):
                 raise PermissionError("Read-only product inspection cannot change files")

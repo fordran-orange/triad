@@ -8,6 +8,10 @@ from trading_core.settings import ROOT
 
 
 def verify(merged):
+    if merged.get("program") == "three_sequential_turns":
+        from trading_core.product_deployment import verify as deployed
+
+        return deployed(merged)
     if (
         subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
         != merged["merge_commit"]
