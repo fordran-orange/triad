@@ -234,7 +234,11 @@ class SequentialCycle:
                 },
             },
         )
-        assessment = {"decision": review.review_decision, "summary": review.summary}
+        assessment = {
+            "decision": review.review_decision,
+            "summary": review.summary,
+            "findings": list(review.findings),
+        }
         self.s.record(
             "ProductProposalReview",
             mission,
