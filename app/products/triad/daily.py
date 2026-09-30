@@ -332,13 +332,15 @@ class Daily:
             )
         return record
 
-    def require_complete(self, cycle_id, prior=None, conn=None):
+    def require_turns_complete(self, cycle_id, prior=None, conn=None):
         prior = prior or self.current(cycle_id, conn)
         programs = [
             r
             for r in self.product.list("SequentialDailyProgram", conn=conn)
             if r["cycle_id"] == cycle_id
         ]
+        if not programs:
+            raise PermissionError("Sequential program required")
         if programs:
             turns = [
                 r
@@ -442,6 +444,14 @@ class Daily:
                     raise PermissionError(
                         "Each daily turn requires successful deployment verification"
                     )
+
+    def require_complete(self, cycle_id, prior=None, conn=None):
+        prior = prior or self.current(cycle_id, conn)
+        if any(
+            r["cycle_id"] == cycle_id
+            for r in self.product.list("SequentialDailyProgram", conn=conn)
+        ):
+            self.require_turns_complete(cycle_id, prior, conn)
         verification = [
             r
             for r in self.product.list("DailyVerification", conn=conn)
@@ -468,6 +478,62 @@ class Daily:
         if review["id"] != published["qa_id"]:
             raise PermissionError("Debrief publication QA is superseded")
         return published
+
+    def resume_debrief(self, cycle_id):
+        """Operator recovery of reporting only; never replays a build or merge."""
+        from trading_core.product_changes import active_policy
+
+        if self.host.store.scope is not None:
+            raise PermissionError("Core host recovery required")
+        with self.host.store.connect() as conn:
+            conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (cycle_id,))
+            prior = self.current(cycle_id, conn)
+            history = [
+                r for r in self.host.list("CycleRecord", conn=conn) if r["cycle_id"] == cycle_id
+            ]
+            active = [r for r in history if r["status"] not in TERMINAL]
+            if (
+                prior["status"] != "BLOCKED"
+                or prior.get("failure_code") != "ProductResponseFormatError"
+                or not active
+                or active[-1]["status"] != "DEBRIEFING"
+            ):
+                raise PermissionError("Only a blocked debrief-format failure may resume")
+            self.product.ledger.guard(
+                work_id=prior["parent_work_item_id"], epoch=prior["control_epoch"]
+            )
+            programs = [
+                r
+                for r in self.product.list("SequentialDailyProgram", conn=conn)
+                if r["cycle_id"] == cycle_id
+            ]
+            if not programs or programs[-1]["policy_id"] != active_policy(self.host)["id"]:
+                raise PermissionError("Cycle policy changed; debrief recovery denied")
+            self.require_turns_complete(cycle_id, prior, conn)
+            self.host.ledger.put(
+                "ControlAction",
+                {
+                    "action": "resume_verified_cycle_debrief",
+                    "cycle_id": cycle_id,
+                    "prior_status": prior["status"],
+                    "prior_failure": prior.get("failures"),
+                    "merge_commit": prior["merge_commit"],
+                },
+                conn=conn,
+            )
+            payload = {k: v for k, v in prior.items() if k in CycleRecord.model_fields}
+            payload.update(
+                status="DEBRIEFING",
+                finished_at=None,
+                blocked_at=None,
+                failure_code=None,
+                recorded_at=now(),
+            )
+            record = CycleRecord.model_validate(payload)
+            self.host.append(
+                "CycleRecord", record.model_dump(mode="json"), owner="triad", conn=conn
+            )
+            return record
 
     def draft(self, debrief):
         debrief = Debrief.model_validate(debrief)

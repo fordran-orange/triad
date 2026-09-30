@@ -575,7 +575,29 @@ class DailyDevelopment(Development):
     def debrief(self, mission, corrections=()):
         self.daily.refresh(mission)
         cycle = self.daily.current(mission)
+        provider_call = self.call
+        if any(r["cycle_id"] == mission for r in self.records.list("SequentialDailyProgram")):
+            from products.triad.sequential import SequentialCycle
+
+            flow = SequentialCycle(self)
+
+            def provider_call(
+                mission, agent, role, objective, context, *, schema, parent, excluded=()
+            ):
+                if role != "REVIEW" or parent != cycle["parent_work_item_id"] or agent in excluded:
+                    raise PermissionError("Debrief review assignment mismatch")
+                return flow.call(mission, agent, objective, context, schema=schema)
+
         context = {
+            "required_tomorrow_keys": [
+                "new_capability",
+                "more_important",
+                "less_important",
+                "changed_assumption",
+                "new_dependency",
+                "risk_to_monitor",
+                "next_cycle",
+            ],
             "schema": Debrief.model_json_schema(),
             "required_corrections": corrections,
             "post_merge_verification": [
@@ -599,7 +621,7 @@ class DailyDevelopment(Development):
         for key in ("implementation_runs", "qa_runs", "correction_runs", "reviews"):
             for row in context["cycle"].get(key, []):
                 row.pop("checks", None)
-        _, _result, document, usage = self.call(
+        _, _result, document, usage = provider_call(
             mission,
             "CLAUDE",
             "REVIEW",
@@ -639,7 +661,7 @@ class DailyDevelopment(Development):
             reason: str = Field(min_length=1)
             action: Literal["CONFIRM", "DOWNGRADE", "UPGRADE_WITH_EVIDENCE", "DISAGREE"]
 
-        work, review, assessment, reviewed_usage = self.call(
+        work, review, assessment, reviewed_usage = provider_call(
             mission,
             "CODEX",
             "REVIEW",
