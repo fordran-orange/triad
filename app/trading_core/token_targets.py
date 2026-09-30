@@ -28,6 +28,7 @@ def advisory(ledger, request, billing_source):
     policy = active_policy(records)
     if (
         program["policy_id"] != policy["id"]
+        or policy.get("token_policy") != "TARGET"
         or request.control_epoch != program["control_epoch"]
         or work.parent_work_item_id != program["parent_work_item_id"]
     ):

@@ -151,6 +151,10 @@ def test_runtime_accepts_usage_beyond_all_token_targets(engine):
     from trading_core.runtime import SimulatedProvider
 
     records, service, request, _cycle = setup(engine)
+    with records.store.connect() as conn:
+        conn.execute(
+            "UPDATE core.autonomy_control SET payload=jsonb_set(jsonb_set(payload,'{daily_execution_caps,SUBSCRIPTION}','true'::jsonb),'{limits,max_tokens_day}','0'::jsonb) WHERE id=1"
+        )
 
     class Large(SimulatedProvider):
         reasoning_tokens = 500000

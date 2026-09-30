@@ -701,6 +701,7 @@ class Runtime:
             request.work_item_id,
             cost=estimate,
             tokens=input_ceiling + request.token_budget,
+            advisory_request=request,
             seconds=timeout,
             day=day,
             billing_source=adapter.billing_source()
@@ -816,7 +817,7 @@ class Runtime:
 
                 if not advisory(self.ledger, request, adapter.billing_source()):
                     raise PermissionError("Subscription token policy changed during execution")
-                resources.ensure(ResourceType.INPUT, inputs)
+                resources.ensure(ResourceType.INPUT, inputs, measurement_unit="tokens")
             resources.ensure(ResourceType.OUTPUT, outputs)
             reasoning = getattr(adapter, "reasoning_tokens", None)
             if type(reasoning) is int and reasoning >= 0:

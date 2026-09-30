@@ -381,12 +381,20 @@ class Ledger:
         seconds=0,
         day=None,
         billing_source="UNKNOWN",
+        advisory_request=None,
     ):
         if not math.isfinite(cost) or cost < 0 or tokens < 0 or seconds < 0:
             raise PermissionError("Invalid budget reservation")
         if billing_source not in {"SUBSCRIPTION", "LOCAL", "API", "UNKNOWN"}:
             billing_source = "UNKNOWN"
         self.guard(agent, work_id)
+        advisory_tokens = False
+        if advisory_request is not None:
+            from trading_core.token_targets import advisory
+
+            if advisory_request.agent_id != agent or advisory_request.work_item_id != work_id:
+                raise PermissionError("Token guidance request differs from reserved work")
+            advisory_tokens = advisory(self, advisory_request, billing_source)
         day = day or datetime.now(UTC).date().isoformat()
         with self.store.connect() as c:
             control = self.control(c, True)
@@ -424,6 +432,7 @@ class Ledger:
                     capped
                     and not suspended
                     and tokens > 0
+                    and not advisory_tokens
                     and execution_used["tokens"] + tokens > limits.max_tokens_day
                 )
                 or (
@@ -452,6 +461,7 @@ class Ledger:
                     "daily_execution_limits_suspended": suspended,
                     "billing_source": billing_source,
                     "daily_execution_caps_enforced": capped and not suspended,
+                    "daily_token_cap_enforced": capped and not suspended and not advisory_tokens,
                 },
                 work_id=work_id,
                 conn=c,

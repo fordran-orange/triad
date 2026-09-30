@@ -207,7 +207,13 @@ class ResourceSession:
             return self.ensure(ResourceType.TOOLS, self.tool_calls)
 
     def ensure(
-        self, resource_type, required, *, reason="Initial allocation reached", review_reason=None
+        self,
+        resource_type,
+        required,
+        *,
+        reason="Initial allocation reached",
+        review_reason=None,
+        measurement_unit=None,
     ):
         resource_type = ResourceType(resource_type)
         if type(required) is not int or required < 0:
@@ -227,6 +233,8 @@ class ResourceSession:
                             "resource_type": resource_type,
                             "target": self.initial[resource_type],
                             "actual": required,
+                            "measurement_unit": measurement_unit
+                            or ("characters" if resource_type == ResourceType.INPUT else "tokens"),
                             "enforced": False,
                             "observed_at": now().isoformat(),
                         },
