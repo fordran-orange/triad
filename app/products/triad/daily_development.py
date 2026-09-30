@@ -13,7 +13,7 @@ from trading_core.engineering import (
 from trading_core.integrations.readiness import Readiness
 from trading_core.intelligence.contracts import ImplementationRun, QARun
 from trading_core.intelligence.routing import Requirements
-from trading_core.work import ComputeBudget, State, WorkItem, now
+from trading_core.work import ComputeBudget, State, WorkItem, now, uid
 
 from products.triad.daily import Daily, Debrief, digest
 from products.triad.development import Development
