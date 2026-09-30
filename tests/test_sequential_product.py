@@ -99,12 +99,23 @@ def test_next_author_waits_for_deployment(fail_health):
     events = []
     flow = object.__new__(SequentialCycle)
     flow.policy = {"id": "policy"}
-    cycle = NS(cycle_id="c", parent_work_item_id="p", control_epoch=1)
+    from datetime import UTC, datetime
+
+    cycle = NS(
+        cycle_id="c",
+        parent_work_item_id="p",
+        control_epoch=1,
+        created_at=datetime(2026, 9, 30, 2, tzinfo=UTC),
+    )
     flow.guard = lambda _: None
     flow.s = NS(
         ledger=NS(store=NS(lease=lambda _: nullcontext()), gate=nullcontext),
         host=NS(store=NS(lease=lambda _: nullcontext())),
-        daily=NS(create=lambda **k: cycle, current=lambda _: {"status": "COMPLETED"}),
+        daily=NS(
+            create=lambda **k: cycle,
+            current=lambda _: {"status": "COMPLETED"},
+            schedule=lambda: {"timezone": "America/Chicago"},
+        ),
         canonical=NS(append=lambda *a, **k: None),
         transition=lambda *a, **k: None,
         record=lambda *a, **k: None,
@@ -141,6 +152,7 @@ def test_next_author_waits_for_deployment(fail_health):
             "healthy GROK",
         ]
     assert tuple(REVIEWERS[a] for a in ORDER) == ("CLAUDE", "GROK", "CODEX")
+    assert flow.improvement_day == "2026-09-29"
 
 
 def test_failed_deployment_reverts_only_exact_reviewed_merge(monkeypatch):

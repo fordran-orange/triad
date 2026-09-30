@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from pydantic import Field
@@ -240,10 +239,7 @@ class SequentialCycle:
             agent,
             work.work_item_id,
             improvement=True,
-            day=datetime.fromisoformat(self.s.daily.current(mission)["created_at"])
-            .astimezone(ZoneInfo(self.s.daily.schedule()["timezone"]))
-            .date()
-            .isoformat(),
+            day=self.improvement_day,
             billing_source="SUBSCRIPTION",
         )
         metadata = git.isolate(work.work_item_id, agent)
@@ -447,6 +443,10 @@ class SequentialCycle:
                     schedule_id=schedule_id,
                 )
             mission = cycle.cycle_id
+            timezone = self.s.daily.schedule()["timezone"]
+            self.improvement_day = (
+                cycle.created_at.astimezone(ZoneInfo(timezone)).date().isoformat()
+            )
             self.s.canonical.append(
                 "SequentialDailyProgram",
                 {
@@ -455,6 +455,8 @@ class SequentialCycle:
                     "parent_work_item_id": cycle.parent_work_item_id,
                     "control_epoch": cycle.control_epoch,
                     "order": list(ORDER),
+                    "local_date": self.improvement_day,
+                    "timezone": timezone,
                 },
                 owner="triad",
             )
