@@ -61,7 +61,11 @@ def health(revision):
         checks = {p: client.get("http://127.0.0.1:8000" + p).status_code for p in routes}
         if not all(v == 200 for v in checks.values()):
             raise RuntimeError("Post-deployment route checks failed")
-        providers = client.get("http://127.0.0.1:8000/api/providers").raise_for_status().json()
+        # Provider status includes local executable/auth checks, which can take
+        # longer on the first request after a service restart.
+        providers = (
+            client.get("http://127.0.0.1:8000/api/providers", timeout=30).raise_for_status().json()
+        )
         members = {
             a["agent"]: a for a in providers["agents"] if a["agent"] in {"CODEX", "CLAUDE", "GROK"}
         }
