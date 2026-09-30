@@ -451,6 +451,7 @@ class SequentialCycle:
             or row["commit"] != build["git"]["change_commit"]
             or row["qa_id"] != qa.qa_run_id
             or row["reviewer"] != qa.qa_agent
+            or row["approval_id"] != build["approval"]
             or row["required"] != approved["proposal"]["acceptance"]
         ):
             raise PermissionError("Acceptance evidence differs from the exact reviewed candidate")
