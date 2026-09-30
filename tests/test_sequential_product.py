@@ -305,3 +305,62 @@ def test_restart_does_not_capture_pipes_inherited_by_worker(monkeypatch):
     assert calls[0]["stdout"] == subprocess.DEVNULL
     assert calls[0]["stderr"] == subprocess.DEVNULL
     assert not calls[0].get("capture_output")
+
+
+@pytest.mark.parametrize("decision", ["APPROVE", "REQUEST_CHANGES", "REJECT"])
+def test_proposal_revision_preserves_independent_decision(decision):
+    flow = object.__new__(SequentialCycle)
+    calls = []
+    proposal = Proposal(
+        title="Change",
+        problem="Observed",
+        change="Fix",
+        files=("app/products/triad/product_app.py",),
+        acceptance=({"check_id": "source", "method": "SOURCE_REVIEW", "description": "Test"},),
+        evidence=("Source",),
+    )
+
+    def attempt(mission, agent, feedback, number):
+        calls.append((number, list(feedback)))
+        verdict = "APPROVE" if number == 2 else decision
+        return (
+            proposal,
+            "approval" if verdict == "APPROVE" else None,
+            {"decision": verdict, "summary": "Fix route mounting"},
+        )
+
+    flow.proposal_attempt = attempt
+    if decision == "REJECT":
+        with pytest.raises(PermissionError, match="rejected"):
+            flow.propose("cycle", "CLAUDE")
+        assert len(calls) == 1
+    else:
+        assert flow.propose("cycle", "CLAUDE") == (proposal, "approval")
+        if decision == "REQUEST_CHANGES":
+            assert len(calls) == 2
+            assert calls[1][1][0]["summary"] == "Fix route mounting"
+            assert calls[1][1][0]["proposal"] == proposal.model_dump(mode="json")
+        else:
+            assert len(calls) == 1
+
+
+def test_unresolved_proposal_cannot_be_approved_by_exhaustion():
+    flow = object.__new__(SequentialCycle)
+    proposal = Proposal(
+        title="Change",
+        problem="Observed",
+        change="Fix",
+        files=("app/products/triad/product_app.py",),
+        acceptance=({"check_id": "source", "method": "SOURCE_REVIEW", "description": "Test"},),
+        evidence=("Source",),
+    )
+    calls = []
+
+    def attempt(mission, agent, feedback, number):
+        calls.append(number)
+        return proposal, None, {"decision": "REQUEST_CHANGES", "summary": "Still incorrect"}
+
+    flow.proposal_attempt = attempt
+    with pytest.raises(PermissionError, match="exhausted"):
+        flow.propose("cycle", "CLAUDE")
+    assert calls == [1, 2, 3]

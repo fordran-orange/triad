@@ -143,6 +143,17 @@ class SequentialCycle:
             raise PermissionError("Development readiness: " + json.dumps(checks))
 
     def propose(self, mission, agent):
+        feedback = []
+        for attempt in range(1, 4):
+            proposal, approval, review = self.proposal_attempt(mission, agent, feedback, attempt)
+            if approval:
+                return proposal, approval
+            feedback.append({"proposal": proposal.model_dump(mode="json"), **review})
+            if review["decision"] != "REQUEST_CHANGES":
+                raise PermissionError("Proposal rejected: " + review["summary"])
+        raise PermissionError("Proposal revision attempts exhausted: " + feedback[-1]["summary"])
+
+    def proposal_attempt(self, mission, agent, feedback, attempt):
         baseline = self.s.git.clean_baseline()
         inventory = self.inventory()
         sources = tuple(
@@ -162,12 +173,18 @@ class SequentialCycle:
             "(offline Python unittest with installed project dependencies). Browser rendering/keyboard/viewport checks are NOT available. "
             "Do not require unsupported checks or pretend source review proves browser behavior. For behavioral changes include meaningful "
             "unit tests and their tests/products/triad file paths in the initial manifest. "
+            "Address all prior review feedback when supplied. Read-only integration source establishes mount prefixes; "
+            "it is context, never permission to change protected code. "
             "Return exactly one Proposal JSON string in analysis_artifacts using the supplied schema.",
             {
                 "inventory": inventory,
                 "schema": Proposal.model_json_schema(),
                 "protected": "Core, governance, Triad scheduling/cycles/development machinery, credentials, Aegis",
                 "previous_turns": self.s.rows("ProductTurn", mission),
+                "review_feedback": feedback,
+                "integration_source_read_only": self.s.git.git(
+                    "show", baseline + ":app/products/triad/server.py"
+                ),
             },
             Proposal,
             sources,
@@ -183,9 +200,14 @@ class SequentialCycle:
         ):
             raise PermissionError("Required unit tests must be in the approved manifest")
         self.s.record(
-            "ProductProposal", mission, proposer=agent, proposal=proposal.model_dump(mode="json")
+            "ProductProposal",
+            mission,
+            proposer=agent,
+            proposal=proposal.model_dump(mode="json"),
+            attempt=attempt,
         )
-        self.s.transition(mission, "SELECTING", ["Independent proposal review"])
+        if attempt == 1:
+            self.s.transition(mission, "SELECTING", ["Independent proposal review"])
         _, review, _, usage = self.call(
             mission,
             REVIEWERS[agent],
@@ -195,23 +217,38 @@ class SequentialCycle:
                 "proposal": proposal.model_dump(mode="json"),
                 "inventory": inventory,
                 "base_commit": baseline,
+                "review_feedback": feedback,
+                "integration_source_read_only": self.s.git.git(
+                    "show", baseline + ":app/products/triad/server.py"
+                ),
                 "available_checks": {
                     "SOURCE_REVIEW": "Exact source/diff inspection only; cannot establish rendered, responsive or keyboard behavior",
                     "PYTHON_UNIT_TEST": "Offline Python unittest with pinned project dependencies; include test paths in manifest",
                 },
                 "sources": {
-                    p: ProductGit(proposal.files, root=self.root)
+                    p: ProductGit(tuple(set(sources) | set(proposal.files)), root=self.root)
                     .path(self.root, p)
                     .read_text(encoding="utf-8")
-                    for p in proposal.files
+                    for p in sorted(set(sources) | set(proposal.files))
                     if (self.root / p).is_file()
                 },
             },
         )
-        if review.review_decision != "APPROVE":
-            raise PermissionError("Proposal not approved: " + review.summary)
+        assessment = {"decision": review.review_decision, "summary": review.summary}
+        self.s.record(
+            "ProductProposalReview",
+            mission,
+            proposer=agent,
+            reviewer=REVIEWERS[agent],
+            attempt=attempt,
+            proposal=proposal.model_dump(mode="json"),
+            run_id=usage["run_id"],
+            **assessment,
+        )
         if self.s.git.clean_baseline() != baseline:
             raise PermissionError("Source changed during proposal review")
+        if review.review_decision != "APPROVE":
+            return proposal, None, assessment
         approval = self.s.canonical.append(
             "ProductTurnApproval",
             {
@@ -226,7 +263,7 @@ class SequentialCycle:
             },
             owner="triad",
         )
-        return proposal, approval
+        return proposal, approval, assessment
 
     def build(self, mission, agent, proposal, approval):
         approved = self.approval(mission, agent, proposal, approval)
