@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from pydantic import Field
 from trading_core.contracts import FileChange
@@ -238,7 +240,10 @@ class SequentialCycle:
             agent,
             work.work_item_id,
             improvement=True,
-            day=self.s.day,
+            day=datetime.fromisoformat(self.s.daily.current(mission)["created_at"])
+            .astimezone(ZoneInfo(self.s.daily.schedule()["timezone"]))
+            .date()
+            .isoformat(),
             billing_source="SUBSCRIPTION",
         )
         metadata = git.isolate(work.work_item_id, agent)
