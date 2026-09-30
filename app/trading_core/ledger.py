@@ -370,6 +370,16 @@ class Ledger:
     def reserve_product(self, conn, agent, work_id, day, improvement):
         """Optional product policy hook; may only add restrictions."""
 
+    def change_limit_suspended(self, control, work_id):
+        """Operator-scoped acceptance exception; never granted by model output."""
+        grant = control.get("change_limit_suspension") or {}
+        if grant.get("enabled") is not True or grant.get("epoch") != control["epoch"]:
+            return False
+        if not grant.get("cycle_id") or not work_id:
+            return False
+        work = self.store.get(work_id)
+        return work.owner == "triad" and work.mission_id == grant["cycle_id"]
+
     def reserve(
         self,
         agent,
@@ -426,7 +436,11 @@ class Ledger:
                     (day, billing_source),
                 ).fetchone()
             if (
-                used["changes"] + int(improvement) > limits.max_changes_day
+                (
+                    improvement
+                    and used["changes"] + 1 > limits.max_changes_day
+                    and not self.change_limit_suspended(control, work_id)
+                )
                 or float(used["reserved_cost"]) + cost > limits.max_cloud_cost_day + 1e-9
                 or (
                     capped
