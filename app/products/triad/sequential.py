@@ -392,6 +392,7 @@ class SequentialCycle:
             "Require meaningful tests for behavior changes; syntax alone is insufficient. "
             "Return exactly one AcceptanceAssessment JSON in analysis_artifacts using the supplied schema, plus review_decision/findings. "
             "Assess EVERY required check separately; VERIFIED requires its supplied exact evidence ID, otherwise NOT_VERIFIED/BLOCKED. "
+            "Copy IDs from allowed_evidence_ids verbatim; unit-test criteria must cite both raw test IDs. "
             "Source review cannot verify rendering, keyboard interaction or viewport behavior. Never APPROVE while any mandatory criterion "
             "is unmet or unverified. Do not claim tool execution; evaluate the supplied host test results.",
             {
@@ -402,6 +403,11 @@ class SequentialCycle:
                 "repeated_test_record_id": repeated_id,
                 "assessment_schema": AcceptanceAssessment.model_json_schema(),
                 "source_evidence_id": "candidate:" + build["git"]["change_commit"],
+                "allowed_evidence_ids": [
+                    "candidate:" + build["git"]["change_commit"],
+                    build["checks"]["test_record_id"],
+                    repeated_id,
+                ],
             },
             AcceptanceAssessment,
         )

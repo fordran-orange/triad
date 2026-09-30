@@ -54,17 +54,26 @@ def acceptance_problems(required, assessment, commit, proofs):
     failures = []
     for required_check in required:
         checked = next(c for c in assessment.checks if c.check_id == required_check.check_id)
-        if (
-            checked.status != "VERIFIED"
-            or not checked.evidence_ids
-            or not set(checked.evidence_ids) <= evidence
-        ):
+        # Accept only known labels attached to the exact host-supplied IDs.
+        # Retain the raw assessment for provenance; never resolve arbitrary IDs.
+        references = set()
+        for identifier in checked.evidence_ids:
+            prefix, separator, value = identifier.partition(":")
+            if (
+                separator
+                and prefix in {"test_record_id", "repeated_test_record_id"}
+                and value in proofs
+            ):
+                references.add(value)
+            else:
+                references.add(identifier)
+        if checked.status != "VERIFIED" or not checked.evidence_ids or not references <= evidence:
             failures.append(required_check.check_id + ": evidence is missing or unverified")
-        if required_check.method == "SOURCE_REVIEW" and source not in checked.evidence_ids:
+        if required_check.method == "SOURCE_REVIEW" and source not in references:
             failures.append(required_check.check_id + ": exact candidate source review required")
         if required_check.method == "PYTHON_UNIT_TEST" and (
             not proofs
-            or not set(proofs) <= set(checked.evidence_ids)
+            or not set(proofs) <= references
             or any(
                 p.get("status") != "PASS"
                 or p.get("test_status") != "PASSED"

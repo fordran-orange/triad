@@ -11,7 +11,7 @@ Mode = Literal["REAL", "SIMULATED", "UNAVAILABLE"]
 
 
 class Limits(Record):
-    max_changes_day: int = Field(default=3, ge=0, le=4)
+    max_changes_day: int = Field(default=3, ge=0, le=3)
     max_cloud_cost_day: float = Field(default=0, ge=0, le=25)
     max_tokens_day: int = Field(default=160000, ge=0, le=500000)
     max_compute_seconds_day: int = Field(default=1800, ge=0, le=3600)

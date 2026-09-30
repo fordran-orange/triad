@@ -364,3 +364,25 @@ def test_unresolved_proposal_cannot_be_approved_by_exhaustion():
     with pytest.raises(PermissionError, match="exhausted"):
         flow.propose("cycle", "CLAUDE")
     assert calls == [1, 2, 3]
+
+
+@pytest.mark.parametrize("prefixed", [False, True])
+def test_exact_host_test_ids_accept_recognized_labels(prefixed):
+    from trading_core.product_changes import acceptance_problems
+
+    proof = {"status": "PASS", "test_status": "PASSED", "executed_tests": 5, "commit": "exact"}
+    proofs = {"one": proof, "two": dict(proof)}
+    ids = ["test_record_id:one", "repeated_test_record_id:two"] if prefixed else ["one", "two"]
+    required = [{"check_id": "unit", "method": "PYTHON_UNIT_TEST", "description": "Unit"}]
+    assessment = {
+        "checks": [
+            {"check_id": "unit", "status": "VERIFIED", "reason": "Evidence", "evidence_ids": ids}
+        ]
+    }
+    assert not acceptance_problems(required, assessment, "exact", proofs)
+    for invalid in ["test_record_id:foreign", "arbitrary:one", "test_record_id:test_record_id:one"]:
+        assessment["checks"][0]["evidence_ids"] = [invalid, "repeated_test_record_id:two"]
+        assert acceptance_problems(required, assessment, "exact", proofs)
+    assessment["checks"][0]["evidence_ids"] = ids
+    proofs["one"]["commit"] = "stale"
+    assert acceptance_problems(required, assessment, "exact", proofs)
