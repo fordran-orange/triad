@@ -112,7 +112,11 @@ class SequentialCycle:
                         "response_envelope": {
                             "files_changed": [],
                             "proposal": None,
-                            "analysis_artifacts": "Exactly one JSON string for the requested schema",
+                            "analysis_artifacts": (
+                                "Exactly one JSON string for the requested schema"
+                                if schema
+                                else "Optional supporting artifacts; provide review_decision and findings"
+                            ),
                         },
                     },
                     schema=schema,
