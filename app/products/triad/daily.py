@@ -514,13 +514,16 @@ class Daily:
                 review_exhausted = bool(reviews and reviews[-1]["decision"] == "CHANGES_REQUIRED")
             if (
                 prior["status"] != "BLOCKED"
-                or prior.get("failure_code")
-                not in {"ProductResponseFormatError", "UniqueViolation"}
+                or (
+                    prior.get("failure_code")
+                    not in {"ProductResponseFormatError", "UniqueViolation"}
+                    and not review_exhausted
+                )
                 or not active
                 or active[-1]["status"] != "DEBRIEFING"
             ):
                 raise PermissionError(
-                    "Only a blocked debrief format or draft-identity failure may resume"
+                    "Only a blocked reporting error or independently requested correction may resume"
                 )
             self.product.ledger.guard(
                 work_id=prior["parent_work_item_id"], epoch=prior["control_epoch"]
