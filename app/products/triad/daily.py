@@ -492,6 +492,26 @@ class Daily:
                 r for r in self.host.list("CycleRecord", conn=conn) if r["cycle_id"] == cycle_id
             ]
             active = [r for r in history if r["status"] not in TERMINAL]
+            review_exhausted = prior.get("failure_code") == "PermissionError" and any(
+                r.get("message")
+                in {
+                    "Recovered debrief did not pass independent review",
+                    "Daily debrief did not pass independent review",
+                }
+                for r in prior.get("failures", ())
+            )
+            if review_exhausted:
+                commits = {
+                    "debrief:" + r["digest"]
+                    for r in self.product.list("DailyDebriefDraft", conn=conn)
+                    if r["cycle_id"] == cycle_id
+                }
+                reviews = [
+                    r
+                    for r in self.product.list("QARun", conn=conn)
+                    if r.get("reviewed_commit") in commits
+                ]
+                review_exhausted = bool(reviews and reviews[-1]["decision"] == "CHANGES_REQUIRED")
             if (
                 prior["status"] != "BLOCKED"
                 or prior.get("failure_code")

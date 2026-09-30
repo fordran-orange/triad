@@ -615,6 +615,9 @@ class DailyDevelopment(Development):
                 if r.get("work_item_id") in {w["work_item_id"] for w in cycle.get("work_items", [])}
             ],
         }
+        drafts = [r for r in self.records.list("DailyDebriefDraft") if r["cycle_id"] == mission]
+        if corrections and drafts:
+            context["previous_debrief"] = drafts[-1]["debrief"]
         # Avoid resending every candidate source/diff in a strategic explanation.
         for row in context["builds"] + context["qa"]:
             row.pop("checks", None)
@@ -626,6 +629,8 @@ class DailyDevelopment(Development):
             "CLAUDE",
             "REVIEW",
             "Write a candid Daily Debrief using supplied actual evidence. Return one Debrief JSON in analysis_artifacts. "
+            "When previous_debrief is supplied, revise that draft: address every required correction in the affected fields, "
+            "preserve independently verified facts, and do not regenerate unrelated passages or reintroduce prior claims. "
             "No fictional idle-model contributions. Date from UTC timestamps. overall_status VERIFIED_AWAITING_DEBRIEF_QA. "
             "Finished time is post-merge verification time supplied, not future cycle close. Distinguish OBSERVED/EXPECTED/HYPOTHESIZED effects. "
             "Explicitly account debt and failures, classify proposed gain modestly with evidence, and answer all seven tomorrow questions. "
