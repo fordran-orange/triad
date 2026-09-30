@@ -194,7 +194,9 @@ class Development(ExecutionServices):
             except ValidationError as exc:
                 raise ProductResponseFormatError(
                     "Invalid product artifact: "
-                    + json.dumps(exc.errors(include_input=False, include_url=False))
+                    + json.dumps(
+                        exc.errors(include_input=False, include_url=False, include_context=False)
+                    )
                 ) from exc
             if not write and (result.files_changed or result.proposal):
                 raise PermissionError("Read-only product inspection cannot change files")
