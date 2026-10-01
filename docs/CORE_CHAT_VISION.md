@@ -84,10 +84,40 @@ was requested for immediate execution in this discussion.
 
 ## Responsibilities and direction
 
-Core owns shared knowledge, Intake, provenance, provider capabilities, data
-validation, execution services, and backtest computation. Aegis owns its research
-and backtesting workspace and presentation. Chat coordinates these capabilities.
-Triad continues autonomous product development under its established authority.
+The operator clarified on 2026-09-30: Triad and Aegis share Core, not each other.
+They are independent consumers of Core, with independent product direction.
+This corrects any earlier suggestion that Triad builds Aegis by default or that
+Triad's Alpaca use must wait for Aegis backtesting work.
+
+Core owns shared infrastructure: memory, data, rules, integrations, Intake, chat,
+provenance, provider capabilities, validation, and generic execution and backtest
+services. Shared infrastructure preserves product ownership and access boundaries;
+it does not automatically share private strategies, conclusions, or credentials.
+
+Triad is the autonomous experiment. It can use capabilities already provided by
+Core, including a future Alpaca connection, but must build its own product tools,
+strategies, workflows, and spaces wherever Core does not supply them. Deciding
+what to build is part of the experiment. Preserve its established autonomy.
+
+Each daily development provider should implement its own perceived highest-value
+product change, informed by current Core interfaces, prior outcomes and meaningful
+alternatives. No fixed operator feature list replaces that judgment. Review should
+assess product value as well as correctness; completed shell polish is not proof
+that no useful product work remains. Carry initiatives and next steps across days.
+The operator subsequently requested a lower advisory effort target for Codex while
+retaining its daily turn, scope and ability to exceed that target when needed.
+
+Aegis is the operator-directed platform. Its priorities, design, tools, and
+workspaces follow the operator's decisions and do not depend on Triad's roadmap
+or outputs. The operator may explicitly choose to adopt selected Triad work
+later, but that is optional, not an architectural dependency or automatic flow.
+Chat coordinates authorized capabilities without merging product ownership.
+
+The operator reports an Alpaca account ready for future integration, configured
+for paper trading only. The shared connection belongs in Core; product-specific
+tools and spaces belong to each consumer. Triad and Aegis may use it independently.
+Account availability is not evidence of an implemented integration or an
+instruction to connect it, place orders, or enable live trading now.
 
 The operator explicitly wants to begin Aegis with backtesting and views Vela as
 a promising way to avoid building the chart interface entirely from scratch.

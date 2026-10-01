@@ -5,7 +5,7 @@ import json
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_serializer, model_validator
 from trading_core.intelligence.contracts import ImplementationRun, QARun
 from trading_core.product_changes import (
     AcceptanceAssessment,
@@ -20,6 +20,13 @@ from trading_core.product_changes import (
 from trading_core.work import Record, now, uid
 
 from products.triad.development import ProductResponseFormatError
+from products.triad.sequential_planning import (
+    HISTORICAL,
+    ValuePlan,
+    core_context,
+    planning_context,
+    token_guidance,
+)
 
 ORDER = ("CODEX", "CLAUDE", "GROK")
 REVIEWERS = {"CODEX": "CLAUDE", "CLAUDE": "GROK", "GROK": "CODEX"}
@@ -33,6 +40,14 @@ class Proposal(Record):
     files: tuple[str, ...]
     acceptance: tuple[RequiredCheck, ...]
     evidence: tuple[str, ...] = Field(min_length=1)
+    value_plan: ValuePlan | None = None  # Retained historical proposals remain readable.
+
+    @model_serializer(mode="wrap")
+    def retain_historical_shape(self, handler):
+        data = handler(self)
+        if self.value_plan is None:
+            data.pop("value_plan", None)
+        return data
 
     @model_validator(mode="after")
     def coherent_outcome(self):
@@ -47,6 +62,12 @@ class Proposal(Record):
 
 class Patch(Record):
     files: tuple[ProductFileChange, ...] = Field(min_length=1)
+
+
+class CurrentProposal(Proposal):
+    """New plans require value reasoning; historical evidence keeps its old schema."""
+
+    value_plan: ValuePlan
 
 
 class SequentialCycle:
@@ -105,9 +126,7 @@ class SequentialCycle:
 
     def call(self, mission, agent, objective, context, schema=None, paths=()):
         self.guard(mission)
-        objective += (
-            " Token guidance: aim for 8192 reasoning and 6144 output tokens; these are targets, "
-            "not cutoffs. Use what is needed for a complete correct result. "
+        objective += token_guidance(agent) + (
             "Do not execute commands or claim host tests. Top-level files_changed must be [] and proposal must be null; "
             "the requested Proposal or Patch is data inside analysis_artifacts, not the outer proposal field."
         )
@@ -208,26 +227,26 @@ class SequentialCycle:
 
         baseline = self.s.git.clean_baseline()
         inventory = self.inventory()
-        sources = tuple(
-            p
-            for p in inventory
-            if p.startswith("app/products/triad/")
-            and ProductGit((p,), root=self.root).path(self.root, p).stat().st_size < 12000
-        )
+        strategy = planning_context(self.s, mission, baseline)
+        sources = tuple(p for p in inventory if p.startswith("app/products/triad/"))
         additional_sources = {}
         for path in inventory:
-            if path in sources:
+            if path in sources or path in HISTORICAL:
                 continue
             target = ProductGit((path,), root=self.root).path(self.root, path)
-            if target.stat().st_size < 12000:
-                additional_sources[path] = target.read_text(encoding="utf-8")
+            additional_sources[path] = target.read_text(encoding="utf-8")
         author_work, _, proposal, author_usage = self.call(
             mission,
             agent,
-            "Inspect the current product and propose one useful improvement of your choice. You may change product UI, "
-            "You may instead choose outcome NO_CHANGE when evidence shows no worthwhile change now; explain why, "
-            "cite the inspected baseline, and set files and acceptance to empty arrays. Never invent work to meet a quota. "
-            "backend modules, data-processing logic, documentation and product tests. Governance, orchestration and other products are protected. "
+            "Choose your perceived highest-value improvement toward Triad's trading-product mission and implement it this turn. "
+            "Look beyond existing page polish: you may create new tools, spaces and capabilities using product UI, "
+            "backend modules, data-processing logic, documentation and tests. Governance, orchestration and other products are protected. "
+            "Supply value_plan: your initiative, concrete user outcome, why this is the highest-value feasible change, "
+            "at least two meaningful alternatives with reasons not selected, next steps, and dependencies or blockers. "
+            "Consult current Core interfaces and prior-cycle outcomes. Continue worthwhile prior work or explain changing direction. "
+            "NO_CHANGE is valid only with evidence explaining why the compared meaningful alternatives cannot responsibly "
+            "advance now; a finished checklist or lack of existing feature files is not sufficient. Keep files and acceptance "
+            "empty for NO_CHANGE. Never invent low-value work to meet a quota. Historical grants are not current restrictions. "
             "Choose exact existing/new product file paths. The following turn sees the prior deployed change. "
             "Every acceptance criterion must name its verification method and unique check_id. Available premerge methods are "
             "SOURCE_REVIEW (exact source/diff inspection; no executed browser or interaction claims) and PYTHON_UNIT_TEST "
@@ -240,11 +259,12 @@ class SequentialCycle:
             "or an evidence-supported NO_CHANGE for a fresh independent review. Inspect existing tests before proposing new ones. "
             "Return exactly one Proposal JSON string in analysis_artifacts using the supplied schema.",
             {
+                "product_planning": strategy,
                 "inventory": inventory,
                 "additional_product_sources_read_only": additional_sources,
                 "base_commit": baseline,
                 "optional_advisory_ideas": Intake(self.s.records).advisory("triad"),
-                "schema": Proposal.model_json_schema(),
+                "schema": CurrentProposal.model_json_schema(),
                 "protected": "Core, governance, Triad scheduling/cycles/development machinery, credentials, Aegis",
                 "previous_turns": self.s.rows("ProductTurn", mission),
                 "review_feedback": feedback,
@@ -252,8 +272,20 @@ class SequentialCycle:
                     "show", baseline + ":app/products/triad/server.py"
                 ),
             },
-            Proposal,
+            CurrentProposal,
             sources,
+        )
+        proposal = Proposal.model_validate(proposal.model_dump())
+        self.s.record(
+            "ProductPlanningContext",
+            mission,
+            proposer=agent,
+            base_commit=baseline,
+            context_sha256=hashlib.sha256(
+                json.dumps(strategy, sort_keys=True).encode()
+            ).hexdigest(),
+            history_ids={k: [r["id"] for r in rows] for k, rows in strategy["history"].items()},
+            core_source_revision=strategy["shared_core"]["source_revision"],
         )
         for p in proposal.files:
             product_path(p)
@@ -277,10 +309,14 @@ class SequentialCycle:
         review_work, review, _, usage = self.call(
             mission,
             REVIEWERS[agent],
-            "Independently review this proposal for usefulness, protected boundaries, feasibility and acceptance criteria. "
-            "Return review_decision APPROVE/REQUEST_CHANGES/REJECT with concrete findings. Approve a useful testable change "
-            "or an evidence-supported NO_CHANGE decision. Challenge unsupported claims that no useful work remains.",
+            "Independently review product value as well as correctness, protected boundaries, feasibility and acceptance. "
+            "Evaluate the author's highest-value reasoning against alternatives, prior outcomes and current Core interfaces. "
+            "Challenge cosmetic churn and unsupported NO_CHANGE: a finished shell is not a finished trading product. "
+            "Do not require a large diff or choose the author's roadmap for them; small high-impact fixes are valid. "
+            "Return APPROVE/REQUEST_CHANGES/REJECT with concrete findings, including the value assessment. "
+            "Do not apply historical document-only grants or grant new authority.",
             {
+                "product_planning": strategy,
                 "proposal": proposal.model_dump(mode="json"),
                 "inventory": inventory,
                 "base_commit": baseline,
@@ -293,10 +329,10 @@ class SequentialCycle:
                     "PYTHON_UNIT_TEST": "Offline Python unittest with pinned project dependencies; include test paths in manifest",
                 },
                 "sources": {
-                    p: ProductGit(tuple(set(sources) | set(proposal.files)), root=self.root)
+                    p: ProductGit(tuple(set(inventory) | set(proposal.files)), root=self.root)
                     .path(self.root, p)
                     .read_text(encoding="utf-8")
-                    for p in sorted(set(sources) | set(proposal.files))
+                    for p in sorted((set(inventory) - HISTORICAL) | set(proposal.files))
                     if (self.root / p).is_file()
                 },
             },
@@ -403,11 +439,12 @@ class SequentialCycle:
             "Use python -m unittest discover -s tests/products/triad for product tests where appropriate. "
             "Keep your final files_changed, analysis_artifacts, claims, actions_taken, commands_executed and tests_run empty; "
             "Core exports your actual edits and observed tool evidence. Never fabricate a patch in the response. "
-            "Token guidance: 8192 reasoning and 6144 output are targets, not cutoffs. Use what the implementation needs.",
+            + token_guidance(agent),
             {
                 "proposal": context["proposal"],
                 "writable_files": context["proposal"]["files"],
                 "inventory": paths,
+                "shared_core": core_context(self.s.git, self.s.git.git("rev-parse", "HEAD")),
             },
             schema=schema,
             paths=paths,

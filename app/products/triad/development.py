@@ -110,8 +110,9 @@ class Development(ExecutionServices):
         workspace_approval=None,
     ):
         write = role == "IMPLEMENT"
-        reasoning = 256 if agent == "LOCAL_QWEN" else 8192
-        output_tokens = 256 if agent == "LOCAL_QWEN" else 6144
+        from products.triad.sequential_planning import token_targets
+
+        reasoning, output_tokens = (256, 256) if agent == "LOCAL_QWEN" else token_targets(agent)
         workspace = workspace_approval is not None
         if workspace and role != "IMPLEMENT":
             raise PermissionError("Workspace requires implementation role")
