@@ -48,10 +48,15 @@ def test_denied_operations_are_atomic(name, args):
 
 def test_failed_test_feedback_preserves_safe_edits(monkeypatch):
     w = workspace()
+    checks = []
+    w.guard = lambda: checks.append(True)
 
     def run(argv, files, **kwargs):
         assert kwargs["export_failed"]
-        assert kwargs["guard"] == w.guard
+        assert kwargs["guard"] == w.check
+        before = len(checks)
+        kwargs["guard"]()
+        assert len(checks) == before + 1
         return SimpleNamespace(
             files={PATH: "fixed\n"},
             deleted=(),
