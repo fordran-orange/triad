@@ -833,44 +833,62 @@ class SequentialCycle:
         return metadata
 
     def run(
-        self, *, scheduled=False, cycle_id=None, verify=None, expected_epoch=None, schedule_id=None
+        self,
+        *,
+        scheduled=False,
+        cycle_id=None,
+        verify=None,
+        expected_epoch=None,
+        schedule_id=None,
+        resume_patch_failure=False,
     ):
         from contextlib import nullcontext
 
         if verify is None:
             raise PermissionError("Trusted post-deployment verification required")
+        if resume_patch_failure and (
+            scheduled or not cycle_id or expected_epoch is not None or schedule_id is not None
+        ):
+            raise PermissionError("Patch recovery requires an explicit existing manual cycle ID")
         with self.s.host.store.lease("triad-daily-product-execution"):
+            completed = 0
             with (
                 self.s.host.store.lease("triad-daily-schedule-slot") if scheduled else nullcontext()
             ):
-                cycle = self.s.daily.create(
-                    scheduled=scheduled,
-                    cycle_id=cycle_id,
-                    expected_epoch=expected_epoch,
-                    schedule_id=schedule_id,
-                )
+                if resume_patch_failure:
+                    from products.triad.sequential_recovery import resume_patch_failure as recover
+
+                    cycle, completed = recover(self, cycle_id)
+                else:
+                    cycle = self.s.daily.create(
+                        scheduled=scheduled,
+                        cycle_id=cycle_id,
+                        expected_epoch=expected_epoch,
+                        schedule_id=schedule_id,
+                    )
             mission = cycle.cycle_id
             timezone = self.s.daily.schedule()["timezone"]
             self.improvement_day = (
                 cycle.created_at.astimezone(ZoneInfo(timezone)).date().isoformat()
             )
-            self.s.canonical.append(
-                "SequentialDailyProgram",
-                {
-                    "cycle_id": mission,
-                    "policy_id": self.policy["id"],
-                    "parent_work_item_id": cycle.parent_work_item_id,
-                    "control_epoch": cycle.control_epoch,
-                    "order": list(ORDER),
-                    "local_date": self.improvement_day,
-                    "timezone": timezone,
-                    "acceptance_contract": "required-checks-v1",
-                },
-                owner="triad",
-            )
+            if not resume_patch_failure:
+                self.s.canonical.append(
+                    "SequentialDailyProgram",
+                    {
+                        "cycle_id": mission,
+                        "policy_id": self.policy["id"],
+                        "parent_work_item_id": cycle.parent_work_item_id,
+                        "control_epoch": cycle.control_epoch,
+                        "order": list(ORDER),
+                        "local_date": self.improvement_day,
+                        "timezone": timezone,
+                        "acceptance_contract": "required-checks-v1",
+                    },
+                    owner="triad",
+                )
             try:
                 self.readiness(mission)
-                for agent in ORDER:
+                for agent in ORDER[completed:]:
                     self.s.record(
                         "ProductTurnStarted", mission, agent=agent, reviewer=REVIEWERS[agent]
                     )

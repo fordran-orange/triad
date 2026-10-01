@@ -95,7 +95,8 @@ def test_approval_cannot_authorize_another_proposal():
 
 
 @pytest.mark.parametrize("fail_health", [False, True])
-def test_next_author_waits_for_deployment(fail_health):
+@pytest.mark.parametrize("resume", [False, True])
+def test_next_author_waits_for_deployment(fail_health, resume, monkeypatch):
     events = []
     flow = object.__new__(SequentialCycle)
     flow.policy = {"id": "policy"}
@@ -108,6 +109,10 @@ def test_next_author_waits_for_deployment(fail_health):
         created_at=datetime(2026, 9, 30, 2, tzinfo=UTC),
     )
     flow.guard = lambda _: None
+    if resume:
+        monkeypatch.setattr(
+            "products.triad.sequential_recovery.resume_patch_failure", lambda *a: (cycle, 1)
+        )
     flow.s = NS(
         ledger=NS(store=NS(lease=lambda _: nullcontext()), gate=nullcontext),
         host=NS(store=NS(lease=lambda _: nullcontext(), list_work=lambda _: [])),
@@ -138,14 +143,12 @@ def test_next_author_waits_for_deployment(fail_health):
 
     if fail_health:
         with pytest.raises(PermissionError):
-            flow.run(verify=verify)
-        assert events == ["ready", "propose CODEX", "healthy CODEX"]
+            flow.run(verify=verify, cycle_id="c", resume_patch_failure=resume)
+        first = "CLAUDE" if resume else "CODEX"
+        assert events == ["ready", "propose " + first, "healthy " + first]
     else:
-        flow.run(verify=verify)
-        assert events == [
-            "ready",
-            "propose CODEX",
-            "healthy CODEX",
+        flow.run(verify=verify, cycle_id="c", resume_patch_failure=resume)
+        assert events == ["ready"] + ([] if resume else ["propose CODEX", "healthy CODEX"]) + [
             "propose CLAUDE",
             "healthy CLAUDE",
             "propose GROK",

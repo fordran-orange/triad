@@ -347,6 +347,10 @@ class Daily:
         return record
 
     def require_turns_complete(self, cycle_id, prior=None, conn=None):
+        return self.require_turn_prefix(cycle_id, prior, conn, complete=True)
+
+    def require_turn_prefix(self, cycle_id, prior=None, conn=None, *, complete=False):
+        """Validate every retained turn; partial evidence can never complete a cycle."""
         prior = prior or self.current(cycle_id, conn)
         programs = [
             r
@@ -361,8 +365,12 @@ class Daily:
                 for r in self.product.list("ProductTurn", conn=conn)
                 if r.get("mission_id") == cycle_id
             ]
-            if [r.get("agent") for r in turns] != ["CODEX", "CLAUDE", "GROK"] or any(
-                r.get("status") != "COMPLETED" for r in turns
+            order = ["CODEX", "CLAUDE", "GROK"]
+            expected = order if complete else order[: len(turns)]
+            if (
+                len(turns) > 3
+                or [r.get("agent") for r in turns] != expected
+                or any(r.get("status") != "COMPLETED" for r in turns)
             ):
                 raise PermissionError(
                     "All three provider turns must finish before daily completion"
@@ -463,6 +471,7 @@ class Daily:
                     raise PermissionError(
                         "Each daily turn requires successful deployment verification"
                     )
+        return turns
 
     def require_complete(self, cycle_id, prior=None, conn=None):
         prior = prior or self.current(cycle_id, conn)
