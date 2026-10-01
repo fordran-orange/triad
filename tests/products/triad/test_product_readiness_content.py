@@ -83,6 +83,14 @@ class ProductReadinessContentTests(unittest.TestCase):
         self.assertEqual(targets[0].tag, 'section')
         return targets[0]
 
+    def navigation(self):
+        navigation = [
+            node for node in self.elements
+            if node.tag == 'nav' and node.attrs.get('aria-label') == 'Triad'
+        ]
+        self.assertEqual(len(navigation), 1)
+        return navigation[0]
+
     def test_readiness_entry_uses_local_fragment(self):
         entries = [
             link for link in self.links
@@ -141,14 +149,10 @@ class ProductReadinessContentTests(unittest.TestCase):
                 self.assertIn(required_text, text)
 
     def test_existing_navigation_destinations_remain(self):
-        navigation = [
-            node for node in self.elements
-            if node.tag == 'nav' and node.attrs.get('aria-label') == 'Triad'
-        ]
-        self.assertEqual(len(navigation), 1)
+        navigation = self.navigation()
         destinations = {
             (node.text().strip(), node.attrs.get('href'))
-            for node in navigation[0].elements() if node.tag == 'a'
+            for node in navigation.elements() if node.tag == 'a'
         }
         for expected in (
             ('Development', '/triad/development'),
@@ -157,6 +161,17 @@ class ProductReadinessContentTests(unittest.TestCase):
         ):
             with self.subTest(destination=expected):
                 self.assertIn(expected, destinations)
+
+    def test_nav_current_page_attribute(self):
+        navigation = self.navigation()
+        nav_links = {
+            node.text().strip(): node
+            for node in navigation.elements() if node.tag == 'a'
+        }
+        self.assertEqual(nav_links['Product'].attrs.get('aria-current'), 'page')
+        for label in ('Development', 'Cycles', 'Daily Debrief'):
+            with self.subTest(label=label):
+                self.assertNotIn('aria-current', nav_links[label].attrs)
 
 
 if __name__ == '__main__':
