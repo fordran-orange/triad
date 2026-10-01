@@ -2,9 +2,10 @@
 
 import hashlib
 import json
+from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from trading_core.intelligence.contracts import ImplementationRun, QARun
 from trading_core.product_changes import (
     AcceptanceAssessment,
@@ -25,12 +26,23 @@ REVIEWERS = {"CODEX": "CLAUDE", "CLAUDE": "GROK", "GROK": "CODEX"}
 
 
 class Proposal(Record):
+    outcome: Literal["CHANGE", "NO_CHANGE"] = "CHANGE"
     title: str = Field(min_length=1, max_length=160)
     problem: str = Field(min_length=1)
     change: str = Field(min_length=1)
-    files: tuple[str, ...] = Field(min_length=1)
-    acceptance: tuple[RequiredCheck, ...] = Field(min_length=1)
+    files: tuple[str, ...]
+    acceptance: tuple[RequiredCheck, ...]
     evidence: tuple[str, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def coherent_outcome(self):
+        if self.outcome == "CHANGE" and (not self.files or not self.acceptance):
+            raise ValueError("A change requires files and acceptance checks")
+        if self.outcome == "NO_CHANGE" and (self.files or self.acceptance):
+            raise ValueError("No-change proposals cannot include edits or pending checks")
+        if not all(v.strip() for v in (self.problem, self.change, *self.evidence)):
+            raise ValueError("A proposal requires substantive reasoning and evidence")
+        return self
 
 
 class Patch(Record):
@@ -200,10 +212,12 @@ class SequentialCycle:
             if p.startswith("app/products/triad/")
             and ProductGit((p,), root=self.root).path(self.root, p).stat().st_size < 12000
         )
-        _, _, proposal, _ = self.call(
+        author_work, _, proposal, author_usage = self.call(
             mission,
             agent,
             "Inspect the current product and propose one useful improvement of your choice. You may change product UI, "
+            "You may instead choose outcome NO_CHANGE when evidence shows no worthwhile change now; explain why, "
+            "cite the inspected baseline, and set files and acceptance to empty arrays. Never invent work to meet a quota. "
             "backend modules, data-processing logic, documentation and product tests. Governance, orchestration and other products are protected. "
             "Choose exact existing/new product file paths. The following turn sees the prior deployed change. "
             "Every acceptance criterion must name its verification method and unique check_id. Available premerge methods are "
@@ -246,11 +260,12 @@ class SequentialCycle:
         )
         if attempt == 1:
             self.s.transition(mission, "SELECTING", ["Independent proposal review"])
-        _, review, _, usage = self.call(
+        review_work, review, _, usage = self.call(
             mission,
             REVIEWERS[agent],
             "Independently review this proposal for usefulness, protected boundaries, feasibility and acceptance criteria. "
-            "Return review_decision APPROVE/REQUEST_CHANGES/REJECT with concrete findings. Approve only a useful testable product change.",
+            "Return review_decision APPROVE/REQUEST_CHANGES/REJECT with concrete findings. Approve a useful testable change "
+            "or an evidence-supported NO_CHANGE decision. Challenge unsupported claims that no useful work remains.",
             {
                 "proposal": proposal.model_dump(mode="json"),
                 "inventory": inventory,
@@ -302,10 +317,59 @@ class SequentialCycle:
                 "run_id": usage["run_id"],
                 "policy_id": self.policy["id"],
                 "base_commit": baseline,
+                "author_work_item_id": author_work.work_item_id,
+                "author_run_id": author_usage["run_id"],
+                "review_work_item_id": review_work.work_item_id,
             },
             owner="triad",
         )
         return proposal, approval, assessment
+
+    def no_change(self, mission, agent, proposal, approval):
+        from trading_core.product_deployment import health
+
+        row = self.approval(mission, agent, proposal, approval)
+        baseline = row["base_commit"]
+        with self.s.ledger.store.lease("triad-product-development"):
+            self.guard(mission)
+            if self.s.git.clean_baseline() != baseline:
+                raise PermissionError("No-change review baseline changed")
+            verification = health(baseline)
+            if self.s.git.clean_baseline() != baseline:
+                raise PermissionError("Source changed during no-change verification")
+            proof = self.s.canonical.append(
+                "ProductNoChange",
+                {
+                    "cycle_id": mission,
+                    "agent": agent,
+                    "reviewer": REVIEWERS[agent],
+                    "approval_id": approval,
+                    "baseline": baseline,
+                    "verified_at": now().isoformat(),
+                    "health": verification,
+                },
+                owner="triad",
+            )
+            self.s.canonical.append(
+                "ProductTurn",
+                {
+                    "mission_id": mission,
+                    "agent": agent,
+                    "reviewer": REVIEWERS[agent],
+                    "status": "COMPLETED",
+                    "outcome": "NO_CHANGE",
+                    "no_change_id": proof,
+                    "verified_revision": baseline,
+                },
+                owner="triad",
+            )
+        self.s.transition(
+            mission,
+            "VERIFYING",
+            [proof],
+            verified_revision=baseline,
+            selected_proposal=proposal.model_dump(mode="json"),
+        )
 
     def implementation_call(self, mission, agent, objective, context, schema, *, approval):
         from trading_core.product_workspace_grant import PROFILE
@@ -762,6 +826,9 @@ class SequentialCycle:
                         mission, "INSPECTING", [agent + " turn; fresh deployed baseline"]
                     )
                     proposal, approval = self.propose(mission, agent)
+                    if getattr(proposal, "outcome", "CHANGE") == "NO_CHANGE":
+                        self.no_change(mission, agent, proposal, approval)
+                        continue
                     self.s.transition(
                         mission,
                         "BUILDING",
@@ -778,6 +845,7 @@ class SequentialCycle:
                         "VERIFYING",
                         [merged["merge_commit"]],
                         merge_commit=merged["merge_commit"],
+                        verified_revision=merged["merge_commit"],
                     )
                     with self.s.ledger.store.lease("triad-product-development"):
                         self.guard(mission)

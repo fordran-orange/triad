@@ -43,6 +43,7 @@ class CycleRecord(Record):
     subscription_usage: tuple[dict, ...] = ()
     local_usage: tuple[dict, ...] = ()
     merge_commit: str | None = None
+    verified_revision: str | None = None
     product_state_before: dict = Field(default_factory=dict)
     product_state_after: dict = Field(default_factory=dict)
     next_cycle_candidates: tuple[str, ...] = ()

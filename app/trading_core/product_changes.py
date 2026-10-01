@@ -125,6 +125,7 @@ ORCHESTRATION = (
     "daily",
     "development",
     "sequential",
+    "no_change.py",
     "static/day3",
     "static/daily",
     "static/cycles",

@@ -24,7 +24,7 @@ TERMINAL = {"COMPLETED", "BLOCKED", "FAILED", "CANCELLED"}
 NEXT = {
     "CREATED": {"INSPECTING"},
     "INSPECTING": {"SELECTING"},
-    "SELECTING": {"BUILDING"},
+    "SELECTING": {"BUILDING", "VERIFYING"},
     "BUILDING": {"AWAITING_QA"},
     "AWAITING_QA": {"CORRECTING", "MERGING"},
     "CORRECTING": {"AWAITING_QA"},
@@ -293,6 +293,7 @@ class Daily:
                 "qa_runs",
                 "correction_runs",
                 "merge_commit",
+                "verified_revision",
                 "failures",
                 "agents_run",
                 "tests",
@@ -300,6 +301,19 @@ class Daily:
                 "billing_sources",
             }:
                 raise PermissionError("Transition cannot replace cycle identity or authority")
+            if prior["status"] == "SELECTING" and state == "VERIFYING":
+                from products.triad.no_change import require_no_change
+
+                turns = [
+                    r
+                    for r in self.product.list("ProductTurn", conn=conn)
+                    if r.get("mission_id") == cycle_id
+                ]
+                if not turns or turns[-1].get("outcome") != "NO_CHANGE":
+                    raise PermissionError("Skipping a build requires an approved no-change turn")
+                require_no_change(self.host, turns[-1], prior, conn)
+                if updates.get("verified_revision") != turns[-1]["verified_revision"]:
+                    raise PermissionError("No-change verification revision mismatch")
             if state == "COMPLETED":
                 if updates:
                     raise PermissionError("Completion cannot alter the verified snapshot")
@@ -354,6 +368,11 @@ class Daily:
                     "All three provider turns must finish before daily completion"
                 )
             for turn in turns:
+                if turn.get("outcome") == "NO_CHANGE":
+                    from products.triad.no_change import require_no_change
+
+                    require_no_change(self.host, turn, prior, conn)
+                    continue
                 implementation = self.host.get(turn["implementation_id"], conn=conn)
                 work = self.host.store.get(implementation["work_item_id"], conn=conn)
                 required_reviewer = {"CODEX": "CLAUDE", "CLAUDE": "GROK", "GROK": "CODEX"}
@@ -462,11 +481,27 @@ class Daily:
             for r in self.product.list("DailyDebriefPublication", conn=conn)
             if r["cycle_id"] == cycle_id
         ]
-        if (
-            not prior.get("merge_commit")
-            or not verification
-            or verification[-1].get("status") != "PASS"
-            or not publications
+        turns = [
+            r
+            for r in self.product.list("ProductTurn", conn=conn)
+            if r.get("mission_id") == cycle_id
+        ]
+        last_unchanged = bool(
+            turns
+            and turns[-1].get("outcome") == "NO_CHANGE"
+            and prior.get("verified_revision") == turns[-1]["verified_revision"]
+        )
+        if last_unchanged:
+            from products.triad.no_change import require_no_change
+
+            require_no_change(self.host, turns[-1], prior, conn)
+        if not publications or (
+            not last_unchanged
+            and (
+                not prior.get("merge_commit")
+                or not verification
+                or verification[-1].get("status") != "PASS"
+            )
         ):
             raise PermissionError(
                 "Completion requires post-merge verification and reviewed debrief"

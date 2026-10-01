@@ -608,6 +608,10 @@ class DailyDevelopment(Development):
             "builds": self.rows("ProductBuild", mission),
             "qa": self.rows("ProductQA", mission),
             "merges": self.rows("ProductMerge", mission),
+            "turns": self.rows("ProductTurn", mission),
+            "no_change_decisions": [
+                r for r in self.records.list("ProductNoChange") if r["cycle_id"] == mission
+            ],
             "failures": self.rows("ProductBuildFailure", mission),
             "resource_extensions": [
                 r
@@ -651,7 +655,7 @@ class DailyDevelopment(Development):
             provider=usage["provider"],
             model=usage["actual_model"],
             transport=usage["transport"],
-            base_commit=cycle["merge_commit"],
+            base_commit=cycle.get("verified_revision") or cycle["merge_commit"],
             change_commit=commit,
             files=(),
             tests=("Debrief schema and actual evidence supplied",),

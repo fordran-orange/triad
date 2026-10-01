@@ -237,7 +237,13 @@ def test_valid_completion_is_manual_timestamped_and_schedule_deferred(engine):
     service.configure(DailySchedule(enabled=True))
     schedule = service.schedule()
     assert schedule["manual_prerequisite"] == cycle.cycle_id
-    assert schedule["effective_after"] > schedule["updated_at"][:10]
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    configured_day = datetime.fromisoformat(schedule["updated_at"]).astimezone(
+        ZoneInfo(schedule["timezone"])
+    ).date()
+    assert schedule["effective_after"] == (configured_day + timedelta(days=1)).isoformat()
     assert not service.product.list("DailyScheduleClaim")
 
 
