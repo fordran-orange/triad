@@ -7,6 +7,7 @@ def require_no_change(records, turn, cycle, conn=None):
     if conn is None:
         with records.store.connect() as connection:
             return require_no_change(records, turn, cycle, connection)
+    from products.triad.development import parse_product_artifact
     from products.triad.sequential import REVIEWERS, Proposal
 
     proof = records.get(turn["no_change_id"], conn=conn)
@@ -99,7 +100,7 @@ def require_no_change(records, turn, cycle, conn=None):
         if agent == turn["agent"]:
             if (
                 len(result["analysis_artifacts"]) != 1
-                or Proposal.model_validate_json(result["analysis_artifacts"][0]) != proposal
+                or parse_product_artifact(Proposal, result["analysis_artifacts"][0])[0] != proposal
             ):
                 raise PermissionError("No-change proposal differs from observed provider output")
         elif result.get("review_decision") != "APPROVE":

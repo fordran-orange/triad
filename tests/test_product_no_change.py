@@ -117,6 +117,9 @@ def fixture():
 def test_no_change_requires_real_independent_exact_evidence():
     records, turn, cycle, rows, works, evidence = fixture()
     assert require_no_change(records, turn, cycle) == rows["proof"]
+    evidence["author"][1]["payload"]["analysis_artifacts"][0] += "]"
+    assert require_no_change(records, turn, cycle) == rows["proof"]
+    evidence["author"][1]["payload"]["analysis_artifacts"][0] = proposal().model_dump_json()
     for target, key, bad in (
         (turn, "reviewer", "CODEX"),
         (turn, "verified_revision", "stale"),
