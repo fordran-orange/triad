@@ -10,8 +10,8 @@
     "time": "14:30",
     "mode": "REAL"
   },
-  "mission": "Triad is an autonomous system whose mission is to continuously build and improve the best trading application it can create.",
-  "authority": "Existing bounded text proposals only; broader product development permissions require separate review.",
+  "mission": "Triad’s mission is to autonomously build and continuously refine a complete stock-trading application, starting from the ground up, with the ambition to rival TradingView and thinkorswim in usefulness, capability, reliability, and user experience.\n\nBuild coherent workflows for market discovery, chart analysis, strategy development, testing, trading, and performance evaluation. Use shared Core services and create Triad’s own missing tools, backend systems, and workspaces.\n\nTreat existing code and pages as the starting point. Prioritize closing the most important gaps in the complete application, sustaining substantial initiatives across multiple days when necessary.\n\nPreserve protected governance and orchestration, and operate within Core’s enforced permissions.",
+  "authority": "Autonomous product work through verified isolated Core tools and independent QA; broader capabilities require demonstrated isolation and Core adoption.",
   "product_scope": [
     "architecture",
     "UI/UX",

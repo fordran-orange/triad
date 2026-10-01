@@ -4,7 +4,7 @@ import ast
 import hashlib
 import json
 
-from pydantic import Field
+from pydantic import Field, model_serializer
 from trading_core.work import Record
 
 # Immutable Day 6 assessments remain available as history, never current grants.
@@ -38,6 +38,21 @@ class ValuePlan(Record):
     alternatives: tuple[Alternative, ...] = Field(min_length=2)
     next_steps: tuple[str, ...]
     dependencies_or_blockers: tuple[str, ...]
+    mission_contribution: str | None = None
+    major_gaps: tuple[str, ...] | None = None
+
+    @model_serializer(mode="wrap")
+    def preserve_historical_plan(self, handler):
+        data = handler(self)
+        for key in ("mission_contribution", "major_gaps"):
+            if getattr(self, key) is None:
+                data.pop(key, None)
+        return data
+
+
+class CurrentValuePlan(ValuePlan):
+    mission_contribution: str = Field(min_length=1)
+    major_gaps: tuple[str, ...] = Field(min_length=1)
 
 
 def token_targets(agent):
@@ -129,6 +144,10 @@ def planning_context(service, mission, baseline):
         "mission": charter["mission"],
         "product_scope": charter["product_scope"],
         "current_direction": (
+            "The product is the complete stock-trading application, not product.html or the current prototype. "
+            "Assess major missing end-to-end capabilities against the mission before choosing a change. "
+            "Identify a substantial initiative and an independently useful, testable contribution to it this turn; "
+            "the initiative may span many days. The turn is a delivery increment, not a ceiling on ambition. "
             "Each provider independently chooses and implements its perceived highest-value product change. "
             "Build Triad's own useful trading application, tools and spaces; do not merely polish its shell. "
             "Core supplies shared infrastructure. Aegis is separately operator-directed; Triad does not build "

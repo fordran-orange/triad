@@ -22,6 +22,7 @@ from trading_core.work import Record, now, uid
 from products.triad.development import ProductResponseFormatError
 from products.triad.sequential_planning import (
     HISTORICAL,
+    CurrentValuePlan,
     ValuePlan,
     core_context,
     planning_context,
@@ -67,7 +68,7 @@ class Patch(Record):
 class CurrentProposal(Proposal):
     """New plans require value reasoning; historical evidence keeps its old schema."""
 
-    value_plan: ValuePlan
+    value_plan: CurrentValuePlan
 
 
 class SequentialCycle:
@@ -242,6 +243,8 @@ class SequentialCycle:
             "Look beyond existing page polish: you may create new tools, spaces and capabilities using product UI, "
             "backend modules, data-processing logic, documentation and tests. Governance, orchestration and other products are protected. "
             "Supply value_plan: your initiative, concrete user outcome, why this is the highest-value feasible change, "
+            "mission_contribution (the capability gap this increment closes), major_gaps (your evidence-based "
+            "assessment of the largest remaining gaps in the complete application, not a fixed feature checklist), "
             "at least two meaningful alternatives with reasons not selected, next steps, and dependencies or blockers. "
             "Consult current Core interfaces and prior-cycle outcomes. Continue worthwhile prior work or explain changing direction. "
             "NO_CHANGE is valid only with evidence explaining why the compared meaningful alternatives cannot responsibly "
@@ -286,6 +289,7 @@ class SequentialCycle:
             ).hexdigest(),
             history_ids={k: [r["id"] for r in rows] for k, rows in strategy["history"].items()},
             core_source_revision=strategy["shared_core"]["source_revision"],
+            mission_statement=strategy["mission"],
         )
         for p in proposal.files:
             product_path(p)
@@ -311,6 +315,8 @@ class SequentialCycle:
             REVIEWERS[agent],
             "Independently review product value as well as correctness, protected boundaries, feasibility and acceptance. "
             "Evaluate the author's highest-value reasoning against alternatives, prior outcomes and current Core interfaces. "
+            "Assess mission_contribution and major_gaps against the complete application mission. An initiative may "
+            "span multiple turns or days; require a useful tested increment, not completion of the entire initiative today. "
             "Challenge cosmetic churn and unsupported NO_CHANGE: a finished shell is not a finished trading product. "
             "Do not require a large diff or choose the author's roadmap for them; small high-impact fixes are valid. "
             "Return APPROVE/REQUEST_CHANGES/REJECT with concrete findings, including the value assessment. "

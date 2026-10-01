@@ -34,6 +34,8 @@ def plan():
         ],
         "next_steps": ["Add comparisons using the established result contract"],
         "dependencies_or_blockers": ["Product-scoped retained-result access needs proof"],
+        "mission_contribution": "Creates a research evaluation workflow beyond the shell",
+        "major_gaps": ["No experiment comparison workflow", "No chart analysis workspace"],
     }
 
 

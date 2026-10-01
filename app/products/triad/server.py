@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from trading_core.api import denied_operation, invalid_operation, local_headers, not_found
 
 from products.triad.api import router
@@ -85,4 +85,8 @@ def work():
 
 @app.get("/triad/product")
 def trading_product_shell():
-    return FileResponse(Path(__file__).parent / "static/product.html")
+    from products.triad.sequential_mission import insert_panel, mission_panel
+
+    source = (Path(__file__).parent / "static/product.html").read_text(encoding="utf-8")
+    # Keep the operator mission outside the autonomous product file's content.
+    return HTMLResponse(insert_panel(source, mission_panel()))
