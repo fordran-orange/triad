@@ -104,6 +104,7 @@ class NativeRun:
             model=self.actual_model,
             calls=self.broker.calls,
             denials=self.broker.denials,
+            denial_details=getattr(self.broker, "denial_details", []),
             input_tokens=token_count(inputs),
             output_tokens=token_count(outputs),
         )
@@ -115,6 +116,17 @@ class NativeRun:
             or result.actions_taken
             or result.tests_run
         ):
+            self.evidence["rejected_result_fields"] = [
+                field
+                for field in (
+                    "commands_executed",
+                    "permission_requests",
+                    "claims",
+                    "actions_taken",
+                    "tests_run",
+                )
+                if getattr(result, field)
+            ]
             raise ProviderError("DEGRADED", "NativeResultViolation")
         if getattr(self, "product_workspace", False):
             if result.files_changed or result.analysis_artifacts:
@@ -157,6 +169,16 @@ class NativeRun:
         self.check()
         # Original hashes come from the observed immutable input, never model arithmetic.
         return result.model_copy(update={"files_changed": changes}), inputs, outputs
+
+    def result_schema(self, request):
+        """Tell the formatter the same constraints enforced by finish()."""
+        schema = strict_schema(request.required_output_schema)
+        empty = ["commands_executed", "permission_requests", "claims", "actions_taken", "tests_run"]
+        if getattr(self, "product_workspace", False):
+            empty += ["files_changed", "analysis_artifacts"]
+        for field in empty:
+            schema["properties"][field]["maxItems"] = 0
+        return schema
 
 
 class GrokSession:
@@ -516,7 +538,7 @@ class GrokRun(NativeRun):
                                 ),
                             }
                         ],
-                        "_meta": {"outputSchema": strict_schema(request.required_output_schema)},
+                        "_meta": {"outputSchema": self.result_schema(request)},
                     },
                 )
                 self.evidence.update(
@@ -544,7 +566,11 @@ class GrokRun(NativeRun):
                     self.evidence["reader_status"] = session.process.failure_reason
                 raise
             finally:
-                self.evidence.update(calls=self.broker.calls, denials=self.broker.denials)
+                self.evidence.update(
+                    calls=self.broker.calls,
+                    denials=self.broker.denials,
+                    denial_details=getattr(self.broker, "denial_details", []),
+                )
                 session.close()
 
 
@@ -655,7 +681,7 @@ class ClaudeRun(NativeRun):
                 server.url,
                 bool(writable),
                 model,
-                request.required_output_schema,
+                self.result_schema(request),
                 [t["name"] for t in self.broker.definitions()] if workspace is not None else None,
             )
             app = LineProcess(argv, cwd=cwd)
@@ -710,5 +736,9 @@ class ClaudeRun(NativeRun):
                         return self.finish(message.get("structured_output"), inputs, outputs)
                 raise ProviderError("DEGRADED", "NativeFrameLimit")
             finally:
-                self.evidence.update(calls=self.broker.calls, denials=self.broker.denials)
+                self.evidence.update(
+                    calls=self.broker.calls,
+                    denials=self.broker.denials,
+                    denial_details=getattr(self.broker, "denial_details", []),
+                )
                 app.close()

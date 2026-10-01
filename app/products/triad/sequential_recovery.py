@@ -16,6 +16,62 @@ def require(condition, message):
         raise PermissionError(message)
 
 
+def native_rejection(daily, mission, agent, prior, policy, conn):
+    """Prove the host rejected an isolated result before any patch or reservation."""
+    works = [
+        w
+        for w in daily.product.store.list_work(10000)
+        if w.mission_id == mission and w.work_type == "development"
+    ]
+    require(bool(works), "Failed native work required")
+    work = works[0]
+    require(
+        work.owner == "triad"
+        and work.assigned_agent == agent
+        and work.status == State.FAILED
+        and work.parent_work_item_id == prior["parent_work_item_id"],
+        "Native work identity mismatch",
+    )
+    grant = daily.product.get("workspace-" + work.work_item_id, conn=conn)
+    from trading_core.product_workspace_grant import PROFILE
+    from trading_core.resource_policy import scope_digest
+
+    require(
+        grant["kind"] == "ProductWorkspaceGrant"
+        and grant["profile"] == PROFILE
+        and grant["work_item_id"] == work.work_item_id
+        and grant["agent"] == agent
+        and grant["scope_digest"] == scope_digest(work)
+        and grant["epoch"] == prior["control_epoch"]
+        and grant["policy_id"] == policy["id"],
+        "Native workspace authority mismatch",
+    )
+    events = conn.execute(
+        "SELECT payload FROM core.day3_records WHERE owner='triad' AND kind='Event' "
+        "AND work_item_id=%s ORDER BY created_at,id",
+        (work.work_item_id,),
+    ).fetchall()
+    failures = [r["payload"] for r in events if r["payload"].get("event") == "provider_failed"]
+    evidence = [
+        r["payload"] for r in events if r["payload"].get("event") == "native_executor_evidence"
+    ]
+    require(
+        len(failures) == len(evidence) == 1
+        and failures[0].get("error_class") == "NativeResultViolation"
+        and failures[0].get("run_id") == evidence[0].get("run_id")
+        and evidence[0].get("boundary") == "DOCKER_OFFLINE_TOOLS",
+        "Canonical native rejection required",
+    )
+    require(
+        not any(
+            r.get("work_item_id") == work.work_item_id
+            for r in daily.product.list("ProductBuildCheckpoint", conn=conn)
+        ),
+        "Native failure already reached host patch application",
+    )
+    return work, grant["base_commit"]
+
+
 def resume_patch_failure(flow, mission):
     """Caller holds the daily execution lease. Replan remaining turns normally."""
     service, daily = flow.s, flow.s.daily
@@ -28,11 +84,14 @@ def resume_patch_failure(flow, mission):
         with host.ledger.gate(), host.store.connect() as conn:
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (mission,))
             prior = daily.current(mission, conn)
+            error = prior.get("failures", [{}])[-1].get("message")
+            native = (
+                prior.get("failure_code") == "ProviderError" and error == "NativeResultViolation"
+            )
             require(
                 prior["status"] == "BLOCKED"
-                and prior.get("failure_code") == "PermissionError"
-                and prior.get("failures", [{}])[-1].get("message") == ERROR,
-                "Only an unapplied source-fingerprint failure may resume",
+                and (native or (prior.get("failure_code") == "PermissionError" and error == ERROR)),
+                "Only a rejected, unapplied source or native-result failure may resume",
             )
             history = [
                 r
@@ -81,32 +140,37 @@ def resume_patch_failure(flow, mission):
             for turn in turns:
                 revision = turn.get("merge_commit") or turn.get("verified_revision")
                 service.git.git("merge-base", "--is-ancestor", revision, head)
-            checkpoints = [
-                r
-                for r in daily.product.list("ProductBuildCheckpoint", conn=conn)
-                if r.get("mission_id") == mission
-            ]
-            require(bool(checkpoints), "Isolated build checkpoint required")
-            checkpoint = checkpoints[-1]
-            work = daily.product.store.get(checkpoint["work_item_id"], conn=conn)
-            require(
-                work.owner == "triad"
-                and work.mission_id == mission
-                and work.work_type == "development"
-                and work.parent_work_item_id == prior["parent_work_item_id"]
-                and work.assigned_agent == agent
-                and work.status == State.FAILED,
-                "Failed work does not match the next provider turn",
-            )
-            failures = [
-                r
-                for r in daily.product.list("ProductBuildFailure", conn=conn)
-                if r.get("work_item_id") == work.work_item_id
-            ]
-            require(
-                bool(failures) and failures[-1].get("reason") == ERROR,
-                "Canonical patch rejection required",
-            )
+            if native:
+                work, base_commit = native_rejection(
+                    daily, mission, agent, prior, flow.policy, conn
+                )
+            else:
+                checkpoints = [
+                    r
+                    for r in daily.product.list("ProductBuildCheckpoint", conn=conn)
+                    if r.get("mission_id") == mission
+                ]
+                require(bool(checkpoints), "Isolated build checkpoint required")
+                checkpoint = checkpoints[-1]
+                work = daily.product.store.get(checkpoint["work_item_id"], conn=conn)
+                require(
+                    work.owner == "triad"
+                    and work.mission_id == mission
+                    and work.work_type == "development"
+                    and work.parent_work_item_id == prior["parent_work_item_id"]
+                    and work.assigned_agent == agent
+                    and work.status == State.FAILED,
+                    "Failed work does not match the next provider turn",
+                )
+                failures = [
+                    r
+                    for r in daily.product.list("ProductBuildFailure", conn=conn)
+                    if r.get("work_item_id") == work.work_item_id
+                ]
+                require(
+                    bool(failures) and failures[-1].get("reason") == ERROR,
+                    "Canonical patch rejection required",
+                )
             implementations = daily.product.list("ImplementationRun", conn=conn)
             require(
                 not any(r.get("work_item_id") == work.work_item_id for r in implementations),
@@ -121,21 +185,24 @@ def resume_patch_failure(flow, mission):
                 ),
                 "Cycle still has active development work",
             )
-            git = checkpoint["git"]
-            require(
-                checkpoint["phase"] == "ISOLATED"
-                and not git.get("change_commit")
-                and not service.git.git("status", "--porcelain", cwd=git["worktree"])
-                and service.git.git("rev-parse", "HEAD", cwd=git["worktree"]) == git["base_commit"],
-                "Failed checkout must remain clean and unapplied",
-            )
-            service.git.git("merge-base", "--is-ancestor", git["base_commit"], head)
+            if not native:
+                git = checkpoint["git"]
+                require(
+                    checkpoint["phase"] == "ISOLATED"
+                    and not git.get("change_commit")
+                    and not service.git.git("status", "--porcelain", cwd=git["worktree"])
+                    and service.git.git("rev-parse", "HEAD", cwd=git["worktree"])
+                    == git["base_commit"],
+                    "Failed checkout must remain clean and unapplied",
+                )
+                base_commit = git["base_commit"]
+            service.git.git("merge-base", "--is-ancestor", base_commit, head)
             # The infrastructure repair may change protected orchestration, but
             # no autonomous product source may have moved since the failed build.
             from trading_core.product_changes import protected_orchestration
 
             changed = service.git.git(
-                "diff", "--name-only", git["base_commit"], head, "--", *PRODUCT_ROOTS
+                "diff", "--name-only", base_commit, head, "--", *PRODUCT_ROOTS
             ).splitlines()
             require(
                 all(protected_orchestration(p) for p in changed),
@@ -147,15 +214,19 @@ def resume_patch_failure(flow, mission):
                 "AND work_item_id=%s AND payload->>'improvement'='true'",
                 (work.work_item_id,),
             ).fetchall()
-            require(len(reservations) == 1, "Exact failed improvement reservation required")
-            reservation = reservations[0]
-            payload = reservation["payload"]
-            require(
-                payload["day"] == day
-                and payload["agent"] == agent
-                and all(payload[k] == 0 for k in ("cost", "tokens", "seconds")),
-                "Unexpected reservation contents",
-            )
+            refund = 0 if native else 1
+            require(len(reservations) == refund, "Unexpected improvement reservation count")
+            reservation = None
+            if not native:
+                require(len(reservations) == 1, "Exact failed improvement reservation required")
+                reservation = reservations[0]
+                payload = reservation["payload"]
+                require(
+                    payload["day"] == day
+                    and payload["agent"] == agent
+                    and all(payload[k] == 0 for k in ("cost", "tokens", "seconds")),
+                    "Unexpected reservation contents",
+                )
             action_id = "patch-recovery-" + work.work_item_id
             require(
                 not conn.execute(
@@ -166,7 +237,7 @@ def resume_patch_failure(flow, mission):
             total = conn.execute(
                 "SELECT changes FROM core.autonomy_daily WHERE day=%s FOR UPDATE", (day,)
             ).fetchone()
-            require(total and total["changes"] > 0, "Missing daily change reservation")
+            require(total and total["changes"] >= refund, "Missing daily change reservation")
             require(
                 not conn.execute(
                     "SELECT 1 FROM triad.improvement_slots WHERE day=%s AND agent=%s", (day, agent)
@@ -175,17 +246,19 @@ def resume_patch_failure(flow, mission):
             )
             flow.guard(mission)
             require(service.git.clean_baseline() == head, "Recovery baseline moved")
-            conn.execute("UPDATE core.autonomy_daily SET changes=changes-1 WHERE day=%s", (day,))
+            conn.execute(
+                "UPDATE core.autonomy_daily SET changes=changes-%s WHERE day=%s", (refund, day)
+            )
             host.ledger.put(
                 "ControlAction",
                 {
                     "action": "resume_unapplied_product_patch",
                     "cycle_id": mission,
                     "failed_work_item_id": work.work_item_id,
-                    "reservation_id": reservation["id"],
+                    "reservation_id": reservation["id"] if reservation else None,
                     "retained_turn_ids": [r["id"] for r in turns],
                     "prior_failure": prior["failures"],
-                    "released_change_slots": 1,
+                    "released_change_slots": refund,
                     "day": day,
                     "revision": head,
                     "health": healthy,

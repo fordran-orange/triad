@@ -243,3 +243,73 @@ def test_other_product_records_do_not_change_recovery_authority(blocked):
     record, _, day = resume_patch_failure(b.flow, b.cycle.cycle_id)
     assert day == b.day
     assert record.status == "CREATED"
+
+
+@pytest.mark.parametrize(
+    "tamper", [None, "grant_epoch", "missing_evidence", "checkpoint", "reservation"]
+)
+def test_native_result_recovery_requires_proven_unapplied_workspace(engine, blocked, tamper):
+    from trading_core.cycle_records import CycleRecord
+    from trading_core.product_workspace_grant import PROFILE
+    from trading_core.resource_policy import scope_digest
+
+    b = blocked
+    work = engine.host.create(
+        WorkItem(
+            owner="triad",
+            mission_id=b.cycle.cycle_id,
+            parent_work_item_id=b.cycle.parent_work_item_id,
+            assigned_agent="CODEX",
+            work_type="development",
+            title="Native fixture",
+            description="No provider execution",
+        )
+    )
+    work = engine.host.advance(work, State.VALIDATING, "fixture")
+    work = engine.host.advance(work, State.FAILED, "fixture")
+    b.host.append(
+        "ProductWorkspaceGrant",
+        {
+            "profile": PROFILE,
+            "work_item_id": work.work_item_id,
+            "agent": "CODEX",
+            "scope_digest": scope_digest(work),
+            "epoch": b.cycle.control_epoch + (1 if tamper == "grant_epoch" else 0),
+            "policy_id": "fixture",
+            "base_commit": b.flow.s.git.git("rev-parse", "HEAD"),
+        },
+        owner="triad",
+        identifier="workspace-" + work.work_item_id,
+    )
+    for event, extra in (
+        ("provider_failed", {"error_class": "NativeResultViolation"}),
+        ("native_executor_evidence", {"boundary": "DOCKER_OFFLINE_TOOLS"}),
+    ):
+        if tamper != "missing_evidence":
+            b.daily.product.ledger.event(
+                event, work.work_item_id, run_id="fixture-native-run", **extra
+            )
+    if tamper == "checkpoint":
+        b.host.append(
+            "ProductBuildCheckpoint",
+            {"mission_id": b.cycle.cycle_id, "work_item_id": work.work_item_id},
+            owner="triad",
+        )
+    if tamper == "reservation":
+        b.host.ledger.reserve("CODEX", work.work_item_id, improvement=True, day=b.day)
+    prior = b.daily.current(b.cycle.cycle_id)
+    payload = {k: v for k, v in prior.items() if k in CycleRecord.model_fields}
+    payload.update(
+        failure_code="ProviderError",
+        failures=[{"code": "ProviderError", "message": "NativeResultViolation"}],
+    )
+    b.host.append("CycleRecord", payload, owner="triad")
+    before = totals(b)
+    if tamper:
+        with pytest.raises(PermissionError):
+            resume_patch_failure(b.flow, b.cycle.cycle_id)
+        assert b.daily.current(b.cycle.cycle_id)["status"] == "BLOCKED"
+    else:
+        record, count, day = resume_patch_failure(b.flow, b.cycle.cycle_id)
+        assert record.status == "CREATED" and count == 0 and day == b.day
+    assert totals(b) == before  # No change slot had been reserved for this native result.

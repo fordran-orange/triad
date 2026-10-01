@@ -47,6 +47,55 @@ def test_unobserved_model_payload_is_rejected():
         run.finish(raw.model_dump(), 10, 5)
 
 
+def test_output_schema_matches_host_evidence_rules_without_mutating_request():
+    run = NativeRun([], lambda: None)
+    schema = AgentRunResult.model_json_schema()
+    original = json.dumps(schema, sort_keys=True)
+    request = SimpleNamespace(required_output_schema=schema)
+    ordinary = run.result_schema(request)
+    assert ordinary["properties"]["tests_run"]["maxItems"] == 0
+    assert "maxItems" not in ordinary["properties"]["analysis_artifacts"]
+    run.product_workspace = True
+    constrained = run.result_schema(request)
+    for name in (
+        "commands_executed",
+        "permission_requests",
+        "claims",
+        "actions_taken",
+        "tests_run",
+        "files_changed",
+        "analysis_artifacts",
+    ):
+        assert constrained["properties"][name]["maxItems"] == 0
+    assert json.dumps(schema, sort_keys=True) == original
+
+
+def test_bad_result_remains_rejected_with_field_names_only():
+    run = NativeRun([], lambda: None)
+    run.product_workspace = True
+    run.broker = workspace()
+    raw = AgentRunResult(
+        run_id="fixture",
+        status="NO_CHANGE_JUSTIFIED",
+        summary="fixture",
+        tests_run=("untrusted text",),
+    )
+    with pytest.raises(ProviderError, match="NativeResultViolation"):
+        run.finish(raw.model_dump(), 10, 5)
+    assert run.evidence["rejected_result_fields"] == ["tests_run"]
+    assert "untrusted text" not in json.dumps(run.evidence)
+
+
+def test_workspace_denials_retain_code_location_not_arguments():
+    broker = workspace()
+    with pytest.raises(PermissionError):
+        broker.call("invented secret tool", {"sensitive": "private text"})
+    assert broker.denials == 1
+    assert broker.denial_details[0]["tool"] == "UNKNOWN"
+    assert broker.denial_details[0]["location"].startswith("product_workspace.py:")
+    assert "private text" not in json.dumps(broker.denial_details)
+
+
 def session():
     value = GrokSession.__new__(GrokSession)
     value.guard = lambda: None

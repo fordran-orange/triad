@@ -38,6 +38,7 @@ class ProductWorkspace:
         self.writable = PRODUCT_ROOTS
         self.guard, self.resources = guard, resources
         self.calls, self.denials = [], 0
+        self.denial_details = []
         self.sandbox = OfflineSandbox(image=image)
         self.lock = threading.Lock()
         self.cancelled = threading.Event()
@@ -130,7 +131,20 @@ class ProductWorkspace:
                 if self.resources:
                     self.resources.observe("valid_proposal", evidence["snapshot_sha256"])
                 return result
-            except Exception:
+            except Exception as exc:
+                import traceback
+                from pathlib import Path
+
+                frame = traceback.extract_tb(exc.__traceback__)[-1]
+                self.denial_details.append(
+                    {
+                        "tool": name
+                        if isinstance(name, str) and name in {t["name"] for t in self.definitions()}
+                        else "UNKNOWN",
+                        "error_class": type(exc).__name__,
+                        "location": Path(frame.filename).name + ":" + str(frame.lineno),
+                    }
+                )
                 self.denials += 1
                 raise
 
