@@ -36,6 +36,29 @@ class ProductResponseFormatError(ValueError):
     """A native result cannot be parsed as the requested product artifact."""
 
 
+def parse_product_artifact(schema, text):
+    """Accept one observed redundant array closer; never repair substantive JSON."""
+    try:
+        return schema.model_validate_json(text), False
+    except ValidationError as original:
+
+        def unique_object(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("Duplicate artifact key")
+                result[key] = value
+            return result
+
+        try:
+            value, end = json.JSONDecoder(object_pairs_hook=unique_object).raw_decode(text.lstrip())
+        except (ValueError, TypeError):
+            raise original from None
+        if not isinstance(value, dict) or text.lstrip()[end:].strip() != "]":
+            raise original
+        return schema.model_validate(value), True
+
+
 class Development(ExecutionServices):
     def __init__(self, store=None, git=None):
         super().__init__(store or Store(scope="triad"), git)
@@ -220,9 +243,23 @@ class Development(ExecutionServices):
             if schema and len(result.analysis_artifacts) != 1:
                 raise ValueError("Expected exactly one structured product artifact")
             try:
-                payload = (
-                    schema.model_validate_json(result.analysis_artifacts[0]) if schema else None
+                payload, normalized = (
+                    parse_product_artifact(schema, result.analysis_artifacts[0])
+                    if schema
+                    else (None, False)
                 )
+                if normalized:
+                    self.record(
+                        "ProductArtifactNormalization",
+                        mission,
+                        agent=agent,
+                        run_id=request.run_id,
+                        work_item_id=work.work_item_id,
+                        operation="Removed one redundant array closer after a complete JSON object",
+                        original_sha256=hashlib.sha256(
+                            result.analysis_artifacts[0].encode()
+                        ).hexdigest(),
+                    )
             except ValidationError as exc:
                 raise ProductResponseFormatError(
                     "Invalid product artifact: "
