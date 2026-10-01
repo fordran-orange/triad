@@ -46,28 +46,6 @@ def token_count(value):
     return value
 
 
-def tool_input_object(value):
-    """Accept vendor JSON-text encoding; the broker still validates arguments."""
-    if isinstance(value, str):
-
-        def unique(pairs):
-            result = {}
-            for key, item in pairs:
-                if key in result:
-                    raise ValueError("Duplicate tool argument")
-                result[key] = item
-            return result
-
-        def invalid_constant(_):
-            raise ValueError("Invalid JSON constant")
-
-        try:
-            value = json.loads(value, object_pairs_hook=unique, parse_constant=invalid_constant)
-        except (ValueError, RecursionError):
-            return False
-    return isinstance(value, dict)
-
-
 class NativeRun:
     def __init__(self, command, guard, max_tool_calls=30, *, resources=None):
         self.command, self.guard = command, guard
@@ -304,14 +282,16 @@ class GrokSession:
                         and set(raw) == {"variant", "tool_name", "tool_input"}
                         and raw["variant"] == "UseTool"
                         and raw["tool_name"] in names
-                        and tool_input_object(raw["tool_input"])
+                        and isinstance(raw["tool_input"], (dict, str))
                         and tool.get("toolCallId")
                         and len(options) == 1
                         and isinstance(options[0].get("optionId"), str)
                     ):
                         # Approve only this invocation of an already host-granted
                         # broker tool. Its actual arguments/authority are checked
-                        # again by the broker; never remember a vendor-wide grant.
+                        # again by the broker; malformed encoded arguments must
+                        # return a tool error, not cancel this authorized session.
+                        # Never remember a vendor-wide grant.
                         reply["result"] = {
                             "outcome": {"outcome": "selected", "optionId": options[0]["optionId"]}
                         }

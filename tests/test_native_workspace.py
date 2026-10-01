@@ -209,14 +209,43 @@ def test_grok_approves_only_one_broker_invocation(as_text):
         '{"x":-Infinity}',
     ],
 )
-def test_grok_rejects_invalid_encoded_broker_arguments(raw):
+def test_grok_malformed_tool_arguments_are_recoverable_tool_errors(raw):
+    from trading_core.providers.bounded_tools import ToolServer
+
     value = session()
     value.tools = value.expected_tools
     request = permission_request(value)
     request["params"]["toolCall"]["rawInput"]["tool_input"] = raw
     value.observe(request)
-    assert "error" in value.sent[-1]
+    assert value.sent[-1]["result"]["outcome"]["optionId"] == "once"
     assert not value.broker.calls
+    server = ToolServer.__new__(ToolServer)
+    server.broker = value.broker
+    reply = server.dispatch(
+        {
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "run_command",
+                "arguments": raw,
+            },
+        }
+    )
+    assert reply["result"]["isError"]
+    assert not value.broker.calls and not value.broker.changes()
+    # A valid subsequent call can succeed in the same broker session.
+    reply = server.dispatch(
+        {
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "write_file",
+                "arguments": {"path": "products/triad/example.txt", "content": "corrected"},
+            },
+        }
+    )
+    assert not reply["result"].get("isError")
+    assert value.broker.changes()[0].content == "corrected"
 
 
 @pytest.mark.parametrize(
