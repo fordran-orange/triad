@@ -140,6 +140,29 @@ def test_approval_for_another_builder_rejected(monkeypatch):
         grants.issue(records, item, "approval")
 
 
+def test_failed_cycle_closes_only_its_active_implementation():
+    from products.triad.sequential import SequentialCycle
+
+    active = work(mission_id="cycle", parent_work_item_id="parent")
+    other = work(mission_id="other", parent_work_item_id="parent")
+    closed = active.model_copy(update={"status": "COMPLETED"})
+    parent = active.model_copy(update={"parent_work_item_id": None})
+    waiting = active.model_copy(update={"status": "AWAITING_REVIEW"})
+    changes = []
+    flow = object.__new__(SequentialCycle)
+    flow.s = NS(
+        daily=NS(current=lambda _: {"parent_work_item_id": "parent"}),
+        host=NS(
+            store=NS(list_work=lambda _: [active, other, closed, parent, waiting]),
+            advance=lambda item, state, *a, **k: changes.append((item, state)),
+        ),
+        record=lambda *a, **k: None,
+    )
+    flow.close_failed_work("cycle", RuntimeError("fixture"))
+    assert [item for item, _ in changes] == [active, waiting]
+    assert all(state == "FAILED" for _, state in changes)
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize(
     "agent,reviewer", [("CODEX", "CLAUDE"), ("CLAUDE", "GROK"), ("GROK", "CODEX")]

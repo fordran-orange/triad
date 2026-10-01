@@ -339,6 +339,39 @@ class SequentialCycle:
         )
 
     def build(self, mission, agent, proposal, approval):
+        try:
+            return self._build(mission, agent, proposal, approval)
+        except Exception as exc:
+            self.close_failed_work(mission, exc)
+            raise
+
+    def close_failed_work(self, mission, error):
+        from trading_core.work import State
+
+        parent = self.s.daily.current(mission)["parent_work_item_id"]
+        for work in self.s.host.store.list_work(10000):
+            if (
+                work.owner == "triad"
+                and work.mission_id == mission
+                and work.parent_work_item_id == parent
+                and work.work_type == "development"
+                and work.status in {State.IN_PROGRESS, State.AWAITING_REVIEW}
+            ):
+                self.s.host.advance(
+                    work,
+                    State.FAILED,
+                    "Product cycle failed; isolated candidate retained",
+                    failure_reason=type(error).__name__,
+                )
+                self.s.record(
+                    "ProductBuildFailure",
+                    mission,
+                    work_item_id=work.work_item_id,
+                    error_class=type(error).__name__,
+                    reason=str(error)[:500],
+                )
+
+    def _build(self, mission, agent, proposal, approval):
         approved = self.approval(mission, agent, proposal, approval)
         self.guard(mission)
         git = ProductGit(proposal.files, root=self.root)
@@ -551,27 +584,38 @@ class SequentialCycle:
             decision=decision,
             usage=usage,
         )
-        self.s.quality.require_pass(build["implementation_id"], build["git"]["change_commit"])
         implementation_work = self.s.host.store.get(build["work_item_id"])
         if implementation_work.review_required:
             from trading_core.work import Review
 
-            self.s.host.apply_review(
-                implementation_work,
-                Review(
-                    work_item_id=implementation_work.work_item_id,
-                    reviewer=REVIEWERS[agent],
-                    decision="APPROVE",
-                    findings=tuple(result.findings),
-                    severity="NONE",
-                    evidence_checked=(
-                        "qa:" + qa.qa_run_id,
-                        "candidate:" + build["git"]["change_commit"],
+            if decision == "BLOCKED":
+                from trading_core.work import State
+
+                self.s.host.advance(
+                    implementation_work, State.BLOCKED, "Independent QA blocked implementation"
+                )
+            else:
+                self.s.host.apply_review(
+                    implementation_work,
+                    Review(
+                        work_item_id=implementation_work.work_item_id,
+                        reviewer=REVIEWERS[agent],
+                        decision="APPROVE"
+                        if decision in {"PASS", "PASS_WITH_OBSERVATIONS"}
+                        else "REJECT"
+                        if decision == "REJECT"
+                        else "REQUEST_CHANGES",
+                        findings=tuple(result.findings) + missing,
+                        severity="NONE",
+                        evidence_checked=(
+                            "qa:" + qa.qa_run_id,
+                            "candidate:" + build["git"]["change_commit"],
+                        ),
+                        tests_repeated=tuple(build["checks"]["checks"]),
+                        execution_mode="REAL",
                     ),
-                    tests_repeated=tuple(build["checks"]["checks"]),
-                    execution_mode="REAL",
-                ),
-            )
+                )
+        self.s.quality.require_pass(build["implementation_id"], build["git"]["change_commit"])
         return qa
 
     def require_acceptance(self, mission, build, qa):
@@ -799,6 +843,7 @@ class SequentialCycle:
                 )
                 return self.s.daily.current(mission)
             except Exception as exc:
+                self.close_failed_work(mission, exc)
                 self.s.transition(
                     mission,
                     "BLOCKED",

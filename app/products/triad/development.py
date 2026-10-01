@@ -151,10 +151,6 @@ class Development(ExecutionServices):
         if write and not workspace:
             self.ledger.reserve(agent, work.work_item_id, improvement=True, day=self.day)
         work, policy = self.start_work(work)
-        if workspace:
-            from trading_core.product_workspace_grant import issue
-
-            issue(self.canonical, work, workspace_approval)
         if write and not workspace:
             metadata = self.git.isolate(work.work_item_id, work.assigned_agent)
             self.record(
@@ -214,6 +210,10 @@ class Development(ExecutionServices):
             phase="STARTED",
         )
         try:
+            if workspace:
+                from trading_core.product_workspace_grant import issue
+
+                issue(self.canonical, work, workspace_approval)
             result = self.runtime.execute(request)
             if result.status == "BLOCKED":
                 raise PermissionError("Provider blocked this assignment: " + result.summary)

@@ -110,10 +110,10 @@ def test_next_author_waits_for_deployment(fail_health):
     flow.guard = lambda _: None
     flow.s = NS(
         ledger=NS(store=NS(lease=lambda _: nullcontext()), gate=nullcontext),
-        host=NS(store=NS(lease=lambda _: nullcontext())),
+        host=NS(store=NS(lease=lambda _: nullcontext(), list_work=lambda _: [])),
         daily=NS(
             create=lambda **k: cycle,
-            current=lambda _: {"status": "COMPLETED"},
+            current=lambda _: {"status": "COMPLETED", "parent_work_item_id": "p"},
             schedule=lambda: {"timezone": "America/Chicago"},
         ),
         canonical=NS(append=lambda *a, **k: None),
