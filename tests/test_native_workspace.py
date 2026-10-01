@@ -196,7 +196,19 @@ def test_grok_approves_only_one_broker_invocation(as_text):
     assert not value.broker.calls
 
 
-@pytest.mark.parametrize("raw", ["[]", "null", '"string"', "{bad", '{"argv":[],"argv":[]}'])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "[]",
+        "null",
+        '"string"',
+        "{bad",
+        '{"argv":[],"argv":[]}',
+        '{"x":NaN}',
+        '{"x":Infinity}',
+        '{"x":-Infinity}',
+    ],
+)
 def test_grok_rejects_invalid_encoded_broker_arguments(raw):
     value = session()
     value.tools = value.expected_tools

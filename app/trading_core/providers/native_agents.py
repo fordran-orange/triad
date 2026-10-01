@@ -58,8 +58,11 @@ def tool_input_object(value):
                 result[key] = item
             return result
 
+        def invalid_constant(_):
+            raise ValueError("Invalid JSON constant")
+
         try:
-            value = json.loads(value, object_pairs_hook=unique)
+            value = json.loads(value, object_pairs_hook=unique, parse_constant=invalid_constant)
         except (ValueError, RecursionError):
             return False
     return isinstance(value, dict)
