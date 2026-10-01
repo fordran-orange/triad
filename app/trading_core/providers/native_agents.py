@@ -478,28 +478,40 @@ def claude_arguments(url, writable=False, model="Auto", schema=None):
 
 
 def claude_initialize(app, guard, expected):
-    for identifier, request in (
-        ("initialize", {"subtype": "initialize"}),
-        ("mcp", {"subtype": "mcp_status"}),
-    ):
+    def query(identifier, request, timeout=20):
+        guard()
         app.send({"type": "control_request", "request_id": identifier, "request": request})
-        for _ in range(64):
-            msg = app.receive(timeout=20, guard=guard)
-            if msg.get("type") != "control_response":
-                raise ProviderError("UNAVAILABLE", "ClaudeHandshakeUnexpected")
-            response = msg.get("response", {})
-            if response.get("request_id") != identifier or response.get("subtype") != "success":
-                raise ProviderError("UNAVAILABLE", "ClaudeHandshakeFailed")
-            if identifier == "mcp":
-                servers = response.get("response", {}).get("mcpServers", [])
-                if (
-                    len(servers) != 1
-                    or servers[0].get("name") != "triad"
-                    or servers[0].get("status") != "connected"
-                    or {t.get("name") for t in servers[0].get("tools", [])} != expected
-                ):
-                    raise ProviderError("UNAVAILABLE", "NativeToolCatalogMismatch")
+        msg = app.receive(timeout=timeout, guard=guard)
+        if msg.get("type") != "control_response":
+            raise ProviderError("UNAVAILABLE", "ClaudeHandshakeUnexpected")
+        response = msg.get("response", {})
+        if response.get("request_id") != identifier or response.get("subtype") != "success":
+            raise ProviderError("UNAVAILABLE", "ClaudeHandshakeFailed")
+        return response.get("response", {}).get("mcpServers", [])
+
+    query("initialize", {"subtype": "initialize"})
+    deadline = time.monotonic() + 20
+    for attempt in range(80):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             break
+        servers = query(
+            "mcp" if attempt == 0 else f"mcp-{attempt}", {"subtype": "mcp_status"}, remaining
+        )
+        if len(servers) != 1 or servers[0].get("name") != "triad":
+            raise ProviderError("UNAVAILABLE", "NativeToolCatalogMismatch")
+        server = servers[0]
+        if server.get("status") == "connected":
+            if {t.get("name") for t in server.get("tools", [])} != expected:
+                raise ProviderError("UNAVAILABLE", "NativeToolCatalogMismatch")
+            return
+        if server.get("status") != "pending" or server.get("tools"):
+            raise ProviderError("UNAVAILABLE", "NativeToolCatalogMismatch")
+        # Claude initializes MCP asynchronously. Pending is not a permission
+        # mismatch; never send model input until the exact catalog is connected.
+        guard()
+        time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+    raise ProviderError("UNAVAILABLE", "ClaudeToolConnectionTimeout")
 
 
 class ClaudeRun(NativeRun):
