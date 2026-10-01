@@ -636,7 +636,9 @@ class DailyDevelopment(Development):
             "When previous_debrief is supplied, revise that draft: address every required correction in the affected fields, "
             "preserve independently verified facts, and do not regenerate unrelated passages or reintroduce prior claims. "
             "No fictional idle-model contributions. Date from UTC timestamps. overall_status VERIFIED_AWAITING_DEBRIEF_QA. "
-            "Finished time is post-merge verification time supplied, not future cycle close. Distinguish OBSERVED/EXPECTED/HYPOTHESIZED effects. "
+            "Finished time is the latest supplied deployment verification or no-change health verification time, not future cycle close. "
+            "NO_CHANGE turns preserve the baseline: do not claim they built, merged or deployed anything. "
+            "Distinguish OBSERVED/EXPECTED/HYPOTHESIZED effects. "
             "Explicitly account debt and failures, classify proposed gain modestly with evidence, and answer all seven tomorrow questions. "
             "No actions/claims/commands/tests/files. Keep explanation useful and concise.",
             context,
