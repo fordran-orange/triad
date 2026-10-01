@@ -199,8 +199,8 @@ class SequentialCycle:
             if approval:
                 return proposal, approval
             feedback.append({"proposal": proposal.model_dump(mode="json"), **review})
-            if review["decision"] != "REQUEST_CHANGES":
-                raise PermissionError("Proposal rejected: " + review["summary"])
+            if review["decision"] not in {"REQUEST_CHANGES", "REJECT"}:
+                raise PermissionError("Invalid proposal review: " + review["summary"])
         raise PermissionError("Proposal revision attempts exhausted: " + feedback[-1]["summary"])
 
     def proposal_attempt(self, mission, agent, feedback, attempt):
@@ -209,8 +209,7 @@ class SequentialCycle:
         sources = tuple(
             p
             for p in inventory
-            if p.startswith("app/products/triad/")
-            and ProductGit((p,), root=self.root).path(self.root, p).stat().st_size < 12000
+            if ProductGit((p,), root=self.root).path(self.root, p).stat().st_size < 12000
         )
         author_work, _, proposal, author_usage = self.call(
             mission,
@@ -226,6 +225,8 @@ class SequentialCycle:
             "Do not require unsupported checks or pretend source review proves browser behavior. For behavioral changes include meaningful "
             "unit tests and their tests/products/triad file paths in the initial manifest. "
             "Address all prior review feedback when supplied. Read-only integration source establishes mount prefixes; "
+            "A rejected candidate is not approved: inspect the findings and propose a different useful candidate "
+            "or an evidence-supported NO_CHANGE for a fresh independent review. Inspect existing tests before proposing new ones. "
             "it is context, never permission to change protected code. "
             "Return exactly one Proposal JSON string in analysis_artifacts using the supplied schema.",
             {
