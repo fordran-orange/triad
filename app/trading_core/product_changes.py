@@ -260,8 +260,23 @@ class ProductGit(GitChanges):
         for c in changes:
             target = self.path(metadata["worktree"], c.path)
             ensure_no_secret(c.model_dump(mode="json"))
-            previous = hashlib.sha256(target.read_bytes()).hexdigest() if target.exists() else None
-            if previous != c.original_sha256:
+            previous = None
+            fingerprints = {None}
+            if target.exists():
+                raw = target.read_bytes()
+                previous = hashlib.sha256(raw).hexdigest()
+                fingerprints = {previous}
+                # Workspace snapshots use read_text's universal newlines. Git
+                # may materialize the same committed text as CRLF on Windows.
+                # Retain raw hashes for existing patch callers; normalize only
+                # newlines, never other whitespace or missing/empty files.
+                try:
+                    text = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+                except UnicodeDecodeError:
+                    pass
+                else:
+                    fingerprints.add(hashlib.sha256(text.encode("utf-8")).hexdigest())
+            if c.original_sha256 not in fingerprints:
                 raise PermissionError("Product source changed since proposal")
             operation = getattr(c, "operation", "WRITE")
             if operation == "DELETE" and previous is None:
