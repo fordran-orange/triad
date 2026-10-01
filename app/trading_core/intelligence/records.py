@@ -64,15 +64,25 @@ class Records:
             require_owner(self.store.scope, row["owner"])
         return {**row["payload"], "id": row["id"], "kind": row["kind"], "owner": row["owner"]}
 
-    def list(self, kind, *, shared=False, conn=None):
+    def list(self, kind, *, shared=False, matching=None, conn=None):
+        if matching is not None and not isinstance(matching, dict):
+            raise TypeError("Record filter must be an object")
         if conn is None:
             with self.store.connect() as connection:
-                return self.list(kind, shared=shared, conn=connection)
+                return self.list(kind, shared=shared, matching=matching, conn=connection)
         # Only approved capability versions are shared platform facts.
         shared = shared and kind == "CapabilityVersion"
         rows = conn.execute(
-            "SELECT * FROM core.intelligence_records WHERE kind=%s AND (%s::text IS NULL OR owner=ANY(%s) OR (%s AND owner='core')) ORDER BY created_at,id",
-            (kind, self.store.scope, self.store.owner_aliases, shared),
+            "SELECT * FROM core.intelligence_records WHERE kind=%s AND (%s::text IS NULL OR owner=ANY(%s) OR (%s AND owner='core')) "
+            "AND (%s::jsonb IS NULL OR payload @> %s::jsonb) ORDER BY created_at,id",
+            (
+                kind,
+                self.store.scope,
+                self.store.owner_aliases,
+                shared,
+                Jsonb(matching) if matching is not None else None,
+                Jsonb(matching) if matching is not None else None,
+            ),
         ).fetchall()
         return [
             {**r["payload"], "id": r["id"], "kind": r["kind"], "owner": r["owner"]} for r in rows

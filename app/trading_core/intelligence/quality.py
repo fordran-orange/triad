@@ -82,11 +82,9 @@ class Quality:
         ImplementationRun.model_validate(
             {k: v for k, v in build.items() if k in ImplementationRun.model_fields}
         )
-        reviews = [
-            r
-            for r in self.records.list("QARun", conn=conn)
-            if r["implementation_run_id"] == implementation_id
-        ]
+        reviews = self.records.list(
+            "QARun", matching={"implementation_run_id": implementation_id}, conn=conn
+        )
         if (
             build["kind"] != "ImplementationRun"
             or build["status"] != "IMPLEMENTED"
