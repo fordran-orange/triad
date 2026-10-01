@@ -55,7 +55,8 @@ def walk(fd, prefix=''):
         elif stat.S_ISREG(s.st_mode):
             child=os.open(name, os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK, dir_fd=fd)
             try:
-                if not stat.S_ISREG(os.fstat(child).st_mode): raise ValueError('special file')
+                opened=os.fstat(child)
+                if not stat.S_ISREG(opened.st_mode) or opened.st_nlink!=1: raise ValueError('special or linked file')
                 data=os.read(child, 48001)
                 total+=len(data)
                 if total>48000: raise ValueError('workspace output too large')
