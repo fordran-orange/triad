@@ -58,9 +58,28 @@ def native_rejection(daily, mission, agent, prior, policy, conn):
     require(
         len(failures) == len(evidence) == 1
         and failures[0].get("error_class") == "NativeResultViolation"
+        and isinstance(failures[0].get("run_id"), str)
+        and bool(failures[0]["run_id"].strip())
         and failures[0].get("run_id") == evidence[0].get("run_id")
         and evidence[0].get("boundary") == "DOCKER_OFFLINE_TOOLS",
         "Canonical native rejection required",
+    )
+    requests = conn.execute(
+        "SELECT payload FROM core.day3_records WHERE owner='triad' AND kind='AgentRunRequest' "
+        "AND work_item_id=%s",
+        (work.work_item_id,),
+    ).fetchall()
+    expected = {
+        "run_id": failures[0]["run_id"],
+        "work_item_id": work.work_item_id,
+        "mission_id": mission,
+        "agent_id": agent,
+        "role": "IMPLEMENT",
+        "control_epoch": prior["control_epoch"],
+    }
+    require(
+        len(requests) == 1 and all(requests[0]["payload"].get(k) == v for k, v in expected.items()),
+        "Native rejection must match its actual implementation request",
     )
     require(
         not any(

@@ -246,7 +246,17 @@ def test_other_product_records_do_not_change_recovery_authority(blocked):
 
 
 @pytest.mark.parametrize(
-    "tamper", [None, "grant_epoch", "missing_evidence", "checkpoint", "reservation"]
+    "tamper",
+    [
+        None,
+        "grant_epoch",
+        "missing_evidence",
+        "checkpoint",
+        "reservation",
+        "empty_run",
+        "missing_run",
+        "wrong_request",
+    ],
 )
 def test_native_result_recovery_requires_proven_unapplied_workspace(engine, blocked, tamper):
     from trading_core.cycle_records import CycleRecord
@@ -286,9 +296,24 @@ def test_native_result_recovery_requires_proven_unapplied_workspace(engine, bloc
         ("native_executor_evidence", {"boundary": "DOCKER_OFFLINE_TOOLS"}),
     ):
         if tamper != "missing_evidence":
-            b.daily.product.ledger.event(
-                event, work.work_item_id, run_id="fixture-native-run", **extra
+            identity = (
+                {}
+                if tamper == "missing_run"
+                else {"run_id": "" if tamper == "empty_run" else "fixture-native-run"}
             )
+            b.daily.product.ledger.event(event, work.work_item_id, **identity, **extra)
+    b.host.ledger.put(
+        "AgentRunRequest",
+        {
+            "run_id": "wrong" if tamper == "wrong_request" else "fixture-native-run",
+            "work_item_id": work.work_item_id,
+            "mission_id": b.cycle.cycle_id,
+            "agent_id": "CODEX",
+            "role": "IMPLEMENT",
+            "control_epoch": b.cycle.control_epoch,
+        },
+        work_id=work.work_item_id,
+    )
     if tamper == "checkpoint":
         b.host.append(
             "ProductBuildCheckpoint",
