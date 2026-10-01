@@ -17,6 +17,7 @@
 </form>
 <p id="cost-status" role="status" aria-live="polite">Enter assumptions to calculate.</p>
 <div id="cost-results" hidden><p id="gross"></p>
+<p id="breakeven"></p>
 <div class="table-scroll" tabindex="0" role="region" aria-label="Cost scenarios">
 <table><caption>Cost sensitivity — money in USD; return in percent</caption>
 <thead><tr><th scope="col">Scenario</th><th scope="col">Commission</th><th scope="col">Spread</th><th scope="col">Slippage</th><th scope="col">Total cost</th><th scope="col">Net P&amp;L</th><th scope="col">Net return on entry notional (%)</th></tr></thead>
@@ -36,6 +37,7 @@
     results.hidden = true;
     rows.replaceChildren();
     document.getElementById('gross').textContent = '';
+    document.getElementById('breakeven').textContent = '';
     status.textContent = 'Inputs changed. Calculate to see updated results.';
     form.removeAttribute('aria-busy');
   }
@@ -80,6 +82,9 @@
       const data = await response.json();
       if (current !== version) return;
       document.getElementById('gross').textContent = 'Gross P&L (unchanged across scenarios): ' + display(data.gross_pnl);
+      document.getElementById('breakeven').textContent = data.breakeven_cost_multiplier === null
+        ? 'Breakeven cost multiplier: not applicable (all cost inputs are zero).'
+        : 'Breakeven cost multiplier: ' + Number(data.breakeven_cost_multiplier).toLocaleString('en-US', {maximumFractionDigits:4}) + 'x supplied costs (net P&L reaches zero at this multiple).';
       for (const scenario of data.scenarios) {
         const row = document.createElement('tr');
         const values = [scenario.label, ...['commission','spread_cost','slippage_cost','total_cost','net_pnl'].map(key => display(scenario[key])),

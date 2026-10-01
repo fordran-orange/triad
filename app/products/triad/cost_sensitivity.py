@@ -21,9 +21,10 @@ def calculate_cost_sensitivity(assumptions):
                       + notional * values["commission_bps"] / 10000)
         spread = notional * values["full_spread_bps"] / 20000
         slippage = notional * values["slippage_bps"] / 10000
+        unit_total = commission + spread + slippage
         scenarios = []
         for multiplier in (1, 2, 3):
-            total = multiplier * (commission + spread + slippage)
+            total = multiplier * unit_total
             net = gross - total
             scenarios.append({
                 "label": f"{multiplier}x supplied costs",
@@ -43,5 +44,6 @@ def calculate_cost_sensitivity(assumptions):
             "assumptions": {k: str(v) for k, v in assumptions.items()},
             "gross_pnl": str(gross),
             "round_trip_reference_notional": str(notional),
+            "breakeven_cost_multiplier": str(gross / unit_total) if unit_total != 0 else None,
             "scenarios": scenarios,
         }
