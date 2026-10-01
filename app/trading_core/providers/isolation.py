@@ -172,7 +172,18 @@ class OfflineSandbox:
             "import time; time.sleep(180)",
         ]
 
-    def run(self, argv, files, *, writable=(), timeout=30, guard=lambda: None, max_bytes=MAX_BYTES):
+    def run(
+        self,
+        argv,
+        files,
+        *,
+        writable=(),
+        timeout=30,
+        guard=lambda: None,
+        max_bytes=MAX_BYTES,
+        max_files=64,
+        export_failed=False,
+    ):
         if (
             not isinstance(argv, list)
             or not argv
@@ -183,7 +194,11 @@ class OfflineSandbox:
             raise ValueError("A bounded argument vector and timeout are required")
         if type(max_bytes) is not int or not MAX_BYTES <= max_bytes <= 1000000:
             raise ValueError("Invalid host snapshot capacity")
-        if not isinstance(files, dict) or len(files) > 64 or len(writable) > 5:
+        if type(max_files) is not int or not 64 <= max_files <= 2048:
+            raise ValueError("Invalid host file capacity")
+        if type(export_failed) is not bool:
+            raise ValueError("Invalid host export policy")
+        if not isinstance(files, dict) or len(files) > max_files or len(writable) > 5:
             raise ValueError("Workspace exceeds file/directory limit")
         files = {safe_path(k): v for k, v in files.items()}
         writable = tuple(safe_path(p) for p in writable)
@@ -219,7 +234,7 @@ class OfflineSandbox:
                 guard=check,
             )
             check()
-            if result.status != "EXITED" or result.exit_code != 0:
+            if result.status != "EXITED" or (result.exit_code != 0 and not export_failed):
                 return SandboxResult(
                     result.exit_code,
                     result.status,
@@ -230,13 +245,17 @@ class OfflineSandbox:
                     (),
                     image=self.image,
                 )
-            export_script = EXPORT.replace("48001", str(max_bytes + 1)).replace(
-                ">48000", ">" + str(max_bytes)
+            export_script = (
+                EXPORT.replace("48001", str(max_bytes + 1))
+                .replace(">48000", ">" + str(max_bytes))
+                .replace(">128", ">" + str(max_files * 8))
             )
             exported = json.loads(self._docker(["exec", name, "python", "-I", "-c", export_script]))
             check()
             if not isinstance(exported, dict):
                 raise TypeError("Invalid workspace export")
+            if len(exported) > max_files:
+                raise ValueError("Exported workspace exceeds file capacity")
             changed = {}
             deleted = []
             for path in set(files) | set(exported):
