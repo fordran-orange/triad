@@ -189,6 +189,27 @@ def resume_patch_failure(flow, mission):
                 identifier=action_id,
                 conn=conn,
             )
+            if prior.get("scheduled"):
+                import os
+
+                from products.triad.daily_process import process_info
+
+                identity = process_info(os.getpid())
+                require(
+                    identity.get("state") == "RUNNING" and identity.get("creation_id"),
+                    "Recovery process identity unavailable",
+                )
+                host.append(
+                    "DailyDispatchProcess",
+                    {
+                        "cycle_id": mission,
+                        "pid": os.getpid(),
+                        **identity,
+                        "recovery_action": action_id,
+                    },
+                    owner="triad",
+                    conn=conn,
+                )
             payload = {k: v for k, v in prior.items() if k in CycleRecord.model_fields}
             state = "VERIFYING" if turns else "CREATED"
             payload.update(

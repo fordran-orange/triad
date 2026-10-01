@@ -166,3 +166,32 @@ def test_record_failure_rolls_back_reservation_refund(blocked, monkeypatch):
         resume_patch_failure(blocked.flow, blocked.cycle.cycle_id)
     assert totals(blocked) == before
     assert blocked.daily.current(blocked.cycle.cycle_id)["status"] == "BLOCKED"
+
+
+def test_reconciler_cannot_use_old_process_snapshot_during_recovery(blocked, monkeypatch):
+    from products.triad.daily_process import reconcile
+
+    def unexpected(*a, **k):
+        pytest.fail("Reconciler must not read stale records while the runner owns the lease")
+
+    monkeypatch.setattr(blocked.daily.product, "list", unexpected)
+    with blocked.host.store.lease("triad-daily-product-execution"):
+        reconcile(blocked.daily)
+
+
+def test_scheduled_recovery_atomically_registers_new_runner(blocked, monkeypatch):
+    from trading_core.cycle_records import CycleRecord
+
+    b = blocked
+    prior = b.daily.current(b.cycle.cycle_id)
+    payload = {k: v for k, v in prior.items() if k in CycleRecord.model_fields}
+    payload["scheduled"] = True
+    b.host.append("CycleRecord", payload, owner="triad")
+    monkeypatch.setattr(
+        "products.triad.daily_process.process_info",
+        lambda _: {"state": "RUNNING", "creation_id": "fixture-identity"},
+    )
+    record, _ = resume_patch_failure(b.flow, b.cycle.cycle_id)
+    processes = b.host.list("DailyDispatchProcess")
+    assert processes[-1]["creation_id"] == "fixture-identity"
+    assert processes[-1]["recovery_action"] == record.recovery_action

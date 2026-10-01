@@ -95,9 +95,23 @@ def launch(**kwargs):
 
 
 def reconcile(service=None):
-    from products.triad.daily import TERMINAL, Daily
+    from trading_core.store import ConcurrentUpdate
+
+    from products.triad.daily import Daily
 
     service = service or Daily()
+    try:
+        # Read process identity and lifecycle only after acquiring the runner's
+        # lease. Recovery may atomically replace an exited scheduled PID.
+        with service.host.store.lease("triad-daily-product-execution"):
+            return _reconcile_idle(service)
+    except ConcurrentUpdate:
+        return  # A live runner owns lifecycle transitions.
+
+
+def _reconcile_idle(service):
+    from products.triad.daily import TERMINAL
+
     processes = {r["cycle_id"]: r for r in service.product.list("DailyDispatchProcess")}
     for dispatch in service.product.list("DailyDispatch"):
         cycle_id = dispatch["cycle_id"]
