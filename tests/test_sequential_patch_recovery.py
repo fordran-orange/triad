@@ -94,8 +94,9 @@ def totals(case):
 def test_recovery_is_atomic_keeps_usage_history_and_cannot_repeat(blocked):
     b = blocked
     before = totals(b)
-    record, count = resume_patch_failure(b.flow, b.cycle.cycle_id)
+    record, count, day = resume_patch_failure(b.flow, b.cycle.cycle_id)
     assert count == 0 and record.status == "CREATED"
+    assert day == b.day
     assert record.parent_work_item_id == b.cycle.parent_work_item_id
     assert record.failures[-1]["message"] == ERROR
     assert b.host.store.get(b.work.work_item_id).status == State.FAILED
@@ -191,7 +192,54 @@ def test_scheduled_recovery_atomically_registers_new_runner(blocked, monkeypatch
         "products.triad.daily_process.process_info",
         lambda _: {"state": "RUNNING", "creation_id": "fixture-identity"},
     )
-    record, _ = resume_patch_failure(b.flow, b.cycle.cycle_id)
+    record, _, day = resume_patch_failure(b.flow, b.cycle.cycle_id)
+    assert day == b.day
     processes = b.host.list("DailyDispatchProcess")
     assert processes[-1]["creation_id"] == "fixture-identity"
     assert processes[-1]["recovery_action"] == record.recovery_action
+
+
+def test_other_product_checkpoint_cannot_replace_dirty_failed_checkout(blocked):
+    from pathlib import Path
+
+    b = blocked
+    (Path(b.metadata["worktree"]) / "README.md").write_text("unapplied edit remains")
+    other = Records(Store(b.host.store.settings, scope="aegis"))
+    other.append(
+        "ProductBuildCheckpoint",
+        {
+            "mission_id": b.cycle.cycle_id,
+            "work_item_id": b.work.work_item_id,
+            "phase": "ISOLATED",
+            "git": {**b.metadata, "worktree": str(b.flow.s.git.root)},
+        },
+        owner="aegis",
+    )
+    before = totals(b)
+    with pytest.raises(PermissionError, match="clean and unapplied"):
+        resume_patch_failure(b.flow, b.cycle.cycle_id)
+    assert totals(b) == before
+    assert b.daily.current(b.cycle.cycle_id)["status"] == "BLOCKED"
+
+
+def test_other_product_records_do_not_change_recovery_authority(blocked):
+    b = blocked
+    for kind in (
+        "SequentialDailyProgram",
+        "DailyCycleTransition",
+        "ProductMerge",
+        "ProductBuildFailure",
+    ):
+        b.host.append(
+            kind,
+            {
+                "cycle_id": b.cycle.cycle_id,
+                "mission_id": b.cycle.cycle_id,
+                "work_item_id": b.work.work_item_id,
+                "reason": "unrelated",
+            },
+            owner="aegis",
+        )
+    record, _, day = resume_patch_failure(b.flow, b.cycle.cycle_id)
+    assert day == b.day
+    assert record.status == "CREATED"

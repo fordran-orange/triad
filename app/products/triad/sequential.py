@@ -858,7 +858,7 @@ class SequentialCycle:
                 if resume_patch_failure:
                     from products.triad.sequential_recovery import resume_patch_failure as recover
 
-                    cycle, completed = recover(self, cycle_id)
+                    cycle, completed, self.improvement_day = recover(self, cycle_id)
                 else:
                     cycle = self.s.daily.create(
                         scheduled=scheduled,
@@ -867,11 +867,11 @@ class SequentialCycle:
                         schedule_id=schedule_id,
                     )
             mission = cycle.cycle_id
-            timezone = self.s.daily.schedule()["timezone"]
-            self.improvement_day = (
-                cycle.created_at.astimezone(ZoneInfo(timezone)).date().isoformat()
-            )
             if not resume_patch_failure:
+                timezone = self.s.daily.schedule()["timezone"]
+                self.improvement_day = (
+                    cycle.created_at.astimezone(ZoneInfo(timezone)).date().isoformat()
+                )
                 self.s.canonical.append(
                     "SequentialDailyProgram",
                     {

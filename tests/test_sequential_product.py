@@ -111,7 +111,8 @@ def test_next_author_waits_for_deployment(fail_health, resume, monkeypatch):
     flow.guard = lambda _: None
     if resume:
         monkeypatch.setattr(
-            "products.triad.sequential_recovery.resume_patch_failure", lambda *a: (cycle, 1)
+            "products.triad.sequential_recovery.resume_patch_failure",
+            lambda *a: (cycle, 1, "2026-09-29"),
         )
     flow.s = NS(
         ledger=NS(store=NS(lease=lambda _: nullcontext()), gate=nullcontext),
@@ -119,7 +120,7 @@ def test_next_author_waits_for_deployment(fail_health, resume, monkeypatch):
         daily=NS(
             create=lambda **k: cycle,
             current=lambda _: {"status": "COMPLETED", "parent_work_item_id": "p"},
-            schedule=lambda: {"timezone": "America/Chicago"},
+            schedule=lambda: {"timezone": "UTC" if resume else "America/Chicago"},
         ),
         canonical=NS(append=lambda *a, **k: None),
         transition=lambda *a, **k: None,

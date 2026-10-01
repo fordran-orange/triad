@@ -35,7 +35,9 @@ def resume_patch_failure(flow, mission):
                 "Only an unapplied source-fingerprint failure may resume",
             )
             history = [
-                r for r in host.list("DailyCycleTransition", conn=conn) if r["cycle_id"] == mission
+                r
+                for r in daily.product.list("DailyCycleTransition", conn=conn)
+                if r["cycle_id"] == mission
             ]
             require(
                 bool(history)
@@ -46,7 +48,7 @@ def resume_patch_failure(flow, mission):
             flow.guard(mission)
             programs = [
                 r
-                for r in host.list("SequentialDailyProgram", conn=conn)
+                for r in daily.product.list("SequentialDailyProgram", conn=conn)
                 if r["cycle_id"] == mission
             ]
             require(len(programs) == 1, "Unambiguous sequential program required")
@@ -68,7 +70,9 @@ def resume_patch_failure(flow, mission):
             agent = ORDER[len(turns)]
             retained = {r.get("implementation_id") for r in turns if r.get("implementation_id")}
             merges = [
-                r for r in host.list("ProductMerge", conn=conn) if r.get("mission_id") == mission
+                r
+                for r in daily.product.list("ProductMerge", conn=conn)
+                if r.get("mission_id") == mission
             ]
             require(
                 all(r.get("implementation_id") in retained for r in merges),
@@ -79,12 +83,12 @@ def resume_patch_failure(flow, mission):
                 service.git.git("merge-base", "--is-ancestor", revision, head)
             checkpoints = [
                 r
-                for r in host.list("ProductBuildCheckpoint", conn=conn)
+                for r in daily.product.list("ProductBuildCheckpoint", conn=conn)
                 if r.get("mission_id") == mission
             ]
             require(bool(checkpoints), "Isolated build checkpoint required")
             checkpoint = checkpoints[-1]
-            work = host.store.get(checkpoint["work_item_id"], conn=conn)
+            work = daily.product.store.get(checkpoint["work_item_id"], conn=conn)
             require(
                 work.owner == "triad"
                 and work.mission_id == mission
@@ -96,14 +100,14 @@ def resume_patch_failure(flow, mission):
             )
             failures = [
                 r
-                for r in host.list("ProductBuildFailure", conn=conn)
+                for r in daily.product.list("ProductBuildFailure", conn=conn)
                 if r.get("work_item_id") == work.work_item_id
             ]
             require(
                 bool(failures) and failures[-1].get("reason") == ERROR,
                 "Canonical patch rejection required",
             )
-            implementations = host.list("ImplementationRun", conn=conn)
+            implementations = daily.product.list("ImplementationRun", conn=conn)
             require(
                 not any(r.get("work_item_id") == work.work_item_id for r in implementations),
                 "A recorded implementation cannot be replayed",
@@ -113,7 +117,7 @@ def resume_patch_failure(flow, mission):
                     w.mission_id == mission
                     and w.work_type == "development"
                     and w.status in {State.IN_PROGRESS, State.AWAITING_REVIEW}
-                    for w in host.store.list_work(10000)
+                    for w in daily.product.store.list_work(10000)
                 ),
                 "Cycle still has active development work",
             )
@@ -235,4 +239,4 @@ def resume_patch_failure(flow, mission):
                 owner="triad",
                 conn=conn,
             )
-            return record, len(turns)
+            return record, len(turns), day
