@@ -199,8 +199,8 @@ class SequentialCycle:
             if approval:
                 return proposal, approval
             feedback.append({"proposal": proposal.model_dump(mode="json"), **review})
-            if review["decision"] != "REQUEST_CHANGES":
-                raise PermissionError("Proposal rejected: " + review["summary"])
+            if review["decision"] not in {"REQUEST_CHANGES", "REJECT"}:
+                raise PermissionError("Invalid proposal review: " + review["summary"])
         raise PermissionError("Proposal revision attempts exhausted: " + feedback[-1]["summary"])
 
     def proposal_attempt(self, mission, agent, feedback, attempt):
@@ -214,6 +214,13 @@ class SequentialCycle:
             if p.startswith("app/products/triad/")
             and ProductGit((p,), root=self.root).path(self.root, p).stat().st_size < 12000
         )
+        additional_sources = {}
+        for path in inventory:
+            if path in sources:
+                continue
+            target = ProductGit((path,), root=self.root).path(self.root, path)
+            if target.stat().st_size < 12000:
+                additional_sources[path] = target.read_text(encoding="utf-8")
         author_work, _, proposal, author_usage = self.call(
             mission,
             agent,
@@ -229,9 +236,12 @@ class SequentialCycle:
             "unit tests and their tests/products/triad file paths in the initial manifest. "
             "Address all prior review feedback when supplied. Read-only integration source establishes mount prefixes; "
             "it is context, never permission to change protected code. "
+            "A rejected candidate is not approved: inspect the findings and propose a different useful candidate "
+            "or an evidence-supported NO_CHANGE for a fresh independent review. Inspect existing tests before proposing new ones. "
             "Return exactly one Proposal JSON string in analysis_artifacts using the supplied schema.",
             {
                 "inventory": inventory,
+                "additional_product_sources_read_only": additional_sources,
                 "base_commit": baseline,
                 "optional_advisory_ideas": Intake(self.s.records).advisory("triad"),
                 "schema": Proposal.model_json_schema(),

@@ -330,18 +330,14 @@ def test_proposal_revision_preserves_independent_decision(decision):
         )
 
     flow.proposal_attempt = attempt
-    if decision == "REJECT":
-        with pytest.raises(PermissionError, match="rejected"):
-            flow.propose("cycle", "CLAUDE")
-        assert len(calls) == 1
+    assert flow.propose("cycle", "CLAUDE") == (proposal, "approval")
+    if decision in {"REQUEST_CHANGES", "REJECT"}:
+        assert len(calls) == 2
+        assert calls[1][1][0]["summary"] == "Fix route mounting"
+        assert calls[1][1][0]["decision"] == decision
+        assert calls[1][1][0]["proposal"] == proposal.model_dump(mode="json")
     else:
-        assert flow.propose("cycle", "CLAUDE") == (proposal, "approval")
-        if decision == "REQUEST_CHANGES":
-            assert len(calls) == 2
-            assert calls[1][1][0]["summary"] == "Fix route mounting"
-            assert calls[1][1][0]["proposal"] == proposal.model_dump(mode="json")
-        else:
-            assert len(calls) == 1
+        assert len(calls) == 1
 
 
 def test_unresolved_proposal_cannot_be_approved_by_exhaustion():
