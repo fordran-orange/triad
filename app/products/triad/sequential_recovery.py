@@ -72,10 +72,11 @@ def native_rejection(daily, mission, agent, prior, policy, conn, *, empty_patch=
             result.get("status") == "CODE_CHANGE"
             and result.get("files_changed") == []
             and len(result.get("analysis_artifacts", [])) == 1
-            and json.loads(result["analysis_artifacts"][0]) == {"files": []}
+            and result["analysis_artifacts"][0] == json.dumps({"files": []})
             and evidence[0].get("boundary") == "DOCKER_PRODUCT_WORKSPACE"
             and evidence[0].get("calls") == []
-            and evidence[0].get("denials") == 0,
+            and type(evidence[0].get("denials")) is int
+            and evidence[0]["denials"] == 0,
             "Only an observed empty workspace result may resume",
         )
         run_id = result.get("run_id")

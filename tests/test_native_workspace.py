@@ -47,6 +47,15 @@ def test_unobserved_model_payload_is_rejected():
         run.finish(raw.model_dump(), 10, 5)
 
 
+def test_final_workspace_result_requires_actual_edits():
+    run = NativeRun([], lambda: None)
+    run.product_workspace = True
+    run.broker = workspace()
+    raw = AgentRunResult(run_id="fixture", status="CODE_CHANGE", summary="claimed edits")
+    with pytest.raises(ProviderError, match="NativeWorkspaceChangesMissing"):
+        run.finish(raw.model_dump(), 10, 5)
+
+
 def test_output_schema_matches_host_evidence_rules_without_mutating_request():
     run = NativeRun([], lambda: None)
     schema = AgentRunResult.model_json_schema()

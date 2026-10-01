@@ -133,17 +133,14 @@ class NativeRun:
                 raise ProviderError("DEGRADED", "ProductToolResultViolation")
             self.check()
             self.evidence["boundary"] = "DOCKER_PRODUCT_WORKSPACE"
+            changes = self.broker.changes()
+            if result.status == "CODE_CHANGE" and not changes:
+                raise ProviderError("DEGRADED", "NativeWorkspaceChangesMissing")
             return (
                 result.model_copy(
                     update={
                         "analysis_artifacts": (
-                            json.dumps(
-                                {
-                                    "files": [
-                                        c.model_dump(mode="json") for c in self.broker.changes()
-                                    ]
-                                }
-                            ),
+                            json.dumps({"files": [c.model_dump(mode="json") for c in changes]}),
                         )
                     }
                 ),
