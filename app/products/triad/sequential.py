@@ -209,8 +209,16 @@ class SequentialCycle:
         sources = tuple(
             p
             for p in inventory
-            if ProductGit((p,), root=self.root).path(self.root, p).stat().st_size < 12000
+            if p.startswith("app/products/triad/")
+            and ProductGit((p,), root=self.root).path(self.root, p).stat().st_size < 12000
         )
+        additional_sources = {}
+        for path in inventory:
+            if path in sources:
+                continue
+            target = ProductGit((path,), root=self.root).path(self.root, path)
+            if target.stat().st_size < 12000:
+                additional_sources[path] = target.read_text(encoding="utf-8")
         author_work, _, proposal, author_usage = self.call(
             mission,
             agent,
@@ -225,12 +233,13 @@ class SequentialCycle:
             "Do not require unsupported checks or pretend source review proves browser behavior. For behavioral changes include meaningful "
             "unit tests and their tests/products/triad file paths in the initial manifest. "
             "Address all prior review feedback when supplied. Read-only integration source establishes mount prefixes; "
+            "it is context, never permission to change protected code. "
             "A rejected candidate is not approved: inspect the findings and propose a different useful candidate "
             "or an evidence-supported NO_CHANGE for a fresh independent review. Inspect existing tests before proposing new ones. "
-            "it is context, never permission to change protected code. "
             "Return exactly one Proposal JSON string in analysis_artifacts using the supplied schema.",
             {
                 "inventory": inventory,
+                "additional_product_sources_read_only": additional_sources,
                 "base_commit": baseline,
                 "schema": Proposal.model_json_schema(),
                 "protected": "Core, governance, Triad scheduling/cycles/development machinery, credentials, Aegis",
