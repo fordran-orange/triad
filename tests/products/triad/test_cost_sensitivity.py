@@ -37,6 +37,8 @@ class CostSensitivityTests(unittest.TestCase):
                 self.assertEqual(data["assumptions"], {k: str(v) for k, v in payload.items()})
                 self.assertAlmostEqual(float(data["gross_pnl"]), gross)
                 self.assertAlmostEqual(float(data["round_trip_reference_notional"]), 2100)
+                unit_total = 4.3
+                self.assertAlmostEqual(float(data["breakeven_cost_multiplier"]), gross / unit_total)
                 previous = gross
                 for m, scenario in enumerate(data["scenarios"], 1):
                     self.assertEqual(scenario["multiplier"], m)
@@ -54,6 +56,7 @@ class CostSensitivityTests(unittest.TestCase):
     def test_edges(self):
         zero = dict(EXAMPLE, **dict.fromkeys(COSTS, 0))
         data = self.post(zero).json()
+        self.assertIsNone(data["breakeven_cost_multiplier"])
         for scenario in data["scenarios"]:
             self.assertEqual(float(scenario["total_cost"]), 0)
             self.assertEqual(float(scenario["net_pnl"]), 100)
