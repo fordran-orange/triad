@@ -55,7 +55,7 @@ def parse_product_artifact(schema, text):
         except (ValueError, TypeError):
             raise original from None
         if not isinstance(value, dict) or text.lstrip()[end:].strip() != "]":
-            raise original
+            raise
         return schema.model_validate(value), True
 
 
