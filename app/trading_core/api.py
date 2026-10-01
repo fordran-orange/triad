@@ -165,8 +165,15 @@ def status(engine: Orchestrator = ENGINE_DEPENDENCY):
 @app.get("/api/dashboard")
 def dashboard(engine: Orchestrator = ENGINE_DEPENDENCY):
     try:
-        items = [w.model_dump(mode="json") for w in engine.store.list_work()]
-        records = engine.store.records(limit=300)
+        from trading_core.conversation_privacy import private_work_ids
+
+        private_ids = private_work_ids(engine.store)
+        items = [
+            w.model_dump(mode="json")
+            for w in engine.store.list_work()
+            if w.work_item_id not in private_ids
+        ]
+        records = engine.store.records(limit=300, exclude_work_ids=private_ids)
         agents = []
         for agent in engine.registry.agents.values():
             assignments = [w for w in items if w["assigned_agent"] == agent.agent_id]
@@ -210,8 +217,12 @@ def dashboard(engine: Orchestrator = ENGINE_DEPENDENCY):
 
 
 @app.get("/api/work/{work_id}")
-def work_detail(work_id: str, engine: Orchestrator = ENGINE_DEPENDENCY):
+def work_detail(work_id: str, request: Request, engine: Orchestrator = ENGINE_DEPENDENCY):
     work = engine.store.get(work_id)
+    from trading_core.conversation_privacy import private_work_ids
+
+    if work_id in private_work_ids(engine.store):
+        require_operator(request, request.headers.get("authorization", ""), engine)
     try:
         lineage, graph_error = Brain(engine.store).lineage(work_id), None
     except Exception as exc:  # noqa: BLE001
@@ -329,6 +340,10 @@ app.include_router(intelligence_router)
 from trading_core.integrations.api import router as integration_router
 
 app.include_router(integration_router)
+
+from trading_core.conversation_api import router as conversation_router
+
+app.include_router(conversation_router)
 
 
 @app.get("/launch", include_in_schema=False)

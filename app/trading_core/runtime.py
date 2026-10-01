@@ -529,7 +529,9 @@ class Runtime:
         agents = Agents(Records(self.ledger.store))
         # One in-flight run per agent across workers, tests and direct API calls.
         # Advisory locks are released even when the owning process exits.
-        with self.ledger.store.lease("provider-execution-" + request.agent_id):
+        from trading_core.provider_queue import provider_slot
+
+        with provider_slot(self.ledger, request):
             reservation = agents.reserve_run(request.work_item_id, request.token_budget)
             try:
                 return self._execute(

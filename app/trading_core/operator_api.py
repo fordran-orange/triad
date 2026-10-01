@@ -23,10 +23,12 @@ class ControlInput(BaseModel):
 
 @router.get("/api/core/operations")
 def operations(engine=ENGINE_DEPENDENCY):
+    from trading_core.conversation_privacy import private_work_ids, public_records
+
     ledger = Ledger(engine.store)
     return {
         "control": ledger.control(),
-        "records": ledger.records(limit=1000),
+        "records": public_records(ledger.records(limit=1000), private_work_ids(engine.store)),
         "budgets": ledger.totals(),
         "exchange": "CLOSED",
     }

@@ -204,6 +204,8 @@ class SequentialCycle:
         raise PermissionError("Proposal revision attempts exhausted: " + feedback[-1]["summary"])
 
     def proposal_attempt(self, mission, agent, feedback, attempt):
+        from trading_core.intake import Intake
+
         baseline = self.s.git.clean_baseline()
         inventory = self.inventory()
         sources = tuple(
@@ -231,6 +233,7 @@ class SequentialCycle:
             {
                 "inventory": inventory,
                 "base_commit": baseline,
+                "optional_advisory_ideas": Intake(self.s.records).advisory("triad"),
                 "schema": Proposal.model_json_schema(),
                 "protected": "Core, governance, Triad scheduling/cycles/development machinery, credentials, Aegis",
                 "previous_turns": self.s.rows("ProductTurn", mission),

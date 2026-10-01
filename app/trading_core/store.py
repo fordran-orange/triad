@@ -259,13 +259,27 @@ class Store:
         return [WorkItem.model_validate({**r["payload"], "owner": r["owner"]}) for r in rows]
 
     def records(
-        self, kind: str | None = None, work_id: str | None = None, limit: int = 100
+        self,
+        kind: str | None = None,
+        work_id: str | None = None,
+        limit: int = 100,
+        *,
+        exclude_work_ids=(),
     ) -> list[dict]:
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT kind,payload,owner FROM core.orchestration_records WHERE (%s::text IS NULL OR owner=ANY(%s) OR owner='shared' OR kind='Agent') AND (%s::text IS NULL OR kind=%s) "
-                "AND (%s::text IS NULL OR work_item_id=%s) ORDER BY created_at DESC LIMIT %s",
-                (self.scope, self.owner_aliases, kind, kind, work_id, work_id, limit),
+                "AND (%s::text IS NULL OR work_item_id=%s) AND (work_item_id IS NULL OR NOT work_item_id=ANY(%s)) ORDER BY created_at DESC LIMIT %s",
+                (
+                    self.scope,
+                    self.owner_aliases,
+                    kind,
+                    kind,
+                    work_id,
+                    work_id,
+                    list(exclude_work_ids),
+                    limit,
+                ),
             ).fetchall()
         result = [{"kind": r["kind"], **r["payload"]} for r in rows]
         # Read projection overlays dated events; immutable source payloads stay intact.

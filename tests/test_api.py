@@ -7,7 +7,7 @@ client = TestClient(app)
 def test_operator_shell_and_contract():
     response = client.get("/")
     assert response.status_code == 200
-    assert "Live execution disabled" in response.text
+    assert "Live trading disabled" in response.text
     assert client.get("/health/live").json()["scope"] == "api_process_only"
     assert client.get("/api/foundation").json()["live_trading_authority"] is False
 
