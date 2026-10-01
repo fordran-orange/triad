@@ -60,8 +60,9 @@ def test_output_schema_matches_host_evidence_rules_without_mutating_request():
     run = NativeRun([], lambda: None)
     schema = AgentRunResult.model_json_schema()
     original = json.dumps(schema, sort_keys=True)
-    request = SimpleNamespace(required_output_schema=schema)
+    request = SimpleNamespace(required_output_schema=schema, run_id="fixture")
     ordinary = run.result_schema(request)
+    assert ordinary["properties"]["run_id"]["const"] == "fixture"
     assert ordinary["properties"]["tests_run"]["maxItems"] == 0
     assert "maxItems" not in ordinary["properties"]["analysis_artifacts"]
     run.product_workspace = True
@@ -324,6 +325,7 @@ def test_grok_executes_without_schema_before_formatting(monkeypatch, empty_attem
         native, "ToolServer", lambda _: nullcontext(SimpleNamespace(url="http://fixture"))
     )
     request = SimpleNamespace(
+        run_id="fixture",
         required_output_schema=AgentRunResult.model_json_schema(),
         model_dump_json=lambda **kwargs: "{}",
     )

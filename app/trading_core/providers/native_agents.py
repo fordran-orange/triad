@@ -170,6 +170,7 @@ class NativeRun:
     def result_schema(self, request):
         """Tell the formatter the same constraints enforced by finish()."""
         schema = strict_schema(request.required_output_schema)
+        schema["properties"]["run_id"]["const"] = request.run_id
         empty = ["commands_executed", "permission_requests", "claims", "actions_taken", "tests_run"]
         if getattr(self, "product_workspace", False):
             empty += ["files_changed", "analysis_artifacts"]

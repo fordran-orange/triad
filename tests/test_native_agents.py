@@ -343,7 +343,9 @@ def test_claude_structured_result_and_cache_usage(monkeypatch):
     )
     monkeypatch.setattr(native, "LineProcess", lambda *a, **k: wire)
     request = SimpleNamespace(
-        required_output_schema=AgentRunResult.model_json_schema(), model_dump_json=lambda **k: "{}"
+        run_id="fixture",
+        required_output_schema=AgentRunResult.model_json_schema(),
+        model_dump_json=lambda **k: "{}",
     )
     run = native.ClaudeRun(["fixture"], lambda: None)
     parsed, inputs, outputs = run.execute(request, {})
@@ -388,7 +390,9 @@ def test_grok_uses_whole_prompt_usage_not_last_call(monkeypatch):
     monkeypatch.setattr(native, "GrokSession", FixtureSession)
     monkeypatch.setattr(native, "grok_preflight", lambda *a: None)
     request = SimpleNamespace(
-        required_output_schema=AgentRunResult.model_json_schema(), model_dump_json=lambda **k: "{}"
+        run_id="fixture",
+        required_output_schema=AgentRunResult.model_json_schema(),
+        model_dump_json=lambda **k: "{}",
     )
     parsed, inputs, outputs = native.GrokRun(["fixture"], lambda: None).execute(request, {})
     assert parsed.run_id == "fixture" and (inputs, outputs) == (120, 12)
@@ -439,7 +443,9 @@ def test_grok_reads_before_schema_and_accounts_for_both_prompts(monkeypatch, com
     monkeypatch.setattr(native, "GrokSession", FixtureSession)
     monkeypatch.setattr(native, "grok_preflight", lambda *a: None)
     request = SimpleNamespace(
-        required_output_schema=AgentRunResult.model_json_schema(), model_dump_json=lambda **k: "{}"
+        run_id="fixture",
+        required_output_schema=AgentRunResult.model_json_schema(),
+        model_dump_json=lambda **k: "{}",
     )
     run = native.GrokRun(["fixture"], lambda: None)
     files = {"README.md": "fixture", "docs/UI.md": "fixture"}

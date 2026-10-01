@@ -533,9 +533,13 @@ class Daily:
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (cycle_id,))
             prior = self.current(cycle_id, conn)
             history = [
-                r for r in self.host.list("CycleRecord", conn=conn) if r["cycle_id"] == cycle_id
+                r for r in self.product.list("CycleRecord", conn=conn) if r["cycle_id"] == cycle_id
             ]
             active = [r for r in history if r["status"] not in TERMINAL]
+            rejected_runtime_result = (
+                prior.get("failure_code") == "ProviderError"
+                and prior.get("failures", [{}])[-1].get("message") == "InvalidRuntimeResult"
+            )
             review_exhausted = prior.get("failure_code") == "PermissionError" and any(
                 r.get("message")
                 in {
@@ -562,6 +566,7 @@ class Daily:
                     prior.get("failure_code")
                     not in {"ProductResponseFormatError", "UniqueViolation"}
                     and not review_exhausted
+                    and not rejected_runtime_result
                 )
                 or not active
                 or active[-1]["status"] != "DEBRIEFING"
