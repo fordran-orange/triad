@@ -342,8 +342,11 @@ class CodexReadOnlyRun:
 
     def cancel(self):
         self.cancelled.set()
+        if getattr(self, "workspace", None) is not None:
+            self.workspace.cancel()
 
-    def execute(self, request, files, model="Auto"):
+    def execute(self, request, files, model="Auto", *, workspace=None):
+        self.workspace = workspace
         deadline = time.monotonic() + 110
 
         def check():
@@ -374,6 +377,8 @@ class CodexReadOnlyRun:
                 ]
             )
             serial = 0
+            dynamic_thread = None
+            dynamic_results = {}
             usage = None
             commands = []
             final = None
@@ -383,6 +388,45 @@ class CodexReadOnlyRun:
                 method = msg.get("method")
                 params = msg.get("params", {})
                 if "id" in msg and method:
+                    if workspace is not None and method == "item/tool/call":
+                        check()
+                        if (
+                            params.get("threadId") != dynamic_thread
+                            or not dynamic_thread
+                            or params.get("namespace")
+                        ):
+                            raise ProviderError("UNAVAILABLE", "ProductToolSessionMismatch")
+                        call_id = params.get("callId")
+                        if not isinstance(call_id, str) or not call_id:
+                            raise ProviderError("UNAVAILABLE", "ProductToolSessionMismatch")
+                        signature = json.dumps(
+                            [params.get("tool"), params.get("arguments")], sort_keys=True
+                        )
+                        if call_id in dynamic_results:
+                            previous, reply = dynamic_results[call_id]
+                            if signature != previous:
+                                raise ProviderError("UNAVAILABLE", "ProductToolReplayMismatch")
+                        else:
+                            try:
+                                text = workspace.call(params.get("tool"), params.get("arguments"))
+                                reply = {
+                                    "success": True,
+                                    "contentItems": [{"type": "inputText", "text": text}],
+                                }
+                            except (ValueError, TypeError, KeyError, PermissionError, RuntimeError):
+                                check()
+                                reply = {
+                                    "success": False,
+                                    "contentItems": [
+                                        {
+                                            "type": "inputText",
+                                            "text": "Development operation failed or was denied; inspect the supplied paths and arguments.",
+                                        }
+                                    ],
+                                }
+                            dynamic_results[call_id] = signature, reply
+                        app.send({"id": msg["id"], "result": reply})
+                        return False, params
                     # No approval, escalation or external tool can be granted by a model.
                     app.send(
                         {
@@ -469,13 +513,31 @@ class CodexReadOnlyRun:
                                 "runtimeWorkspaceRoots": ["/workspace"],
                             }
                         ],
-                        "developerInstructions": "Triad grants read-only access to the supplied files. "
-                        "Use cat FILENAME through the remote shell to inspect them. Other commands "
-                        "are denied. Never request another environment or tool. Return the requested "
-                        "JSON result. Leave commands_executed and claims empty; the host records evidence.",
+                        **(
+                            {
+                                "dynamicTools": [
+                                    {**tool, "type": "function"} for tool in workspace.definitions()
+                                ]
+                            }
+                            if workspace is not None
+                            else {}
+                        ),
+                        "developerInstructions": (
+                            "Use the supplied dynamic development tools to inspect, edit and test product files. "
+                            "Tools operate in an isolated workspace. Use run_command for shell and tests. "
+                            "Built-in shell/environment tools have no product workspace. Return the requested JSON. "
+                            "Keep files_changed, analysis_artifacts, commands_executed, claims and tests_run empty; "
+                            "Core exports exact observed changes and tool evidence. "
+                            if workspace is not None
+                            else "Triad grants read-only access to the supplied files. "
+                            "Use cat FILENAME through the remote shell to inspect them. Other commands "
+                            "are denied. Never request another environment or tool. Return the requested "
+                            "JSON result. Leave commands_executed and claims empty; the host records evidence."
+                        ),
                     },
                 )
                 self.actual_model = thread["model"]
+                dynamic_thread = thread["thread"]["id"]
                 prompt = request.model_dump_json(exclude={"required_output_schema"})
                 call(
                     "turn/start",
@@ -522,6 +584,33 @@ class CodexReadOnlyRun:
                     "output_tokens": usage["outputTokens"],
                     "executed_argv": [r["params"]["argv"] for r in executor.requests],
                 }
+                if workspace is not None:
+                    if (
+                        result.analysis_artifacts
+                        or result.tests_run
+                        or result.actions_taken
+                        or result.claims
+                    ):
+                        raise ProviderError("DEGRADED", "ProductToolResultViolation")
+                    check()
+                    self.evidence.update(
+                        boundary="DOCKER_PRODUCT_WORKSPACE",
+                        calls=workspace.calls,
+                        denied_operations=workspace.denials,
+                    )
+                    result = result.model_copy(
+                        update={
+                            "analysis_artifacts": (
+                                json.dumps(
+                                    {
+                                        "files": [
+                                            c.model_dump(mode="json") for c in workspace.changes()
+                                        ]
+                                    }
+                                ),
+                            )
+                        }
+                    )
                 return result, usage["inputTokens"], usage["outputTokens"]
             finally:
                 app.close()

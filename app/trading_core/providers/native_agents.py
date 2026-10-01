@@ -9,7 +9,7 @@ import json
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import PureWindowsPath
 
 from trading_core.contracts import AgentRunResult
@@ -72,6 +72,15 @@ class NativeRun:
             self.broker.cancel()
 
     def prompt(self, request, files):
+        if getattr(self, "product_workspace", False):
+            return (
+                "Use the supplied development tools to inspect, edit, delete, rename and test product files. "
+                "All commands run in the isolated offline workspace, never on the host. "
+                "Return the requested JSON with this run_id; keep files_changed, analysis_artifacts, "
+                "commands_executed, claims, actions_taken, tests_run and permission_requests empty. "
+                "Core exports the actual workspace changes and records actual tool/test evidence.\n"
+                + request.model_dump_json(exclude={"required_output_schema"})
+            )
         return (
             "Execute this Triad assignment using only the supplied isolated file tools. "
             "Read every supplied file before reviewing it. File writes are proposals, not host changes. "
@@ -107,6 +116,28 @@ class NativeRun:
             or result.tests_run
         ):
             raise ProviderError("DEGRADED", "NativeResultViolation")
+        if getattr(self, "product_workspace", False):
+            if result.files_changed or result.analysis_artifacts:
+                raise ProviderError("DEGRADED", "ProductToolResultViolation")
+            self.check()
+            self.evidence["boundary"] = "DOCKER_PRODUCT_WORKSPACE"
+            return (
+                result.model_copy(
+                    update={
+                        "analysis_artifacts": (
+                            json.dumps(
+                                {
+                                    "files": [
+                                        c.model_dump(mode="json") for c in self.broker.changes()
+                                    ]
+                                }
+                            ),
+                        )
+                    }
+                ),
+                inputs,
+                outputs,
+            )
         observed = {c["path"] for c in self.broker.calls if c["tool"] == "read_file"}
         if not set(self.broker.original) <= observed:
             self.evidence["rejected_result_summary"] = result.summary[:1000]
@@ -129,14 +160,20 @@ class NativeRun:
 
 
 class GrokSession:
-    def __init__(self, command, cwd, guard=lambda: None, broker=None):
+    def __init__(self, command, cwd, guard=lambda: None, broker=None, *, workspace_url=None):
         self.cwd, self.guard, self.broker = cwd, guard, broker
+        self.workspace_url = workspace_url
         self.serial = 0
         self.session_id = None
         self.tools = None
         self.expected_tools = {"read_file"}
         if broker and broker.writable:
             self.expected_tools.add("search_replace")
+        if workspace_url is not None:
+            self.expected_tools = {"search_tool", "use_tool"} | {
+                "triad__" + t["name"] for t in broker.definitions()
+            }
+        self.catalog_starting = workspace_url is not None
         self.text = ""
         env = clean_environment()
         env.update(
@@ -181,9 +218,18 @@ class GrokSession:
             update = params.get("update", {})
             tools = update.get("_meta", {}).get("tools")
             if tools is not None:
-                if not isinstance(tools, list) or set(tools) != self.expected_tools:
+                pending = (
+                    getattr(self, "catalog_starting", False)
+                    and isinstance(tools, list)
+                    and set(tools) == {"search_tool", "use_tool"}
+                )
+                if not isinstance(tools, list) or (
+                    set(tools) != self.expected_tools and not pending
+                ):
                     raise ProviderError("UNAVAILABLE", "NativeToolCatalogMismatch")
                 self.tools = tools
+                if set(tools) == self.expected_tools:
+                    self.catalog_starting = False
             if update.get("sessionUpdate") == "agent_message_chunk":
                 self.text += update.get("content", {}).get("text", "")
                 if len(self.text) > 48000:
@@ -194,6 +240,35 @@ class GrokSession:
         try:
             if not self.broker or params.get("sessionId") != self.session_id:
                 raise PermissionError("Wrong session")
+            if getattr(self, "workspace_url", None) is not None:
+                if method == "session/request_permission":
+                    tool = params.get("toolCall", {})
+                    raw = tool.get("rawInput", {})
+                    names = {"triad__" + t["name"] for t in self.broker.definitions()}
+                    options = [
+                        o for o in params.get("options", []) if o.get("kind") == "allow_once"
+                    ]
+                    if (
+                        set(self.tools or ()) == self.expected_tools
+                        and set(raw) == {"variant", "tool_name", "tool_input"}
+                        and raw["variant"] == "UseTool"
+                        and raw["tool_name"] in names
+                        and isinstance(raw["tool_input"], dict)
+                        and tool.get("toolCallId")
+                        and len(options) == 1
+                        and isinstance(options[0].get("optionId"), str)
+                    ):
+                        # Approve only this invocation of an already host-granted
+                        # broker tool. Its actual arguments/authority are checked
+                        # again by the broker; never remember a vendor-wide grant.
+                        reply["result"] = {
+                            "outcome": {"outcome": "selected", "optionId": options[0]["optionId"]}
+                        }
+                        self.process.send(reply)
+                        return
+                # Development uses only the dedicated MCP broker. No ACP host
+                # filesystem, terminal or permission callbacks are authorized.
+                raise PermissionError("Use the dedicated workspace tools")
             if method == "fs/read_text_file":
                 path = self.relative(params.get("path"))
                 content = self.broker.call("read_file", {"path": path})
@@ -280,11 +355,20 @@ class GrokSession:
             "permissionMode": "dontAsk",
             "mcpInheritance": "none",
         }
+        servers = []
+        if getattr(self, "workspace_url", None) is not None:
+            profile.update(
+                tools=["search_tool", "use_tool"],
+                disallowedTools=[],
+                mcpInheritance={"named": ["triad"]},
+            )
+            profile.pop("maxTurns")
+            servers = [{"type": "http", "name": "triad", "url": self.workspace_url, "headers": []}]
         result = self.call(
             "session/new",
             {
                 "cwd": self.cwd,
-                "mcpServers": [],
+                "mcpServers": servers,
                 "_meta": {"agentProfile": profile, "askUserQuestion": False},
             },
         )
@@ -336,17 +420,29 @@ def grok_preflight(command, cwd):
 
 
 class GrokRun(NativeRun):
-    def execute(self, request, files, model="Auto", writable=()):
-        self.broker = BoundedTools(
-            files,
-            writable=writable,
-            guard=self.check,
-            max_calls=self.max_tool_calls,
-            resources=self.resources,
+    def execute(self, request, files, model="Auto", writable=(), *, workspace=None):
+        self.product_workspace = workspace is not None
+        self.broker = (
+            workspace
+            if workspace is not None
+            else BoundedTools(
+                files,
+                writable=writable,
+                guard=self.check,
+                max_calls=self.max_tool_calls,
+                resources=self.resources,
+            )
         )
-        with native_workspace(prefix="triad-grok-run-") as cwd:
+        with (
+            native_workspace(prefix="triad-grok-run-") as cwd,
+            ToolServer(workspace) if workspace is not None else nullcontext() as server,
+        ):
             grok_preflight(self.command, cwd)
-            session = GrokSession(self.command, cwd, self.check, self.broker)
+            session = (
+                GrokSession(self.command, cwd, self.check, self.broker, workspace_url=server.url)
+                if server
+                else GrokSession(self.command, cwd, self.check, self.broker)
+            )
             try:
                 session.authenticate()
                 self.actual_model = session.start(model)
@@ -364,7 +460,7 @@ class GrokRun(NativeRun):
                     if response.get("stopReason") != "end_turn":
                         raise ProviderError("DEGRADED", "GrokTurnIncomplete")
 
-                if files:
+                if files and workspace is None:
                     # Grok can finish a schema-constrained prompt with a progress
                     # message instead of calling tools. Read first without a
                     # response schema, verify actual callbacks, then request the
@@ -414,6 +510,8 @@ class GrokRun(NativeRun):
                     usage_keys=sorted(result.get("_meta", {}).get("usage", {})),
                 )
                 meter(result)
+                if workspace is not None and set(session.tools or ()) != session.expected_tools:
+                    raise ProviderError("UNAVAILABLE", "NativeToolCatalogMissing")
                 meta = result.get("_meta", {})
                 inputs, outputs = self.evidence["input_tokens"], self.evidence["output_tokens"]
                 if not isinstance(meta.get("modelId"), str) or not meta["modelId"]:
@@ -435,7 +533,7 @@ class GrokRun(NativeRun):
                 session.close()
 
 
-def claude_arguments(url, writable=False, model="Auto", schema=None):
+def claude_arguments(url, writable=False, model="Auto", schema=None, tool_names=None):
     config = {"mcpServers": {"triad": {"type": "http", "url": url}}}
     settings = {
         "disableAllHooks": True,
@@ -467,7 +565,9 @@ def claude_arguments(url, writable=False, model="Auto", schema=None):
         "--allowedTools",
         "mcp__triad__read_file",
     ]
-    if writable:
+    if tool_names is not None:
+        args[-1:] = ["mcp__triad__" + name for name in tool_names]
+    elif writable:
         args += ["mcp__triad__propose_file_change"]
     args += ["--effort", "low"]
     if schema is not None:
@@ -515,22 +615,33 @@ def claude_initialize(app, guard, expected):
 
 
 class ClaudeRun(NativeRun):
-    def execute(self, request, files, model="Auto", writable=(), *, exact_files=None):
+    def execute(
+        self, request, files, model="Auto", writable=(), *, exact_files=None, workspace=None
+    ):
         self.observed_asset_output = exact_files is not None
-        self.broker = BoundedTools(
-            files,
-            writable=writable,
-            guard=self.check,
-            max_calls=self.max_tool_calls,
-            resources=self.resources,
-            exact_files=exact_files,
+        self.product_workspace = workspace is not None
+        self.broker = (
+            workspace
+            if workspace is not None
+            else BoundedTools(
+                files,
+                writable=writable,
+                guard=self.check,
+                max_calls=self.max_tool_calls,
+                resources=self.resources,
+                exact_files=exact_files,
+            )
         )
         with (
             native_workspace(prefix="triad-claude-run-") as cwd,
             ToolServer(self.broker) as server,
         ):
             argv = self.command + claude_arguments(
-                server.url, bool(writable), model, request.required_output_schema
+                server.url,
+                bool(writable),
+                model,
+                request.required_output_schema,
+                [t["name"] for t in self.broker.definitions()] if workspace is not None else None,
             )
             app = LineProcess(argv, cwd=cwd)
             expected = {"mcp__triad__" + t["name"] for t in self.broker.definitions()}
