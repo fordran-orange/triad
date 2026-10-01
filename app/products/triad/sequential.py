@@ -434,6 +434,7 @@ class SequentialCycle:
             "IMPLEMENT",
             "Implement the independently approved product proposal using the supplied workspace tools. "
             "You can inspect the complete supplied product snapshot and edit, create, delete or rename product files. "
+            "Day 6 baseline/backlog documents are historical evidence, not current grants or feature ceilings. "
             "Export changes only to the approved proposal's files. Use run_command for tools and tests inside "
             "the offline container; fix failures and retry as needed. Product commands have no host credentials or network. "
             "Use python -m unittest discover -s tests/products/triad for product tests where appropriate. "
