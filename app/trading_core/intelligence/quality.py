@@ -77,6 +77,9 @@ class Quality:
         return identifier
 
     def require_pass(self, implementation_id, commit, *, conn=None):
+        if conn is None:
+            with self.records.store.connect() as connection:
+                return self.require_pass(implementation_id, commit, conn=connection)
         build = self.records.get(implementation_id, conn=conn)
         # Revalidate even host-ingested evidence before it can authorize a merge.
         ImplementationRun.model_validate(
