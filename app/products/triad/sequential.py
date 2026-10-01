@@ -5,10 +5,10 @@ import json
 from zoneinfo import ZoneInfo
 
 from pydantic import Field
-from trading_core.contracts import FileChange
 from trading_core.intelligence.contracts import ImplementationRun, QARun
 from trading_core.product_changes import (
     AcceptanceAssessment,
+    ProductFileChange,
     ProductGit,
     RequiredCheck,
     acceptance_problems,
@@ -34,7 +34,7 @@ class Proposal(Record):
 
 
 class Patch(Record):
-    files: tuple[FileChange, ...] = Field(min_length=1)
+    files: tuple[ProductFileChange, ...] = Field(min_length=1)
 
 
 class SequentialCycle:
@@ -322,7 +322,9 @@ class SequentialCycle:
             mission,
             agent,
             "Implement your independently approved proposal. Return exactly one Patch JSON string in analysis_artifacts. "
-            "Each entry contains path, complete replacement content, and the supplied original_sha256 (null for a new file). "
+            "Each entry contains path, operation WRITE or DELETE, content, and the supplied original_sha256 (null for a new file). "
+            "WRITE uses complete replacement content. DELETE requires null content and the exact original hash. "
+            "To rename a file, delete the old path and write the new path; include both paths in the proposal. "
             "Core applies this data in an isolated worktree; you have no host write authority. Include meaningful product unit tests "
             "under tests/products/triad when behavior changes. Use Python unittest for executable tests. Never change protected orchestration. "
             "Do not substitute documentation for the requested implementation.",

@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from trading_core.control import beneath, relative_path
 from trading_core.git_tools import GitChanges
@@ -17,6 +17,25 @@ from trading_core.security import ensure_no_secret
 from trading_core.work import Record
 
 PRODUCT_ROOTS = ("app/products/triad", "products/triad", "tests/products/triad")
+
+
+class ProductFileChange(Record):
+    """Explicit product operations; renames are a reviewed delete plus write."""
+
+    path: str
+    operation: Literal["WRITE", "DELETE"] = "WRITE"
+    content: str | None = Field(default=None, max_length=1000000)
+    original_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def valid_operation(self):
+        product_path(self.path)
+        if self.operation == "DELETE":
+            if self.content is not None or self.original_sha256 is None:
+                raise ValueError("Delete requires an original hash and no replacement content")
+        elif self.content is None:
+            raise ValueError("Write requires replacement content")
+        return self
 
 
 class RequiredCheck(Record):
@@ -243,25 +262,42 @@ class ProductGit(GitChanges):
             previous = hashlib.sha256(target.read_bytes()).hexdigest() if target.exists() else None
             if previous != c.original_sha256:
                 raise PermissionError("Product source changed since proposal")
-            prepared.append((target, c.content))
-        for target, content in prepared:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8", newline="\n")
+            operation = getattr(c, "operation", "WRITE")
+            if operation == "DELETE" and previous is None:
+                raise PermissionError("Cannot delete a missing product file")
+            prepared.append((target, c.content, operation))
+        for target, content, operation in prepared:
+            if operation == "DELETE":
+                target.unlink()
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8", newline="\n")
         self.git("add", "--", *names, cwd=metadata["worktree"])
         return self.verify(metadata, staged=True)
 
     def verify(self, metadata, limits=None, staged=False):
         root = metadata["worktree"]
         revisions = ("--cached",) if staged else (metadata["base_commit"], "HEAD")
-        paths = self.git("diff", "--name-only", *revisions, cwd=root).splitlines()
+        paths = self.git("diff", "--no-renames", "--name-only", *revisions, cwd=root).splitlines()
+        deleted = set(
+            self.git(
+                "diff", "--no-renames", "--diff-filter=D", "--name-only", *revisions, cwd=root
+            ).splitlines()
+        )
         if not paths:
             raise ValueError("No effective product change")
         sources = {}
         hashes = {}
         for p in paths:
             target = self.path(root, p)
+            if p in deleted:
+                if target.exists():
+                    raise PermissionError("Deleted path has an unreviewed replacement")
+                sources[p] = None
+                hashes[p] = None
+                continue
             if not target.is_file():
-                raise PermissionError("Deletion requires a separately supported change operation")
+                raise PermissionError("Candidate file is missing")
             text = target.read_text(encoding="utf-8")
             ensure_no_secret(text)
             if p.endswith(".json"):
