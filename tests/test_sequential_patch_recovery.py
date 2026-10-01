@@ -258,7 +258,10 @@ def test_other_product_records_do_not_change_recovery_authority(blocked):
         "wrong_request",
     ],
 )
-def test_native_result_recovery_requires_proven_unapplied_workspace(engine, blocked, tamper):
+@pytest.mark.parametrize("empty_patch", [False, True])
+def test_native_result_recovery_requires_proven_unapplied_workspace(
+    engine, blocked, tamper, empty_patch
+):
     from trading_core.cycle_records import CycleRecord
     from trading_core.product_workspace_grant import PROFILE
     from trading_core.resource_policy import scope_digest
@@ -291,10 +294,31 @@ def test_native_result_recovery_requires_proven_unapplied_workspace(engine, bloc
         owner="triad",
         identifier="workspace-" + work.work_item_id,
     )
-    for event, extra in (
-        ("provider_failed", {"error_class": "NativeResultViolation"}),
-        ("native_executor_evidence", {"boundary": "DOCKER_OFFLINE_TOOLS"}),
-    ):
+    events = (
+        (
+            ("provider_failed", {"error_class": "NativeResultViolation"}),
+            ("native_executor_evidence", {"boundary": "DOCKER_OFFLINE_TOOLS"}),
+        )
+        if not empty_patch
+        else (
+            (
+                "native_executor_evidence",
+                {"boundary": "DOCKER_PRODUCT_WORKSPACE", "calls": [], "denials": 0},
+            ),
+        )
+    )
+    if empty_patch:
+        b.host.ledger.put(
+            "AgentRunResult",
+            {
+                "run_id": "fixture-native-run",
+                "status": "CODE_CHANGE",
+                "files_changed": [],
+                "analysis_artifacts": ['{"files": []}'],
+            },
+            work_id=work.work_item_id,
+        )
+    for event, extra in events:
         if tamper != "missing_evidence":
             identity = (
                 {}
@@ -324,9 +348,17 @@ def test_native_result_recovery_requires_proven_unapplied_workspace(engine, bloc
         b.host.ledger.reserve("CODEX", work.work_item_id, improvement=True, day=b.day)
     prior = b.daily.current(b.cycle.cycle_id)
     payload = {k: v for k, v in prior.items() if k in CycleRecord.model_fields}
+    from products.triad.sequential_recovery import EMPTY_PATCH_ERROR
+
+    code = "ProductResponseFormatError" if empty_patch else "ProviderError"
     payload.update(
-        failure_code="ProviderError",
-        failures=[{"code": "ProviderError", "message": "NativeResultViolation"}],
+        failure_code=code,
+        failures=[
+            {
+                "code": code,
+                "message": EMPTY_PATCH_ERROR if empty_patch else "NativeResultViolation",
+            }
+        ],
     )
     b.host.append("CycleRecord", payload, owner="triad")
     before = totals(b)

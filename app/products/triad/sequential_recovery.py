@@ -1,5 +1,6 @@
 """Explicit host recovery of a rejected, unapplied patch; never replay a merge."""
 
+import json
 from zoneinfo import ZoneInfo
 
 from trading_core.cycle_records import CycleRecord
@@ -8,6 +9,7 @@ from trading_core.product_deployment import health
 from trading_core.work import State, now
 
 ERROR = "Product source changed since proposal"
+EMPTY_PATCH_ERROR = 'Invalid product artifact: [{"type": "too_short", "loc": ["files"], "msg": "Tuple should have at least 1 item after validation, not 0"}]'
 ORDER = ("CODEX", "CLAUDE", "GROK")
 
 
@@ -16,7 +18,7 @@ def require(condition, message):
         raise PermissionError(message)
 
 
-def native_rejection(daily, mission, agent, prior, policy, conn):
+def native_rejection(daily, mission, agent, prior, policy, conn, *, empty_patch=False):
     """Prove the host rejected an isolated result before any patch or reservation."""
     works = [
         w
@@ -55,14 +57,39 @@ def native_rejection(daily, mission, agent, prior, policy, conn):
     evidence = [
         r["payload"] for r in events if r["payload"].get("event") == "native_executor_evidence"
     ]
+    if empty_patch:
+        results = conn.execute(
+            "SELECT payload FROM core.day3_records WHERE owner='triad' AND kind='AgentRunResult' "
+            "AND work_item_id=%s",
+            (work.work_item_id,),
+        ).fetchall()
+        require(
+            len(results) == 1 and len(evidence) == 1 and not failures,
+            "Canonical empty workspace result required",
+        )
+        result = results[0]["payload"]
+        require(
+            result.get("status") == "CODE_CHANGE"
+            and result.get("files_changed") == []
+            and len(result.get("analysis_artifacts", [])) == 1
+            and json.loads(result["analysis_artifacts"][0]) == {"files": []}
+            and evidence[0].get("boundary") == "DOCKER_PRODUCT_WORKSPACE"
+            and evidence[0].get("calls") == []
+            and evidence[0].get("denials") == 0,
+            "Only an observed empty workspace result may resume",
+        )
+        run_id = result.get("run_id")
+    else:
+        require(
+            len(failures) == len(evidence) == 1
+            and failures[0].get("error_class") == "NativeResultViolation"
+            and evidence[0].get("boundary") == "DOCKER_OFFLINE_TOOLS",
+            "Canonical native rejection required",
+        )
+        run_id = failures[0].get("run_id")
     require(
-        len(failures) == len(evidence) == 1
-        and failures[0].get("error_class") == "NativeResultViolation"
-        and isinstance(failures[0].get("run_id"), str)
-        and bool(failures[0]["run_id"].strip())
-        and failures[0].get("run_id") == evidence[0].get("run_id")
-        and evidence[0].get("boundary") == "DOCKER_OFFLINE_TOOLS",
-        "Canonical native rejection required",
+        isinstance(run_id, str) and bool(run_id.strip()) and run_id == evidence[0].get("run_id"),
+        "Canonical native run identity required",
     )
     requests = conn.execute(
         "SELECT payload FROM core.day3_records WHERE owner='triad' AND kind='AgentRunRequest' "
@@ -70,7 +97,7 @@ def native_rejection(daily, mission, agent, prior, policy, conn):
         (work.work_item_id,),
     ).fetchall()
     expected = {
-        "run_id": failures[0]["run_id"],
+        "run_id": run_id,
         "work_item_id": work.work_item_id,
         "mission_id": mission,
         "agent_id": agent,
@@ -107,6 +134,11 @@ def resume_patch_failure(flow, mission):
             native = (
                 prior.get("failure_code") == "ProviderError" and error == "NativeResultViolation"
             )
+            empty_patch = (
+                prior.get("failure_code") == "ProductResponseFormatError"
+                and error == EMPTY_PATCH_ERROR
+            )
+            native = native or empty_patch
             require(
                 prior["status"] == "BLOCKED"
                 and (native or (prior.get("failure_code") == "PermissionError" and error == ERROR)),
@@ -161,7 +193,7 @@ def resume_patch_failure(flow, mission):
                 service.git.git("merge-base", "--is-ancestor", revision, head)
             if native:
                 work, base_commit = native_rejection(
-                    daily, mission, agent, prior, flow.policy, conn
+                    daily, mission, agent, prior, flow.policy, conn, empty_patch=empty_patch
                 )
             else:
                 checkpoints = [

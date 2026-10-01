@@ -497,6 +497,40 @@ class GrokRun(NativeRun):
                     if response.get("stopReason") != "end_turn":
                         raise ProviderError("DEGRADED", "GrokTurnIncomplete")
 
+                if workspace is not None:
+                    # Schema-constrained Grok prompts can describe edits without
+                    # invoking tools. Execute first, then format observed work.
+                    for attempt in range(2):
+                        execution = session.call(
+                            "session/prompt",
+                            {
+                                "sessionId": session.session_id,
+                                "prompt": [
+                                    {
+                                        "type": "text",
+                                        "text": self.prompt(request, files)
+                                        + "\nThis is the execution phase, not the final JSON response. "
+                                        "Discover the triad workspace tools with search_tool and invoke them with use_tool. "
+                                        "Read the actual files, implement the approved change and run its offline tests. "
+                                        "A description of edits does not change files. Reply READY only after actual tool work."
+                                        + (
+                                            " The host observed no edits in your previous response; use the tools now."
+                                            if attempt
+                                            else ""
+                                        ),
+                                    }
+                                ],
+                            },
+                        )
+                        meter(execution)
+                        if set(session.tools or ()) != session.expected_tools:
+                            raise ProviderError("UNAVAILABLE", "NativeToolCatalogMissing")
+                        if self.broker.changes():
+                            break
+                    else:
+                        raise ProviderError("DEGRADED", "NativeWorkspaceChangesMissing")
+                    self.evidence["workspace_execution_attempts"] = attempt + 1
+                    session.text = ""
                 if files and workspace is None:
                     # Grok can finish a schema-constrained prompt with a progress
                     # message instead of calling tools. Read first without a
@@ -533,7 +567,13 @@ class GrokRun(NativeRun):
                                 "text": self.prompt(request, files)
                                 + (
                                     "\nThe host verified that both/all supplied files were already read in this session. Use those contents; do not repeat reads. Return the completed assessment now, not a progress message."
-                                    if files
+                                    if files and workspace is None
+                                    else ""
+                                )
+                                + (
+                                    "\nThe host observed actual workspace edits in the execution phase. "
+                                    "Now format the final result from that tool evidence only; do not repeat implementation."
+                                    if workspace is not None
                                     else ""
                                 ),
                             }

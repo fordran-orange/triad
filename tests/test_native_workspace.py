@@ -201,3 +201,78 @@ def test_grok_rejects_broader_permission(mutation):
         message["params"]["toolCall"]["rawInput"]["host"] = True
     value.observe(message)
     assert "error" in value.sent[-1]
+
+
+@pytest.mark.parametrize("empty_attempts", [0, 1, 2])
+def test_grok_executes_without_schema_before_formatting(monkeypatch, empty_attempts):
+    from contextlib import nullcontext
+
+    from trading_core.providers import native_agents as native
+
+    broker = workspace()
+    prompts = []
+    closed = []
+
+    class FakeSession:
+        def __init__(self, *args, **kwargs):
+            self.session_id = "fixture"
+            self.process = SimpleNamespace(failure_reason=None)
+            self.tools = self.expected_tools = {"search_tool", "use_tool"}
+            self.text = ""
+
+        def authenticate(self):
+            pass
+
+        def start(self, model):
+            return "fixture-model"
+
+        def call(self, method, params):
+            assert method == "session/prompt"
+            prompts.append(params)
+            schema = params.get("_meta", {}).get("outputSchema")
+            if schema is None and len(prompts) > empty_attempts:
+                broker.call(
+                    "write_file", {"path": "products/triad/example.txt", "content": "actual"}
+                )
+            if schema:
+                assert broker.changes()
+                assert schema["properties"]["files_changed"]["maxItems"] == 0
+                assert "host verified that both/all" not in params["prompt"][0]["text"]
+            return {
+                "stopReason": "end_turn",
+                "_meta": {
+                    "modelId": "fixture-model",
+                    "usage": {"modelUsage": {"fixture": {"inputTokens": 10, "outputTokens": 3}}},
+                    "structuredOutput": AgentRunResult(
+                        run_id="fixture", status="CODE_CHANGE", summary="fixture"
+                    ).model_dump(),
+                },
+            }
+
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(native, "GrokSession", FakeSession)
+    monkeypatch.setattr(native, "grok_preflight", lambda *args: None)
+    monkeypatch.setattr(
+        native, "ToolServer", lambda _: nullcontext(SimpleNamespace(url="http://fixture"))
+    )
+    request = SimpleNamespace(
+        required_output_schema=AgentRunResult.model_json_schema(),
+        model_dump_json=lambda **kwargs: "{}",
+    )
+    run = native.GrokRun([], lambda: None)
+    if empty_attempts == 2:
+        with pytest.raises(ProviderError, match="NativeWorkspaceChangesMissing"):
+            run.execute(request, {"fixture": "content"}, workspace=broker)
+        assert len(prompts) == 2
+        assert run.evidence["input_tokens"] == 20
+        assert all("_meta" not in p for p in prompts)
+    else:
+        result, inputs, outputs = run.execute(request, {"fixture": "content"}, workspace=broker)
+        assert len(prompts) == empty_attempts + 2
+        assert inputs == len(prompts) * 10 and outputs == len(prompts) * 3
+        assert json.loads(result.analysis_artifacts[0])["files"][0]["content"] == "actual"
+        assert all("_meta" not in p for p in prompts[:-1])
+        assert "_meta" in prompts[-1]
+    assert closed == [True]
