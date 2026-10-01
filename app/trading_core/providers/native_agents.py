@@ -46,6 +46,25 @@ def token_count(value):
     return value
 
 
+def tool_input_object(value):
+    """Accept vendor JSON-text encoding; the broker still validates arguments."""
+    if isinstance(value, str):
+
+        def unique(pairs):
+            result = {}
+            for key, item in pairs:
+                if key in result:
+                    raise ValueError("Duplicate tool argument")
+                result[key] = item
+            return result
+
+        try:
+            value = json.loads(value, object_pairs_hook=unique)
+        except (ValueError, RecursionError):
+            return False
+    return isinstance(value, dict)
+
+
 class NativeRun:
     def __init__(self, command, guard, max_tool_calls=30, *, resources=None):
         self.command, self.guard = command, guard
@@ -282,7 +301,7 @@ class GrokSession:
                         and set(raw) == {"variant", "tool_name", "tool_input"}
                         and raw["variant"] == "UseTool"
                         and raw["tool_name"] in names
-                        and isinstance(raw["tool_input"], dict)
+                        and tool_input_object(raw["tool_input"])
                         and tool.get("toolCallId")
                         and len(options) == 1
                         and isinstance(options[0].get("optionId"), str)
@@ -456,6 +475,8 @@ def grok_preflight(command, cwd):
 class GrokRun(NativeRun):
     def execute(self, request, files, model="Auto", writable=(), *, workspace=None):
         self.product_workspace = workspace is not None
+        if self.product_workspace:
+            self.evidence["boundary"] = "DOCKER_PRODUCT_WORKSPACE"
         self.broker = (
             workspace
             if workspace is not None
@@ -482,6 +503,7 @@ class GrokRun(NativeRun):
                 self.actual_model = session.start(model)
 
                 def meter(response):
+                    self.evidence["stop_reason"] = response.get("stopReason")
                     meta = response.get("_meta", {})
                     usage = meta.get("usage", {})
                     models = usage.get("modelUsage", {})

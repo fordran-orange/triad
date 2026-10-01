@@ -81,12 +81,28 @@ def native_rejection(daily, mission, agent, prior, policy, conn, *, empty_patch=
         )
         run_id = result.get("run_id")
     else:
+        interrupted = prior.get("failures", [{}])[-1].get("message") == "GrokTurnIncomplete"
         require(
             len(failures) == len(evidence) == 1
-            and failures[0].get("error_class") == "NativeResultViolation"
-            and evidence[0].get("boundary") == "DOCKER_OFFLINE_TOOLS",
+            and failures[0].get("error_class")
+            == ("GrokTurnIncomplete" if interrupted else "NativeResultViolation")
+            and (
+                agent == "GROK"
+                and evidence[0].get("failure") == "GrokTurnIncomplete"
+                and evidence[0].get("boundary") in {None, "DOCKER_PRODUCT_WORKSPACE"}
+                if interrupted
+                else evidence[0].get("boundary") == "DOCKER_OFFLINE_TOOLS"
+            ),
             "Canonical native rejection required",
         )
+        if interrupted:
+            require(
+                not conn.execute(
+                    "SELECT id FROM core.day3_records WHERE owner='triad' AND kind='AgentRunResult' AND work_item_id=%s",
+                    (work.work_item_id,),
+                ).fetchall(),
+                "Interrupted workspace must not have a completed result",
+            )
         run_id = failures[0].get("run_id")
     require(
         isinstance(run_id, str) and bool(run_id.strip()) and run_id == evidence[0].get("run_id"),
@@ -132,9 +148,10 @@ def resume_patch_failure(flow, mission):
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (mission,))
             prior = daily.current(mission, conn)
             error = prior.get("failures", [{}])[-1].get("message")
-            native = (
-                prior.get("failure_code") == "ProviderError" and error == "NativeResultViolation"
-            )
+            native = prior.get("failure_code") == "ProviderError" and error in {
+                "NativeResultViolation",
+                "GrokTurnIncomplete",
+            }
             empty_patch = (
                 prior.get("failure_code") == "ProductResponseFormatError"
                 and error == EMPTY_PATCH_ERROR

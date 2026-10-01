@@ -183,11 +183,27 @@ def permission_request(value):
     }
 
 
-def test_grok_approves_only_one_broker_invocation():
+@pytest.mark.parametrize("as_text", [False, True])
+def test_grok_approves_only_one_broker_invocation(as_text):
     value = session()
     value.tools = value.expected_tools
-    value.observe(permission_request(value))
+    request = permission_request(value)
+    if as_text:
+        raw = request["params"]["toolCall"]["rawInput"]
+        raw["tool_input"] = json.dumps(raw["tool_input"])
+    value.observe(request)
     assert value.sent[-1]["result"] == {"outcome": {"outcome": "selected", "optionId": "once"}}
+    assert not value.broker.calls
+
+
+@pytest.mark.parametrize("raw", ["[]", "null", '"string"', "{bad", '{"argv":[],"argv":[]}'])
+def test_grok_rejects_invalid_encoded_broker_arguments(raw):
+    value = session()
+    value.tools = value.expected_tools
+    request = permission_request(value)
+    request["params"]["toolCall"]["rawInput"]["tool_input"] = raw
+    value.observe(request)
+    assert "error" in value.sent[-1]
     assert not value.broker.calls
 
 
