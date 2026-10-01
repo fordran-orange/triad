@@ -1,6 +1,7 @@
 """Small persistent Core chat using the existing verified read-only provider path."""
 
 import json
+from contextlib import ExitStack
 from typing import Literal
 
 from trading_core.contracts import AgentRunRequest, AgentRunResult
@@ -8,9 +9,14 @@ from trading_core.execution import ExecutionServices
 from trading_core.intake import Intake
 from trading_core.intelligence.records import Records
 from trading_core.intelligence.routing import Requirements, Routing
+from trading_core.store import ConcurrentUpdate
 from trading_core.work import ComputeBudget, State, WorkItem, WorkResult, now
 
 Provider = Literal["CODEX", "CLAUDE", "GROK"]
+
+
+class ConversationBusy(Exception):
+    """The conversation lock was unavailable; no new message was saved."""
 
 
 class Conversations:
@@ -47,7 +53,11 @@ class Conversations:
     def reply(self, identifier, content):
         if not content.strip() or len(content) > 6000:
             raise ValueError("Enter a message of up to 6,000 characters")
-        with self.records.store.lease("core-conversation-" + identifier):
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(self.records.store.lease("core-conversation-" + identifier))
+            except ConcurrentUpdate as exc:
+                raise ConversationBusy("Another reply is already in progress") from exc
             conversation = self.get(identifier)
             previous = self.messages(identifier)
             message = self.records.append(

@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from pydantic import Field
 
 from trading_core.api import ENGINE_DEPENDENCY, require_operator
-from trading_core.conversation import Conversations, Provider
+from trading_core.conversation import ConversationBusy, Conversations, Provider
 from trading_core.intake import Intake, Submission
 from trading_core.intelligence.records import Records
 from trading_core.work import Record
@@ -69,6 +69,11 @@ def conversation(identifier: str, service=DEP):
 def reply(identifier: str, value: Message, service=DEP):
     try:
         return Conversations(service).reply(identifier, value.content)
+    except ConversationBusy as exc:
+        raise HTTPException(
+            409,
+            "Another reply is already in progress. This message was not saved; try again when it finishes.",
+        ) from exc
     except (KeyError, ValueError, PermissionError):
         raise
     except Exception as exc:

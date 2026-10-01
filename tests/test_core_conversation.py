@@ -10,7 +10,7 @@ from trading_core.contracts import AgentRunResult
 from trading_core.conversation import Conversations
 from trading_core.intake import Intake, IntakeRecord, Submission
 from trading_core.intelligence.records import Records
-from trading_core.store import Store
+from trading_core.store import ConcurrentUpdate, Store
 
 
 @pytest.mark.integration
@@ -176,3 +176,37 @@ def test_failed_core_reply_is_saved_without_provider_substitution(engine, monkey
     assert [r["role"] for r in messages] == ["user", "error"]
     assert "no substitute" in messages[-1]["content"]
     assert not engine.host.store.list_work()
+
+
+@pytest.mark.integration
+def test_busy_conversation_returns_truthful_status_without_replaying(engine, monkeypatch):
+    records = Records(engine.host.store)
+    records.initialize()
+    chat = Conversations(records)
+    identifier = chat.create("CODEX")
+    app.dependency_overrides[service] = lambda: NS(store=engine.host.store)
+    headers = {
+        "Authorization": "Bearer "
+        + engine.host.store.settings.triad_operator_token.get_secret_value()
+    }
+    path = "/api/core/conversations/" + identifier + "/messages"
+    try:
+        client = TestClient(app)
+        with engine.host.store.lease("core-conversation-" + identifier):
+            response = client.post(path, headers=headers, json={"content": "Busy message"})
+        assert response.status_code == 409
+        assert "not saved" in response.json()["detail"]
+        assert chat.messages(identifier) == []
+
+        calls = []
+
+        def failed(*args):
+            calls.append(args)
+            raise ConcurrentUpdate("Failure after saving message")
+
+        monkeypatch.setattr(module, "Routing", lambda _: NS(create=failed))
+        response = client.post(path, headers=headers, json={"content": "Saved message"})
+        assert response.status_code == 503 and len(calls) == 1
+        assert [m["role"] for m in chat.messages(identifier)] == ["user", "error"]
+    finally:
+        app.dependency_overrides.clear()
