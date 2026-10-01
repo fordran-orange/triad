@@ -83,8 +83,23 @@ def fixture():
                 "kind": "AgentRunResult",
                 "payload": {
                     "mode": "REAL",
+                    "status": "NO_CHANGE_JUSTIFIED",
                     "analysis_artifacts": [p.model_dump_json()] if key == "author" else [],
                     "review_decision": "APPROVE",
+                },
+            },
+            {
+                "kind": "AgentRunRequest",
+                "payload": {
+                    "work_item_id": key,
+                    "agent_id": agent,
+                    "mission_id": "cycle",
+                    "role": "REVIEW",
+                    "execution_permissions": ["read"],
+                    "context_packet": {
+                        "base_commit": "base",
+                        "proposal": p.model_dump(mode="json"),
+                    },
                 },
             },
         ]
@@ -113,6 +128,9 @@ def test_no_change_requires_real_independent_exact_evidence():
         (evidence["author"][0]["payload"], "mode", "SIMULATED"),
         (evidence["review"][1]["payload"], "review_decision", "REQUEST_CHANGES"),
         (evidence["author"][1]["payload"], "analysis_artifacts", []),
+        (evidence["author"][1]["payload"], "status", "BLOCKED"),
+        (evidence["review"][2]["payload"]["context_packet"], "proposal", {"unrelated": True}),
+        (evidence["author"][2]["payload"]["context_packet"], "base_commit", "stale"),
     ):
         old = deepcopy(target[key])
         target[key] = bad

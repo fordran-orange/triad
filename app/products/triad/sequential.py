@@ -230,6 +230,7 @@ class SequentialCycle:
             "Return exactly one Proposal JSON string in analysis_artifacts using the supplied schema.",
             {
                 "inventory": inventory,
+                "base_commit": baseline,
                 "schema": Proposal.model_json_schema(),
                 "protected": "Core, governance, Triad scheduling/cycles/development machinery, credentials, Aegis",
                 "previous_turns": self.s.rows("ProductTurn", mission),
@@ -896,7 +897,9 @@ class SequentialCycle:
                         owner="triad",
                     )
                 self.s.transition(
-                    mission, "DEBRIEFING", ["All three independent turns deployed and checked"]
+                    mission,
+                    "DEBRIEFING",
+                    ["All three provider turns independently reviewed and verified"],
                 )
                 corrections = ()
                 for _ in range(3):

@@ -60,11 +60,12 @@ def require_no_change(records, turn, cycle, conn=None):
             raise PermissionError("No-change author/reviewer assignment mismatch")
         rows = conn.execute(
             "SELECT kind,payload FROM core.day3_records WHERE owner='triad' AND work_item_id=%s "
-            "AND kind IN ('Usage','AgentRunResult') AND payload->>'run_id'=%s",
+            "AND kind IN ('Usage','AgentRunResult','AgentRunRequest') AND payload->>'run_id'=%s",
             (work_id, run_id),
         ).fetchall()
         usage = [r["payload"] for r in rows if r["kind"] == "Usage"]
         results = [r["payload"] for r in rows if r["kind"] == "AgentRunResult"]
+        requests = [r["payload"] for r in rows if r["kind"] == "AgentRunRequest"]
         if (
             len(usage) != 1
             or len(results) != 1
@@ -72,10 +73,28 @@ def require_no_change(records, turn, cycle, conn=None):
             or usage[0]["mode"] != "REAL"
             or usage[0]["agent"] != agent
             or results[0].get("mode") != "REAL"
+            or results[0].get("status") == "BLOCKED"
             or results[0].get("files_changed")
             or results[0].get("proposal")
         ):
             raise PermissionError("No-change requires successful real provider evidence")
+        if len(requests) != 1:
+            raise PermissionError("No-change requires the exact provider request")
+        request = requests[0]
+        context = request.get("context_packet", {})
+        if (
+            request.get("work_item_id") != work_id
+            or request.get("agent_id") != agent
+            or request.get("mission_id") != cycle["cycle_id"]
+            or request.get("role") != "REVIEW"
+            or request.get("execution_permissions") != ["read"]
+            or context.get("base_commit") != proof["baseline"]
+        ):
+            raise PermissionError("No-change request differs from the reviewed baseline")
+        if agent == turn["reviewer"] and context.get("proposal") != proposal.model_dump(
+            mode="json"
+        ):
+            raise PermissionError("Independent review covered a different proposal")
         result = results[0]
         if agent == turn["agent"]:
             if (
