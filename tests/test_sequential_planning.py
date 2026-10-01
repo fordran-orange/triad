@@ -113,6 +113,8 @@ def test_history_is_product_private_and_does_not_reapply_old_grants(tmp_path):
     assert packet["history"]["ProductProposal"][0]["mission_id"] == "yesterday"
     assert "PRIVATE" not in json.dumps(packet)
     assert packet["history"]["ProductTurn"][0]["verified_revision"] == "abc"
+    assert "acceptance" not in packet["history"]["ProductProposal"][0]["proposal"]
+    assert packet["history"]["ProductProposal"][0]["proposal"]["value_plan"] == plan()
     assert "superseded" in packet["current_authority"]["obsolete_limits"]
     assert packet["shared_core"]["source_revision"] == "base"
     assert set(packet["shared_core"]["references_read_only"]) == set(CORE_REFERENCES)

@@ -129,9 +129,9 @@ def test_exemption_requires_program_parent_billing_and_epoch(engine):
     assert not advisory(
         records.ledger, request.model_copy(update={"mission_id": "forged"}), "SUBSCRIPTION"
     )
-    assert not advisory(
-        records.ledger, request.model_copy(update={"role": "IMPLEMENT"}), "SUBSCRIPTION"
-    )
+    # Forging implementation requires a canonical workspace grant and is rejected.
+    with pytest.raises(PermissionError, match="workspace assignment required"):
+        advisory(records.ledger, request.model_copy(update={"role": "IMPLEMENT"}), "SUBSCRIPTION")
     Daily(records.store).transition(cycle.cycle_id, "BLOCKED", ["fixture"])
     assert not advisory(records.ledger, request, "SUBSCRIPTION")
 

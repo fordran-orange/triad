@@ -1,5 +1,6 @@
 """Current, product-owned planning context for the autonomous daily program."""
 
+import ast
 import hashlib
 import json
 
@@ -59,9 +60,22 @@ def core_context(git, baseline):
         source = git.git("show", baseline + ":" + path)
         references[path] = {
             "purpose": purpose,
-            "source": source,
             "sha256": hashlib.sha256(source.encode()).hexdigest(),
         }
+        if path.endswith("/engine.py"):
+            # Discovery signatures avoid repeatedly sending the engine implementation.
+            tree = ast.parse(source)
+            references[path]["public_signatures"] = [
+                f"{node.name}({ast.unparse(node.args)})"
+                for node in tree.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and not node.name.startswith("_")
+            ]
+            references[path]["source_scope"] = (
+                "Public function signatures only; implementation omitted"
+            )
+        else:
+            references[path]["source"] = source
     return {
         "source_revision": baseline,
         "references_read_only": references,
@@ -84,7 +98,7 @@ def planning_context(service, mission, baseline):
     history = {}
     fields = {
         "ProductProposal": ("mission_id", "proposer", "proposal", "attempt"),
-        "ProductProposalReview": ("mission_id", "proposer", "decision", "summary", "findings"),
+        "ProductProposalReview": ("mission_id", "proposer", "decision", "summary"),
         "ProductTurn": (
             "mission_id",
             "agent",
@@ -103,6 +117,14 @@ def planning_context(service, mission, baseline):
     for kind, keys in fields.items():
         rows = [r for r in service.records.list(kind) if r.get("owner") == "triad"]
         history[kind] = [{"id": r["id"], **{k: r[k] for k in keys if k in r}} for r in rows[-12:]]
+        if kind == "ProductProposal":
+            for entry in history[kind]:
+                proposal = entry.get("proposal", {})
+                entry["proposal"] = {
+                    key: proposal[key]
+                    for key in ("title", "outcome", "problem", "files", "value_plan")
+                    if key in proposal
+                }
     return {
         "mission": charter["mission"],
         "product_scope": charter["product_scope"],
@@ -122,7 +144,11 @@ def planning_context(service, mission, baseline):
             "live_trading": "Disabled; no new account or execution authority",
         },
         "history": history,
-        "history_scope": "Latest 12 records per kind; proposals are not proof of implementation",
+        "history_scope": (
+            "Latest 12 records per kind; compact proposal/decision summaries with record IDs. "
+            "Old change text, acceptance checklists and individual findings omitted. "
+            "Proposals are not proof of implementation."
+        ),
         "historical_archives_not_current_policy": sorted(HISTORICAL),
         "shared_core": core_context(service.git, baseline),
         "cycle_id": mission,
