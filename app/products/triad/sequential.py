@@ -307,6 +307,37 @@ class SequentialCycle:
         )
         return proposal, approval, assessment
 
+    def implementation_call(self, mission, agent, objective, context, schema, *, approval):
+        from trading_core.product_workspace_grant import PROFILE
+
+        if self.policy.get("workspace_profile") != PROFILE:
+            return self.call(mission, agent, objective, context, schema)
+        self.guard(mission)
+        paths = tuple(sorted(set(self.inventory()) | set(context["proposal"]["files"])))
+        return self.s.call(
+            mission,
+            agent,
+            "IMPLEMENT",
+            "Implement the independently approved product proposal using the supplied workspace tools. "
+            "You can inspect the complete supplied product snapshot and edit, create, delete or rename product files. "
+            "Export changes only to the approved proposal's files. Use run_command for tools and tests inside "
+            "the offline container; fix failures and retry as needed. Product commands have no host credentials or network. "
+            "Use python -m unittest discover -s tests/products/triad for product tests where appropriate. "
+            "Keep your final files_changed, analysis_artifacts, claims, actions_taken, commands_executed and tests_run empty; "
+            "Core exports your actual edits and observed tool evidence. Never fabricate a patch in the response. "
+            "Token guidance: 8192 reasoning and 6144 output are targets, not cutoffs. Use what the implementation needs.",
+            {
+                "proposal": context["proposal"],
+                "writable_files": context["proposal"]["files"],
+                "inventory": paths,
+            },
+            schema=schema,
+            paths=paths,
+            parent=self.s.daily.current(mission)["parent_work_item_id"],
+            workspace_approval=approval,
+            keep_open=True,
+        )
+
     def build(self, mission, agent, proposal, approval):
         approved = self.approval(mission, agent, proposal, approval)
         self.guard(mission)
@@ -318,7 +349,7 @@ class SequentialCycle:
             for p in proposal.files
             if (self.root / p).is_file()
         }
-        work, _result, patch, usage = self.call(
+        work, _result, patch, usage = self.implementation_call(
             mission,
             agent,
             "Implement your independently approved proposal. Return exactly one Patch JSON string in analysis_artifacts. "
@@ -340,6 +371,7 @@ class SequentialCycle:
                 },
             },
             Patch,
+            approval=approval,
         )
         self.s.ledger.reserve(
             agent,
@@ -393,6 +425,8 @@ class SequentialCycle:
             ),
         )
         self.s.quality.implementation(implementation)
+        if work.review_required:
+            self.s.handoff(work, _result, metadata, checks, "REAL")
         build = {
             "implementation_id": implementation.implementation_run_id,
             "work_item_id": work.work_item_id,
@@ -518,6 +552,26 @@ class SequentialCycle:
             usage=usage,
         )
         self.s.quality.require_pass(build["implementation_id"], build["git"]["change_commit"])
+        implementation_work = self.s.host.store.get(build["work_item_id"])
+        if implementation_work.review_required:
+            from trading_core.work import Review
+
+            self.s.host.apply_review(
+                implementation_work,
+                Review(
+                    work_item_id=implementation_work.work_item_id,
+                    reviewer=REVIEWERS[agent],
+                    decision="APPROVE",
+                    findings=tuple(result.findings),
+                    severity="NONE",
+                    evidence_checked=(
+                        "qa:" + qa.qa_run_id,
+                        "candidate:" + build["git"]["change_commit"],
+                    ),
+                    tests_repeated=tuple(build["checks"]["checks"]),
+                    execution_mode="REAL",
+                ),
+            )
         return qa
 
     def require_acceptance(self, mission, build, qa):

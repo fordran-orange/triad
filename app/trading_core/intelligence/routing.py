@@ -18,6 +18,7 @@ from trading_core.work import Record, WorkItem, now
 
 
 class Requirements(Record):
+    execution_profile: Literal["standard", "product_workspace"] = "standard"
     capabilities: tuple[str, ...] = ("structured_output",)
     role: Literal["REVIEW", "PROPOSE", "IMPLEMENT", "SUPPORT"]
     privacy: Literal["local_only", "approved_remote"] = "approved_remote"
@@ -39,6 +40,16 @@ class Routing:
 
     def _candidate(self, agent, work, requirements, versions):
         reasons = []
+        workspace = requirements.execution_profile == "product_workspace"
+        if workspace:
+            from trading_core.product_workspace_grant import role_authority
+
+            try:
+                agent = role_authority(self.host, work, agent)
+            except PermissionError as exc:
+                reasons.append(str(exc))
+            if requirements.role != "IMPLEMENT":
+                reasons.append("Product workspace requires an implementation assignment")
         executor = agent["executor_identity"]
         transport = agent["preferred_transport"]
         policy = self.control.policy(executor)
@@ -72,7 +83,7 @@ class Routing:
         if executor == "LOCAL_QWEN" and requirements.role != "SUPPORT":
             reasons.append("Local helper is observe-only")
         roles = {
-            "codex_cli": {"REVIEW"},
+            "codex_cli": {"REVIEW", "IMPLEMENT"} if workspace else {"REVIEW"},
             "claude_code_cli": {"REVIEW", "PROPOSE", "IMPLEMENT"},
             "grok_build_cli": {"REVIEW", "PROPOSE", "IMPLEMENT"},
             "ollama": {"SUPPORT"},
@@ -81,6 +92,7 @@ class Routing:
             reasons.append("Installed transport does not support this task role")
         if (
             requirements.role in {"PROPOSE", "IMPLEMENT"}
+            and not workspace
             and "isolated_text_proposal" not in requirements.capabilities
         ):
             reasons.append("Write requests must explicitly require verified proposal capability")

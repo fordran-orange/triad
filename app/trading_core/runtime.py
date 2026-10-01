@@ -559,8 +559,14 @@ class Runtime:
         select_transport = adapter is None and mode == "REAL"
         adapter = adapter or self.provider(request.agent_id, mode)
         engineering = request.execution_permissions == ("write_code",)
+        from trading_core.product_workspace_grant import TOOLS, is_workspace
+
+        workspace = is_workspace(request)
         if engineering:
-            from trading_core.engineering import grant_for
+            if workspace:
+                from trading_core.product_workspace_grant import grant_for
+            else:
+                from trading_core.engineering import grant_for
 
             grant_for(self.ledger, request)
         expected_permissions = (
@@ -571,7 +577,9 @@ class Runtime:
             else ("write_docs",)
         )
         expected_tools = (
-            {"read_file"}
+            set(TOOLS)
+            if workspace
+            else {"read_file"}
             if request.role == "REVIEW"
             else set()
             if request.role == "SUPPORT"
@@ -588,6 +596,8 @@ class Runtime:
         host_tools = {
             "write_artifact" if t == "propose_file_change" else t for t in request.allowed_tools
         }
+        if workspace:
+            host_tools = {"read_file", "write_artifact"}
         if (
             not host_tools <= set(canonical.allowed_tools)
             or (

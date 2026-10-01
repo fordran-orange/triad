@@ -365,6 +365,10 @@ class CLITransport(BaseTransport):
 
     def execute(self, request):
         self.assert_identity()
+        from trading_core.product_workspace_grant import is_workspace
+
+        if is_workspace(request):
+            return self._execute_workspace(request)
         if self.agent in {"CLAUDE", "GROK"}:
             return self._execute_isolated(request)
         if (
@@ -403,6 +407,56 @@ class CLITransport(BaseTransport):
                 request.work_item_id,
                 run_id=request.run_id,
                 source_hashes=gateway.evidence,
+                **self.native_run.evidence,
+            )
+
+    def _execute_workspace(self, request):
+        import hashlib
+
+        from trading_core.git_tools import GitChanges
+        from trading_core.product_changes import ProductGit
+        from trading_core.product_workspace import ProductWorkspace
+        from trading_core.product_workspace_grant import grant_for
+        from trading_core.providers.codex_executor import CodexReadOnlyRun
+        from trading_core.providers.native_agents import ClaudeRun, GrokRun
+
+        grant = grant_for(self.control.ledger, request)
+        if not self.readonly_ready() or self.billing_source() != "SUBSCRIPTION":
+            raise ProviderError("UNAVAILABLE", "OuterBoundaryUnavailable")
+        root = GitChanges().root
+
+        def guard():
+            self.assert_identity()
+            grant_for(self.control.ledger, request)
+
+        guard()
+        if GitChanges().clean_baseline() != grant["base_commit"]:
+            raise PermissionError("Product baseline changed before workspace construction")
+        paths = ProductGit(request.allowed_paths, root=root)
+        files = {}
+        for path in request.allowed_paths:
+            target = paths.path(root, path)
+            if target.is_file():
+                files[path] = target.read_text(encoding="utf-8")
+        resources = getattr(self, "resources", None)
+        broker = ProductWorkspace(files, image=grant["image"], guard=guard, resources=resources)
+        runner = {"CODEX": CodexReadOnlyRun, "CLAUDE": ClaudeRun, "GROK": GrokRun}[self.agent]
+        self.native_run = runner(self.command(), guard, resources=resources)
+        try:
+            result = self.native_run.execute(request, {}, self.model, workspace=broker)
+            guard()
+            if not {c.path for c in broker.changes()} <= set(grant["writable_files"]):
+                raise PermissionError(
+                    "Workspace exports exceed the independently reviewed manifest"
+                )
+            self.actual_model = self.native_run.actual_model
+            return result
+        finally:
+            self.control.ledger.event(
+                "native_executor_evidence",
+                request.work_item_id,
+                run_id=request.run_id,
+                source_hashes={p: hashlib.sha256(v.encode()).hexdigest() for p, v in files.items()},
                 **self.native_run.evidence,
             )
 

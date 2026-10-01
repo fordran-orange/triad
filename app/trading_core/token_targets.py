@@ -13,10 +13,14 @@ def advisory(ledger, request, billing_source):
         work.owner != "triad"
         or work.assigned_agent != request.agent_id
         or work.mission_id != request.mission_id
-        or request.role != "REVIEW"
+        or request.role not in {"REVIEW", "IMPLEMENT"}
     ):
         return False
     records = Records(Store(ledger.store.settings))
+    if request.role == "IMPLEMENT":
+        from trading_core.product_workspace_grant import grant_for
+
+        grant_for(ledger, request)
     programs = [
         r
         for r in records.list("SequentialDailyProgram")

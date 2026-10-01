@@ -569,16 +569,27 @@ class TransportRouter:
         fallback = False
         failure = None
         auth = {}
+        from trading_core.product_workspace_grant import is_workspace
+
+        workspace = is_workspace(request)
+        if workspace:
+            from trading_core.product_workspace_grant import grant_for
+
+            grant_for(ledger, request)
+            if preferred.transport_type != "CLI":
+                raise PermissionError("Product workspace requires its subscription CLI")
         if preferred.transport_type == "CLI" and preferred.readonly_ready():
             auth = preferred.authentication_status()
             preferred._verified_billing_source = auth.get("billing_source", "UNKNOWN")
         if preferred.transport_type == "CLI" and not (
-            (request.role == "REVIEW" or preferred.agent in {"CLAUDE", "GROK"})
+            (workspace or request.role == "REVIEW" or preferred.agent in {"CLAUDE", "GROK"})
             and preferred.readonly_ready()
             and auth.get("auth_state") == "AUTHENTICATED"
         ):
             # Installation/authentication does not override the missing outer boundary.
             failure = "OuterBoundaryUnavailable"
+            if workspace:
+                raise ProviderError("UNAVAILABLE", failure)
             if transport_id:
                 ledger.event(
                     "transport_test_failed",

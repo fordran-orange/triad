@@ -73,17 +73,25 @@ class Development(ExecutionServices):
         parent=None,
         keep_open=False,
         _preview=False,
+        workspace_approval=None,
     ):
         write = role == "IMPLEMENT"
         reasoning = 256 if agent == "LOCAL_QWEN" else 8192
         output_tokens = 256 if agent == "LOCAL_QWEN" else 6144
+        workspace = workspace_approval is not None
+        if workspace and role != "IMPLEMENT":
+            raise PermissionError("Workspace requires implementation role")
         caps = (
-            ("structured_output", "isolated_text_proposal")
-            if write
+            ("structured_output", "document_analysis")
+            if workspace
             else (
-                ("structured_output", "private_local_processing")
-                if role == "SUPPORT"
-                else ("structured_output", "document_analysis")
+                ("structured_output", "isolated_text_proposal")
+                if write
+                else (
+                    ("structured_output", "private_local_processing")
+                    if role == "SUPPORT"
+                    else ("structured_output", "document_analysis")
+                )
             )
         )
         size = len(json.dumps(context)) + len(objective)
@@ -101,16 +109,24 @@ class Development(ExecutionServices):
                 else "summarize_journal"
                 if role == "SUPPORT"
                 else "review",
-                authority_tier=1 if write else 0,
+                authority_tier=2 if workspace else 1 if write else 0,
                 allowed_tools=("read_file", "write_artifact") if write else ("read_file",),
                 allowed_paths=paths,
-                execution_permissions=("read", "write_research") if write else ("read",),
+                execution_permissions=("read", "write_code")
+                if workspace
+                else ("read", "write_research")
+                if write
+                else ("read",),
                 reasoning_budget=reasoning,
                 compute_budget=ComputeBudget(
                     max_input_chars=24000, max_output_tokens=output_tokens, timeout_seconds=480
                 ),
                 review_required=write,
-                reviewer="CODEX" if write and agent != "CODEX" else None,
+                reviewer={"CODEX": "CLAUDE", "CLAUDE": "GROK", "GROK": "CODEX"}[agent]
+                if workspace
+                else "CODEX"
+                if write and agent != "CODEX"
+                else None,
                 acceptance_criteria=(
                     "Use only supplied evidence and explicit grants",
                     "Preserve exact output and provenance",
@@ -119,6 +135,7 @@ class Development(ExecutionServices):
                 expected_outputs=("Structured product evidence",),
             ),
             Requirements(
+                execution_profile="product_workspace" if workspace else "standard",
                 role=role,
                 capabilities=caps,
                 preferred_agent=agent,
@@ -131,10 +148,14 @@ class Development(ExecutionServices):
         if _preview:
             return assignment
         work = self.routing.create(*assignment)
-        if write:
+        if write and not workspace:
             self.ledger.reserve(agent, work.work_item_id, improvement=True, day=self.day)
         work, policy = self.start_work(work)
-        if write:
+        if workspace:
+            from trading_core.product_workspace_grant import issue
+
+            issue(self.canonical, work, workspace_approval)
+        if write and not workspace:
             metadata = self.git.isolate(work.work_item_id, work.assigned_agent)
             self.record(
                 "ProductBuildCheckpoint",
@@ -143,6 +164,8 @@ class Development(ExecutionServices):
                 git=metadata,
                 phase="ISOLATED",
             )
+        from trading_core.product_workspace_grant import TOOLS
+
         request = AgentRunRequest(
             agent_id=agent,
             work_item_id=work.work_item_id,
@@ -150,13 +173,23 @@ class Development(ExecutionServices):
             role=role,
             objective=objective,
             context_packet=context,
-            allowed_tools=("propose_file_change",) if write else ("read_file",) if paths else (),
+            allowed_tools=TOOLS
+            if workspace
+            else ("propose_file_change",)
+            if write
+            else ("read_file",)
+            if paths
+            else (),
             allowed_paths=paths,
             acceptance_criteria=work.acceptance_criteria,
             reasoning_budget=reasoning,
             token_budget=output_tokens,
             cost_budget=0,
-            execution_permissions=("write_docs",) if write else ("read",),
+            execution_permissions=("write_code",)
+            if workspace
+            else ("write_docs",)
+            if write
+            else ("read",),
             policy_decision=policy.model_dump(mode="json"),
             required_output_schema={
                 "type": "object",
@@ -229,7 +262,7 @@ class Development(ExecutionServices):
             )
             return work, result, payload, usage
         except Exception as exc:
-            if write:
+            if write and not workspace:
                 self.failed_build(mission, work, request.run_id, exc)
             current = self.host.store.get(work.work_item_id)
             from trading_core.resource_policy import ResourceBlocked
