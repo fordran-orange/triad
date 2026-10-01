@@ -10,9 +10,14 @@ $TriadRoot = Split-Path $PSScriptRoot -Parent
 $EnsureScript = Join-Path $PSScriptRoot 'ensure_core.ps1'
 if (!(Test-Path $EnsureScript)) { throw "Missing $EnsureScript" }
 
-$PowerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
-$Arguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $EnsureScript + '"'
-$Action = New-ScheduledTaskAction -Execute $PowerShell -Argument $Arguments -WorkingDirectory $TriadRoot
+$Launcher = Join-Path $PSScriptRoot 'run_core_supervisor.py'
+$WindowlessPython = Join-Path $TriadRoot '.venv/Scripts/pythonw.exe'
+if (!(Test-Path -LiteralPath $Launcher)) { throw "Missing windowless supervisor launcher" }
+if (!(Test-Path -LiteralPath $WindowlessPython)) { throw "Missing windowless Python runtime" }
+# WindowStyle Hidden can still flash a console before PowerShell hides it.
+# A GUI-subsystem parent never allocates that initial console.
+$Arguments = '"' + $Launcher + '"'
+$Action = New-ScheduledTaskAction -Execute $WindowlessPython -Argument $Arguments -WorkingDirectory $TriadRoot
 $UserId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $AtLogon = New-ScheduledTaskTrigger -AtLogOn -User $UserId
 # Omit duration for indefinite repetition. TimeSpan.MaxValue produces an invalid

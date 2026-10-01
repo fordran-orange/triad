@@ -17,8 +17,16 @@ pytestmark = pytest.mark.skipif(PS is None, reason="Windows supervisor")
 def run(tmp_path, script, setup="", args=(), env=None):
     tools = tmp_path / "tools"
     tools.mkdir(exist_ok=True)
-    for name in ("ensure_core.ps1", "ensure_ollama.ps1", "install_core_supervisor.ps1"):
+    for name in (
+        "ensure_core.ps1",
+        "ensure_ollama.ps1",
+        "install_core_supervisor.ps1",
+        "run_core_supervisor.py",
+    ):
         shutil.copyfile(ROOT / "tools" / name, tools / name)
+    runtime = tmp_path / ".venv/Scripts"
+    runtime.mkdir(parents=True, exist_ok=True)
+    (runtime / "pythonw.exe").touch()  # ValidateOnly never runs the task action.
     # Keep supervisor behavior real, but supply a fixture resolver; no vendor process runs.
     supervisor = tools / "ensure_ollama.ps1"
     supervisor.write_text(
@@ -149,4 +157,5 @@ def test_task_has_logon_and_indefinite_retry_without_registration(tmp_path):
     periodic = next(x for x in task["Triggers"] if x.get("Repetition", {}).get("Interval"))
     assert periodic["Repetition"]["Interval"] == "PT5M"
     assert not periodic["Repetition"]["Duration"]
-    assert "-WindowStyle Hidden" in task["Actions"][0]["Arguments"]
+    assert task["Actions"][0]["Execute"].endswith("pythonw.exe")
+    assert "run_core_supervisor.py" in task["Actions"][0]["Arguments"]
