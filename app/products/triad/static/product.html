@@ -18,6 +18,7 @@
 <p id="cost-status" role="status" aria-live="polite">Enter assumptions to calculate.</p>
 <div id="cost-results" hidden><p id="gross"></p>
 <p id="breakeven"></p>
+<p id="reference-exit"></p>
 <div class="table-scroll" tabindex="0" role="region" aria-label="Cost scenarios">
 <table><caption>Cost sensitivity — money in USD; return in percent</caption>
 <thead><tr><th scope="col">Scenario</th><th scope="col">Commission</th><th scope="col">Spread</th><th scope="col">Slippage</th><th scope="col">Total cost</th><th scope="col">Net P&amp;L</th><th scope="col">Net return on entry notional (%)</th></tr></thead>
@@ -38,6 +39,7 @@
     rows.replaceChildren();
     document.getElementById('gross').textContent = '';
     document.getElementById('breakeven').textContent = '';
+    document.getElementById('reference-exit').textContent = '';
     status.textContent = 'Inputs changed. Calculate to see updated results.';
     form.removeAttribute('aria-busy');
   }
@@ -85,6 +87,9 @@
       document.getElementById('breakeven').textContent = data.breakeven_cost_multiplier === null
         ? 'Breakeven cost multiplier: not applicable (all cost inputs are zero).'
         : 'Breakeven cost multiplier: ' + Number(data.breakeven_cost_multiplier).toLocaleString('en-US', {maximumFractionDigits:4}) + 'x supplied costs (net P&L reaches zero at this multiple).';
+      document.getElementById('reference-exit').textContent = data.breakeven_reference_exit_price === null
+        ? 'No positive reference exit makes net P&L zero at 1x supplied costs.'
+        : '1x reference exit at which supplied costs make net P&L zero: ' + data.breakeven_reference_exit_price + '. Unrounded decimal string, not a forecast, order, cent-rounded, or tradable price.';
       for (const scenario of data.scenarios) {
         const row = document.createElement('tr');
         const values = [scenario.label, ...['commission','spread_cost','slippage_cost','total_cost','net_pnl'].map(key => display(scenario[key])),
@@ -103,6 +108,9 @@
       if (current !== version) return;
       results.hidden = true;
       rows.replaceChildren();
+      document.getElementById('gross').textContent = '';
+      document.getElementById('breakeven').textContent = '';
+      document.getElementById('reference-exit').textContent = '';
       status.textContent = error.message || 'Calculation failed. Please try again.';
     } finally {
       if (current === version) form.removeAttribute('aria-busy');

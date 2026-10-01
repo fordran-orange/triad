@@ -1,6 +1,7 @@
 """Offline arithmetic and isolated API checks; no browser execution."""
 import math
 import unittest
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 from products.triad.cost_sensitivity import calculate_cost_sensitivity
@@ -99,6 +100,58 @@ class CostSensitivityTests(unittest.TestCase):
         response = self.post(payload)
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("Infinity", response.text)
+
+    def test_reference_exit_residual_and_zero_costs(self):
+        tolerance = Decimal("1e-44")
+        for direction in ("LONG", "SHORT"):
+            with self.subTest(direction=direction):
+                payload = dict(EXAMPLE, direction=direction)
+                returned = calculate_cost_sensitivity(payload)
+                exit_price = returned["breakeven_reference_exit_price"]
+                self.assertIsNotNone(exit_price)
+                substituted = calculate_cost_sensitivity(dict(payload, exit_price=exit_price))
+                net = Decimal(substituted["scenarios"][0]["net_pnl"])
+                self.assertLessEqual(abs(net), tolerance)
+                self.assertEqual(substituted["gross_pnl"], calculate_cost_sensitivity(
+                    dict(payload, exit_price=exit_price))["gross_pnl"])
+        for direction in ("LONG", "SHORT"):
+            with self.subTest(direction=direction, costs="zero"):
+                zero = dict(EXAMPLE, direction=direction, **dict.fromkeys(COSTS, 0))
+                data = calculate_cost_sensitivity(zero)
+                self.assertEqual(
+                    Decimal(data["breakeven_reference_exit_price"]),
+                    Decimal(str(zero["entry_price"])),
+                )
+
+    def test_long_rate_at_least_one_has_no_positive_exit(self):
+        for commission_bps in (10000, 20000):
+            with self.subTest(commission_bps=commission_bps):
+                payload = dict(EXAMPLE, commission_per_order=0, commission_per_share=0,
+                               commission_bps=commission_bps, full_spread_bps=0, slippage_bps=0)
+                data = calculate_cost_sensitivity(payload)
+                self.assertIsNone(data["breakeven_reference_exit_price"])
+                self.assertEqual(len(data["scenarios"]), 3)
+                self.assertEqual(data["gross_pnl"], calculate_cost_sensitivity(payload)["gross_pnl"])
+
+    def test_short_fixed_cost_exceeds_best_positive_exit_gross(self):
+        payload = dict(EXAMPLE, direction="SHORT", commission_per_order=1000,
+                       commission_per_share=0, commission_bps=0,
+                       full_spread_bps=0, slippage_bps=0)
+        response = self.post(payload)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIsNone(data["breakeven_reference_exit_price"])
+        self.assertEqual(data, calculate_cost_sensitivity(payload))
+        self.assertEqual(len(data["scenarios"]), 3)
+        previous = float(data["gross_pnl"])
+        for m, scenario in enumerate(data["scenarios"], 1):
+            self.assertEqual(scenario["multiplier"], m)
+            self.assertEqual(scenario["label"], f"{m}x supplied costs")
+            self.assertLessEqual(float(scenario["net_pnl"]), previous)
+            previous = float(scenario["net_pnl"])
+            for key, value in scenario.items():
+                if key != "label":
+                    self.assertTrue(math.isfinite(float(value)))
 
 
 if __name__ == "__main__":
