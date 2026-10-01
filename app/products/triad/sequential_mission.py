@@ -36,7 +36,8 @@ def progress():
         ).fetchall()
         turns = conn.execute(
             "SELECT DISTINCT ON (payload->>'agent') payload->>'agent' AS agent, "
-            "payload->>'status' AS status FROM core.intelligence_records "
+            "CASE WHEN payload->>'outcome'='NO_CHANGE' THEN 'Reviewed no-change; nothing deployed' "
+            "ELSE payload->>'status' END AS status FROM core.intelligence_records "
             "WHERE owner='triad' AND kind='ProductTurn' AND payload->>'mission_id'=%s "
             "ORDER BY payload->>'agent',created_at DESC,id DESC",
             (cycle["id"],),
@@ -64,7 +65,7 @@ def render_panel(mission, state=None, *, unavailable=False):
             + text(state["id"])
             + " — "
             + text(state["status"])
-            + ". Plans below are agent assessments; only completed turns establish delivery.</p>"
+            + ". Plans below are agent assessments. Completed changes and reviewed no-change turns are distinguished below.</p>"
         )
         proposals = {r["agent"]: r for r in state["proposals"]}
         for agent in ("CODEX", "CLAUDE", "GROK"):
