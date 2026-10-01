@@ -215,6 +215,16 @@ class GrokSession:
         self.guard()
         method, params = message.get("method"), message.get("params", {})
         if method == "session/update":
+            if getattr(self, "workspace_url", None) is not None:
+                identifier = params.get("sessionId")
+                expected = self.session_id or getattr(self, "catalog_session_id", None)
+                if (
+                    not isinstance(identifier, str)
+                    or not identifier
+                    or (expected and expected != identifier)
+                ):
+                    raise ProviderError("UNAVAILABLE", "ProductToolSessionMismatch")
+                self.catalog_session_id = identifier
             update = params.get("update", {})
             tools = update.get("_meta", {}).get("tools")
             if tools is not None:
@@ -373,6 +383,11 @@ class GrokSession:
             },
         )
         self.session_id = result["sessionId"]
+        if (
+            getattr(self, "workspace_url", None) is not None
+            and getattr(self, "catalog_session_id", None) != self.session_id
+        ):
+            raise ProviderError("UNAVAILABLE", "ProductToolSessionMismatch")
         if self.tools is None:
             raise ProviderError("UNAVAILABLE", "NativeToolCatalogMissing")
         selected = result.get("models", {}).get("currentModelId")

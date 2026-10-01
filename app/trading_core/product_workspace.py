@@ -40,13 +40,20 @@ class ProductWorkspace:
         self.calls, self.denials = [], 0
         self.sandbox = OfflineSandbox(image=image)
         self.lock = threading.Lock()
+        self.cancelled = threading.Event()
 
     def cancel(self):
+        self.cancelled.set()
         self.sandbox.cancel()
+
+    def check(self):
+        if self.cancelled.is_set():
+            raise PermissionError("Product workspace cancelled")
+        self.guard()
 
     def call(self, name, arguments):
         with self.lock:
-            self.guard()
+            self.check()
             if self.resources:
                 self.resources.check_time()
                 self.resources.consume_tool()
@@ -87,7 +94,7 @@ class ProductWorkspace:
                         self.files,
                         writable=self.writable,
                         timeout=120,
-                        guard=self.guard,
+                        guard=self.check,
                         max_bytes=MAX_BYTES,
                         max_files=MAX_FILES,
                         export_failed=True,
@@ -114,7 +121,7 @@ class ProductWorkspace:
                 else:
                     raise PermissionError("Unknown development operation or arguments")
                 validate_snapshot(candidate)
-                self.guard()
+                self.check()
                 self.files = candidate
                 evidence["snapshot_sha256"] = hashlib.sha256(
                     json.dumps(candidate, sort_keys=True).encode()

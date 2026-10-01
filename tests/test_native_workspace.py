@@ -64,7 +64,10 @@ def session():
 
 def catalog(value, tools):
     value.observe(
-        {"method": "session/update", "params": {"update": {"_meta": {"tools": list(tools)}}}}
+        {
+            "method": "session/update",
+            "params": {"sessionId": value.session_id, "update": {"_meta": {"tools": list(tools)}}},
+        }
     )
 
 
