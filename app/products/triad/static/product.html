@@ -1,1 +1,108 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Triad · Trading product</title><style>body{margin:0;background:#edf3ee;color:#183a2e;font:18px/1.7 system-ui}main{max-width:850px;margin:10vh auto;padding:28px}h1{font-size:56px;line-height:1.05;margin:18px 0}.label{letter-spacing:.14em;font-size:13px;color:#466e52}.status{background:#f9e8bb;padding:10px 16px;display:inline-block;border-radius:6px}section{margin-top:30px;background:white;padding:28px;border:1px solid #c5d8ca;border-radius:12px}a{color:#185c40;display:inline-block;margin-right:24px}a:focus-visible{outline:3px solid #398f61}</style></head><body><main><nav aria-label="Triad"><a href="/triad/product" aria-current="page">Product</a><a href="/triad/development">Development</a><a href="/triad/cycles">Cycles</a><a href="/triad/daily-debrief">Daily Debrief</a></nav><div class="label">TRIAD TRADING PRODUCT</div><h1>A research-led trading workspace.</h1><p class="status">EARLY PRODUCT</p><p>The product API publishes these limits for clients. <a href="/triad/product-api/boundaries">This is a machine-readable boundary statement, not a readiness score or strategy result.</a></p><p>The product surface is being built. There is no live account, order entry, portfolio management or validated trading strategy here yet.</p><section><h2>Current state</h2><p>The supporting platform can retain data, run controlled research and build reviewed improvements. Existing fixture results verify the research engine; they do not establish real-market readiness or strategy performance.</p><p>Core evaluates requested coverage and missing evidence against reviewed readiness definitions. Data readiness does not establish strategy edge. See Daily Debrief for the governed schedule.</p><h3>Explore the current product</h3><ul><li><a href="#research-readiness">Understand research readiness</a> — Start with research coverage and missing evidence. Readiness is not proof of strategy performance.</li><li><a href="/triad/development">See product development</a> — Follow work on the early product.</li><li><a href="/triad/cycles">See completed and blocked cycles</a> — Review completed work and reported blockers.</li></ul></section><section id="research-readiness"><h2>Understanding research readiness</h2><p>This section provides explanatory guidance, not a current readiness assessment.</p><p>Coverage concerns the requested research scope: what the research is intended to cover. Missing evidence concerns what remains necessary under reviewed readiness definitions to evaluate that scope.</p><p>Research readiness does not establish strategy edge or real-market performance.</p><h3>Questions to ask when reviewing evidence</h3><p>Use these questions when reviewing research evidence. This page does not report whether these questions have been answered.</p><ul><li>Scope: Which instruments, date range and data frequency does the research cover?</li><li>Source: Where did the data come from, and is the evidence based on fixtures or market observations?</li><li>Gaps: What evidence is missing for the requested scope, and what conclusions remain unsupported?</li><li>Limits: What does the evidence demonstrate, and what would still be needed to assess strategy performance?</li></ul><p>Passing fixture tests verifies behavior on those fixtures; it does not demonstrate real-market performance.</p><h3>Record enough to revisit a result</h3><p>This checklist provides explanatory guidance for reviewing research evidence, not a current assessment or an additional readiness requirement.</p><ul><li>Record the dataset identifier or snapshot, source and retrieval or as-of date when available.</li><li>Record the code revision and research configuration, including parameters and any random seed.</li><li>Record the command or procedure used and a reference to the resulting output.</li><li>Explicitly identify unavailable details and explain how they limit reproducibility.</li></ul><p>Reproducibility alone does not establish data readiness, strategy edge or real-market performance.</p><h3>Before interpreting strategy results</h3><p>These are explanatory questions, not a current assessment or an additional readiness requirement. Reproducible historical results can still overstate strategy performance when they use future information, reuse evaluation data to select strategies or omit trading costs.</p><ul><li>Was each input available at the time the simulated decision was made, without using future observations?</li><li>Does the instrument universe reflect what was available at each historical date, including instruments later delisted, rather than only those that survive today?</li><li>How are splits, dividends and other corporate actions represented in prices and returns, and are those treatments consistent with the stated return calculation?</li><li>Was evaluation data kept separate from data used to select or tune the strategy?</li><li>How many strategies or parameter choices were tried, and was evaluation data reused to choose among them?</li><li>Do reported results account for fees, spread and slippage, and what execution assumptions remain untested?</li><li>What losses and peak-to-trough drawdowns occurred over the evaluated period, how long did recovery take, and were any drawdowns still unrecovered at the end?</li><li>What position sizes, leverage and concentration produced the reported returns, and how did those exposures change over the evaluated period?</li></ul><p>Historical losses and drawdowns do not bound future losses. These questions do not establish strategy edge or guarantee future performance.</p></section></main></body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Triad · Trading product</title><style>body{margin:0;background:#edf3ee;color:#183a2e;font:18px/1.7 system-ui}main{max-width:850px;margin:10vh auto;padding:28px}h1{font-size:56px;line-height:1.05;margin:18px 0}.label{letter-spacing:.14em;font-size:13px;color:#466e52}.status{background:#f9e8bb;padding:10px 16px;display:inline-block;border-radius:6px}section{margin-top:30px;background:white;padding:28px;border:1px solid #c5d8ca;border-radius:12px}a{color:#185c40;display:inline-block;margin-right:24px}a:focus-visible{outline:3px solid #398f61}#cost-form{display:grid;gap:10px}input,select,button{font:inherit;padding:8px;max-width:100%;box-sizing:border-box}button{cursor:pointer}input:focus-visible,select:focus-visible,button:focus-visible,.table-scroll:focus-visible{outline:3px solid #398f61}.table-scroll{overflow-x:auto}table{border-collapse:collapse;font-size:15px;width:100%}th,td{padding:10px;border:1px solid #c5d8ca;text-align:right}caption{text-align:left}</style></head><body><main><nav aria-label="Triad"><a href="/triad/product" aria-current="page">Product</a><a href="/triad/development">Development</a><a href="/triad/cycles">Cycles</a><a href="/triad/daily-debrief">Daily Debrief</a></nav><div class="label">TRIAD TRADING PRODUCT</div><h1>A research-led trading workspace.</h1><p class="status">EARLY PRODUCT</p><p>The product API publishes these limits for clients. <a href="/triad/product-api/boundaries">This is a machine-readable boundary statement, not a readiness score or strategy result.</a></p><p>The product surface is being built. There is no live account, order entry, portfolio management or validated trading strategy here yet.</p><section><h2>Current state</h2><p>The supporting platform can retain data, run controlled research and build reviewed improvements. Existing fixture results verify the research engine; they do not establish real-market readiness or strategy performance.</p><p>Core evaluates requested coverage and missing evidence against reviewed readiness definitions. Data readiness does not establish strategy edge. See Daily Debrief for the governed schedule.</p><h3>Explore the current product</h3><ul><li><a href="#research-readiness">Understand research readiness</a> — Start with research coverage and missing evidence. Readiness is not proof of strategy performance.</li><li><a href="/triad/development">See product development</a> — Follow work on the early product.</li><li><a href="/triad/cycles">See completed and blocked cycles</a> — Review completed work and reported blockers.</li></ul></section><section id="research-readiness"><h2>Understanding research readiness</h2><p>This section provides explanatory guidance, not a current readiness assessment.</p><p>Coverage concerns the requested research scope: what the research is intended to cover. Missing evidence concerns what remains necessary under reviewed readiness definitions to evaluate that scope.</p><p>Research readiness does not establish strategy edge or real-market performance.</p><h3>Questions to ask when reviewing evidence</h3><p>Use these questions when reviewing research evidence. This page does not report whether these questions have been answered.</p><ul><li>Scope: Which instruments, date range and data frequency does the research cover?</li><li>Source: Where did the data come from, and is the evidence based on fixtures or market observations?</li><li>Gaps: What evidence is missing for the requested scope, and what conclusions remain unsupported?</li><li>Limits: What does the evidence demonstrate, and what would still be needed to assess strategy performance?</li></ul><p>Passing fixture tests verifies behavior on those fixtures; it does not demonstrate real-market performance.</p><h3>Record enough to revisit a result</h3><p>This checklist provides explanatory guidance for reviewing research evidence, not a current assessment or an additional readiness requirement.</p><ul><li>Record the dataset identifier or snapshot, source and retrieval or as-of date when available.</li><li>Record the code revision and research configuration, including parameters and any random seed.</li><li>Record the command or procedure used and a reference to the resulting output.</li><li>Explicitly identify unavailable details and explain how they limit reproducibility.</li></ul><p>Reproducibility alone does not establish data readiness, strategy edge or real-market performance.</p><h3>Before interpreting strategy results</h3><p>These are explanatory questions, not a current assessment or an additional readiness requirement. Reproducible historical results can still overstate strategy performance when they use future information, reuse evaluation data to select strategies or omit trading costs.</p><ul><li>Was each input available at the time the simulated decision was made, without using future observations?</li><li>Does the instrument universe reflect what was available at each historical date, including instruments later delisted, rather than only those that survive today?</li><li>How are splits, dividends and other corporate actions represented in prices and returns, and are those treatments consistent with the stated return calculation?</li><li>Was evaluation data kept separate from data used to select or tune the strategy?</li><li>How many strategies or parameter choices were tried, and was evaluation data reused to choose among them?</li><li>Do reported results account for fees, spread and slippage, and what execution assumptions remain untested?</li><li>What losses and peak-to-trough drawdowns occurred over the evaluated period, how long did recovery take, and were any drawdowns still unrecovered at the end?</li><li>What position sizes, leverage and concentration produced the reported returns, and how did those exposures change over the evaluated period?</li></ul><p>Historical losses and drawdowns do not bound future losses. These questions do not establish strategy edge or guarantee future performance.</p></section><section id="cost-sensitivity"><h2>Round-trip trading-cost sensitivity</h2>
+<p>Enter a hypothetical round trip in USD. All assumptions are required, including explicit zero costs. One basis point is 0.01%.</p>
+<p>These are additive estimates against unchanged reference prices, not simulated fills. Commissions use reference notionals. Spread is a full spread charged as half on each leg. Supplied prices must exclude these modeled costs to avoid double counting. The 1x, 2x and 3x scenarios mechanically scale all supplied costs; they do not forecast market conditions.</p>
+<p>Financing, short borrow, taxes, liquidity, market impact, partial fills and corporate actions are excluded. Return on entry notional is net P&amp;L divided by quantity times reference entry price, expressed as a percentage; it is not a portfolio or margin return. This calculator does not validate a strategy, place orders, connect accounts or save inputs.</p>
+<form id="cost-form">
+<label for="direction">Direction</label><select id="direction" name="direction" required><option value="">Choose direction</option><option>LONG</option><option>SHORT</option></select>
+<label for="quantity">Quantity (shares; greater than 0, maximum 1,000,000)</label><input id="quantity" name="quantity" type="number" min="0" max="1000000" step="any" required>
+<label for="entry_price">Reference entry price (USD; greater than 0, maximum 1,000,000)</label><input id="entry_price" name="entry_price" type="number" min="0" max="1000000" step="any" required>
+<label for="exit_price">Reference exit price (USD; greater than 0, maximum 1,000,000)</label><input id="exit_price" name="exit_price" type="number" min="0" max="1000000" step="any" required>
+<label for="commission_per_order">Commission per order (USD; 0–1,000)</label><input id="commission_per_order" name="commission_per_order" type="number" min="0" max="1000" step="any" required>
+<label for="commission_per_share">Commission per share (USD; 0–100)</label><input id="commission_per_share" name="commission_per_share" type="number" min="0" max="100" step="any" required>
+<label for="commission_bps">Commission (basis points; 0–1,000)</label><input id="commission_bps" name="commission_bps" type="number" min="0" max="1000" step="any" required>
+<label for="full_spread_bps">Full bid-ask spread (basis points; 0–1,000)</label><input id="full_spread_bps" name="full_spread_bps" type="number" min="0" max="1000" step="any" required>
+<label for="slippage_bps">Slippage (basis points; 0–1,000)</label><input id="slippage_bps" name="slippage_bps" type="number" min="0" max="1000" step="any" required>
+<button type="submit">Calculate costs</button>
+<button type="button" id="example">Use illustrative example</button>
+</form>
+<p id="cost-status" role="status" aria-live="polite">Enter assumptions to calculate.</p>
+<div id="cost-results" hidden><p id="gross"></p>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Cost scenarios">
+<table><caption>Cost sensitivity — money in USD; return in percent</caption>
+<thead><tr><th scope="col">Scenario</th><th scope="col">Commission</th><th scope="col">Spread</th><th scope="col">Slippage</th><th scope="col">Total cost</th><th scope="col">Net P&amp;L</th><th scope="col">Net return on entry notional (%)</th></tr></thead>
+<tbody id="cost-rows"></tbody></table></div></div>
+<noscript>JavaScript is required to submit this calculator.</noscript></section>
+<script>
+(() => {
+  const form = document.getElementById('cost-form');
+  const status = document.getElementById('cost-status');
+  const results = document.getElementById('cost-results');
+  const rows = document.getElementById('cost-rows');
+  let version = 0;
+  let controller;
+  function clear() {
+    version++;
+    if (controller) controller.abort();
+    results.hidden = true;
+    rows.replaceChildren();
+    document.getElementById('gross').textContent = '';
+    status.textContent = 'Inputs changed. Calculate to see updated results.';
+    form.removeAttribute('aria-busy');
+  }
+  form.addEventListener('input', clear);
+  form.addEventListener('change', clear);
+  document.getElementById('example').addEventListener('click', () => {
+    clear();
+    const example = {direction:'LONG',quantity:'10',entry_price:'100',exit_price:'110',
+      commission_per_order:'1',commission_per_share:'0.01',commission_bps:'2',
+      full_spread_bps:'10',slippage_bps:'3'};
+    for (const [key,value] of Object.entries(example)) form.elements.namedItem(key).value = value;
+    status.textContent = 'Illustrative example loaded. Submit to calculate; these are not market observations.';
+  });
+  const money = new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'});
+  function display(value, percent = false) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return value + (percent ? '%' : ' USD');
+    return percent ? n.toLocaleString('en-US', {maximumFractionDigits:4}) + '%' : money.format(n);
+  }
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    clear();
+    const current = version;
+    const payload = Object.fromEntries(new FormData(form));
+    for (const name of ['quantity','entry_price','exit_price']) {
+      if (!(Number(payload[name]) > 0)) {
+        status.textContent = 'Quantity and both reference prices must be greater than zero.';
+        return;
+      }
+    }
+    controller = new AbortController();
+    form.setAttribute('aria-busy','true');
+    status.textContent = 'Calculating…';
+    try {
+      const response = await fetch('/triad/product-api/research/cost-sensitivity', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload), signal:controller.signal
+      });
+      if (!response.ok) throw new Error(response.status === 422
+        ? 'Check every required assumption and its stated limits.'
+        : 'Calculation unavailable. Please try again.');
+      const data = await response.json();
+      if (current !== version) return;
+      document.getElementById('gross').textContent = 'Gross P&L (unchanged across scenarios): ' + display(data.gross_pnl);
+      for (const scenario of data.scenarios) {
+        const row = document.createElement('tr');
+        const values = [scenario.label, ...['commission','spread_cost','slippage_cost','total_cost','net_pnl'].map(key => display(scenario[key])),
+          display(scenario.net_return_on_entry_notional_pct,true)];
+        values.forEach((value,index) => {
+          const cell = document.createElement(index === 0 ? 'th' : 'td');
+          if (index === 0) cell.scope = 'row';
+          cell.textContent = value;
+          row.appendChild(cell);
+        });
+        rows.appendChild(row);
+      }
+      results.hidden = false;
+      status.textContent = 'Calculation complete. Results are estimates from the supplied assumptions.';
+    } catch (error) {
+      if (current !== version) return;
+      results.hidden = true;
+      rows.replaceChildren();
+      status.textContent = error.message || 'Calculation failed. Please try again.';
+    } finally {
+      if (current === version) form.removeAttribute('aria-busy');
+    }
+  });
+})();
+</script>
+</main></body></html>
