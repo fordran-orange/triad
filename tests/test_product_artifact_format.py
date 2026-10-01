@@ -25,6 +25,8 @@ def test_normalizes_observed_redundant_array_closer_without_changing_review():
         '{"checks":"bad"}]',
         '{"checks":[]',
         '{"checks":[],"approved":true}]',
+        '{"checks":[],"checks":[]}',
+        '{"checks":[{"check_id":"a","status":"BLOCKED","status":"VERIFIED","evidence_ids":["a"],"reason":"claim"}]}',
     ],
 )
 def test_does_not_repair_extra_values_keys_or_invalid_schema(text):

@@ -38,25 +38,36 @@ class ProductResponseFormatError(ValueError):
 
 def parse_product_artifact(schema, text):
     """Accept one observed redundant array closer; never repair substantive JSON."""
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValidationError.from_exception_data(
+                    schema.__name__,
+                    [
+                        {
+                            "type": "value_error",
+                            "loc": (),
+                            "input": text,
+                            "ctx": {"error": ValueError("Duplicate artifact key")},
+                        }
+                    ],
+                )
+            result[key] = value
+        return result
+
+    stripped = text.lstrip()
     try:
+        value, end = json.JSONDecoder(object_pairs_hook=unique_object).raw_decode(stripped)
+    except ValidationError:
+        raise
+    except (ValueError, TypeError):
+        # Preserve the normal schema parser's error, rather than guessing repairs.
         return schema.model_validate_json(text), False
-    except ValidationError as original:
-
-        def unique_object(pairs):
-            result = {}
-            for key, value in pairs:
-                if key in result:
-                    raise ValueError("Duplicate artifact key")
-                result[key] = value
-            return result
-
-        try:
-            value, end = json.JSONDecoder(object_pairs_hook=unique_object).raw_decode(text.lstrip())
-        except (ValueError, TypeError):
-            raise original from None
-        if not isinstance(value, dict) or text.lstrip()[end:].strip() != "]":
-            raise
-        return schema.model_validate(value), True
+    if isinstance(value, dict) and stripped[end:].strip() == "]":
+        return schema.model_validate_json(stripped[:end]), True
+    return schema.model_validate_json(text), False
 
 
 class Development(ExecutionServices):
