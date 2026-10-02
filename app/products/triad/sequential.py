@@ -133,7 +133,7 @@ class SequentialCycle:
         )
         feedback = []
         recovery = None
-        original_context, original_objective = context, objective
+        original_context, original_objective, original_paths = context, objective, paths
         for attempt in range(1, 4):
             self.guard(mission)
             try:
@@ -217,7 +217,7 @@ class SequentialCycle:
                     paths = ()
                 else:
                     # Never fabricate omitted JSON content. A fresh attempt retains the original evidence.
-                    context, objective = original_context, original_objective
+                    context, objective, paths = original_context, original_objective, original_paths
 
                 feedback.append(
                     "Your previous response used an invalid envelope: "

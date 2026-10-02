@@ -303,7 +303,6 @@ class GrokSession:
                 raise PermissionError("Use the dedicated workspace tools")
             if method == "fs/read_text_file":
                 path = self.relative(params.get("path"))
-                content = self.broker.call("read_file", {"path": path})
                 line, limit = params.get("line", 1), params.get("limit")
                 if (
                     type(line) is not int
@@ -311,6 +310,9 @@ class GrokSession:
                     or (limit is not None and (type(limit) is not int or limit < 0))
                 ):
                     raise ValueError("Invalid line range")
+                if path.startswith("evidence/") and (line != 1 or limit is not None):
+                    raise ValueError("Read complete evidence parts; omit line and limit")
+                content = self.broker.call("read_file", {"path": path})
                 if line != 1 or limit is not None:
                     content = "".join(
                         content.splitlines(keepends=True)[
