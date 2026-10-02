@@ -15,7 +15,11 @@ MAX_FILES = 2048
 def prepare(request, files):
     if request.context_packet.get("evidence_delivery") != "files-v1":
         return request, files, set(files), {}
-    if request.role != "REVIEW" or request.execution_permissions != ("read",):
+    if (
+        request.role != "REVIEW"
+        or request.execution_permissions != ("read",)
+        or set(request.allowed_tools) != {"read_file"}
+    ):
         raise PermissionError("Evidence snapshots require read-only authority")
     snapshots, index, required = {}, [], set()
 

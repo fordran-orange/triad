@@ -12,6 +12,7 @@ from trading_core.evidence_delivery import prepare
 class Request:
     role = "REVIEW"
     execution_permissions = ("read",)
+    allowed_tools = ("read_file",)
 
     def __init__(self, packet):
         self.context_packet = packet
