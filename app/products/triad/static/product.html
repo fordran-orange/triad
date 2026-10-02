@@ -138,6 +138,9 @@
 <button type="button" id="ledger-download" disabled>Download JSON report</button>
 <div id="ledger-results" hidden>
 <dl id="ledger-summary"></dl>
+<p>Recovery describes realized-balance episodes from grouped UTC exits only, excluding open positions and mark-to-market changes; it makes no future-risk claim. Dollar and percentage maxima can select different episodes. Ties use the earliest maximum trough and latest preceding matching peak. Recovery is the first subsequent balance at or above that peak. Money, percentages and elapsed seconds retain decimal-string precision in the report and JSON download. Observation end is the final grouped exit.</p>
+<section><h3>Largest dollar drawdown recovery</h3><dl id="ledger-recovery-dollar"></dl></section>
+<section><h3>Largest percentage drawdown recovery</h3><dl id="ledger-recovery-percent"></dl></section>
 <div class="table-scroll" tabindex="0" role="region" aria-label="Chronological realized balances">
 <table id="ledger-table"><caption>Chronological realized balance — simultaneous UTC exits grouped; USD and percent</caption>
 <thead><tr><th scope="col">Exit timestamp (UTC)</th><th scope="col">Realized balance (USD)</th><th scope="col">Drawdown (USD)</th><th scope="col">Drawdown (%)</th></tr></thead>
@@ -168,6 +171,8 @@
     el('download').disabled = true;
     el('results').hidden = true;
     el('summary').replaceChildren();
+    el('recovery-dollar').replaceChildren();
+    el('recovery-percent').replaceChildren();
     el('exposure-summary').replaceChildren();
     el('exposure-rows').replaceChildren();
     el('rows').replaceChildren();
@@ -228,6 +233,36 @@
           row.appendChild(cell);
         }
         el('rows').appendChild(row);
+      }
+      for (const [name, target] of [['max_dollar','recovery-dollar'], ['max_percent','recovery-percent']]) {
+        const episode = data.drawdown_recovery[name];
+        if (episode === null) {
+          const message = document.createElement('dd');
+          message.textContent = 'No realized drawdown: no peak, trough, recovery or elapsed duration applies.';
+          el(target).appendChild(message);
+          continue;
+        }
+        const endpoint = episode.status === 'RECOVERED' ? 'recovery' : 'observation end (unrecovered)';
+        const recoveryFields = {
+          status:'Recovery status', peak_balance:'Peak balance (USD)', trough_balance:'Trough balance (USD)',
+          drawdown:'Episode drawdown (USD)', drawdown_pct:'Episode drawdown (%)',
+          peak_origin:'Peak origin', peak_timestamp:'Peak timestamp (UTC)',
+          trough_timestamp:'Trough timestamp (UTC)', recovery_timestamp:'Recovery timestamp (UTC)',
+          observation_end_timestamp:'Observation end timestamp (UTC)',
+          peak_to_end_seconds:'Peak to ' + endpoint + ' (seconds)',
+          trough_to_end_seconds:'Trough to ' + endpoint + ' (seconds)'
+        };
+        const missing = {
+          peak_timestamp:'Unknown: initial balance has no observed timestamp',
+          peak_to_end_seconds:'Unknown: initial balance time is unavailable',
+          recovery_timestamp:'Unrecovered at observation end: no recovery observed'
+        };
+        for (const [key,label] of Object.entries(recoveryFields)) {
+          const term = document.createElement('dt'), value = document.createElement('dd');
+          term.textContent = label;
+          value.textContent = episode[key] === null ? missing[key] : episode[key];
+          el(target).append(term,value);
+        }
       }
       const exposure = data.entry_notional_exposure;
       const exposureFields = {
