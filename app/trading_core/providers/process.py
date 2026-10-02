@@ -141,9 +141,14 @@ class ManagedProcess:
             for item in tuple(cls.active):
                 item.cancel()
 
-    def run(self, argv, *, cwd, timeout=15, stdin="", guard=lambda: None, on_start=lambda p: None):
+    def run(
+        self, argv, *, cwd, timeout=15, stdin="", guard=lambda: None,
+        on_start=lambda p: None, output_limit=131072,
+    ):
         if not isinstance(argv, list) or not argv or timeout <= 0:
             raise ValueError("Fixed argument vector and deadline required")
+        if type(output_limit) is not int or not 131072 <= output_limit <= 8000000:
+            raise ValueError("Host output capacity must be between 128 KiB and 8 MB")
         start = time.monotonic()
         buffers = [bytearray(), bytearray()]
         overflow = threading.Event()
@@ -173,7 +178,7 @@ class ManagedProcess:
 
             def drain(stream, target):
                 while chunk := stream.read(4096):
-                    room = 131072 - len(target)
+                    room = output_limit - len(target)
                     target.extend(chunk[: max(0, room)])
                     if len(chunk) > room:
                         overflow.set()

@@ -119,8 +119,11 @@ class OfflineSandbox:
             self.runner.cancel()
 
     @staticmethod
-    def _docker(args, *, stdin="", timeout=20):
-        result = ManagedProcess().run(["docker", *args], cwd=ROOT, stdin=stdin, timeout=timeout)
+    def _docker(args, *, stdin="", timeout=20, output_limit=131072):
+        result = ManagedProcess().run(
+            ["docker", *args], cwd=ROOT, stdin=stdin, timeout=timeout,
+            output_limit=output_limit,
+        )
         if result.status != "EXITED" or result.exit_code:
             raise RuntimeError("Isolated runtime operation failed: " + args[0])
         return result.stdout.strip()
@@ -251,7 +254,17 @@ class OfflineSandbox:
                 .replace(">48000", ">" + str(max_bytes))
                 .replace(">128", ">" + str(max_files * 8))
             )
-            exported = json.loads(self._docker(["exec", name, "python", "-I", "-c", export_script]))
+            # Valid text snapshots can exceed ordinary command output capacity.
+            # JSON escapes use at most six bytes per source byte; path overhead
+            # is bounded by safe_path and the host's file count. This larger
+            # capacity applies only to the fixed host export, never model tools.
+            export_capacity = max(131072, max_bytes * 6 + max_files * 256 + 4096)
+            exported = json.loads(
+                self._docker(
+                    ["exec", name, "python", "-I", "-c", export_script],
+                    output_limit=export_capacity,
+                )
+            )
             check()
             if not isinstance(exported, dict):
                 raise TypeError("Invalid workspace export")
