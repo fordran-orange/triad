@@ -177,9 +177,18 @@ def retained_selection(flow, mission, agent, prior, conn):
     ]
     require(bool(requests), "Canonical read request required")
     failed = requests[-1]
+    failed_rows = [r for r in records if r["kind"] == "AgentRunRequest" and r["payload"] == failed]
+    require(
+        len(failed_rows) == 1 and failed_rows[0]["work_item_id"] == failed["work_item_id"],
+        "Failed request record identity mismatch",
+    )
     work = daily.product.store.get(failed["work_item_id"], conn=conn)
     require(
-        work.status == State.BLOCKED
+        failed.get("role") == "REVIEW"
+        and failed.get("agent_id") == REVIEWERS[agent]
+        and work.owner == "triad"
+        and work.mission_id == mission
+        and work.status == State.BLOCKED
         and work.work_type == "review"
         and work.authority_tier == 0
         and work.assigned_agent == REVIEWERS[agent]
@@ -192,12 +201,24 @@ def retained_selection(flow, mission, agent, prior, conn):
     run_id = failed["run_id"]
     evidence = [r for r in records if r["payload"].get("run_id") == run_id]
     require(
+        all(
+            r["work_item_id"] == failed["work_item_id"]
+            if r["kind"] != "ResourceExtensionDecision"
+            else r["work_item_id"] in (None, failed["work_item_id"])
+            and r["payload"].get("work_item_id") == failed["work_item_id"]
+            and r["payload"].get("agent_id") == REVIEWERS[agent]
+            for r in evidence
+        ),
+        "Failed run evidence belongs to another work assignment",
+    )
+    require(
         not any(r["kind"] == "AgentRunResult" for r in evidence),
         "Completed review must not be replayed",
     )
     decisions = [r["payload"] for r in evidence if r["kind"] == "ResourceExtensionDecision"]
     require(
         bool(decisions)
+        and decisions[-1].get("decision") == "DENY"
         and decisions[-1].get("resource_type") == ResourceType.TIME
         and decisions[-1].get("reason") == "No new progress; repeated evidence cannot extend a run",
         "Canonical read timeout required",
@@ -206,6 +227,18 @@ def retained_selection(flow, mission, agent, prior, conn):
     require(
         bool(transports) and transports[-1].get("status") == "BLOCKED_RESOURCE_LIMIT",
         "Terminal transport evidence required",
+    )
+    route = daily.product.get("route-" + work.work_item_id, conn=conn)["selected"]
+    require(
+        route.get("agent_id") == REVIEWERS[agent]
+        and all(
+            t.get("work_item_id") == work.work_item_id
+            and t.get("agent") == REVIEWERS[agent]
+            and t.get("provider") == route["provider"]
+            and t.get("transport") == route["transport"]
+            for t in transports
+        ),
+        "Stopped transport differs from the canonical provider route",
     )
     authors = []
     for request in requests:
@@ -229,12 +262,29 @@ def retained_selection(flow, mission, agent, prior, conn):
             except ValueError:
                 continue
             if parsed == proposal:
+                require(
+                    all(
+                        r["work_item_id"] == request["work_item_id"]
+                        for r in records
+                        if r["kind"] in {"AgentRunRequest", "AgentRunResult"}
+                        and r["payload"].get("run_id") == request["run_id"]
+                    ),
+                    "Author request/result record identity mismatch",
+                )
                 authors.append(request)
     require(len(authors) == 1, "Unambiguous original proposal author evidence required")
     author = authors[0]
     author_work = daily.product.store.get(author["work_item_id"], conn=conn)
     require(
-        author_work.status == State.COMPLETED and author_work.authority_tier == 0,
+        author_work.status == State.COMPLETED
+        and author_work.authority_tier == 0
+        and author_work.owner == "triad"
+        and author_work.mission_id == mission
+        and author_work.assigned_agent == agent
+        and author_work.parent_work_item_id == prior["parent_work_item_id"]
+        and author.get("control_epoch") == prior["control_epoch"]
+        and author.get("execution_permissions") == ["read"]
+        and author.get("allowed_tools") == ["read_file"],
         "Completed read-only proposal required",
     )
     return {

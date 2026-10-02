@@ -864,7 +864,7 @@ class Runtime:
             if hasattr(adapter, "cancel"):
                 adapter.cancel()
             if worker is not None:
-                worker.join(timeout=15)
+                worker.join(timeout=15 if isinstance(exc, (ProviderError, ResourceBlocked)) else 0)
             # Product recovery must not overlap a provider operation still unwinding.
             exc.provider_stopped = worker is None or not worker.is_alive()
             status = exc.status if isinstance(exc, (ProviderError, ResourceBlocked)) else "FAILED"

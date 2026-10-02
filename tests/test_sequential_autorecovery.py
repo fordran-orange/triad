@@ -163,7 +163,13 @@ def checkpoint():
     records = []
 
     def add(kind, **payload):
-        records.append({"kind": kind, "payload": payload})
+        records.append(
+            {
+                "kind": kind,
+                "payload": payload,
+                "work_item_id": "author-work" if payload["run_id"] == "author" else "review-work",
+            }
+        )
 
     add(
         "AgentRunRequest",
@@ -172,6 +178,9 @@ def checkpoint():
         mission_id="cycle",
         agent_id="GROK",
         role="REVIEW",
+        execution_permissions=["read"],
+        allowed_tools=["read_file"],
+        control_epoch=1,
     )
     add("AgentRunResult", run_id="author", analysis_artifacts=[proposal])
     add(
@@ -188,14 +197,35 @@ def checkpoint():
     add(
         "ResourceExtensionDecision",
         run_id="failed",
+        work_item_id="review-work",
+        agent_id="CODEX",
+        decision="DENY",
         resource_type="MORE_TIME",
         reason="No new progress; repeated evidence cannot extend a run",
     )
-    add("TransportRun", run_id="failed", status="BLOCKED_RESOURCE_LIMIT")
+    add(
+        "TransportRun",
+        run_id="failed",
+        status="BLOCKED_RESOURCE_LIMIT",
+        work_item_id="review-work",
+        agent="CODEX",
+        provider="openai",
+        transport="codex_cli",
+    )
     works = {
-        "author-work": NS(status=State.COMPLETED, authority_tier=0),
+        "author-work": NS(
+            status=State.COMPLETED,
+            authority_tier=0,
+            owner="triad",
+            mission_id="cycle",
+            assigned_agent="GROK",
+            parent_work_item_id="parent",
+        ),
         "review-work": NS(
             status=State.BLOCKED,
+            owner="triad",
+            mission_id="cycle",
+            work_item_id="review-work",
             work_type="review",
             authority_tier=0,
             assigned_agent="CODEX",
@@ -205,6 +235,9 @@ def checkpoint():
     proposals = [{"mission_id": "cycle", "proposer": "GROK", "proposal": proposal, "attempt": 1}]
     cycles = []
     product = NS(
+        get=lambda *a, **kw: {
+            "selected": {"agent_id": "CODEX", "provider": "openai", "transport": "codex_cli"}
+        },
         list=lambda kind, **kw: proposals if kind == "ProductProposal" else cycles,
         store=NS(get=lambda key, **kw: works[key]),
     )
@@ -260,12 +293,56 @@ def test_saved_read_checkpoint_refuses_ambiguous_or_unsafe_state(checkpoint, tam
     elif tamper == "reviewer":
         b.works["review-work"].assigned_agent = "GROK"
     elif tamper == "result":
-        b.records.append({"kind": "AgentRunResult", "payload": {"run_id": "failed"}})
+        b.records.append(
+            {
+                "kind": "AgentRunResult",
+                "payload": {"run_id": "failed"},
+                "work_item_id": "review-work",
+            }
+        )
     elif tamper == "non_time":
         b.records[3]["payload"]["resource_type"] = "MORE_TOKENS"
     elif tamper == "transport":
         b.records[4]["payload"]["status"] = "RUNNING"
     elif tamper == "author":
         b.records[1]["payload"]["analysis_artifacts"] = []
+    with pytest.raises(PermissionError):
+        recovery.retained_selection(b.flow, "cycle", "GROK", b.prior, b.conn)
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "failed_agent",
+        "failed_role",
+        "failed_work_column",
+        "transport_work",
+        "resource_work",
+        "author_result_work",
+        "provider",
+        "author_epoch",
+        "resource_decision",
+    ],
+)
+def test_retained_checkpoint_binds_record_lineage(checkpoint, tamper):
+    b = checkpoint
+    if tamper == "failed_agent":
+        b.records[2]["payload"]["agent_id"] = "CLAUDE"
+    elif tamper == "failed_role":
+        b.records[2]["payload"]["role"] = "IMPLEMENT"
+    elif tamper == "failed_work_column":
+        b.records[2]["work_item_id"] = "foreign-work"
+    elif tamper == "transport_work":
+        b.records[4]["work_item_id"] = "foreign-work"
+    elif tamper == "resource_work":
+        b.records[3]["work_item_id"] = "foreign-work"
+    elif tamper == "author_result_work":
+        b.records[1]["work_item_id"] = "foreign-work"
+    elif tamper == "provider":
+        b.records[4]["payload"]["provider"] = "foreign-provider"
+    elif tamper == "author_epoch":
+        b.records[0]["payload"]["control_epoch"] = 2
+    elif tamper == "resource_decision":
+        b.records[3]["payload"]["decision"] = "ALLOW"
     with pytest.raises(PermissionError):
         recovery.retained_selection(b.flow, "cycle", "GROK", b.prior, b.conn)
