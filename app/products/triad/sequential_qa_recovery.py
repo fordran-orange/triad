@@ -103,6 +103,12 @@ def resume_citation_failure(flow, mission):
             flow.approval(mission, agent, proposal, build["approval"])
             require(approved["base_commit"] == head, "Approval baseline changed")
             git = ProductGit(proposal.files, root=flow.root)
+            require(
+                git.git("rev-parse", "HEAD", cwd=build["git"]["worktree"])
+                == build["git"]["change_commit"]
+                and not git.git("status", "--porcelain", cwd=build["git"]["worktree"]),
+                "Candidate must remain clean at its exact reviewed commit",
+            )
             actual = git.verify(build["git"])
             require(
                 all(actual[k] == build["checks"][k] for k in ("files", "hashes", "diff")),
