@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -29,8 +30,15 @@ def main():
                 creationflags=subprocess.CREATE_NO_WINDOW,
                 check=False,
             )
-            return result.returncode
-        except OSError as exc:
+            if result.returncode:
+                return result.returncode
+            product = subprocess.run(
+                [sys.executable, str(root / "tools/ensure_triad_worker.py")],
+                cwd=root, stdin=subprocess.DEVNULL, stdout=output, stderr=output,
+                creationflags=subprocess.CREATE_NO_WINDOW, check=False, timeout=100,
+            )
+            return product.returncode
+        except (OSError, subprocess.TimeoutExpired) as exc:
             output.write(("Supervisor could not start: " + type(exc).__name__ + "\n").encode())
             return 1
 

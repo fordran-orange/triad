@@ -1,10 +1,23 @@
-param([ValidateSet('triad','aegis')][string]$Product)
+param([ValidateSet('triad','aegis')][string]$Product, [switch]$OnlyIfStopped)
 $ErrorActionPreference = 'Stop'
 $TradingRoot = Split-Path $PSScriptRoot -Parent
 $TradingPython = Join-Path $TradingRoot '.venv/Scripts/python.exe'
 $ProductPort = if ($Product -eq 'triad') {8101} else {8102}
 $ProductApp = "products.$Product.server:app"
 $listeners = Get-NetTCPConnection -LocalPort $ProductPort -State Listen -ErrorAction SilentlyContinue
+if ($OnlyIfStopped -and $listeners) {
+    Write-Output "$Product port is occupied; supervisor will not stop its owner"
+    exit 0
+}
+if ($OnlyIfStopped) {
+    $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffffffZ')
+    foreach ($stream in @('stdout', 'stderr')) {
+        $previous = Join-Path $TradingRoot "logs/$Product.$stream.log"
+        if (Test-Path -LiteralPath $previous) {
+            Copy-Item -LiteralPath $previous -Destination (Join-Path $TradingRoot "logs/$Product-before-recovery-$stamp.$stream.log")
+        }
+    }
+}
 foreach ($listener in $listeners) {
     $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)"
     $ExpectedWorker = $processInfo.CommandLine -match [regex]::Escape("uvicorn $ProductApp")
