@@ -2,7 +2,6 @@ from copy import deepcopy
 from types import SimpleNamespace as NS
 
 import pytest
-
 from products.triad.sequential_citations import citation_omission, correct_citations
 from trading_core.contracts import AgentRunResult
 from trading_core.product_changes import AcceptanceAssessment, RequiredCheck
