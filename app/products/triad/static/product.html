@@ -118,4 +118,119 @@
   });
 })();
 </script>
+
+<section id="trade-ledger"><h2>Closed-trade ledger analysis</h2>
+<p><strong>User-supplied closed-trade analysis. The balance curve includes realized P&amp;L only, not mark-to-market equity or intratrade drawdown.</strong> Cash flows and open positions are excluded. Overlapping trades are accepted but do not establish capital/margin feasibility or that the initial balance could finance them. Costs are deducted once exactly as supplied; the hypothetical calculator's cost model is not applied. This does not validate a strategy. Inputs are not saved.</p>
+<p>Supply 1–2000 completed matched round trips, at most 1,000,000 UTF-8 bytes. CSV must contain exactly these columns in any order: trade_id,symbol,direction,quantity,entry_price,exit_price,entry_time,exit_time,total_cost. Standard quoted fields and a leading BOM are accepted. IDs must be unique (1–64 letters, digits, underscores or hyphens); symbols use 1–20 uppercase letters, digits, dots, underscores or hyphens. Direction is LONG or SHORT. Timestamps require ISO-8601 dates and times with a timezone, up to microsecond precision; entry must not follow exit.</p>
+<p>Numbers use ordinary decimal notation with up to eight fractional digits and 32 characters, without exponents. Quantity and prices must be positive and at most 1,000,000. All-in total_cost is nonnegative USD, at most 1,000,000. Initial balance is positive USD, at most 1,000,000,000,000.</p>
+<form id="ledger-form">
+<label for="ledger-balance">Initial balance (USD)</label>
+<input id="ledger-balance" type="text" inputmode="decimal" maxlength="32" required>
+<label for="ledger-csv">Completed trades (CSV)</label>
+<textarea id="ledger-csv" rows="10" maxlength="1000000" required style="width:100%;box-sizing:border-box;font:14px monospace"></textarea>
+<button type="submit">Analyze ledger</button>
+<button type="button" id="ledger-sample">Load illustrative sample</button>
+</form>
+<p id="ledger-status" role="status" aria-live="polite">Paste your completed trades to analyze.</p>
+<button type="button" id="ledger-download" disabled>Download JSON report</button>
+<div id="ledger-results" hidden>
+<dl id="ledger-summary"></dl>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Chronological realized balances">
+<table id="ledger-table"><caption>Chronological realized balance — simultaneous UTC exits grouped; USD and percent</caption>
+<thead><tr><th scope="col">Exit timestamp (UTC)</th><th scope="col">Realized balance (USD)</th><th scope="col">Drawdown (USD)</th><th scope="col">Drawdown (%)</th></tr></thead>
+<tbody id="ledger-rows"></tbody></table></div></div>
+<noscript>JavaScript is required to analyze a ledger.</noscript>
+</section>
+<script>
+(() => {
+  const el = id => document.getElementById('ledger-' + id);
+  let version = 0, controller, report = null;
+  function clear() {
+    version++;
+    if (controller) controller.abort();
+    report = null;
+    el('download').disabled = true;
+    el('results').hidden = true;
+    el('summary').replaceChildren();
+    el('rows').replaceChildren();
+    el('form').removeAttribute('aria-busy');
+    el('status').textContent = 'Inputs changed. Analyze to see current results.';
+  }
+  el('form').addEventListener('input', clear);
+  el('form').addEventListener('change', clear);
+  el('sample').addEventListener('click', () => {
+    clear();
+    el('balance').value = '1000';
+    el('csv').value = [
+      'trade_id,symbol,direction,quantity,entry_price,exit_price,entry_time,exit_time,total_cost',
+      'example1,DEMO,LONG,10,100,111,2026-01-01T09:00:00Z,2026-01-01T10:00:00Z,10',
+      'example2,DEMO,SHORT,10,100,114,2026-01-01T09:00:00Z,2026-01-02T10:00:00Z,10',
+      'example3,DEMO,LONG,1,100,100,2026-01-03T09:00:00Z,2026-01-03T10:00:00Z,0',
+      'example4,DEMO,LONG,5,100,110,2026-01-04T09:00:00Z,2026-01-04T10:00:00Z,0'
+    ].join('\n');
+    el('status').textContent = 'Illustrative sample loaded; these are invented trades, not market observations.';
+  });
+  el('form').addEventListener('submit', async event => {
+    event.preventDefault();
+    clear();
+    const current = version;
+    controller = new AbortController();
+    el('form').setAttribute('aria-busy', 'true');
+    el('status').textContent = 'Analyzing…';
+    try {
+      const response = await fetch('/triad/product-api/research/trade-ledger', {
+        method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal,
+        body:JSON.stringify({initial_balance:el('balance').value, csv_text:el('csv').value})
+      });
+      const data = await response.json();
+      if (current !== version) return;
+      if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Ledger analysis failed.');
+      const fields = {
+        initial_balance:'Initial balance (USD)', trade_count:'Trades',
+        gross_pnl:'Gross P&L (USD)', total_costs:'Total costs (USD)', net_pnl:'Net P&L (USD)',
+        ending_realized_balance:'Ending realized balance (USD)',
+        positive_count:'Net-positive trades', negative_count:'Net-negative trades', zero_count:'Zero-net trades',
+        win_rate_pct:'Win rate (% of all trades)', average_net_pnl:'Average net P&L (USD)',
+        profit_factor:'Profit factor (ratio)', max_drawdown:'Maximum drawdown (USD)',
+        max_drawdown_pct:'Maximum drawdown (%)'
+      };
+      for (const [key,label] of Object.entries(fields)) {
+        const term = document.createElement('dt'), value = document.createElement('dd');
+        term.textContent = label;
+        value.textContent = data[key] === null ? 'Not defined: no losses' : data[key];
+        el('summary').append(term,value);
+      }
+      for (const point of data.realized_balance_curve) {
+        const row = document.createElement('tr');
+        for (const value of [point.timestamp === null ? 'Initial balance' : point.timestamp,
+                             point.balance,point.drawdown,point.drawdown_pct]) {
+          const cell = document.createElement('td');
+          cell.textContent = value;
+          row.appendChild(cell);
+        }
+        el('rows').appendChild(row);
+      }
+      report = data;
+      el('results').hidden = false;
+      el('download').disabled = false;
+      el('status').textContent = 'Analysis complete. Realized outcomes from user-supplied records only.';
+    } catch (error) {
+      if (current !== version) return;
+      clear();
+      el('status').textContent = error.message || 'Analysis failed. Please try again.';
+    } finally {
+      if (current === version) el('form').removeAttribute('aria-busy');
+    }
+  });
+  el('download').addEventListener('click', () => {
+    if (!report) return;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(report,null,2)], {type:'application/json'}));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'trade-ledger-report.json';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  });
+})();
+</script>
 </main></body></html>

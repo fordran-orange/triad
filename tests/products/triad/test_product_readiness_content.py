@@ -74,6 +74,27 @@ class ProductReadinessContentTests(unittest.TestCase):
         cls.elements = list(cls.document.elements())
         cls.links = [node for node in cls.elements if node.tag == 'a']
 
+    def test_ledger_workspace_structure(self):
+        ids = [n.attrs["id"] for n in self.elements if "id" in n.attrs]
+        self.assertEqual(len(ids), len(set(ids)))
+        nodes = {n.attrs.get("id"): n for n in self.elements}
+        section = nodes["trade-ledger"]
+        self.assertEqual(section.tag, "section")
+        labels = {n.attrs.get("for") for n in section.elements() if n.tag == "label"}
+        self.assertTrue({"ledger-balance", "ledger-csv"} <= labels)
+        self.assertEqual(nodes["ledger-csv"].tag, "textarea")
+        self.assertEqual(nodes["ledger-status"].attrs.get("role"), "status")
+        self.assertEqual(nodes["ledger-table"].tag, "table")
+        self.assertIn("disabled", nodes["ledger-download"].attrs)
+        self.assertIn("hidden", nodes["ledger-results"].attrs)
+        for phrase in ("realized P&L only", "mark-to-market", "intratrade drawdown",
+                       "Cash flows", "open positions", "capital/margin feasibility",
+                       "Costs are deducted once", "illustrative sample"):
+            self.assertIn(phrase, section.text())
+        source = PRODUCT_HTML.read_text(encoding="utf-8")
+        self.assertIn("/triad/product-api/research/trade-ledger", source)
+        self.assertIn("if (current !== version) return;", source)
+
     def readiness_section(self):
         targets = [
             node for node in self.elements
