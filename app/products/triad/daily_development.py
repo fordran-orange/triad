@@ -640,6 +640,9 @@ class DailyDevelopment(Development):
             "NO_CHANGE turns preserve the baseline: do not claim they built, merged or deployed anything. "
             "Distinguish OBSERVED/EXPECTED/HYPOTHESIZED effects. "
             "Explicitly account debt and failures, classify proposed gain modestly with evidence, and answer all seven tomorrow questions. "
+            "Debt records and observations are distinct: legacy OPEN records may contain positive QA observations, not defects. "
+            "Only an explicit recorded resolution proves debt retirement. A scope check or passing test alone cannot retire debt. "
+            "Separate residual verification limitations from newly introduced defects; cite record IDs and actual status. "
             "No actions/claims/commands/tests/files. Keep explanation useful and concise.",
             context,
             schema=Debrief,

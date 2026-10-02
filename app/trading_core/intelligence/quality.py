@@ -51,13 +51,9 @@ class Quality:
                 self.records.store.handoff_lifecycle(
                     build["work_item_id"], "completed_at", qa.qa_agent, conn=conn
                 )
-            observations = tuple(
-                dict.fromkeys(
-                    (*qa.findings, *qa.optional_improvements)
-                    if qa.decision == "PASS_WITH_OBSERVATIONS"
-                    else qa.optional_improvements
-                )
-            )
+            # Findings include positive scope observations. Only explicitly named
+            # optional improvements are debt; never turn praise into an open defect.
+            observations = tuple(dict.fromkeys(qa.optional_improvements))
             for finding in observations:
                 self.records.append(
                     "QualityDebt",

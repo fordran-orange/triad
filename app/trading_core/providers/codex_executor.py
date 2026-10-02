@@ -4,6 +4,7 @@ Experimental protocol support is version-pinned and must pass acceptance before
 CLITransport enables it. This module never starts a model turn by itself.
 """
 
+import hashlib
 import json
 import os
 import queue
@@ -27,6 +28,39 @@ from trading_core.settings import ROOT
 
 VERSION = "0.155.0-alpha.2.6"
 TAG = "triad-codex-executor:" + VERSION
+
+
+def observe_completed_read(executor, command, resources):
+    """Count only successful native command events matching an authorized host read."""
+    if resources is None or not isinstance(command, str):
+        return
+    try:
+        argv = shlex.split(command)
+        if (
+            len(argv) == 3
+            and argv[0] in {"/bin/bash", "/usr/bin/bash", "/bin/sh"}
+            and argv[1] in {"-lc", "-c"}
+        ):
+            argv = shlex.split(argv[2])
+    except ValueError:
+        return
+    if not argv or argv[0] != "cat":
+        return
+    paths = argv[1:]
+    if paths and paths[0] == "--":
+        paths = paths[1:]
+    paths = [p.removeprefix("/workspace/") for p in paths]
+    if not paths or not any(
+        r.get("params", {}).get("argv") == ["cat", "--", *paths] for r in executor.requests
+    ):
+        return
+    if any(p not in executor.files for p in paths):
+        return
+    for path in paths:
+        resources.observe(
+            "authorized_read",
+            path + ":" + hashlib.sha256(executor.files[path].encode()).hexdigest(),
+        )
 
 
 class LineProcess:
@@ -352,6 +386,7 @@ class CodexReadOnlyRun:
         required_reads, delivery_proof = set(files), {}
         if workspace is None:
             from trading_core.evidence_delivery import prepare
+
             request, files, required_reads, delivery_proof = prepare(request, files)
         deadline = time.monotonic() + 110
 
@@ -449,8 +484,20 @@ class CodexReadOnlyRun:
                     item = params["item"]
                     if item["type"] == "commandExecution" and item.get("exitCode") == 0:
                         commands.append(item["command"])
+                        observe_completed_read(executor, item["command"], self.resources)
                     if item["type"] == "agentMessage" and item.get("phase") == "final_answer":
                         final = item["text"]
+                self.evidence.update(
+                    methods=list(executor.methods),
+                    commands=list(commands),
+                    denied_operations=executor.denials,
+                    executed_argv=[r["params"]["argv"] for r in executor.requests],
+                    model=self.actual_model,
+                )
+                if usage:
+                    self.evidence.update(
+                        input_tokens=usage["inputTokens"], output_tokens=usage["outputTokens"]
+                    )
                 return method == "turn/completed", params
 
             def call(method, params):
@@ -620,4 +667,26 @@ class CodexReadOnlyRun:
                     )
                 return result, usage["inputTokens"], usage["outputTokens"]
             finally:
+                # Retain partial host evidence on a cancelled/stalled run as well.
+                # Publish only available measurements; missing usage remains unknown.
+                self.evidence = {
+                    **self.evidence,
+                    "boundary": "DOCKER_PRODUCT_WORKSPACE"
+                    if workspace is not None
+                    else "DOCKER_REMOTE_EXECUTOR_READ_ONLY",
+                    "evidence_delivery": delivery_proof,
+                    "methods": list(executor.methods),
+                    "denied_operations": executor.denials,
+                    "commands": list(commands),
+                    "executed_argv": [r["params"]["argv"] for r in executor.requests],
+                    "model": self.actual_model,
+                    **(
+                        {
+                            "input_tokens": usage["inputTokens"],
+                            "output_tokens": usage["outputTokens"],
+                        }
+                        if usage
+                        else {}
+                    ),
+                }
                 app.close()
