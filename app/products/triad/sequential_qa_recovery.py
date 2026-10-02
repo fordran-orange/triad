@@ -149,12 +149,17 @@ def resume_citation_failure(flow, mission):
 
             def record(kind, run_id=None):
                 rows = conn.execute(
-                    "SELECT id,payload FROM core.day3_records WHERE owner='triad' "
+                    "SELECT id,payload,work_item_id FROM core.day3_records WHERE owner='triad' "
                     "AND kind=%s AND payload->>'run_id'=%s",
                     (kind, run_id or review["run_id"]),
                 ).fetchall()
                 require(len(rows) == 1, "Unambiguous original review record required")
-                return {**rows[0]["payload"], "id": rows[0]["id"]}
+                row = rows[0]
+                require(
+                    row["payload"].get("work_item_id", row["work_item_id"]) == row["work_item_id"],
+                    "Run record work identity differs",
+                )
+                return {**row["payload"], "id": row["id"], "work_item_id": row["work_item_id"]}
 
             raw, usage = record("AgentRunResult"), record("Usage")
             result = AgentRunResult.model_validate(
@@ -220,6 +225,7 @@ def resume_citation_failure(flow, mission):
                 require(
                     requested["commit"] == review["commit"]
                     and requested["reviewer"] == REVIEWERS[agent]
+                    and requested["test_record_ids"] == ids
                     and requested["original_assessment"] == assessment.model_dump(mode="json")
                     and requested["usage"]["run_id"] == review["run_id"]
                     and correction["previous_run_id"] == review["run_id"]
@@ -237,6 +243,11 @@ def resume_citation_failure(flow, mission):
                     request["agent_id"] == REVIEWERS[agent]
                     and request["mission_id"] == mission
                     and request["role"] == "REVIEW"
+                    and request["control_epoch"] == prior["control_epoch"]
+                    and corrected_usage["work_item_id"] == request["work_item_id"]
+                    and raw_correction["work_item_id"] == request["work_item_id"]
+                    and set(request["allowed_tools"]) == {"read_file"}
+                    and not request["allowed_paths"]
                     and set(request["execution_permissions"]) == {"read"}
                     and corrected_usage["status"] == "SUCCESS"
                     and corrected_usage["agent"] == REVIEWERS[agent]
@@ -258,7 +269,11 @@ def resume_citation_failure(flow, mission):
                     and qa_work.mission_id == mission
                     and qa_work.parent_work_item_id == prior["parent_work_item_id"]
                     and qa_work.assigned_agent == REVIEWERS[agent]
-                    and qa_work.status == State.COMPLETED,
+                    and qa_work.status == State.COMPLETED
+                    and qa_work.authority_tier == 0
+                    and set(qa_work.execution_permissions) == {"read"}
+                    and set(qa_work.allowed_tools) == {"read_file"}
+                    and not qa_work.allowed_paths,
                     "Retained correction work identity differs",
                 )
                 result, assessment, usage = (
