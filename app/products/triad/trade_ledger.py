@@ -14,6 +14,9 @@ ASSUMPTIONS = [
     "Overlapping trades are accepted; capital/margin feasibility is not established.",
     "All-in costs are deducted once exactly as supplied; no calculator cost model is applied.",
     "Ledger completeness and supplied execution prices and costs are user assumptions.",
+    "Entry notional exposure uses quantity times entry price on [entry_time, exit_time); zero-duration trades are excluded only from exposure.",
+    "Exposure is reconstructed from supplied completed records, excludes open positions and price changes, and does not establish margin feasibility or executable portfolio risk.",
+    "Exposure ratios are entry notional divided by initial balance, not leverage or capital required.",
     "This report does not validate a strategy or establish future performance.",
 ]
 
@@ -99,6 +102,58 @@ def analyze_trade_ledger(initial_balance, csv_text):
     with localcontext() as context:
         context.prec = 50
         return _analyze(initial_balance, csv_text)
+
+
+def entry_notional_exposure(rows, initial):
+    """Additive v1 report extension; constant entry notionals on [entry, exit).
+
+    At most two events per validated record: O(n log n) sorting, O(n) scan.
+    Called inside the analyzer's 50-digit local Decimal context.
+    """
+    events = []
+    excluded = 0
+    for row in rows:
+        if row["entry_time"] == row["exit_time"]:
+            excluded += 1
+            continue
+        notional = row["quantity"] * row["entry_price"]
+        for time, sign in ((row["entry_time"], 1), (row["exit_time"], -1)):
+            events.append((time, sign, row["direction"], sign * notional))
+    events.sort(key=lambda event: event[0])
+    long = short = maximum = Decimal(0)
+    count = max_count = 0
+    count_time = gross_time = None
+    timeline = []
+    for time, group in groupby(events, key=lambda event: event[0]):
+        for _, delta, direction, notional in group:
+            count += delta
+            if direction == "LONG":
+                long += notional
+            else:
+                short += notional
+        gross = long + short
+        stamp = time.isoformat()
+        if count > max_count:
+            max_count, count_time = count, stamp
+        if gross > maximum:
+            maximum, gross_time = gross, stamp
+        timeline.append(dict(
+            timestamp=stamp, active_trade_count=count,
+            long_entry_notional=format(long, "f"),
+            short_entry_notional=format(short, "f"),
+            gross_entry_notional=format(gross, "f"),
+            net_entry_notional=format(long - short, "f"),
+            gross_to_initial_balance_ratio=format(gross / initial, "f"),
+        ))
+    return dict(
+        excluded_zero_duration_trade_count=excluded,
+        max_concurrent_trades=max_count,
+        max_concurrent_trades_timestamp=count_time,
+        max_gross_entry_notional=format(maximum, "f"),
+        max_gross_to_initial_balance_ratio=format(maximum / initial, "f"),
+        max_gross_entry_notional_timestamp=gross_time,
+        timeline=timeline,
+    )
 
 
 def _analyze(initial_balance, csv_text):
@@ -187,4 +242,5 @@ def _analyze(initial_balance, csv_text):
         max_drawdown=encode(max_dd), max_drawdown_pct=encode(max_pct),
         rows=[{k: encode(v) for k, v in r.items()} for r in rows],
         realized_balance_curve=curve,
+        entry_notional_exposure=entry_notional_exposure(rows, initial),
     )

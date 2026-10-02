@@ -95,6 +95,39 @@ class ProductReadinessContentTests(unittest.TestCase):
         self.assertIn("/triad/product-api/research/trade-ledger", source)
         self.assertIn("if (current !== version) return;", source)
 
+    def test_exposure_document_and_source_contract(self):
+        nodes = {n.attrs.get("id"): n for n in self.elements}
+        results = nodes["ledger-results"]
+        self.assertIn("hidden", results.attrs)
+        result_ids = [n.attrs.get("id") for n in results.elements()]
+        for identifier in ("ledger-exposure-summary", "ledger-exposure-table", "ledger-exposure-rows"):
+            self.assertEqual(result_ids.count(identifier), 1)
+        table = nodes["ledger-exposure-table"]
+        self.assertEqual([n.text() for n in table.elements() if n.tag == "caption"],
+                         ["Chronological entry notional exposure — grouped UTC events; amounts in USD"])
+        self.assertEqual([n.text() for n in table.elements() if n.tag == "th"], [
+            "Timestamp (UTC)", "Active trades", "Long entry notional (USD)",
+            "Short entry notional (USD)", "Gross entry notional (USD)",
+            "Net entry notional (USD)", "Gross entry notional divided by initial balance (ratio)"])
+        text = nodes["trade-ledger"].text()
+        for phrase in ("additive extension", "triad.trade-ledger.v1", "JSON download",
+                       "[entry_time, exit_time)", "half-open interval", "Zero-duration trades",
+                       "retained in P&L", "Opposite directions do not cancel gross",
+                       "excludes open positions and price changes", "not mark-to-market risk",
+                       "margin feasibility", "executable portfolio risk",
+                       "not leverage or capital required", "ratios are dimensionless"):
+            self.assertIn(phrase, text)
+        source = PRODUCT_HTML.read_text(encoding="utf-8").split("const el = id =>")[1]
+        for phrase in ("el('exposure-summary').replaceChildren()",
+                       "el('exposure-rows').replaceChildren()", "cell.textContent = point[key]",
+                       "key === 'profit_factor' ? 'Not defined: no losses'",
+                       "No positive-duration trades: no maximum concurrency timestamp",
+                       "No positive-duration trades: no maximum gross entry notional timestamp",
+                       "report = data", "JSON.stringify(report,null,2)"):
+            self.assertIn(phrase, source)
+        for unsafe in ("Number(", "parseFloat(", "innerHTML"):
+            self.assertNotIn(unsafe, source)
+
     def readiness_section(self):
         targets = [
             node for node in self.elements

@@ -123,6 +123,8 @@
 <p><strong>User-supplied closed-trade analysis. The balance curve includes realized P&amp;L only, not mark-to-market equity or intratrade drawdown.</strong> Cash flows and open positions are excluded. Overlapping trades are accepted but do not establish capital/margin feasibility or that the initial balance could finance them. Costs are deducted once exactly as supplied; the hypothetical calculator's cost model is not applied. This does not validate a strategy. Inputs are not saved.</p>
 <p>Supply 1–2000 completed matched round trips, at most 1,000,000 UTF-8 bytes. CSV must contain exactly these columns in any order: trade_id,symbol,direction,quantity,entry_price,exit_price,entry_time,exit_time,total_cost. Standard quoted fields and a leading BOM are accepted. IDs must be unique (1–64 letters, digits, underscores or hyphens); symbols use 1–20 uppercase letters, digits, dots, underscores or hyphens. Direction is LONG or SHORT. Timestamps require ISO-8601 dates and times with a timezone, up to microsecond precision; entry must not follow exit.</p>
 <p>Numbers use ordinary decimal notation with up to eight fractional digits and 32 characters, without exponents. Quantity and prices must be positive and at most 1,000,000. All-in total_cost is nonnegative USD, at most 1,000,000. Initial balance is positive USD, at most 1,000,000,000,000.</p>
+<p>Entry notional exposure is an additive extension to the triad.trade-ledger.v1 report and JSON download. It is reconstructed exposure from supplied completed records: quantity times entry price, held constant on the half-open interval [entry_time, exit_time). Zero-duration trades are excluded from exposure but retained in P&amp;L and trade counts. Simultaneous UTC entries and exits are grouped before reporting each state. Opposite directions do not cancel gross exposure.</p>
+<p>Exposure excludes open positions and price changes; it is not mark-to-market risk and does not establish margin feasibility or executable portfolio risk. The ratio is entry notional divided by initial balance, not leverage or capital required. Amounts are USD decimal strings; ratios are dimensionless.</p>
 <form id="ledger-form">
 <label for="ledger-balance">Initial balance (USD)</label>
 <input id="ledger-balance" type="text" inputmode="decimal" maxlength="32" required>
@@ -138,7 +140,13 @@
 <div class="table-scroll" tabindex="0" role="region" aria-label="Chronological realized balances">
 <table id="ledger-table"><caption>Chronological realized balance — simultaneous UTC exits grouped; USD and percent</caption>
 <thead><tr><th scope="col">Exit timestamp (UTC)</th><th scope="col">Realized balance (USD)</th><th scope="col">Drawdown (USD)</th><th scope="col">Drawdown (%)</th></tr></thead>
-<tbody id="ledger-rows"></tbody></table></div></div>
+<tbody id="ledger-rows"></tbody></table></div>
+<h3>Entry notional exposure</h3>
+<dl id="ledger-exposure-summary"></dl>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Chronological entry notional exposure">
+<table id="ledger-exposure-table"><caption>Chronological entry notional exposure — grouped UTC events; amounts in USD</caption>
+<thead><tr><th scope="col">Timestamp (UTC)</th><th scope="col">Active trades</th><th scope="col">Long entry notional (USD)</th><th scope="col">Short entry notional (USD)</th><th scope="col">Gross entry notional (USD)</th><th scope="col">Net entry notional (USD)</th><th scope="col">Gross entry notional divided by initial balance (ratio)</th></tr></thead>
+<tbody id="ledger-exposure-rows"></tbody></table></div></div>
 <noscript>JavaScript is required to analyze a ledger.</noscript>
 </section>
 <script>
@@ -152,6 +160,8 @@
     el('download').disabled = true;
     el('results').hidden = true;
     el('summary').replaceChildren();
+    el('exposure-summary').replaceChildren();
+    el('exposure-rows').replaceChildren();
     el('rows').replaceChildren();
     el('form').removeAttribute('aria-busy');
     el('status').textContent = 'Inputs changed. Analyze to see current results.';
@@ -197,7 +207,7 @@
       for (const [key,label] of Object.entries(fields)) {
         const term = document.createElement('dt'), value = document.createElement('dd');
         term.textContent = label;
-        value.textContent = data[key] === null ? 'Not defined: no losses' : data[key];
+        value.textContent = data[key] === null ? (key === 'profit_factor' ? 'Not defined: no losses' : 'Not available') : data[key];
         el('summary').append(term,value);
       }
       for (const point of data.realized_balance_curve) {
@@ -209,6 +219,36 @@
           row.appendChild(cell);
         }
         el('rows').appendChild(row);
+      }
+      const exposure = data.entry_notional_exposure;
+      const exposureFields = {
+        excluded_zero_duration_trade_count:'Zero-duration trades excluded from exposure',
+        max_concurrent_trades:'Maximum concurrent trades',
+        max_concurrent_trades_timestamp:'Earliest maximum concurrent trades timestamp (UTC)',
+        max_gross_entry_notional:'Maximum gross entry notional (USD)',
+        max_gross_to_initial_balance_ratio:'Maximum gross entry notional divided by initial balance (ratio)',
+        max_gross_entry_notional_timestamp:'Earliest maximum gross entry notional timestamp (UTC)'
+      };
+      const nullLabels = {
+        max_concurrent_trades_timestamp:'No positive-duration trades: no maximum concurrency timestamp',
+        max_gross_entry_notional_timestamp:'No positive-duration trades: no maximum gross entry notional timestamp'
+      };
+      for (const [key,label] of Object.entries(exposureFields)) {
+        const term = document.createElement('dt'), value = document.createElement('dd');
+        term.textContent = label;
+        value.textContent = exposure[key] === null ? nullLabels[key] : exposure[key];
+        el('exposure-summary').append(term,value);
+      }
+      for (const point of exposure.timeline) {
+        const row = document.createElement('tr');
+        for (const key of ['timestamp','active_trade_count','long_entry_notional',
+                           'short_entry_notional','gross_entry_notional','net_entry_notional',
+                           'gross_to_initial_balance_ratio']) {
+          const cell = document.createElement('td');
+          cell.textContent = point[key];
+          row.appendChild(cell);
+        }
+        el('exposure-rows').appendChild(row);
       }
       report = data;
       el('results').hidden = false;
