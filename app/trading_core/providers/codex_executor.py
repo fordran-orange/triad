@@ -420,6 +420,8 @@ class CodexReadOnlyRun:
             serial = 0
             dynamic_thread = None
             dynamic_results = {}
+            completions = {}
+            final_messages = {}
             usage = None
             commands = []
             final = None
@@ -428,6 +430,23 @@ class CodexReadOnlyRun:
                 nonlocal usage, final
                 method = msg.get("method")
                 params = msg.get("params", {})
+                self.evidence["last_native_event"] = method
+                self.evidence["last_native_event_unix"] = time.time()
+                if (
+                    method == "turn/completed"
+                    and dynamic_thread
+                    and params.get("threadId") == dynamic_thread
+                ):
+                    terminal = params.get("turn", {})
+                    identifier = terminal.get("id")
+                    if not isinstance(identifier, str) or not identifier:
+                        raise ProviderError("DEGRADED", "CodexTurnIdentityMissing")
+                    if identifier in completions and completions[identifier] != terminal:
+                        raise ProviderError("DEGRADED", "CodexConflictingCompletion")
+                    completions[identifier] = terminal
+                    if len(completions) > 8:
+                        raise ProviderError("DEGRADED", "CodexUnexpectedCompletions")
+                    self.evidence["completed_turn_ids"] = list(completions)
                 if "id" in msg and method:
                     if workspace is not None and method == "item/tool/call":
                         check()
@@ -478,6 +497,10 @@ class CodexReadOnlyRun:
                             },
                         }
                     )
+                if method in {"thread/tokenUsage/updated", "item/completed"} and (
+                    not dynamic_thread or params.get("threadId") != dynamic_thread
+                ):
+                    return False, params
                 if method == "thread/tokenUsage/updated":
                     candidate_usage = params.get("tokenUsage", {}).get("total")
                     if isinstance(candidate_usage, dict) and all(
@@ -491,7 +514,9 @@ class CodexReadOnlyRun:
                         commands.append(item["command"])
                         observe_completed_read(executor, item["command"], self.resources)
                     if item["type"] == "agentMessage" and item.get("phase") == "final_answer":
-                        final = item["text"]
+                        final_messages[params.get("turnId")] = item["text"]
+                        if len(final_messages) > 8:
+                            raise ProviderError("DEGRADED", "CodexUnexpectedCompletions")
                 self.evidence.update(
                     methods=list(executor.methods),
                     commands=list(commands),
@@ -509,10 +534,12 @@ class CodexReadOnlyRun:
                 nonlocal serial
                 check()
                 serial += 1
+                self.evidence["rpc_waiting"] = method
                 app.send({"id": serial, "method": method, "params": params})
                 while True:
                     msg = app.receive(timeout=20, guard=check)
                     if msg.get("id") == serial and "method" not in msg:
+                        self.evidence["rpc_waiting"] = None
                         if "error" in msg:
                             raise ProviderError("UNAVAILABLE", "CodexProtocolRejected")
                         return msg.get("result")
@@ -597,7 +624,7 @@ class CodexReadOnlyRun:
                 self.actual_model = thread["model"]
                 dynamic_thread = thread["thread"]["id"]
                 prompt = request.model_dump_json(exclude={"required_output_schema"})
-                call(
+                started = call(
                     "turn/start",
                     {
                         "threadId": thread["thread"]["id"],
@@ -607,12 +634,18 @@ class CodexReadOnlyRun:
                         "sandboxPolicy": {"type": "externalSandbox", "networkAccess": "restricted"},
                     },
                 )
-                while True:
-                    done, params = observe(app.receive(timeout=None, guard=check))
-                    if done:
-                        if params["turn"]["status"] != "completed":
-                            raise ProviderError("DEGRADED", "CodexTurnFailed")
-                        break
+                turn_id = started.get("turn", {}).get("id")
+                if not isinstance(turn_id, str) or not turn_id:
+                    raise ProviderError("DEGRADED", "CodexTurnIdentityMissing")
+                self.evidence["active_turn_id"] = turn_id
+                self.evidence["turn_start_acknowledged"] = True
+                # Notifications can precede their RPC reply. Retain them while
+                # call() waits; only this thread and acknowledged turn may finish.
+                while turn_id not in completions:
+                    observe(app.receive(timeout=None, guard=check))
+                if completions[turn_id].get("status") != "completed":
+                    raise ProviderError("DEGRADED", "CodexTurnFailed")
+                final = final_messages.get(turn_id)
                 if final is None or usage is None:
                     raise ProviderError("DEGRADED", "CodexExecutionEvidenceMissing")
                 result = AgentRunResult.model_validate_json(final)

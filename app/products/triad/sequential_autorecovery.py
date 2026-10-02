@@ -290,6 +290,8 @@ def retained_selection(flow, mission, agent, prior, conn):
     return {
         "proposal": proposal,
         "attempt": saved["attempt"],
+        "failed_work_id": failed["work_item_id"],
+        "failed_run_id": failed["run_id"],
         "author_work_id": author["work_item_id"],
         "author_run_id": author["run_id"],
     }

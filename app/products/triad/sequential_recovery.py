@@ -415,7 +415,10 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                     and all(payload[k] == 0 for k in ("cost", "tokens", "seconds")),
                     "Unexpected reservation contents",
                 )
-            action_id = "patch-recovery-" + work.work_item_id
+            failed_work_id = (
+                flow.saved_selection["failed_work_id"] if read_selection else work.work_item_id
+            )
+            action_id = ("read-recovery-" if read_selection else "patch-recovery-") + failed_work_id
             require(
                 not conn.execute(
                     "SELECT 1 FROM core.day3_records WHERE id=%s", (action_id,)
@@ -440,11 +443,13 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
             host.ledger.put(
                 "ControlAction",
                 {
-                    "action": "resume_unapproved_product_selection"
+                    "action": "resume_stopped_read_review"
+                    if read_selection
+                    else "resume_unapproved_product_selection"
                     if selection
                     else "resume_unapplied_product_patch",
                     "cycle_id": mission,
-                    "failed_work_item_id": work.work_item_id,
+                    "failed_work_item_id": failed_work_id,
                     "reservation_id": reservation["id"] if reservation else None,
                     "retained_turn_ids": [r["id"] for r in turns],
                     "prior_failure": prior["failures"],
