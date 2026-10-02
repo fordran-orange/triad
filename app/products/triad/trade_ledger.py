@@ -156,6 +156,32 @@ def entry_notional_exposure(rows, initial):
     )
 
 
+def symbol_breakdown(rows):
+    """Additive v1 report extension; per-symbol attribution over validated rows.
+
+    Called inside the analyzer's 50-digit local Decimal context.
+    """
+    breakdown = {}
+    for symbol in sorted({row["symbol"] for row in rows}):
+        symbol_rows = [row for row in rows if row["symbol"] == symbol]
+        positive = [r["net_pnl"] for r in symbol_rows if r["net_pnl"] > 0]
+        negative = [r["net_pnl"] for r in symbol_rows if r["net_pnl"] < 0]
+        gross = sum((r["gross_pnl"] for r in symbol_rows), Decimal(0))
+        costs = sum((r["total_cost"] for r in symbol_rows), Decimal(0))
+        net = gross - costs
+        breakdown[symbol] = dict(
+            trade_count=len(symbol_rows),
+            gross_pnl=format(gross, "f"),
+            total_costs=format(costs, "f"),
+            net_pnl=format(net, "f"),
+            win_rate_pct=format(Decimal(100) * len(positive) / len(symbol_rows), "f"),
+            average_net_pnl=format(net / len(symbol_rows), "f"),
+            profit_factor=format(sum(positive, Decimal(0)) / -sum(negative), "f") if negative else None,
+            profit_factor_reason=None if negative else "no_losses",
+        )
+    return breakdown
+
+
 def _analyze(initial_balance, csv_text):
     initial = number(initial_balance, 0, "initial_balance", 1_000_000_000_000)
     if not isinstance(csv_text, str) or len(csv_text) > MAX_BYTES:
@@ -166,7 +192,7 @@ def _analyze(initial_balance, csv_text):
         fail(0, "csv_text", "invalid UTF-8 text")
     if size > MAX_BYTES:
         fail(0, "csv_text", "maximum 1,000,000 UTF-8 bytes")
-    text = csv_text.removeprefix("\ufeff")
+    text = csv_text.removeprefix("﻿")
     reader = csv_records(text)
     rows, ids = [], set()
     header = [v.strip() for v in next(reader, [])]
@@ -243,4 +269,5 @@ def _analyze(initial_balance, csv_text):
         rows=[{k: encode(v) for k, v in r.items()} for r in rows],
         realized_balance_curve=curve,
         entry_notional_exposure=entry_notional_exposure(rows, initial),
+        symbol_breakdown=symbol_breakdown(rows),
     )
