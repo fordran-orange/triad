@@ -438,6 +438,8 @@ class CodexReadOnlyRun:
                     and params.get("threadId") == dynamic_thread
                 ):
                     terminal = params.get("turn", {})
+                    if not isinstance(terminal, dict):
+                        raise ProviderError("DEGRADED", "CodexTurnIdentityMissing")
                     identifier = terminal.get("id")
                     if not isinstance(identifier, str) or not identifier:
                         raise ProviderError("DEGRADED", "CodexTurnIdentityMissing")
@@ -514,7 +516,18 @@ class CodexReadOnlyRun:
                         commands.append(item["command"])
                         observe_completed_read(executor, item["command"], self.resources)
                     if item["type"] == "agentMessage" and item.get("phase") == "final_answer":
-                        final_messages[params.get("turnId")] = item["text"]
+                        identifier = params.get("turnId")
+                        text = item.get("text")
+                        if (
+                            not isinstance(identifier, str)
+                            or not identifier
+                            or not isinstance(text, str)
+                            or not text
+                        ):
+                            raise ProviderError("DEGRADED", "CodexFinalIdentityMissing")
+                        if identifier in final_messages and final_messages[identifier] != text:
+                            raise ProviderError("DEGRADED", "CodexConflictingCompletion")
+                        final_messages[identifier] = text
                         if len(final_messages) > 8:
                             raise ProviderError("DEGRADED", "CodexUnexpectedCompletions")
                 self.evidence.update(

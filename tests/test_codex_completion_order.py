@@ -151,3 +151,32 @@ def test_unrelated_completion_cannot_finish_this_turn(monkeypatch, early):
     with pytest.raises(TimeoutError):
         execute(monkeypatch, app)
     assert app.closed
+
+
+@pytest.mark.parametrize("early", [False, True])
+@pytest.mark.parametrize("conflict", [False, True])
+def test_final_message_replay_must_be_identical(monkeypatch, early, conflict):
+    import copy
+    import json
+
+    class ReplayApp(App):
+        def send(self, msg):
+            super().send(msg)
+            if msg.get("method") == "turn/start":
+                index = next(
+                    i for i, r in enumerate(self.queue) if r.get("method") == "item/completed"
+                )
+                repeated = copy.deepcopy(self.queue[index])
+                if conflict:
+                    result = json.loads(repeated["params"]["item"]["text"])
+                    result["summary"] = "Conflicting final verdict"
+                    repeated["params"]["item"]["text"] = json.dumps(result)
+                self.queue.insert(index + 1, repeated)
+
+    app = ReplayApp(early)
+    if conflict:
+        with pytest.raises(ProviderError, match="CodexConflictingCompletion"):
+            execute(monkeypatch, app)
+    else:
+        assert execute(monkeypatch, app)[0].summary == "Done"
+    assert app.closed
