@@ -100,7 +100,9 @@ class BoundedTools:
                     raise PermissionError("Unknown tool")
                 result = self.sandbox.run(
                     argv,
-                    self.files,
+                    {path: self.files[path]}
+                    if name == "read_file" and not self.writable
+                    else self.files,
                     writable=self.writable,
                     timeout=15,
                     guard=self.guard,
