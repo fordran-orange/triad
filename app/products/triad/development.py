@@ -243,7 +243,7 @@ class Development(ExecutionServices):
                 __base__=AgentRunResult,
                 analysis_artifacts=(tuple[schema, ...], Field(min_length=1, max_length=1)),
             ).model_json_schema()
-            if schema and not workspace
+            if schema and not workspace and context.get("evidence_delivery") == "files-v1"
             else AgentRunResult.model_json_schema(),
             control_epoch=self.ledger.get("authority-" + work.work_item_id)["epoch"],
         )
