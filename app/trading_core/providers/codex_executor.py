@@ -479,7 +479,12 @@ class CodexReadOnlyRun:
                         }
                     )
                 if method == "thread/tokenUsage/updated":
-                    usage = params["tokenUsage"]["total"]
+                    candidate_usage = params.get("tokenUsage", {}).get("total")
+                    if isinstance(candidate_usage, dict) and all(
+                        type(candidate_usage.get(key)) is int and candidate_usage[key] >= 0
+                        for key in ("inputTokens", "outputTokens")
+                    ):
+                        usage = candidate_usage
                 if method == "item/completed":
                     item = params["item"]
                     if item["type"] == "commandExecution" and item.get("exitCode") == 0:
@@ -667,26 +672,26 @@ class CodexReadOnlyRun:
                     )
                 return result, usage["inputTokens"], usage["outputTokens"]
             finally:
-                # Retain partial host evidence on a cancelled/stalled run as well.
-                # Publish only available measurements; missing usage remains unknown.
-                self.evidence = {
-                    **self.evidence,
-                    "boundary": "DOCKER_PRODUCT_WORKSPACE"
-                    if workspace is not None
-                    else "DOCKER_REMOTE_EXECUTOR_READ_ONLY",
-                    "evidence_delivery": delivery_proof,
-                    "methods": list(executor.methods),
-                    "denied_operations": executor.denials,
-                    "commands": list(commands),
-                    "executed_argv": [r["params"]["argv"] for r in executor.requests],
-                    "model": self.actual_model,
-                    **(
-                        {
-                            "input_tokens": usage["inputTokens"],
-                            "output_tokens": usage["outputTokens"],
-                        }
-                        if usage
-                        else {}
-                    ),
-                }
-                app.close()
+                # Cleanup must run even when the provider sends malformed evidence.
+                try:
+                    self.evidence.update(
+                        boundary="DOCKER_PRODUCT_WORKSPACE"
+                        if workspace is not None
+                        else "DOCKER_REMOTE_EXECUTOR_READ_ONLY",
+                        evidence_delivery=delivery_proof,
+                        methods=list(executor.methods),
+                        denied_operations=workspace.denials
+                        if workspace is not None
+                        else executor.denials,
+                        commands=list(commands),
+                        executed_argv=[r["params"]["argv"] for r in executor.requests],
+                        model=self.actual_model,
+                    )
+                    if workspace is not None:
+                        self.evidence["calls"] = list(workspace.calls)
+                    if usage is not None:
+                        self.evidence.update(
+                            input_tokens=usage["inputTokens"], output_tokens=usage["outputTokens"]
+                        )
+                finally:
+                    app.close()
