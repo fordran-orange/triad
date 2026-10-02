@@ -3,7 +3,10 @@
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from products.triad.cost_sensitivity import calculate_cost_sensitivity
@@ -46,3 +49,30 @@ def boundaries():
 @app.post("/research/cost-sensitivity")
 def cost_sensitivity(assumptions: CostAssumptions):
     return calculate_cost_sensitivity(assumptions.model_dump())
+
+
+from products.triad.trade_ledger import analyze_trade_ledger
+
+
+class TradeLedgerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    initial_balance: str = Field(strict=True, max_length=32)
+    csv_text: str = Field(strict=True, max_length=1_000_000)
+
+
+@app.exception_handler(RequestValidationError)
+async def bounded_ledger_errors(request: Request, error: RequestValidationError):
+    if request.url.path.endswith("/research/trade-ledger"):
+        # Do not echo submitted text or arbitrarily many unknown field names.
+        return JSONResponse(status_code=422, content={"detail":
+            "Invalid request: require only initial_balance (decimal string, <=32 characters) "
+            "and csv_text (string, <=1,000,000 characters and UTF-8 bytes)."})
+    return await request_validation_exception_handler(request, error)
+
+
+@app.post("/research/trade-ledger")
+def trade_ledger(payload: TradeLedgerRequest):
+    try:
+        return analyze_trade_ledger(payload.initial_balance, payload.csv_text)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
