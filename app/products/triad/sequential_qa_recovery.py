@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from trading_core.contracts import AgentRunResult
 from trading_core.cycle_records import CycleRecord
-from trading_core.product_changes import AcceptanceAssessment, ProductGit
+from trading_core.product_changes import AcceptanceAssessment, ProductGit, acceptance_problems
 from trading_core.product_deployment import health
 from trading_core.work import State, now
 
@@ -37,14 +37,16 @@ def resume_citation_failure(flow, mission):
                 "Not a citation QA block",
             )
             flow.guard(mission)
-            history = host.list("DailyCycleTransition", matching={"cycle_id": mission}, conn=conn)
+            history = daily.product.list(
+                "DailyCycleTransition", matching={"cycle_id": mission}, conn=conn
+            )
             require(
                 bool(history)
                 and history[-1]["from"] == "AWAITING_QA"
                 and history[-1]["to"] == "BLOCKED",
                 "Not an interrupted QA turn",
             )
-            programs = host.list(
+            programs = daily.product.list(
                 "SequentialDailyProgram", matching={"cycle_id": mission}, conn=conn
             )
             require(len(programs) == 1, "One canonical program required")
@@ -65,11 +67,11 @@ def resume_citation_failure(flow, mission):
             require(len(turns) < 3, "Completed cycle cannot resume")
             agent = ORDER[len(turns)]
             retained = {t.get("implementation_id") for t in turns}
-            merges = host.list("ProductMerge", matching={"mission_id": mission}, conn=conn)
+            merges = daily.product.list("ProductMerge", matching={"mission_id": mission}, conn=conn)
             require(
                 all(r.get("implementation_id") in retained for r in merges), "Unaccounted merge"
             )
-            builds = host.list("ProductBuild", matching={"mission_id": mission}, conn=conn)
+            builds = daily.product.list("ProductBuild", matching={"mission_id": mission}, conn=conn)
             pending = [b for b in builds if b["implementation_id"] not in retained]
             require(len(pending) == 1, "One pending implementation required")
             build = pending[0]
@@ -175,6 +177,15 @@ def resume_citation_failure(flow, mission):
                     review["required"], assessment, review["commit"], proofs, result.review_decision
                 ),
                 "Not solely a citation omission",
+            )
+            problems = acceptance_problems(review["required"], assessment, review["commit"], proofs)
+            require(
+                list(problems) == review["problems"]
+                and list(problems) == qa["required_changes"]
+                and list(result.findings) + list(problems) == qa["findings"]
+                and "run:" + review["run_id"] in qa["evidence"]
+                and qa["execution_mode"] == "REAL_PROVIDER",
+                "Latest QA contains additional or different findings",
             )
             require(
                 not host.list(
