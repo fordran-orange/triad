@@ -673,52 +673,67 @@ class SequentialCycle:
         self.s.record("ProductBuild", mission, **build)
         return git, build
 
-    def qa(self, mission, agent, proposal, git, build):
+    def qa(self, mission, agent, proposal, git, build, *, retained=None):
         before = git.verify(build["git"])
         if any(before[k] != build["checks"][k] for k in ("files", "hashes", "diff")):
             raise PermissionError("Candidate changed before independent QA")
-        repeated = check_candidate(
-            self.test_snapshot(git, build["git"]),
-            lambda: self.guard(mission),
-            self.policy["test_image"],
+        if retained is None:
+            repeated = check_candidate(
+                self.test_snapshot(git, build["git"]),
+                lambda: self.guard(mission),
+                self.policy["test_image"],
+            )
+            repeated_id = self.s.canonical.append(
+                "EngineeringTestRun",
+                {
+                    **repeated,
+                    "work_item_id": build["work_item_id"],
+                    "commit": build["git"]["change_commit"],
+                },
+                owner="triad",
+            )
+            work, result, assessment, usage = self.call(
+                mission,
+                REVIEWERS[agent],
+                "Independently review this exact candidate code and diff against the approved proposal and test evidence. "
+                "Check behavior, failure cases, regressions, product isolation and any attempt to bypass governance through product code. "
+                "Reject unsafe imports/access to private storage, orchestration, credentials or permission changes. "
+                "Require meaningful tests for behavior changes; syntax alone is insufficient. "
+                "Return exactly one AcceptanceAssessment JSON in analysis_artifacts using the supplied schema, plus review_decision/findings. "
+                "Assess EVERY required check separately; VERIFIED requires its supplied exact evidence ID, otherwise NOT_VERIFIED/BLOCKED. "
+                "Copy IDs from allowed_evidence_ids verbatim; unit-test criteria must cite both raw test IDs. "
+                "Source review cannot verify rendering, keyboard interaction or viewport behavior. Never APPROVE while any mandatory criterion "
+                "is unmet or unverified. Do not claim tool execution; evaluate the supplied host test results.",
+                {
+                    "proposal": proposal.model_dump(mode="json"),
+                    "exact_commit": build["git"]["change_commit"],
+                    "checks": build["checks"],
+                    "repeated_test_result": repeated,
+                    "repeated_test_record_id": repeated_id,
+                    "assessment_schema": AcceptanceAssessment.model_json_schema(),
+                    "source_evidence_id": "candidate:" + build["git"]["change_commit"],
+                    "allowed_evidence_ids": [
+                        "candidate:" + build["git"]["change_commit"],
+                        build["checks"]["test_record_id"],
+                        repeated_id,
+                    ],
+                },
+                AcceptanceAssessment,
+            )
+        else:
+            work, result, assessment, usage, repeated_id = retained
+        proofs = {
+            identifier: self.s.canonical.get(identifier)
+            for identifier in (build["checks"]["test_record_id"], repeated_id)
+        }
+        from products.triad.sequential_citations import correct_citations
+
+        work, result, assessment, usage = correct_citations(
+            self, mission, agent, proposal, build, (work, result, assessment, usage), proofs
         )
-        repeated_id = self.s.canonical.append(
-            "EngineeringTestRun",
-            {
-                **repeated,
-                "work_item_id": build["work_item_id"],
-                "commit": build["git"]["change_commit"],
-            },
-            owner="triad",
-        )
-        work, result, assessment, usage = self.call(
-            mission,
-            REVIEWERS[agent],
-            "Independently review this exact candidate code and diff against the approved proposal and test evidence. "
-            "Check behavior, failure cases, regressions, product isolation and any attempt to bypass governance through product code. "
-            "Reject unsafe imports/access to private storage, orchestration, credentials or permission changes. "
-            "Require meaningful tests for behavior changes; syntax alone is insufficient. "
-            "Return exactly one AcceptanceAssessment JSON in analysis_artifacts using the supplied schema, plus review_decision/findings. "
-            "Assess EVERY required check separately; VERIFIED requires its supplied exact evidence ID, otherwise NOT_VERIFIED/BLOCKED. "
-            "Copy IDs from allowed_evidence_ids verbatim; unit-test criteria must cite both raw test IDs. "
-            "Source review cannot verify rendering, keyboard interaction or viewport behavior. Never APPROVE while any mandatory criterion "
-            "is unmet or unverified. Do not claim tool execution; evaluate the supplied host test results.",
-            {
-                "proposal": proposal.model_dump(mode="json"),
-                "exact_commit": build["git"]["change_commit"],
-                "checks": build["checks"],
-                "repeated_test_result": repeated,
-                "repeated_test_record_id": repeated_id,
-                "assessment_schema": AcceptanceAssessment.model_json_schema(),
-                "source_evidence_id": "candidate:" + build["git"]["change_commit"],
-                "allowed_evidence_ids": [
-                    "candidate:" + build["git"]["change_commit"],
-                    build["checks"]["test_record_id"],
-                    repeated_id,
-                ],
-            },
-            AcceptanceAssessment,
-        )
+        after = git.verify(build["git"])
+        if any(after[k] != build["checks"][k] for k in ("files", "hashes", "diff")):
+            raise PermissionError("Candidate changed during independent QA")
         decision = {
             "APPROVE": "PASS_WITH_OBSERVATIONS" if result.findings else "PASS",
             "REQUEST_CHANGES": "CHANGES_REQUIRED",
@@ -926,21 +941,32 @@ class SequentialCycle:
         expected_epoch=None,
         schedule_id=None,
         resume_patch_failure=False,
+        resume_citation_failure=False,
     ):
         from contextlib import nullcontext
 
         if verify is None:
             raise PermissionError("Trusted post-deployment verification required")
-        if resume_patch_failure and (
+        recovering = resume_patch_failure or resume_citation_failure
+        if resume_patch_failure and resume_citation_failure:
+            raise PermissionError("Choose one recovery path")
+        if recovering and (
             scheduled or not cycle_id or expected_epoch is not None or schedule_id is not None
         ):
             raise PermissionError("Patch recovery requires an explicit existing manual cycle ID")
         with self.s.host.store.lease("triad-daily-product-execution"):
             completed = 0
+            retained = None
             with (
                 self.s.host.store.lease("triad-daily-schedule-slot") if scheduled else nullcontext()
             ):
-                if resume_patch_failure:
+                if resume_citation_failure:
+                    from products.triad.sequential_qa_recovery import (
+                        resume_citation_failure as recover,
+                    )
+
+                    cycle, completed, self.improvement_day, retained = recover(self, cycle_id)
+                elif resume_patch_failure:
                     from products.triad.sequential_recovery import resume_patch_failure as recover
 
                     cycle, completed, self.improvement_day = recover(self, cycle_id)
@@ -952,7 +978,7 @@ class SequentialCycle:
                         schedule_id=schedule_id,
                     )
             mission = cycle.cycle_id
-            if not resume_patch_failure:
+            if not recovering:
                 timezone = self.s.daily.schedule()["timezone"]
                 self.improvement_day = (
                     cycle.created_at.astimezone(ZoneInfo(timezone)).date().isoformat()
@@ -974,25 +1000,30 @@ class SequentialCycle:
             try:
                 self.readiness(mission)
                 for agent in ORDER[completed:]:
-                    self.s.record(
-                        "ProductTurnStarted", mission, agent=agent, reviewer=REVIEWERS[agent]
-                    )
-                    self.s.transition(
-                        mission, "INSPECTING", [agent + " turn; fresh deployed baseline"]
-                    )
-                    proposal, approval = self.propose(mission, agent)
-                    if getattr(proposal, "outcome", "CHANGE") == "NO_CHANGE":
-                        self.no_change(mission, agent, proposal, approval)
-                        continue
-                    self.s.transition(
-                        mission,
-                        "BUILDING",
-                        [approval],
-                        selected_proposal=proposal.model_dump(mode="json"),
-                    )
-                    git, build = self.build(mission, agent, proposal, approval)
-                    self.s.transition(mission, "AWAITING_QA", [build["implementation_id"]])
-                    qa = self.qa(mission, agent, proposal, git, build)
+                    if retained is not None:
+                        proposal, git, build, previous_review = retained
+                        retained = None
+                        qa = self.qa(mission, agent, proposal, git, build, retained=previous_review)
+                    else:
+                        self.s.record(
+                            "ProductTurnStarted", mission, agent=agent, reviewer=REVIEWERS[agent]
+                        )
+                        self.s.transition(
+                            mission, "INSPECTING", [agent + " turn; fresh deployed baseline"]
+                        )
+                        proposal, approval = self.propose(mission, agent)
+                        if getattr(proposal, "outcome", "CHANGE") == "NO_CHANGE":
+                            self.no_change(mission, agent, proposal, approval)
+                            continue
+                        self.s.transition(
+                            mission,
+                            "BUILDING",
+                            [approval],
+                            selected_proposal=proposal.model_dump(mode="json"),
+                        )
+                        git, build = self.build(mission, agent, proposal, approval)
+                        self.s.transition(mission, "AWAITING_QA", [build["implementation_id"]])
+                        qa = self.qa(mission, agent, proposal, git, build)
                     self.s.transition(mission, "MERGING", [qa.qa_run_id])
                     merged = self.merge(mission, agent, git, build, qa)
                     self.s.transition(
