@@ -19,9 +19,49 @@ def require(condition, message):
         raise PermissionError(message)
 
 
-def selection_rejection(daily, mission, agent, prior, conn):
+def selection_rejection(daily, mission, agent, prior, conn, turns):
     """A routing refusal before a build can replan, never replay product writes."""
     works = [w for w in daily.product.store.list_work(10000) if w.mission_id == mission]
+    retained_work = {
+        daily.host.get(t["implementation_id"], conn=conn)["work_item_id"]
+        for t in turns
+        if t.get("implementation_id")
+    }
+    pending = [
+        w
+        for w in works
+        if w.work_item_id not in retained_work and w.work_item_id != prior["parent_work_item_id"]
+    ]
+    require(
+        all(
+            w.owner == "triad"
+            and w.parent_work_item_id == prior["parent_work_item_id"]
+            and w.work_type == "review"
+            and w.authority_tier == 0
+            and set(w.execution_permissions) == {"read"}
+            and set(w.allowed_tools) <= {"read_file"}
+            for w in pending
+        ),
+        "Unaccounted write authority prevents selection recovery",
+    )
+    for kind in ("ProductBuildCheckpoint", "ProductBuild", "ImplementationRun"):
+        require(
+            not any(
+                (
+                    r.get("mission_id") == mission
+                    or r.get("work_item_id") in {w.work_item_id for w in works}
+                )
+                and r.get("work_item_id") not in retained_work
+                for r in daily.product.list(kind, conn=conn)
+            ),
+            "Unaccounted build evidence prevents selection recovery",
+        )
+    reservations = conn.execute(
+        "SELECT work_item_id FROM core.day3_records WHERE owner='triad' AND kind='BudgetReservation' "
+        "AND work_item_id=ANY(%s) AND payload->>'improvement'='true'",
+        ([w.work_item_id for w in pending],),
+    ).fetchall()
+    require(not reservations, "Unaccounted change reservation prevents selection recovery")
     require(
         not any(w.status == State.IN_PROGRESS for w in works),
         "Selection recovery requires an idle cycle",
@@ -54,6 +94,27 @@ def selection_rejection(daily, mission, agent, prior, conn):
         if r.get("mission_id") == mission and r.get("proposer") == agent
     ]
     require(bool(reviews) and bool(contexts), "Canonical read-only planning evidence required")
+    requests = conn.execute(
+        "SELECT payload FROM core.day3_records WHERE owner='triad' AND kind='AgentRunRequest' "
+        "AND work_item_id=%s",
+        (reviews[0].work_item_id,),
+    ).fetchall()
+    require(
+        len(requests) == 1
+        and all(
+            requests[0]["payload"].get(k) == v
+            for k, v in {
+                "work_item_id": reviews[0].work_item_id,
+                "mission_id": mission,
+                "agent_id": agent,
+                "role": "REVIEW",
+                "execution_permissions": ["read"],
+                "allowed_tools": ["read_file"],
+                "control_epoch": prior["control_epoch"],
+            }.items()
+        ),
+        "Canonical read-only planning request required",
+    )
     return reviews[0], contexts[-1]["base_commit"]
 
 
@@ -254,7 +315,7 @@ def resume_patch_failure(flow, mission):
                 revision = turn.get("merge_commit") or turn.get("verified_revision")
                 service.git.git("merge-base", "--is-ancestor", revision, head)
             if selection:
-                work, base_commit = selection_rejection(daily, mission, agent, prior, conn)
+                work, base_commit = selection_rejection(daily, mission, agent, prior, conn, turns)
             elif native:
                 work, base_commit = native_rejection(
                     daily, mission, agent, prior, flow.policy, conn, empty_patch=empty_patch
