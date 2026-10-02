@@ -235,7 +235,7 @@ def native_rejection(daily, mission, agent, prior, policy, conn, *, empty_patch=
     return work, grant["base_commit"]
 
 
-def resume_patch_failure(flow, mission):
+def resume_patch_failure(flow, mission, *, read_failure=False):
     """Caller holds the daily execution lease. Replan remaining turns normally."""
     service, daily = flow.s, flow.s.daily
     host = daily.host
@@ -249,6 +249,13 @@ def resume_patch_failure(flow, mission):
             prior = daily.current(mission, conn)
             error = prior.get("failures", [{}])[-1].get("message")
             selection = prior.get("failure_code") == "PermissionError" and error == SELECTION_ERROR
+            read_selection = (
+                read_failure
+                and prior.get("failure_code") == "ResourceBlocked"
+                and error == "No new progress; repeated evidence cannot extend a run"
+            )
+            require(not read_failure or read_selection, "Only a stopped read timeout may resume")
+            selection = selection or read_selection
             native = prior.get("failure_code") == "ProviderError" and error in {
                 "NativeResultViolation",
                 "GrokTurnIncomplete",
@@ -295,7 +302,8 @@ def resume_patch_failure(flow, mission):
             )
             day = program["local_date"]
             require(
-                now().astimezone(ZoneInfo(program["timezone"])).date().isoformat() == day,
+                read_selection
+                or now().astimezone(ZoneInfo(program["timezone"])).date().isoformat() == day,
                 "Patch recovery must use the original local day",
             )
             turns = daily.require_turn_prefix(mission, prior, conn)
@@ -316,6 +324,10 @@ def resume_patch_failure(flow, mission):
                 service.git.git("merge-base", "--is-ancestor", revision, head)
             if selection:
                 work, base_commit = selection_rejection(daily, mission, agent, prior, conn, turns)
+                if read_selection:
+                    from products.triad.sequential_autorecovery import retained_selection
+
+                    flow.saved_selection = retained_selection(flow, mission, agent, prior, conn)
             elif native:
                 work, base_commit = native_rejection(
                     daily, mission, agent, prior, flow.policy, conn, empty_patch=empty_patch

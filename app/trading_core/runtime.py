@@ -793,12 +793,14 @@ class Runtime:
                 results.put((False, exc))
 
         usage_known = False
+        worker = None
         try:
             if len(prompt) > resources.initial[ResourceType.INPUT]:
                 resources.observe("accepted_context", hashlib.sha256(prompt.encode()).hexdigest())
                 resources.ensure(ResourceType.INPUT, len(prompt))
             with self.ledger.gate(request.agent_id, request.work_item_id, epoch):
-                threading.Thread(target=invoke, daemon=True).start()
+                worker = threading.Thread(target=invoke, daemon=True)
+                worker.start()
             while True:
                 self.ledger.guard(request.agent_id, request.work_item_id, epoch)
                 resources.check_time()
@@ -861,6 +863,10 @@ class Runtime:
         except Exception as exc:
             if hasattr(adapter, "cancel"):
                 adapter.cancel()
+            if worker is not None:
+                worker.join(timeout=15)
+            # Product recovery must not overlap a provider operation still unwinding.
+            exc.provider_stopped = worker is None or not worker.is_alive()
             status = exc.status if isinstance(exc, (ProviderError, ResourceBlocked)) else "FAILED"
             error = (
                 exc.error_class

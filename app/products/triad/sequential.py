@@ -126,6 +126,19 @@ class SequentialCycle:
         return files
 
     def call(self, mission, agent, objective, context, schema=None, paths=()):
+        from products.triad.sequential_autorecovery import read_with_recovery
+
+        return read_with_recovery(
+            self,
+            mission,
+            agent,
+            objective,
+            context,
+            paths,
+            lambda: self._read_call(mission, agent, objective, context, schema, paths),
+        )
+
+    def _read_call(self, mission, agent, objective, context, schema=None, paths=()):
         self.guard(mission)
         objective += token_guidance(agent) + (
             "Do not execute commands or claim host tests. Top-level files_changed must be [] and proposal must be null; "
@@ -293,6 +306,28 @@ class SequentialCycle:
             for row in self.s.rows("ProductProposalReview", mission)
             if row.get("proposer") == agent and row.get("decision") in {"REQUEST_CHANGES", "REJECT"}
         ][-3:]
+        saved = getattr(self, "saved_selection", None)
+        if saved is not None:
+            self.saved_selection = None
+            self.s.transition(
+                mission, "SELECTING", ["Resuming independent review of saved proposal"]
+            )
+            baseline = self.s.git.clean_baseline()
+            proposal, approval, review = self.review_proposal(
+                mission,
+                agent,
+                saved["proposal"],
+                feedback,
+                saved["attempt"],
+                baseline,
+                self.inventory(),
+                planning_context(self.s, mission, baseline),
+                saved["author_work_id"],
+                saved["author_run_id"],
+            )
+            if approval:
+                return proposal, approval
+            feedback.append({"proposal": proposal.model_dump(mode="json"), **review})
         for attempt in range(1, 4):
             proposal, approval, review = self.proposal_attempt(mission, agent, feedback, attempt)
             if approval:
@@ -389,6 +424,32 @@ class SequentialCycle:
         )
         if attempt == 1:
             self.s.transition(mission, "SELECTING", ["Independent proposal review"])
+        return self.review_proposal(
+            mission,
+            agent,
+            proposal,
+            feedback,
+            attempt,
+            baseline,
+            inventory,
+            strategy,
+            author_work.work_item_id,
+            author_usage["run_id"],
+        )
+
+    def review_proposal(
+        self,
+        mission,
+        agent,
+        proposal,
+        feedback,
+        attempt,
+        baseline,
+        inventory,
+        strategy,
+        author_work_id,
+        author_run_id,
+    ):
         review_work, review, _, usage = self.call(
             mission,
             REVIEWERS[agent],
@@ -452,8 +513,8 @@ class SequentialCycle:
                 "run_id": usage["run_id"],
                 "policy_id": self.policy["id"],
                 "base_commit": baseline,
-                "author_work_item_id": author_work.work_item_id,
-                "author_run_id": author_usage["run_id"],
+                "author_work_item_id": author_work_id,
+                "author_run_id": author_run_id,
                 "review_work_item_id": review_work.work_item_id,
             },
             owner="triad",
@@ -942,13 +1003,14 @@ class SequentialCycle:
         schedule_id=None,
         resume_patch_failure=False,
         resume_citation_failure=False,
+        resume_read_failure=False,
     ):
         from contextlib import nullcontext
 
         if verify is None:
             raise PermissionError("Trusted post-deployment verification required")
-        recovering = resume_patch_failure or resume_citation_failure
-        if resume_patch_failure and resume_citation_failure:
+        recovering = resume_patch_failure or resume_citation_failure or resume_read_failure
+        if sum((resume_patch_failure, resume_citation_failure, resume_read_failure)) > 1:
             raise PermissionError("Choose one recovery path")
         if recovering and (
             scheduled or not cycle_id or expected_epoch is not None or schedule_id is not None
@@ -966,10 +1028,14 @@ class SequentialCycle:
                     )
 
                     cycle, completed, self.improvement_day, retained = recover(self, cycle_id)
-                elif resume_patch_failure:
+                elif resume_patch_failure or resume_read_failure:
                     from products.triad.sequential_recovery import resume_patch_failure as recover
 
-                    cycle, completed, self.improvement_day = recover(self, cycle_id)
+                    cycle, completed, self.improvement_day = (
+                        recover(self, cycle_id, read_failure=True)
+                        if resume_read_failure
+                        else recover(self, cycle_id)
+                    )
                 else:
                     cycle = self.s.daily.create(
                         scheduled=scheduled,

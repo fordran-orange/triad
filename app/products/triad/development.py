@@ -333,6 +333,8 @@ class Development(ExecutionServices):
             )
             return work, result, payload, usage
         except Exception as exc:
+            exc.run_id = request.run_id
+            exc.work_item_id = work.work_item_id
             if write and not workspace:
                 self.failed_build(mission, work, request.run_id, exc)
             current = self.host.store.get(work.work_item_id)

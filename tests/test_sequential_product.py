@@ -413,6 +413,8 @@ def test_native_envelope_retry_preserves_authority(error, retry):
 
     flow.s = NS(
         call=call,
+        git=NS(clean_baseline=lambda: "baseline"),
+        rows=lambda *a: [],
         record=lambda *a, **k: None,
         daily=NS(current=lambda _: {"parent_work_item_id": "parent"}),
     )
@@ -444,6 +446,8 @@ def test_artifact_schema_error_retries_without_silently_dropping_fields():
 
     flow.s = NS(
         call=call,
+        git=NS(clean_baseline=lambda: "baseline"),
+        rows=lambda *a: [],
         record=lambda *a, **k: None,
         daily=NS(current=lambda _: {"parent_work_item_id": "parent"}),
     )

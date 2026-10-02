@@ -63,3 +63,21 @@ def readiness_script():
     if not path.is_file():
         raise HTTPException(503, "Research Readiness is awaiting its reviewed build")
     return FileResponse(path, media_type="text/javascript")
+
+
+@router.get("/triad/api/automatic-recovery")
+def automatic_recovery(service=DEP):
+    events = service.product.list("ProductAutoRecovery")
+    # Product-scoped records; expose only human-readable status and provenance IDs.
+    fields = (
+        "id",
+        "mission_id",
+        "recorded_at",
+        "agent",
+        "status",
+        "attempt",
+        "message",
+        "run_id",
+        "previous_run_id",
+    )
+    return {"events": [{k: r[k] for k in fields if k in r} for r in events[-100:]]}
