@@ -28,9 +28,9 @@ class BoundedTools:
     ):
         if (
             not isinstance(files, dict)
-            or len(files) > 64
+            or len(files) > (64 if writable else 2048)
             or not all(isinstance(v, str) for v in files.values())
-            or sum(len(v.encode()) for v in files.values()) > MAX_BYTES
+            or sum(len(v.encode()) for v in files.values()) > (MAX_BYTES if writable else 1000000)
             or type(max_calls) is not int
             or not 1 <= max_calls <= 1000
         ):
@@ -99,7 +99,13 @@ class BoundedTools:
                 else:
                     raise PermissionError("Unknown tool")
                 result = self.sandbox.run(
-                    argv, self.files, writable=self.writable, timeout=15, guard=self.guard
+                    argv,
+                    self.files,
+                    writable=self.writable,
+                    timeout=15,
+                    guard=self.guard,
+                    max_bytes=MAX_BYTES if self.writable else 1000000,
+                    max_files=64 if self.writable else 2048,
                 )
                 if result.status != "EXITED" or result.exit_code:
                     raise RuntimeError("Isolated file operation failed")

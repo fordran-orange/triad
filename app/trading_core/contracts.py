@@ -112,7 +112,7 @@ class AgentRunResult(Record):
         "BLOCKED",
     ]
     summary: str = Field(min_length=1, max_length=8000)
-    analysis_artifacts: tuple[str, ...] = ()
+    analysis_artifacts: tuple[str | dict, ...] = ()
     proposed_actions: tuple[str, ...] = ()
     actions_taken: tuple[str, ...] = ()
     files_changed: tuple[FileChange, ...] = ()

@@ -83,7 +83,7 @@ class NativeRun:
             )
         return (
             "Execute this Triad assignment using only the supplied isolated file tools. "
-            "Read every supplied file before reviewing it. File writes are proposals, not host changes. "
+            "Read every required evidence part before reviewing it; optional memory may be retrieved as needed. Without an evidence index, read every supplied file. File writes are proposals, not host changes. "
             "Return the requested JSON result with this run_id. Keep claims, commands_executed, "
             "actions_taken, tests_run and permission_requests empty; the host records tool evidence. "
             + (
@@ -148,7 +148,7 @@ class NativeRun:
                 outputs,
             )
         observed = {c["path"] for c in self.broker.calls if c["tool"] == "read_file"}
-        if not set(self.broker.original) <= observed:
+        if not getattr(self, "required_reads", set(self.broker.original)) <= observed:
             self.evidence["rejected_result_summary"] = result.summary[:1000]
             raise ProviderError("DEGRADED", "NativeReadEvidenceMissing")
         changes = self.broker.changes()
@@ -459,6 +459,10 @@ def grok_preflight(command, cwd):
 class GrokRun(NativeRun):
     def execute(self, request, files, model="Auto", writable=(), *, workspace=None):
         self.product_workspace = workspace is not None
+        if workspace is None and not writable:
+            from trading_core.evidence_delivery import prepare
+            request, files, self.required_reads, proof = prepare(request, files)
+            self.evidence.update(evidence_delivery=proof)
         if self.product_workspace:
             self.evidence["boundary"] = "DOCKER_PRODUCT_WORKSPACE"
         self.broker = (
@@ -547,8 +551,8 @@ class GrokRun(NativeRun):
                                 {
                                     "type": "text",
                                     "text": "Use the read_file tool to read every one of these supplied files now: "
-                                    + json.dumps(list(files))
-                                    + ". These are available through the isolated client file tools. "
+                                    + json.dumps(sorted(getattr(self, "required_reads", set(files))))
+                                    + ". Read one file per tool call. These are available through the isolated client file tools. "
                                     "Do not merely announce an intention. After all tool reads finish, reply READY. "
                                     "No writing, shell commands, plugins, network tools or other agents.",
                                 }
@@ -557,7 +561,7 @@ class GrokRun(NativeRun):
                     )
                     meter(reading)
                     observed = {c["path"] for c in self.broker.calls if c["tool"] == "read_file"}
-                    if not set(files) <= observed:
+                    if not getattr(self, "required_reads", set(files)) <= observed:
                         raise ProviderError("DEGRADED", "NativeReadEvidenceMissing")
                     session.text = ""
                 result = session.call(
@@ -569,7 +573,7 @@ class GrokRun(NativeRun):
                                 "type": "text",
                                 "text": self.prompt(request, files)
                                 + (
-                                    "\nThe host verified that both/all supplied files were already read in this session. Use those contents; do not repeat reads. Return the completed assessment now, not a progress message."
+                                    "\nThe host verified required evidence reads in this session. Use those contents; retrieve optional memory when needed. Return the completed assessment now, not a progress message."
                                     if files and workspace is None
                                     else ""
                                 )
@@ -704,6 +708,10 @@ class ClaudeRun(NativeRun):
     ):
         self.observed_asset_output = exact_files is not None
         self.product_workspace = workspace is not None
+        if workspace is None and not writable:
+            from trading_core.evidence_delivery import prepare
+            request, files, self.required_reads, proof = prepare(request, files)
+            self.evidence.update(evidence_delivery=proof)
         self.broker = (
             workspace
             if workspace is not None

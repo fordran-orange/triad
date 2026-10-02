@@ -19,7 +19,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.sync.server import serve
 
 from trading_core.contracts import AgentRunResult
-from trading_core.providers.isolation import MAX_BYTES, SEED, OfflineSandbox, safe_path
+from trading_core.providers.isolation import SEED, OfflineSandbox, safe_path
 from trading_core.providers.process import WindowsJob, clean_environment
 from trading_core.runtime import ProviderError, strict_schema
 from trading_core.security import ensure_no_secret
@@ -128,9 +128,9 @@ class CodexExecutor:
         if writable:
             raise PermissionError("The Codex executor is currently read-only")
         self.writable = ()
-        if len(files) > 64 or len(writable) > 5:
+        if len(files) > 2048 or len(writable) > 5:
             raise ValueError("Executor snapshot exceeds limit")
-        if sum(len(v.encode()) for v in files.values()) > MAX_BYTES:
+        if sum(len(v.encode()) for v in files.values()) > 1000000:
             raise ValueError("Executor input too large")
         ensure_no_secret(files)
         self.guard = guard
@@ -347,6 +347,10 @@ class CodexReadOnlyRun:
 
     def execute(self, request, files, model="Auto", *, workspace=None):
         self.workspace = workspace
+        required_reads, delivery_proof = set(files), {}
+        if workspace is None:
+            from trading_core.evidence_delivery import prepare
+            request, files, required_reads, delivery_proof = prepare(request, files)
         deadline = time.monotonic() + 110
 
         def check():
@@ -570,12 +574,13 @@ class CodexReadOnlyRun:
                 }
                 observed = {path for r in executor.requests for path in r["params"]["argv"][2:]}
                 if files and (
-                    not set(files) <= observed or len(commands) != len(executor.requests)
+                    not required_reads <= observed or len(commands) != len(executor.requests)
                 ):
                     raise ProviderError("DEGRADED", "NativeReadEvidenceMissing")
                 self.commands = tuple(commands)
                 self.evidence = {
                     "boundary": "DOCKER_REMOTE_EXECUTOR_READ_ONLY",
+                    "evidence_delivery": delivery_proof,
                     "methods": executor.methods,
                     "denied_operations": executor.denials,
                     "commands": commands,

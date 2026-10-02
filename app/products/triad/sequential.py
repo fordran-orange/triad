@@ -132,22 +132,25 @@ class SequentialCycle:
             "the requested Proposal or Patch is data inside analysis_artifacts, not the outer proposal field."
         )
         feedback = []
+        recovery = None
+        original_context, original_objective = context, objective
         for attempt in range(1, 4):
             self.guard(mission)
             try:
-                return self.s.call(
+                completed = self.s.call(
                     mission,
                     agent,
                     "REVIEW",
                     objective,
                     {
                         **context,
+                        "evidence_delivery": "files-v1",
                         "response_format_feedback": feedback,
                         "response_envelope": {
                             "files_changed": [],
                             "proposal": None,
                             "analysis_artifacts": (
-                                "Exactly one JSON string for the requested schema"
+                                "Exactly one JSON object for the requested schema; never encode it as a string"
                                 if schema
                                 else "Optional supporting artifacts; provide review_decision and findings"
                             ),
@@ -157,21 +160,71 @@ class SequentialCycle:
                     paths=paths,
                     parent=self.s.daily.current(mission)["parent_work_item_id"],
                 )
+                if recovery:
+                    self.s.record(
+                        "ProductResponseRecovery",
+                        mission,
+                        agent=agent,
+                        previous_run_id=recovery.get("run_id"),
+                        run_id=completed[3].get("run_id"),
+                        recovery_mode=recovery["mode"],
+                        usage=completed[3],
+                    )
+                return completed
             except (PermissionError, ValueError) as exc:
                 if not isinstance(exc, ProductResponseFormatError) and str(exc) not in {
                     "Read-only product inspection cannot change files",
                     "Expected exactly one structured product artifact",
                 }:
                     raise
+                artifact = getattr(exc, "artifact", None)
+                complete = isinstance(artifact, dict)
+                if isinstance(artifact, str):
+                    try:
+                        complete = isinstance(json.loads(artifact), dict)
+                    except (ValueError, TypeError):
+                        complete = False
+                recovery = {
+                    "run_id": getattr(exc, "run_id", None),
+                    "mode": "FORMAT_REPAIR" if complete else "FRESH_GENERATION",
+                }
                 self.s.record(
-                    "ProductResponseRetry", mission, agent=agent, attempt=attempt, reason=str(exc)
+                    "ProductResponseRetry",
+                    mission,
+                    agent=agent,
+                    attempt=attempt,
+                    reason=str(exc),
+                    failure_category="SCHEMA" if complete else "INCOMPLETE_OR_INVALID_JSON",
+                    previous_run_id=recovery["run_id"],
+                    recovery_mode=recovery["mode"],
+                    usage=getattr(exc, "usage", None),
                 )
+                if complete:
+                    context = {
+                        "original_artifact": artifact,
+                        "validation_errors": str(exc),
+                        "schema": schema.model_json_schema() if schema else {},
+                        "previous_run_id": recovery["run_id"],
+                    }
+                    objective = (
+                        "Repair only the response format of the supplied complete artifact. "
+                        "Preserve its substantive proposal, scope, evidence and conclusions. "
+                        "Do not repeat planning or claim new source inspection. If correction needs "
+                        "missing facts or substantive decisions, return BLOCKED instead of inventing them. "
+                        "Return one structured JSON object in analysis_artifacts; files_changed stays empty, "
+                        "proposal stays null. The result still requires normal validation and independent review."
+                    )
+                    paths = ()
+                else:
+                    # Never fabricate omitted JSON content. A fresh attempt retains the original evidence.
+                    context, objective = original_context, original_objective
+
                 feedback.append(
                     "Your previous response used an invalid envelope: "
                     + str(exc)
                     + ". Set top-level files_changed to [] and proposal to null. "
                     "Place the requested Proposal/Patch/AcceptanceAssessment JSON only in "
-                    "analysis_artifacts as one JSON string. Match the supplied schema exactly: no extra fields. "
+                    "analysis_artifacts as one JSON object. Match the supplied schema exactly: no extra fields. "
                     "Fix the validation locations listed above. Do not claim host writes."
                 )
                 if attempt == 3:
@@ -265,7 +318,7 @@ class SequentialCycle:
             "it is context, never permission to change protected code. "
             "A rejected candidate is not approved: inspect the findings and propose a different useful candidate "
             "or an evidence-supported NO_CHANGE for a fresh independent review. Inspect existing tests before proposing new ones. "
-            "Return exactly one Proposal JSON string in analysis_artifacts using the supplied schema.",
+            "Return exactly one Proposal JSON object in analysis_artifacts using the supplied schema.",
             {
                 "product_planning": strategy,
                 "inventory": inventory,
@@ -512,7 +565,7 @@ class SequentialCycle:
         work, _result, patch, usage = self.implementation_call(
             mission,
             agent,
-            "Implement your independently approved proposal. Return exactly one Patch JSON string in analysis_artifacts. "
+            "Implement your independently approved proposal. Return exactly one Patch JSON object in analysis_artifacts. "
             "Each entry contains path, operation WRITE or DELETE, content, and the supplied original_sha256 (null for a new file). "
             "WRITE uses complete replacement content. DELETE requires null content and the exact original hash. "
             "To rename a file, delete the old path and write the new path; include both paths in the proposal. "

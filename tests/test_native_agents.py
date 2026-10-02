@@ -343,6 +343,7 @@ def test_claude_structured_result_and_cache_usage(monkeypatch):
     )
     monkeypatch.setattr(native, "LineProcess", lambda *a, **k: wire)
     request = SimpleNamespace(
+        context_packet={},
         run_id="fixture",
         required_output_schema=AgentRunResult.model_json_schema(),
         model_dump_json=lambda **k: "{}",
@@ -390,6 +391,7 @@ def test_grok_uses_whole_prompt_usage_not_last_call(monkeypatch):
     monkeypatch.setattr(native, "GrokSession", FixtureSession)
     monkeypatch.setattr(native, "grok_preflight", lambda *a: None)
     request = SimpleNamespace(
+        context_packet={},
         run_id="fixture",
         required_output_schema=AgentRunResult.model_json_schema(),
         model_dump_json=lambda **k: "{}",
@@ -443,6 +445,7 @@ def test_grok_reads_before_schema_and_accounts_for_both_prompts(monkeypatch, com
     monkeypatch.setattr(native, "GrokSession", FixtureSession)
     monkeypatch.setattr(native, "grok_preflight", lambda *a: None)
     request = SimpleNamespace(
+        context_packet={},
         run_id="fixture",
         required_output_schema=AgentRunResult.model_json_schema(),
         model_dump_json=lambda **k: "{}",

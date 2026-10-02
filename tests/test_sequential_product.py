@@ -409,7 +409,7 @@ def test_native_envelope_retry_preserves_authority(error, retry):
         calls.append(args)
         if len(calls) == 1:
             raise PermissionError(error)
-        return "corrected"
+        return (None, None, "corrected", {"run_id": "corrected-run"})
 
     flow.s = NS(
         call=call,
@@ -417,7 +417,7 @@ def test_native_envelope_retry_preserves_authority(error, retry):
         daily=NS(current=lambda _: {"parent_work_item_id": "parent"}),
     )
     if retry:
-        assert flow.call("mission", "CLAUDE", "Objective", {}) == "corrected"
+        assert flow.call("mission", "CLAUDE", "Objective", {})[2] == "corrected"
         assert len(calls) == 2
         assert calls[1][4]["response_format_feedback"]
         assert calls[1][1] == "CLAUDE"
@@ -440,12 +440,12 @@ def test_artifact_schema_error_retries_without_silently_dropping_fields():
             raise ProductResponseFormatError(
                 "Invalid product artifact: acceptance.0.extra forbidden"
             )
-        return "corrected"
+        return (None, None, "corrected", {"run_id": "corrected-run"})
 
     flow.s = NS(
         call=call,
         record=lambda *a, **k: None,
         daily=NS(current=lambda _: {"parent_work_item_id": "parent"}),
     )
-    assert flow.call("mission", "CLAUDE", "Objective", {}) == "corrected"
+    assert flow.call("mission", "CLAUDE", "Objective", {})[2] == "corrected"
     assert "acceptance.0.extra" in seen[1][4]["response_format_feedback"][0]

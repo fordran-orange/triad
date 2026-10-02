@@ -9,7 +9,7 @@ import json
 import stat
 from pathlib import Path
 
-from pydantic import ValidationError
+from pydantic import Field, ValidationError, create_model
 from trading_core.brain import Brain
 from trading_core.contracts import AgentRunRequest, AgentRunResult, Limits
 from trading_core.execution import ExecutionServices
@@ -35,6 +35,10 @@ INSPECTION_PATHS = (
 class ProductResponseFormatError(ValueError):
     """A native result cannot be parsed as the requested product artifact."""
 
+    def __init__(self, message, *, artifact=None, run_id=None, usage=None):
+        super().__init__(message)
+        self.artifact, self.run_id, self.usage = artifact, run_id, usage
+
 
 def parse_product_artifact(schema, text):
     """Accept one observed redundant array closer; never repair substantive JSON."""
@@ -57,6 +61,8 @@ def parse_product_artifact(schema, text):
             result[key] = value
         return result
 
+    if isinstance(text, dict):
+        return schema.model_validate(text), False
     stripped = text.lstrip()
     try:
         value, end = json.JSONDecoder(object_pairs_hook=unique_object).raw_decode(stripped)
@@ -209,7 +215,7 @@ class Development(ExecutionServices):
             else ("propose_file_change",)
             if write
             else ("read_file",)
-            if paths
+            if paths or context.get("evidence_delivery") == "files-v1"
             else (),
             allowed_paths=paths,
             acceptance_criteria=work.acceptance_criteria,
@@ -232,6 +238,12 @@ class Development(ExecutionServices):
                 "additionalProperties": False,
             }
             if role == "SUPPORT"
+            else create_model(
+                "ProductArtifactResult",
+                __base__=AgentRunResult,
+                analysis_artifacts=(tuple[schema, ...], Field(min_length=1, max_length=1)),
+            ).model_json_schema()
+            if schema and not workspace
             else AgentRunResult.model_json_schema(),
             control_epoch=self.ledger.get("authority-" + work.work_item_id)["epoch"],
         )
@@ -277,7 +289,17 @@ class Development(ExecutionServices):
                     "Invalid product artifact: "
                     + json.dumps(
                         exc.errors(include_input=False, include_url=False, include_context=False)
-                    )
+                    ),
+                    artifact=result.analysis_artifacts[0],
+                    run_id=request.run_id,
+                    usage=next(
+                        (
+                            r
+                            for r in self.ledger.records("Usage", 100)
+                            if r.get("run_id") == request.run_id
+                        ),
+                        {},
+                    ),
                 ) from exc
             if not write and (result.files_changed or result.proposal):
                 raise PermissionError("Read-only product inspection cannot change files")
