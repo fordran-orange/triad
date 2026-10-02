@@ -182,6 +182,48 @@ def symbol_breakdown(rows):
     return breakdown
 
 
+def drawdown_recovery(curve):
+    """Independent maxima on grouped realized balances, inside local Decimal context.
+
+    Ties select the earliest trough and latest preceding matching peak.
+    Durations end at first recovery, or at the final observed exit.
+    The initial baseline has no observed start time. O(n) per maximum.
+    """
+    def seconds(start, end):
+        if start is None:
+            return None
+        delta = datetime.fromisoformat(end) - datetime.fromisoformat(start)
+        return format(Decimal(delta.days * 86400 + delta.seconds)
+                      + Decimal(delta.microseconds) / Decimal(1000000), "f")
+
+    episodes = {}
+    for name, metric in (("max_dollar", "drawdown"), ("max_percent", "drawdown_pct")):
+        index = max(range(len(curve)), key=lambda i: Decimal(curve[i][metric]))
+        trough = curve[index]
+        if Decimal(trough[metric]) == 0:
+            episodes[name] = None
+            continue
+        peak_balance = Decimal(trough["balance"]) + Decimal(trough["drawdown"])
+        peak = next(point for point in reversed(curve[:index])
+                    if Decimal(point["balance"]) == peak_balance)
+        recovery = next((point for point in curve[index + 1:]
+                         if Decimal(point["balance"]) >= peak_balance), None)
+        end = recovery if recovery is not None else curve[-1]
+        episodes[name] = dict(
+            status="RECOVERED" if recovery is not None else "UNRECOVERED_AT_END",
+            peak_balance=format(peak_balance, "f"), trough_balance=trough["balance"],
+            drawdown=trough["drawdown"], drawdown_pct=trough["drawdown_pct"],
+            peak_timestamp=peak["timestamp"],
+            peak_origin="INITIAL_BALANCE" if peak["timestamp"] is None else "OBSERVED_EXIT",
+            trough_timestamp=trough["timestamp"],
+            recovery_timestamp=recovery["timestamp"] if recovery is not None else None,
+            observation_end_timestamp=curve[-1]["timestamp"],
+            peak_to_end_seconds=seconds(peak["timestamp"], end["timestamp"]),
+            trough_to_end_seconds=seconds(trough["timestamp"], end["timestamp"]),
+        )
+    return episodes
+
+
 def _analyze(initial_balance, csv_text):
     initial = number(initial_balance, 0, "initial_balance", 1_000_000_000_000)
     if not isinstance(csv_text, str) or len(csv_text) > MAX_BYTES:
@@ -268,6 +310,7 @@ def _analyze(initial_balance, csv_text):
         max_drawdown=encode(max_dd), max_drawdown_pct=encode(max_pct),
         rows=[{k: encode(v) for k, v in r.items()} for r in rows],
         realized_balance_curve=curve,
+        drawdown_recovery=drawdown_recovery(curve),
         entry_notional_exposure=entry_notional_exposure(rows, initial),
         symbol_breakdown=symbol_breakdown(rows),
     )

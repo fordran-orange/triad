@@ -128,6 +128,32 @@ class ProductReadinessContentTests(unittest.TestCase):
         for unsafe in ("Number(", "parseFloat(", "innerHTML"):
             self.assertNotIn(unsafe, source)
 
+    def test_recovery_document_and_source_contract(self):
+        nodes = {n.attrs.get("id"): n for n in self.elements}
+        results = nodes["ledger-results"]
+        self.assertIn("hidden", results.attrs)
+        ids = [n.attrs.get("id") for n in results.elements()]
+        for suffix in ("dollar", "percent"):
+            self.assertEqual(ids.count("ledger-recovery-" + suffix), 1)
+        headings = [n.text() for n in results.elements() if n.tag == "h3"]
+        self.assertIn("Largest dollar drawdown recovery", headings)
+        self.assertIn("Largest percentage drawdown recovery", headings)
+        for phrase in ("realized-balance episodes", "excluding open positions",
+                       "mark-to-market changes", "no future-risk claim",
+                       "first subsequent balance", "final grouped exit"):
+            self.assertIn(phrase, results.text())
+        source = PRODUCT_HTML.read_text(encoding="utf-8").split("const el = id =>")[1]
+        for phrase in ("el('recovery-dollar').replaceChildren()",
+                       "el('recovery-percent').replaceChildren()",
+                       "No realized drawdown:", "initial balance has no observed timestamp",
+                       "initial balance time is unavailable", "Unrecovered at observation end:",
+                       "'observation end (unrecovered)'", "' (seconds)'",
+                       "episode[key] === null ? missing[key] : episode[key]",
+                       "JSON.stringify(report,null,2)"):
+            self.assertIn(phrase, source)
+        self.assertLess(source.index("if (current !== version) return;"),
+                        source.index("const episode = data.drawdown_recovery[name]"))
+
     def readiness_section(self):
         targets = [
             node for node in self.elements

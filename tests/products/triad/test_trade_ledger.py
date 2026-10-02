@@ -330,11 +330,132 @@ class SymbolBreakdownTests(unittest.TestCase):
             "net_pnl", "ending_realized_balance", "positive_count", "negative_count",
             "zero_count", "win_rate_pct", "average_net_pnl", "profit_factor",
             "profit_factor_reason", "max_drawdown", "max_drawdown_pct", "rows",
-            "realized_balance_curve", "entry_notional_exposure",
+            "realized_balance_curve", "drawdown_recovery", "entry_notional_exposure",
         ])
-        for key in preexisting_keys:
-            self.assertEqual(baseline[key], report(rows)[key])
+        for key, expected in dict(gross_pnl="20", total_costs="20", net_pnl="0",
+                                  ending_realized_balance="1000", win_rate_pct="50",
+                                  average_net_pnl="0", profit_factor="1", max_drawdown="150").items():
+            self.assertEqual(Decimal(baseline[key]), Decimal(expected))
+        self.assertEqual(baseline["trade_count"], 4)
+        self.assertEqual([Decimal(p["balance"]) for p in baseline["realized_balance_curve"]],
+                         [1000, 1100, 950, 950, 1000])
 
+
+
+class RecoveryTests(unittest.TestCase):
+    start = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
+
+    def stamp(self, index):
+        return (self.start + timedelta(days=index)).isoformat()
+
+    def records(self, balances, times=None):
+        # Independently specified target balances; one USD of P&L per price dollar.
+        times = times or [self.stamp(i) for i in range(len(balances) - 1)]
+        return [row(str(i), quantity="1", entry_price="10000",
+                    exit_price=str(10000 + after - before), total_cost="0",
+                    entry_time="2026-01-01T09:00:00Z", exit_time=times[i])
+                for i, (before, after) in enumerate(zip(balances, balances[1:]))]
+
+    def episodes(self, balances, times=None):
+        return report(self.records(balances, times), str(balances[0]))["drawdown_recovery"]
+
+    def test_independent_maxima_and_api(self):
+        rows = self.records([100, 50, 1000, 800])
+        response = TestClient(app).post("/research/trade-ledger",
+            json={"initial_balance":"100", "csv_text":csv_text(rows)})
+        self.assertEqual(response.status_code, 200)
+        actual = response.json()["drawdown_recovery"]
+        expected = {
+            "max_percent": dict(status="RECOVERED", peak_balance="100", trough_balance="50",
+                drawdown="50", drawdown_pct="50", peak_timestamp=None,
+                peak_origin="INITIAL_BALANCE", trough_timestamp=self.stamp(0),
+                recovery_timestamp=self.stamp(1), observation_end_timestamp=self.stamp(2),
+                peak_to_end_seconds=None, trough_to_end_seconds="86400"),
+            "max_dollar": dict(status="UNRECOVERED_AT_END", peak_balance="1000", trough_balance="800",
+                drawdown="200", drawdown_pct="20", peak_timestamp=self.stamp(1),
+                peak_origin="OBSERVED_EXIT", trough_timestamp=self.stamp(2),
+                recovery_timestamp=None, observation_end_timestamp=self.stamp(2),
+                peak_to_end_seconds="86400", trough_to_end_seconds="0")}
+        for name, episode in expected.items():
+            self.assertEqual(set(actual[name]), set(episode))
+            for key, value in episode.items():
+                if key in ("peak_balance", "trough_balance", "drawdown", "drawdown_pct"):
+                    self.assertEqual(Decimal(actual[name][key]), Decimal(value))
+                else:
+                    self.assertEqual(actual[name][key], value)
+
+    def test_selection_ties_plateaus_and_first_recovery(self):
+        for balances, peak, trough, recovery in [
+            ([100, 120, 110, 120, 90, 120], 2, 3, 4),  # later larger maximum
+            ([100, 120, 120, 90, 90, 120, 90, 150], 1, 2, 4),
+            ([100, 120, 90, 130, 100, 160], 0, 1, 2),  # dollar tie; overshoot
+        ]:
+            with self.subTest(balances=balances):
+                result = self.episodes(balances)
+                for episode in result.values():
+                    self.assertEqual(episode["peak_timestamp"], self.stamp(peak))
+                    self.assertEqual(episode["trough_timestamp"], self.stamp(trough))
+                    self.assertEqual(episode["recovery_timestamp"], self.stamp(recovery))
+                    self.assertEqual(episode["status"], "RECOVERED")
+
+    def test_microseconds_days_and_precision(self):
+        times = [(self.start + timedelta(microseconds=i)).isoformat() for i in (0, 1, 3)]
+        old = getcontext().prec
+        try:
+            getcontext().prec = 6
+            result = self.episodes([100, 120, 60, 120], times)
+            self.assertEqual(getcontext().prec, 6)
+            for episode in result.values():
+                self.assertEqual(episode["peak_to_end_seconds"], "0.000003")
+                self.assertEqual(episode["trough_to_end_seconds"], "0.000002")
+                self.assertEqual(episode["recovery_timestamp"], times[-1])
+            times[-1] = (self.start + timedelta(days=2, seconds=7, microseconds=3)).isoformat()
+            for episode in self.episodes([100, 120, 60, 120], times).values():
+                self.assertEqual(episode["peak_to_end_seconds"], "172807.000003")
+                self.assertEqual(episode["trough_to_end_seconds"], "172807.000002")
+        finally:
+            getcontext().prec = old
+
+    def test_grouped_offsets_and_permutation(self):
+        rows = self.records([100, 50, 100])
+        rows += [row("plus", quantity="1", entry_price="100", exit_price="130",
+                     total_cost="0", exit_time=self.stamp(0)),
+                 row("minus", quantity="1", entry_price="100", exit_price="70",
+                     total_cost="0", exit_time="2026-01-01T05:00:00-05:00")]
+        expected = self.episodes([100, 50, 100])
+        self.assertEqual(report(rows, "100")["drawdown_recovery"], expected)
+        self.assertEqual(report(list(reversed(rows)), "100")["drawdown_recovery"], expected)
+        self.assertEqual(self.episodes([100, 130, 100],
+            [self.stamp(0), "2026-01-01T05:00:00-05:00"]),
+            {"max_dollar":None, "max_percent":None})
+
+    def test_edges(self):
+        for balances in ([100, 100, 100], [100, 110, 120]):
+            self.assertEqual(self.episodes(balances), {"max_dollar":None, "max_percent":None})
+        for balances, duration in (([100, 50], "0"), ([100, 50, 60], "86400"),
+                                   ([100, -50], "0")):
+            for episode in self.episodes(balances).values():
+                self.assertEqual(episode["status"], "UNRECOVERED_AT_END")
+                self.assertIsNone(episode["peak_timestamp"])
+                self.assertIsNone(episode["peak_to_end_seconds"])
+                self.assertIsNone(episode["recovery_timestamp"])
+                self.assertEqual(episode["peak_origin"], "INITIAL_BALANCE")
+                self.assertEqual(episode["trough_to_end_seconds"], duration)
+                self.assertEqual(episode["observation_end_timestamp"], self.stamp(len(balances)-2))
+        self.assertEqual(Decimal(self.episodes([100, -50])["max_percent"]["drawdown_pct"]), 150)
+        for episode in self.episodes([100, 50, 100]).values():
+            self.assertEqual(episode["recovery_timestamp"], self.stamp(1))
+            self.assertEqual(episode["status"], "RECOVERED")
+
+    def test_bounded_two_thousand_records(self):
+        result = report(self.records([100] + [50, 100] * 1000), "100")
+        self.assertEqual(result["trade_count"], 2000)
+        self.assertEqual(len(result["realized_balance_curve"]), 2001)
+        self.assertEqual(set(result["drawdown_recovery"]), {"max_dollar", "max_percent"})
+        for episode in result["drawdown_recovery"].values():
+            self.assertEqual(len(episode), 12)
+            self.assertEqual(episode["trough_timestamp"], self.stamp(0))
+            self.assertEqual(episode["recovery_timestamp"], self.stamp(1))
 
 if __name__ == "__main__":
     unittest.main()
