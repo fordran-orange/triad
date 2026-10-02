@@ -21,7 +21,11 @@ def resume_citation_failure(flow, mission):
     with host.store.lease("triad-product-development"):
         head = service.git.clean_baseline()
         healthy = health(head)
-        require(healthy.get("status") == "PASS", "Healthy exact baseline required")
+        require(
+            healthy.get("loaded_revision") == head
+            and healthy.get("development_provider_gate") == "PASS",
+            "Healthy exact baseline required",
+        )
         with host.ledger.gate(), host.store.connect() as conn:
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (mission,))
             prior = daily.current(mission, conn)
