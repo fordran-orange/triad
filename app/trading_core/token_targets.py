@@ -18,8 +18,12 @@ def advisory(ledger, request, billing_source):
         return False
     records = Records(Store(ledger.store.settings))
     if request.role == "IMPLEMENT":
-        from trading_core.product_workspace_grant import grant_for
+        from trading_core.product_workspace_grant import grant_for, is_workspace
 
+        # Compatibility staging and legacy engineering use a different grant.
+        # They retain normal budgets, rather than requiring a workspace grant.
+        if not is_workspace(request):
+            return False
         grant_for(ledger, request)
     programs = [
         r

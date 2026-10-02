@@ -213,7 +213,12 @@ class SequentialCycle:
             raise PermissionError("Development readiness: " + json.dumps(checks))
 
     def propose(self, mission, agent):
-        feedback = []
+        # Explicit recovery must retain the previous review's corrections.
+        feedback = [
+            {k: row[k] for k in ("proposal", "decision", "summary", "findings") if k in row}
+            for row in self.s.rows("ProductProposalReview", mission)
+            if row.get("proposer") == agent and row.get("decision") in {"REQUEST_CHANGES", "REJECT"}
+        ][-3:]
         for attempt in range(1, 4):
             proposal, approval, review = self.proposal_attempt(mission, agent, feedback, attempt)
             if approval:

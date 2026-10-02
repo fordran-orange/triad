@@ -315,6 +315,7 @@ def test_restart_does_not_capture_pipes_inherited_by_worker(monkeypatch):
 @pytest.mark.parametrize("decision", ["APPROVE", "REQUEST_CHANGES", "REJECT"])
 def test_proposal_revision_preserves_independent_decision(decision):
     flow = object.__new__(SequentialCycle)
+    flow.s = NS(rows=lambda *args: [])
     calls = []
     proposal = Proposal(
         title="Change",
@@ -347,6 +348,7 @@ def test_proposal_revision_preserves_independent_decision(decision):
 
 def test_unresolved_proposal_cannot_be_approved_by_exhaustion():
     flow = object.__new__(SequentialCycle)
+    flow.s = NS(rows=lambda *args: [])
     proposal = Proposal(
         title="Change",
         problem="Observed",

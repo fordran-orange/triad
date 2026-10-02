@@ -9,6 +9,7 @@ from trading_core.product_deployment import health
 from trading_core.work import State, now
 
 ERROR = "Product source changed since proposal"
+SELECTION_ERROR = "Requested agent is not eligible; no silent substitution"
 EMPTY_PATCH_ERROR = 'Invalid product artifact: [{"type": "too_short", "loc": ["files"], "msg": "Tuple should have at least 1 item after validation, not 0"}]'
 ORDER = ("CODEX", "CLAUDE", "GROK")
 
@@ -16,6 +17,44 @@ ORDER = ("CODEX", "CLAUDE", "GROK")
 def require(condition, message):
     if not condition:
         raise PermissionError(message)
+
+
+def selection_rejection(daily, mission, agent, prior, conn):
+    """A routing refusal before a build can replan, never replay product writes."""
+    works = [w for w in daily.product.store.list_work(10000) if w.mission_id == mission]
+    require(
+        not any(w.status == State.IN_PROGRESS for w in works),
+        "Selection recovery requires an idle cycle",
+    )
+    require(
+        not any(
+            w.work_type == "development" and w.assigned_agent not in ORDER[: ORDER.index(agent)]
+            for w in works
+        ),
+        "Selection recovery cannot replay a development assignment",
+    )
+    require(
+        not any(
+            r.get("cycle_id") == mission and r.get("builder") not in ORDER[: ORDER.index(agent)]
+            for r in daily.product.list("ProductTurnApproval", conn=conn)
+        ),
+        "Selection recovery requires an unapproved next turn",
+    )
+    reviews = [
+        w
+        for w in works
+        if w.work_type == "review"
+        and w.assigned_agent == agent
+        and w.owner == "triad"
+        and w.parent_work_item_id == prior["parent_work_item_id"]
+    ]
+    contexts = [
+        r
+        for r in daily.product.list("ProductPlanningContext", conn=conn)
+        if r.get("mission_id") == mission and r.get("proposer") == agent
+    ]
+    require(bool(reviews) and bool(contexts), "Canonical read-only planning evidence required")
+    return reviews[0], contexts[-1]["base_commit"]
 
 
 def native_rejection(daily, mission, agent, prior, policy, conn, *, empty_patch=False):
@@ -148,6 +187,7 @@ def resume_patch_failure(flow, mission):
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (mission,))
             prior = daily.current(mission, conn)
             error = prior.get("failures", [{}])[-1].get("message")
+            selection = prior.get("failure_code") == "PermissionError" and error == SELECTION_ERROR
             native = prior.get("failure_code") == "ProviderError" and error in {
                 "NativeResultViolation",
                 "GrokTurnIncomplete",
@@ -159,7 +199,11 @@ def resume_patch_failure(flow, mission):
             native = native or empty_patch
             require(
                 prior["status"] == "BLOCKED"
-                and (native or (prior.get("failure_code") == "PermissionError" and error == ERROR)),
+                and (
+                    selection
+                    or native
+                    or (prior.get("failure_code") == "PermissionError" and error == ERROR)
+                ),
                 "Only a rejected, unapplied source or native-result failure may resume",
             )
             history = [
@@ -169,7 +213,7 @@ def resume_patch_failure(flow, mission):
             ]
             require(
                 bool(history)
-                and history[-1]["from"] == "BUILDING"
+                and history[-1]["from"] == ("SELECTING" if selection else "BUILDING")
                 and history[-1]["to"] == "BLOCKED",
                 "Recovery requires a pre-QA build failure",
             )
@@ -209,7 +253,9 @@ def resume_patch_failure(flow, mission):
             for turn in turns:
                 revision = turn.get("merge_commit") or turn.get("verified_revision")
                 service.git.git("merge-base", "--is-ancestor", revision, head)
-            if native:
+            if selection:
+                work, base_commit = selection_rejection(daily, mission, agent, prior, conn)
+            elif native:
                 work, base_commit = native_rejection(
                     daily, mission, agent, prior, flow.policy, conn, empty_patch=empty_patch
                 )
@@ -254,7 +300,7 @@ def resume_patch_failure(flow, mission):
                 ),
                 "Cycle still has active development work",
             )
-            if not native:
+            if not (native or selection):
                 git = checkpoint["git"]
                 require(
                     checkpoint["phase"] == "ISOLATED"
@@ -283,10 +329,10 @@ def resume_patch_failure(flow, mission):
                 "AND work_item_id=%s AND payload->>'improvement'='true'",
                 (work.work_item_id,),
             ).fetchall()
-            refund = 0 if native else 1
+            refund = 0 if native or selection else 1
             require(len(reservations) == refund, "Unexpected improvement reservation count")
             reservation = None
-            if not native:
+            if not (native or selection):
                 require(len(reservations) == 1, "Exact failed improvement reservation required")
                 reservation = reservations[0]
                 payload = reservation["payload"]
@@ -321,7 +367,9 @@ def resume_patch_failure(flow, mission):
             host.ledger.put(
                 "ControlAction",
                 {
-                    "action": "resume_unapplied_product_patch",
+                    "action": "resume_unapproved_product_selection"
+                    if selection
+                    else "resume_unapplied_product_patch",
                     "cycle_id": mission,
                     "failed_work_item_id": work.work_item_id,
                     "reservation_id": reservation["id"] if reservation else None,
