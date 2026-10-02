@@ -306,9 +306,11 @@ class SequentialCycle:
             for row in self.s.rows("ProductProposalReview", mission)
             if row.get("proposer") == agent and row.get("decision") in {"REQUEST_CHANGES", "REJECT"}
         ][-3:]
+        start_attempt = 1
         saved = getattr(self, "saved_selection", None)
         if saved is not None:
             self.saved_selection = None
+            start_attempt = saved["attempt"] + 1
             self.s.transition(
                 mission, "SELECTING", ["Resuming independent review of saved proposal"]
             )
@@ -328,7 +330,9 @@ class SequentialCycle:
             if approval:
                 return proposal, approval
             feedback.append({"proposal": proposal.model_dump(mode="json"), **review})
-        for attempt in range(1, 4):
+            if review["decision"] not in {"REQUEST_CHANGES", "REJECT"}:
+                raise PermissionError("Invalid proposal review: " + review["summary"])
+        for attempt in range(start_attempt, 4):
             proposal, approval, review = self.proposal_attempt(mission, agent, feedback, attempt)
             if approval:
                 return proposal, approval

@@ -249,12 +249,20 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
             prior = daily.current(mission, conn)
             error = prior.get("failures", [{}])[-1].get("message")
             selection = prior.get("failure_code") == "PermissionError" and error == SELECTION_ERROR
-            read_selection = (
-                read_failure
-                and prior.get("failure_code") == "ResourceBlocked"
-                and error == "No new progress; repeated evidence cannot extend a run"
+            read_selection = read_failure and (
+                (
+                    prior.get("failure_code") == "ResourceBlocked"
+                    and error == "No new progress; repeated evidence cannot extend a run"
+                )
+                or (
+                    prior.get("failure_code") == "PermissionError"
+                    and error == "Invalid or terminal cycle transition"
+                )
             )
-            require(not read_failure or read_selection, "Only a stopped read timeout may resume")
+            require(
+                not read_failure or read_selection,
+                "Only a stopped read or saved selection checkpoint may resume",
+            )
             selection = selection or read_selection
             native = prior.get("failure_code") == "ProviderError" and error in {
                 "NativeResultViolation",
@@ -418,7 +426,8 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
             failed_work_id = (
                 flow.saved_selection["failed_work_id"] if read_selection else work.work_item_id
             )
-            action_id = ("read-recovery-" if read_selection else "patch-recovery-") + failed_work_id
+            action_key = failed_work_id or "proposal-" + flow.saved_selection["checkpoint_id"]
+            action_id = ("read-recovery-" if read_selection else "patch-recovery-") + action_key
             require(
                 not conn.execute(
                     "SELECT 1 FROM core.day3_records WHERE id=%s", (action_id,)
@@ -450,6 +459,9 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                     else "resume_unapplied_product_patch",
                     "cycle_id": mission,
                     "failed_work_item_id": failed_work_id,
+                    "retained_proposal_id": flow.saved_selection["checkpoint_id"]
+                    if read_selection
+                    else None,
                     "reservation_id": reservation["id"] if reservation else None,
                     "retained_turn_ids": [r["id"] for r in turns],
                     "prior_failure": prior["failures"],

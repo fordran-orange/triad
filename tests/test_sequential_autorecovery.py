@@ -232,7 +232,15 @@ def checkpoint():
             parent_work_item_id="parent",
         ),
     }
-    proposals = [{"mission_id": "cycle", "proposer": "GROK", "proposal": proposal, "attempt": 1}]
+    proposals = [
+        {
+            "id": "proposal-record",
+            "mission_id": "cycle",
+            "proposer": "GROK",
+            "proposal": proposal,
+            "attempt": 1,
+        }
+    ]
     cycles = []
     product = NS(
         get=lambda *a, **kw: {
@@ -344,5 +352,116 @@ def test_retained_checkpoint_binds_record_lineage(checkpoint, tamper):
         b.records[0]["payload"]["control_epoch"] = 2
     elif tamper == "resource_decision":
         b.records[3]["payload"]["decision"] = "ALLOW"
+    with pytest.raises(PermissionError):
+        recovery.retained_selection(b.flow, "cycle", "GROK", b.prior, b.conn)
+
+
+@pytest.mark.parametrize("decision", ["REQUEST_CHANGES", "REJECT"])
+def test_saved_proposal_rejection_revises_without_reentering_selecting(monkeypatch, decision):
+    from products.triad.daily import NEXT
+
+    from products.triad import sequential
+
+    state = ["INSPECTING"]
+    attempts = []
+    proposal = NS(model_dump=lambda **kw: {"title": "saved"})
+    flow = object.__new__(sequential.SequentialCycle)
+    flow.saved_selection = {
+        "proposal": proposal,
+        "attempt": 1,
+        "author_work_id": "author",
+        "author_run_id": "run",
+    }
+
+    def transition(mission, target, evidence):
+        assert target in NEXT[state[0]], "Duplicate or invalid state transition"
+        state[0] = target
+
+    flow.s = NS(rows=lambda *a: [], transition=transition, git=NS(clean_baseline=lambda: "base"))
+    flow.inventory = list
+    monkeypatch.setattr(sequential, "planning_context", lambda *a: {})
+    flow.review_proposal = lambda *a: (
+        proposal,
+        None,
+        {"decision": decision, "summary": "Correct math", "findings": []},
+    )
+
+    def attempt(mission, agent, feedback, number):
+        attempts.append(number)
+        if number == 1:
+            transition(mission, "SELECTING", [])
+        assert feedback[-1]["summary"] == "Correct math"
+        return proposal, "fresh-independent-approval", {"decision": "APPROVE"}
+
+    flow.proposal_attempt = attempt
+    assert flow.propose("cycle", "GROK")[1] == "fresh-independent-approval"
+    assert attempts == [2] and state[0] == "SELECTING"
+
+
+@pytest.fixture
+def saved_revision(checkpoint):
+    b = checkpoint
+    b.records[:] = b.records[:2]
+    b.prior.update(
+        failure_code="PermissionError",
+        failures=[{"message": "Invalid or terminal cycle transition"}],
+    )
+    saved = b.flow.s.daily.product.list("ProductProposal")[0]
+    saved["recorded_at"] = "2026-10-02T12:52:00+00:00"
+    reviews = [
+        {
+            "mission_id": "cycle",
+            "proposer": "GROK",
+            "decision": "REQUEST_CHANGES",
+            "proposal": {"title": "original"},
+            "recorded_at": "2026-10-02T12:46:00+00:00",
+        }
+    ]
+    original = b.flow.s.daily.product.list
+    b.flow.s.daily.product.list = lambda kind, **kw: (
+        reviews if kind == "ProductProposalReview" else original(kind, **kw)
+    )
+    b.saved, b.reviews = saved, reviews
+    return b
+
+
+def test_completed_revised_proposal_checkpoint_resumes_review_only(saved_revision):
+    b = saved_revision
+    saved = recovery.retained_selection(b.flow, "cycle", "GROK", b.prior, b.conn)
+    assert saved["failed_work_id"] is None and saved["checkpoint_id"] == "proposal-record"
+    assert saved["author_run_id"] == "author"
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "later_work",
+        "already_reviewed",
+        "no_correction",
+        "future_review",
+        "missing_author",
+        "author_write",
+    ],
+)
+def test_invalid_saved_revision_checkpoint_never_resumes(saved_revision, tamper):
+    b = saved_revision
+    if tamper == "later_work":
+        b.records.append(
+            {
+                "kind": "AgentRunRequest",
+                "work_item_id": "later",
+                "payload": {"mission_id": "cycle", "run_id": "later"},
+            }
+        )
+    elif tamper == "already_reviewed":
+        b.reviews[0]["proposal"] = b.saved["proposal"]
+    elif tamper == "no_correction":
+        b.reviews[0]["decision"] = "APPROVE"
+    elif tamper == "future_review":
+        b.reviews[0]["recorded_at"] = "2026-10-03T00:00:00+00:00"
+    elif tamper == "missing_author":
+        b.records[1]["payload"]["analysis_artifacts"] = []
+    elif tamper == "author_write":
+        b.works["author-work"].authority_tier = 2
     with pytest.raises(PermissionError):
         recovery.retained_selection(b.flow, "cycle", "GROK", b.prior, b.conn)

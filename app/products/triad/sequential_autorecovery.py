@@ -176,6 +176,37 @@ def retained_selection(flow, mission, agent, prior, conn):
         if r["kind"] == "AgentRunRequest" and r["payload"].get("mission_id") == mission
     ]
     require(bool(requests), "Canonical read request required")
+    author = proposal_author(daily, records, requests, proposal, mission, agent, prior, conn)
+    selection = {
+        "proposal": proposal,
+        "attempt": saved["attempt"],
+        "checkpoint_id": saved["id"],
+        "author_work_id": author["work_item_id"],
+        "author_run_id": author["run_id"],
+    }
+    if (
+        prior.get("failure_code") == "PermissionError"
+        and prior.get("failures", [{}])[-1].get("message") == "Invalid or terminal cycle transition"
+    ):
+        # A completed revised proposal was stored before an erroneous duplicate
+        # SELECTING transition. No reviewer or builder ran for this checkpoint.
+        require(requests[-1] == author, "Later work prevents proposal checkpoint recovery")
+        reviews = [
+            r
+            for r in daily.product.list("ProductProposalReview", conn=conn)
+            if r.get("mission_id") == mission and r.get("proposer") == agent
+        ]
+        require(
+            not any(r.get("proposal") == saved["proposal"] for r in reviews),
+            "An already reviewed proposal must not be replayed",
+        )
+        require(
+            bool(reviews)
+            and reviews[-1].get("decision") == "REQUEST_CHANGES"
+            and reviews[-1]["recorded_at"] < saved["recorded_at"],
+            "Prior correction request and later saved proposal required",
+        )
+        return {**selection, "failed_work_id": None, "failed_run_id": None}
     failed = requests[-1]
     failed_rows = [r for r in records if r["kind"] == "AgentRunRequest" and r["payload"] == failed]
     require(
@@ -240,6 +271,19 @@ def retained_selection(flow, mission, agent, prior, conn):
         ),
         "Stopped transport differs from the canonical provider route",
     )
+    return {
+        **selection,
+        "failed_work_id": failed["work_item_id"],
+        "failed_run_id": failed["run_id"],
+    }
+
+
+def proposal_author(daily, records, requests, proposal, mission, agent, prior, conn):
+    from trading_core.work import State
+
+    from products.triad.sequential import Proposal
+    from products.triad.sequential_recovery import require
+
     authors = []
     for request in requests:
         if request.get("agent_id") != agent or request.get("role") != "REVIEW":
@@ -287,11 +331,4 @@ def retained_selection(flow, mission, agent, prior, conn):
         and author.get("allowed_tools") == ["read_file"],
         "Completed read-only proposal required",
     )
-    return {
-        "proposal": proposal,
-        "attempt": saved["attempt"],
-        "failed_work_id": failed["work_item_id"],
-        "failed_run_id": failed["run_id"],
-        "author_work_id": author["work_item_id"],
-        "author_run_id": author["run_id"],
-    }
+    return author
