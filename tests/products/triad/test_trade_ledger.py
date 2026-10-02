@@ -2,6 +2,7 @@
 import csv
 import io
 import unittest
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, getcontext
 from fastapi.testclient import TestClient
 from products.triad.product_app import app
@@ -131,7 +132,7 @@ class LedgerTests(unittest.TestCase):
     def test_limits_and_valid_csv(self):
         limits = row(trade_id="A"*64, symbol="A"*20, quantity="1000000",
                      entry_price="1000000",exit_price="1000000",total_cost="1000000")
-        text = "\ufeff" + csv_text([limits], tuple(reversed(COLUMNS)))
+        text = "﻿" + csv_text([limits], tuple(reversed(COLUMNS)))
         self.assertEqual(analyze_trade_ledger("1000000000000",text)["trade_count"],1)
         self.assertEqual(report([row(quantity="0.00000001", entry_price="0.00000001",
                                     exit_price="0.00000001",total_cost="0")])["trade_count"],1)
@@ -161,3 +162,179 @@ class LedgerTests(unittest.TestCase):
             response = self.client.post("/research/trade-ledger",json=payload)
             self.assertEqual(response.status_code,422)
             self.assertLess(len(response.content),600)
+
+
+class ExposureTests(unittest.TestCase):
+    def exposure(self, rows, initial="1000"):
+        return report(rows, initial)["entry_notional_exposure"]
+
+    def test_independent_arithmetic_and_api(self):
+        rows = [row(exit_time="2026-01-01T11:00:00Z"),
+                row("b", direction="SHORT", quantity="5", entry_price="80",
+                    entry_time="2026-01-01T10:00:00Z", exit_time="2026-01-01T12:00:00Z")]
+        exposure = self.exposure(rows)
+        keys = ("long_entry_notional", "short_entry_notional", "gross_entry_notional", "net_entry_notional")
+        expected = [(1000,0,1000,1000,1), (1000,400,1400,600,2),
+                    (0,400,400,-400,1), (0,0,0,0,0)]
+        for point, values in zip(exposure["timeline"], expected, strict=True):
+            self.assertEqual(tuple(Decimal(point[k]) for k in keys), values[:4])
+            self.assertEqual(point["active_trade_count"], values[4])
+            self.assertIs(type(point["active_trade_count"]), int)
+            for k in (*keys, "gross_to_initial_balance_ratio"):
+                self.assertIsInstance(point[k], str)
+        self.assertEqual(exposure["max_gross_entry_notional"], "1400")
+        self.assertEqual(exposure["max_gross_to_initial_balance_ratio"], "1.4")
+        self.assertEqual(exposure["max_concurrent_trades"], 2)
+        for key in ("max_gross_entry_notional_timestamp", "max_concurrent_trades_timestamp"):
+            self.assertEqual(exposure[key], "2026-01-01T10:00:00+00:00")
+        changed = [dict(r, exit_price="1", total_cost="999") for r in rows]
+        self.assertEqual(self.exposure(changed), exposure)
+        response = TestClient(app).post("/research/trade-ledger",
+            json={"initial_balance":"1000", "csv_text":csv_text(rows)})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), report(rows))
+        self.assertEqual(response.json()["schema_version"], "triad.trade-ledger.v1")
+
+    def test_grouping_offsets_microseconds_permutation_and_ties(self):
+        rows = [
+            row("z", entry_time="2026-01-01T09:00:00.000001Z",
+                exit_time="2026-01-01T10:00:00.000001Z"),
+            row("a", direction="SHORT", entry_time="2026-01-01T05:00:00.000001-05:00",
+                exit_time="2026-01-01T11:00:00.000001Z"),
+            row("b", entry_time="2026-01-01T11:00:00.000001Z",
+                exit_time="2026-01-01T12:00:00.000001Z")]
+        exposure = self.exposure(rows)
+        self.assertEqual([p["active_trade_count"] for p in exposure["timeline"]], [1,1,1,0])
+        self.assertEqual(exposure["max_concurrent_trades"], 1)
+        for key in ("max_concurrent_trades_timestamp", "max_gross_entry_notional_timestamp"):
+            self.assertEqual(exposure[key], "2026-01-01T09:00:00.000001+00:00")
+        self.assertEqual(exposure, self.exposure([dict(r, trade_id=str(i)) for i,r in enumerate(reversed(rows))]))
+        opposite = self.exposure([row(), row("b", direction="SHORT")])
+        self.assertEqual(opposite["timeline"][0]["gross_entry_notional"], "2000")
+        self.assertEqual(opposite["timeline"][0]["net_entry_notional"], "0")
+
+    def test_zero_duration_retained_only_in_performance(self):
+        zero = row(entry_time="2026-01-01T10:00:00Z")
+        data = report([zero])
+        self.assertEqual(data["trade_count"], 1)
+        self.assertEqual(data["net_pnl"], "100")
+        exposure = data["entry_notional_exposure"]
+        self.assertEqual(exposure, dict(excluded_zero_duration_trade_count=1,
+            max_concurrent_trades=0, max_concurrent_trades_timestamp=None,
+            max_gross_entry_notional="0", max_gross_to_initial_balance_ratio="0",
+            max_gross_entry_notional_timestamp=None, timeline=[]))
+        mixed = report([zero, row("b")])
+        self.assertEqual(mixed["trade_count"], 2)
+        self.assertEqual(mixed["net_pnl"], "200")
+        expected = self.exposure([row("b")])
+        expected["excluded_zero_duration_trade_count"] = 1
+        self.assertEqual(mixed["entry_notional_exposure"], expected)
+
+    def test_decimal_extremes_and_context(self):
+        rows = [row(quantity="0.12345678", entry_price="0.87654321"),
+                row("b", quantity="1000000", entry_price="1000000")]
+        baseline = self.exposure(rows, "0.00000001")
+        self.assertEqual(baseline["max_gross_entry_notional"], "1000000000000.1082152022374638")
+        self.assertEqual(baseline["max_gross_to_initial_balance_ratio"], "100000000000010821520.22374638")
+        old = getcontext().prec
+        try:
+            getcontext().prec = 6
+            self.assertEqual(self.exposure(rows, "0.00000001"), baseline)
+            self.assertEqual(getcontext().prec, 6)
+        finally:
+            getcontext().prec = old
+        tiny = self.exposure([row(quantity="0.00000001", entry_price="0.00000001")])
+        self.assertEqual(Decimal(tiny["max_gross_entry_notional"]), Decimal("0.0000000000000001"))
+        self.assertEqual(self.exposure([row()], "1000000000000")["max_gross_to_initial_balance_ratio"], "0.000000001")
+
+    def test_two_thousand_records_four_thousand_points(self):
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        rows = [row(str(i), quantity="1000000", entry_price="1000000",
+                    entry_time=(start + timedelta(microseconds=i)).isoformat(),
+                    exit_time=(start + timedelta(microseconds=2000+i)).isoformat())
+                for i in range(2000)]
+        exposure = self.exposure(rows, "0.00000001")
+        self.assertEqual(len(exposure["timeline"]), 4000)
+        self.assertEqual(exposure["max_concurrent_trades"], 2000)
+        self.assertEqual(exposure["max_gross_entry_notional"], "2000000000000000")
+        self.assertEqual(exposure["max_gross_to_initial_balance_ratio"], "200000000000000000000000")
+        stamps = [p["timestamp"] for p in exposure["timeline"]]
+        self.assertEqual(stamps, sorted(set(stamps)))
+        for point in exposure["timeline"]:
+            for key in ("long_entry_notional", "short_entry_notional", "gross_entry_notional",
+                        "gross_to_initial_balance_ratio"):
+                self.assertTrue(Decimal(point[key]).is_finite())
+                self.assertGreaterEqual(Decimal(point[key]), 0)
+        final = exposure["timeline"][-1]
+        self.assertEqual(final["active_trade_count"], 0)
+        for key in ("long_entry_notional", "short_entry_notional", "gross_entry_notional",
+                    "net_entry_notional", "gross_to_initial_balance_ratio"):
+            self.assertEqual(Decimal(final[key]), 0)
+
+
+class SymbolBreakdownTests(unittest.TestCase):
+    def breakdown(self, rows, initial="1000"):
+        return report(rows, initial)["symbol_breakdown"]
+
+    def test_arithmetic_and_alphabetical_ordering(self):
+        rows = [
+            row("a1", symbol="ZEBRA", exit_price="114", total_cost="10"),
+            row("a2", symbol="ZEBRA", exit_price="90", total_cost="5",
+                exit_time="2026-01-02T10:00:00Z"),
+            row("b1", symbol="APPLE", quantity="5", exit_price="110", total_cost="0",
+                exit_time="2026-01-03T10:00:00Z"),
+        ]
+        data = report(rows)
+        breakdown = data["symbol_breakdown"]
+        self.assertEqual(list(breakdown.keys()), ["APPLE", "ZEBRA"])
+        apple = breakdown["APPLE"]
+        self.assertEqual(apple["trade_count"], 1)
+        self.assertEqual(Decimal(apple["gross_pnl"]), Decimal(50))
+        self.assertEqual(Decimal(apple["total_costs"]), Decimal(0))
+        self.assertEqual(Decimal(apple["net_pnl"]), Decimal(50))
+        self.assertEqual(Decimal(apple["win_rate_pct"]), Decimal(100))
+        self.assertEqual(Decimal(apple["average_net_pnl"]), Decimal(50))
+        self.assertIsNone(apple["profit_factor"])
+        self.assertEqual(apple["profit_factor_reason"], "no_losses")
+        zebra = breakdown["ZEBRA"]
+        self.assertEqual(zebra["trade_count"], 2)
+        self.assertEqual(Decimal(zebra["gross_pnl"]), Decimal(140) + Decimal(-100))
+        self.assertEqual(Decimal(zebra["total_costs"]), Decimal(15))
+        self.assertEqual(Decimal(zebra["net_pnl"]), Decimal(140) - Decimal(10) + Decimal(-100) - Decimal(5))
+        self.assertEqual(Decimal(zebra["win_rate_pct"]), Decimal(50))
+        self.assertEqual(Decimal(zebra["average_net_pnl"]), Decimal(zebra["net_pnl"]) / 2)
+        self.assertLess(abs(Decimal(zebra["profit_factor"]) - (Decimal(130) / Decimal(105))), Decimal("1e-10"))
+        self.assertIsNone(zebra["profit_factor_reason"])
+
+    def test_no_losses_matches_portfolio_convention(self):
+        rows = [row(symbol="ABC", total_cost="0")]
+        data = report(rows)
+        breakdown = data["symbol_breakdown"]["ABC"]
+        self.assertIsNone(breakdown["profit_factor"])
+        self.assertEqual(breakdown["profit_factor_reason"], "no_losses")
+        self.assertEqual(data["profit_factor"], breakdown["profit_factor"])
+        self.assertEqual(data["profit_factor_reason"], breakdown["profit_factor_reason"])
+
+    def test_additive_schema_stability(self):
+        rows = [row(), row("b", direction="SHORT", exit_price="114",
+                          exit_time="2026-01-02T10:00:00Z"),
+                row("c", exit_price="100", total_cost="0", exit_time="2026-01-03T10:00:00Z"),
+                row("d", quantity="5", exit_price="110", total_cost="0",
+                    exit_time="2026-01-04T10:00:00Z")]
+        baseline = report(rows)
+        self.assertIn("symbol_breakdown", baseline)
+        preexisting_keys = [k for k in baseline if k != "symbol_breakdown"]
+        self.assertEqual(preexisting_keys, [
+            "schema_version", "currency", "monetary_encoding", "percentage_unit",
+            "assumptions", "initial_balance", "trade_count", "gross_pnl", "total_costs",
+            "net_pnl", "ending_realized_balance", "positive_count", "negative_count",
+            "zero_count", "win_rate_pct", "average_net_pnl", "profit_factor",
+            "profit_factor_reason", "max_drawdown", "max_drawdown_pct", "rows",
+            "realized_balance_curve", "entry_notional_exposure",
+        ])
+        for key in preexisting_keys:
+            self.assertEqual(baseline[key], report(rows)[key])
+
+
+if __name__ == "__main__":
+    unittest.main()
