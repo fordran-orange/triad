@@ -178,12 +178,33 @@ class SequentialCycle:
                 }:
                     raise
                 artifact = getattr(exc, "artifact", None)
-                complete = isinstance(artifact, dict)
-                if isinstance(artifact, str):
-                    try:
-                        complete = isinstance(json.loads(artifact), dict)
-                    except (ValueError, TypeError):
+
+                def unique(pairs):
+                    value = {}
+                    for key, item in pairs:
+                        if key in value:
+                            raise ValueError("Ambiguous duplicate JSON key")
+                        value[key] = item
+                    return value
+
+                def invalid_constant(value):
+                    raise ValueError("Nonstandard JSON constant: " + value)
+
+                try:
+                    if isinstance(artifact, dict):
+                        json.dumps(artifact, allow_nan=False)
+                        complete = True
+                    elif isinstance(artifact, str):
+                        complete = isinstance(
+                            json.loads(
+                                artifact, object_pairs_hook=unique, parse_constant=invalid_constant
+                            ),
+                            dict,
+                        )
+                    else:
                         complete = False
+                except (ValueError, TypeError):
+                    complete = False
                 recovery = {
                     "run_id": getattr(exc, "run_id", None),
                     "mode": "FORMAT_REPAIR" if complete else "FRESH_GENERATION",

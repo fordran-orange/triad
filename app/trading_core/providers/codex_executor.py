@@ -191,6 +191,8 @@ class CodexExecutor:
                 if paths and paths[0] == "--":
                     paths = paths[1:]
                 paths = [p.removeprefix("/workspace/") for p in paths]
+                if any(p.startswith("evidence/") for p in paths) and len(paths) != 1:
+                    raise PermissionError("Read one evidence part per tool call")
                 if paths and all(p in self.files for p in paths):
                     # Rebuild rather than execute shell syntax, environment or
                     # working-directory changes supplied by the agent harness.
