@@ -9,7 +9,11 @@ from trading_core.product_deployment import health
 from trading_core.work import State, now
 
 from products.triad.sequential import ORDER, REVIEWERS, Proposal
-from products.triad.sequential_citations import citation_omission
+from products.triad.sequential_citations import (
+    accepted_correction,
+    citation_omission,
+    retain_findings,
+)
 from products.triad.sequential_recovery import require
 
 
@@ -143,11 +147,11 @@ def resume_citation_failure(flow, mission):
                 "Review authority mismatch",
             )
 
-            def record(kind):
+            def record(kind, run_id=None):
                 rows = conn.execute(
                     "SELECT id,payload FROM core.day3_records WHERE owner='triad' "
                     "AND kind=%s AND payload->>'run_id'=%s",
-                    (kind, review["run_id"]),
+                    (kind, run_id or review["run_id"]),
                 ).fetchall()
                 require(len(rows) == 1, "Unambiguous original review record required")
                 return {**rows[0]["payload"], "id": rows[0]["id"]}
@@ -193,15 +197,81 @@ def resume_citation_failure(flow, mission):
                 and qa["execution_mode"] == "REAL_PROVIDER",
                 "Latest QA contains additional or different findings",
             )
-            require(
-                not host.list(
-                    "ProductCitationCorrectionRequested",
-                    matching={"implementation_id": build["implementation_id"]},
-                    conn=conn,
-                ),
-                "Citation correction already attempted",
+            attempted = daily.product.list(
+                "ProductCitationCorrectionRequested",
+                matching={"implementation_id": build["implementation_id"]},
+                conn=conn,
             )
             action = "citation-recovery-" + build["implementation_id"]
+            qa_work = service.host.store.get(qa["qa_work_item_id"], conn=conn)
+            if attempted:
+                # A complete provider correction may be retained even when publication failed.
+                # Validate it afresh; never call the reviewer a second time or rewrite its verdict.
+                corrections = daily.product.list(
+                    "ProductCitationCorrectionResult",
+                    matching={"implementation_id": build["implementation_id"]},
+                    conn=conn,
+                )
+                require(
+                    len(attempted) == 1 and len(corrections) == 1,
+                    "One retained correction required",
+                )
+                requested, correction = attempted[0], corrections[0]
+                require(
+                    requested["commit"] == review["commit"]
+                    and requested["reviewer"] == REVIEWERS[agent]
+                    and requested["original_assessment"] == assessment.model_dump(mode="json")
+                    and requested["usage"]["run_id"] == review["run_id"]
+                    and correction["previous_run_id"] == review["run_id"]
+                    and correction["commit"] == review["commit"],
+                    "Retained correction lineage differs",
+                )
+                correction_run = correction["run_id"]
+                raw_correction = record("AgentRunResult", correction_run)
+                corrected = AgentRunResult.model_validate(
+                    {k: v for k, v in raw_correction.items() if k in AgentRunResult.model_fields}
+                )
+                corrected_usage = record("Usage", correction_run)
+                request = record("AgentRunRequest", correction_run)
+                require(
+                    request["agent_id"] == REVIEWERS[agent]
+                    and request["mission_id"] == mission
+                    and request["role"] == "REVIEW"
+                    and set(request["execution_permissions"]) == {"read"}
+                    and corrected_usage["status"] == "SUCCESS"
+                    and corrected_usage["agent"] == REVIEWERS[agent]
+                    and corrected.review_decision == "APPROVE"
+                    and len(corrected.analysis_artifacts) == 1,
+                    "Retained correction is not an approving reviewer result",
+                )
+                updated = AcceptanceAssessment.model_validate(corrected.analysis_artifacts[0])
+                require(
+                    updated.model_dump(mode="json") == correction["assessment"]
+                    and accepted_correction(
+                        assessment, updated, review["required"], review["commit"], proofs
+                    ),
+                    "Retained correction changes conclusions or lacks exact evidence",
+                )
+                qa_work = service.host.store.get(request["work_item_id"], conn=conn)
+                require(
+                    qa_work.owner == "triad"
+                    and qa_work.mission_id == mission
+                    and qa_work.parent_work_item_id == prior["parent_work_item_id"]
+                    and qa_work.assigned_agent == REVIEWERS[agent]
+                    and qa_work.status == State.COMPLETED,
+                    "Retained correction work identity differs",
+                )
+                result, assessment, usage = (
+                    retain_findings(result, corrected),
+                    updated,
+                    corrected_usage,
+                )
+                action = (
+                    "citation-recovery-finalize-"
+                    + build["implementation_id"]
+                    + "-"
+                    + correction_run
+                )
             require(
                 not conn.execute(
                     "SELECT 1 FROM core.day3_records WHERE id=%s", (action,)
@@ -267,7 +337,6 @@ def resume_citation_failure(flow, mission):
                 owner="triad",
                 conn=conn,
             )
-            qa_work = service.host.store.get(qa["qa_work_item_id"], conn=conn)
             return (
                 cycle,
                 len(turns),

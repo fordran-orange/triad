@@ -94,7 +94,7 @@ def test_substantive_or_complete_assessments_do_not_retry(change):
         ("citations", True),
         ("reason", False),
         ("missing-citation", False),
-        ("drop-finding", False),
+        ("drop-finding", True),
         ("unknown", False),
         ("reject", False),
     ],
@@ -152,4 +152,9 @@ def test_correction_is_one_small_review_with_retained_provenance(change, accepte
     assert records[0][1]["usage"]["run_id"] == "original"
     assert records[1][1]["usage"]["run_id"] == "corrected"
     assert records[1][1]["accepted"] is accepted
-    assert output is (corrected if accepted or change == "reject" else completed)
+    if accepted:
+        assert output[1].review_decision == "APPROVE"
+        assert set(original.findings) <= set(output[1].findings)
+        assert output[2:] == corrected[2:]
+    else:
+        assert output is (corrected if change == "reject" else completed)

@@ -42,6 +42,27 @@ def citation_omission(required, assessment, commit, proofs, decision):
     return True
 
 
+def accepted_correction(original, updated, required, commit, proofs):
+    """Citation-only means every substantive criterion remains byte-for-byte intact."""
+    original = {c.check_id: c for c in original.checks}
+    return (
+        len(updated.checks) == len(original)
+        and {c.check_id for c in updated.checks} == set(original)
+        and all(
+            c.status == original[c.check_id].status and c.reason == original[c.check_id].reason
+            for c in updated.checks
+        )
+        and not acceptance_problems(required, updated, commit, proofs)
+    )
+
+
+def retain_findings(original, corrected):
+    """Keep all original observations plus the correction's summary, with provenance."""
+    return corrected.model_copy(
+        update={"findings": tuple(dict.fromkeys((*original.findings, *corrected.findings)))}
+    )
+
+
 def correct_citations(flow, mission, agent, proposal, build, completed, proofs):
     """One small, read-only follow-up to the same reviewer; retain both responses."""
     from products.triad.sequential import REVIEWERS
@@ -85,17 +106,7 @@ def correct_citations(flow, mission, agent, proposal, build, completed, proofs):
         AcceptanceAssessment,
     )
     _, response, updated, new_usage = corrected
-    original = {c.check_id: c for c in assessment.checks}
-    unchanged = len(updated.checks) == len(original) and {
-        c.check_id for c in updated.checks
-    } == set(original)
-    unchanged = unchanged and all(
-        c.status == original[c.check_id].status and c.reason == original[c.check_id].reason
-        for c in updated.checks
-    )
-    # Findings cannot disappear during a mechanical citation correction.
-    unchanged = unchanged and set(result.findings) <= set(response.findings)
-    accepted = unchanged and not acceptance_problems(required, updated, commit, proofs)
+    accepted = accepted_correction(assessment, updated, required, commit, proofs)
     flow.s.record(
         "ProductCitationCorrectionResult",
         mission,
@@ -110,4 +121,6 @@ def correct_citations(flow, mission, agent, proposal, build, completed, proofs):
     )
     if response.review_decision != "APPROVE":
         return corrected  # A refusal always reaches the ordinary failure gate.
-    return corrected if accepted else completed
+    if accepted:
+        return corrected[0], retain_findings(result, response), updated, new_usage
+    return completed
