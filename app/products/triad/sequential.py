@@ -362,6 +362,9 @@ class SequentialCycle:
         baseline = self.s.git.clean_baseline()
         inventory = self.inventory()
         strategy = planning_context(self.s, mission, baseline)
+        retained_candidate = getattr(self, "retained_application_candidate", None)
+        if retained_candidate and retained_candidate["agent"] == agent:
+            strategy["retained_unmerged_candidate"] = retained_candidate
         sources = tuple(p for p in inventory if p.startswith("app/products/triad/"))
         additional_sources = {}
         for path in inventory:
@@ -608,6 +611,11 @@ class SequentialCycle:
             return self.call(mission, agent, objective, context, schema)
         self.guard(mission)
         paths = tuple(sorted(set(self.inventory()) | set(context["proposal"]["files"])))
+        from products.triad.sequential_application import ApplicationPlan
+
+        retained_candidate = getattr(self, "retained_application_candidate", None)
+        if retained_candidate and retained_candidate["agent"] != agent:
+            retained_candidate = None
         return self.s.call(
             mission,
             agent,
@@ -618,6 +626,9 @@ class SequentialCycle:
             "Export changes only to the approved proposal's files. Use run_command for tools and tests inside "
             "the offline container; fix failures and retry as needed. Product commands have no host credentials or network. "
             "Use python -m unittest discover -s tests/products/triad for product tests where appropriate. "
+            "Maintain application_plan.json using the supplied exact application_plan_schema. Do not invent fields or status values; "
+            "put additional design reasoning in decisions or architecture_reasoning. Retained candidate material is advisory: "
+            "reuse its useful code through workspace tools where it fits the fresh approved manifest, correcting the recorded errors. "
             "Keep your final files_changed, analysis_artifacts, claims, actions_taken, commands_executed and tests_run empty; "
             "Core exports your actual edits and observed tool evidence. Never fabricate a patch in the response. "
             + token_guidance(agent),
@@ -626,6 +637,8 @@ class SequentialCycle:
                 "writable_files": context["proposal"]["files"],
                 "inventory": paths,
                 "shared_core": core_context(self.s.git, self.s.git.git("rev-parse", "HEAD")),
+                "application_plan_schema": ApplicationPlan.model_json_schema(),
+                "retained_unmerged_candidate": retained_candidate,
             },
             schema=schema,
             paths=paths,

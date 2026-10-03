@@ -300,11 +300,18 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                 and error == EMPTY_PATCH_ERROR
             )
             native = native or empty_patch
+            application_failure = (
+                prior.get("failure_code") == "ValidationError"
+                and isinstance(error, str)
+                and "validation error" in error.partition("\n")[0]
+                and " for ApplicationPlan" in error.partition("\n")[0]
+            )
             require(
                 prior["status"] == "BLOCKED"
                 and (
                     selection
                     or native
+                    or application_failure
                     or (prior.get("failure_code") == "PermissionError" and error == ERROR)
                 ),
                 "Only a rejected, unapplied source or native-result failure may resume",
@@ -391,7 +398,8 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                     if r.get("work_item_id") == work.work_item_id
                 ]
                 require(
-                    bool(failures) and failures[-1].get("reason") == ERROR,
+                    bool(failures) and failures[-1].get("reason") == (error if application_failure else ERROR)
+                    and (not application_failure or failures[-1].get("error_class") == "ValidationError"),
                     "Canonical patch rejection required",
                 )
             implementations = daily.product.list("ImplementationRun", conn=conn)
@@ -408,7 +416,16 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                 ),
                 "Cycle still has active development work",
             )
-            if not (native or selection):
+            if application_failure:
+                from products.triad.sequential_candidate_recovery import (
+                    retain_application_candidate,
+                )
+
+                flow.retained_application_candidate = retain_application_candidate(
+                    flow, mission, agent, prior, work, checkpoint, conn
+                )
+                base_commit = checkpoint["git"]["base_commit"]
+            elif not (native or selection):
                 git = checkpoint["git"]
                 require(
                     checkpoint["phase"] == "ISOLATED"
@@ -491,6 +508,8 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                     else None,
                     "reservation_id": reservation["id"] if reservation else None,
                     "retained_turn_ids": [r["id"] for r in turns],
+                    "retained_candidate_commit": flow.retained_application_candidate["commit"]
+                    if application_failure else None,
                     "prior_failure": prior["failures"],
                     "released_change_slots": refund,
                     "day": day,

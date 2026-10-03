@@ -133,8 +133,35 @@ def test_history_is_product_private_and_does_not_reapply_old_grants(tmp_path):
     assert packet["history"]["ProductProposal"][0]["proposal"]["value_plan"] == plan()
     assert "superseded" in packet["current_authority"]["obsolete_limits"]
     assert packet["shared_core"]["source_revision"] == "base"
+    from products.triad.sequential_application import ApplicationPlan
+
+    assert packet["application_plan"]["schema"] == ApplicationPlan.model_json_schema()
+    assert "unsupported keys are rejected" in packet["application_plan"]["format"]
     assert set(packet["shared_core"]["references_read_only"]) == set(CORE_REFERENCES)
     assert "installed read-only" in packet["shared_core"]["availability"]
+
+
+@pytest.mark.parametrize("agent,receives_candidate", [("CODEX", True), ("CLAUDE", False)])
+def test_workspace_receives_exact_plan_schema_and_only_its_own_retained_candidate(monkeypatch, agent, receives_candidate):
+    from products.triad import sequential
+    from products.triad.sequential_application import ApplicationPlan
+    from trading_core.product_workspace_grant import PROFILE
+
+    flow = SequentialCycle.__new__(SequentialCycle)
+    flow.policy = {"workspace_profile": PROFILE}
+    flow.guard = lambda _: None
+    flow.inventory = lambda: [PLAN_PATH]
+    material = {"agent": "CODEX", "files": [{"path": PLAN_PATH, "content": "retained"}]}
+    flow.retained_application_candidate = material
+    captured = {}
+    def call(*args, **kwargs):
+        captured.update(context=args[4])
+        return "fixture"
+    flow.s = NS(call=call, git=NS(git=lambda *a: "base"), daily=NS(current=lambda *a: {"parent_work_item_id": "parent"}))
+    monkeypatch.setattr(sequential, "core_context", lambda *a: {})
+    assert flow.implementation_call("mission", agent, "unused", {"proposal": {"files": [PLAN_PATH]}}, None, approval="approval") == "fixture"
+    assert captured["context"]["application_plan_schema"] == ApplicationPlan.model_json_schema()
+    assert captured["context"]["retained_unmerged_candidate"] == (material if receives_candidate else None)
 
 
 def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
