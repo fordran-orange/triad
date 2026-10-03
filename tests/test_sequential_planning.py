@@ -123,6 +123,17 @@ def test_old_proposals_keep_exact_serialization_and_new_proposals_require_value(
         CurrentProposal(**proposal(value_plan={**plan(), "alternatives": []}))
 
 
+def test_current_proposals_require_workflow_id_without_changing_historical_bytes():
+    value = plan()
+    value["application_contribution"]["workflow"] = "Supply data then inspect a chart"
+    historical = proposal(value_plan=value)
+    assert Proposal(**historical).model_dump(mode="json")["value_plan"] == value
+    with pytest.raises(ValidationError, match="workflow"):
+        CurrentProposal(**historical)
+    schema = CurrentProposal.model_json_schema()
+    assert schema["$defs"]["CurrentApplicationContribution"]["properties"]["workflow"]["pattern"] == r"^[a-z][a-z0-9_-]{0,63}$"
+
+
 def test_history_is_product_private_and_does_not_reapply_old_grants(tmp_path):
     packet = planning_context(service(tmp_path), "today", "base")
     assert packet["mission"] == "Build the best trading application"

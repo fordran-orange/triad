@@ -308,3 +308,95 @@ def test_candidate_recovery_rejects_changed_or_ambiguous_proof_atomically(candid
         resume_patch_failure(b.flow, b.cycle.cycle_id)
     assert totals(b) == before
     assert b.daily.current(b.cycle.cycle_id)["status"] == "BLOCKED"
+
+
+@pytest.mark.parametrize("variant", ["historical_prose", "ambiguous", "unknown_id"])
+def test_retained_legacy_workflow_failure_requires_unique_exact_entry_point(candidate, variant):
+    from products.triad.sequential_application import WORKFLOW_ERROR
+    from psycopg.types.json import Jsonb
+
+    b = candidate
+    path = Path(b.candidate_metadata["worktree"]) / PLAN_PATH
+    data = json.loads(path.read_text())
+    data["components"][0]["status"] = "PLANNED"
+    data["architecture_reasoning"] = "Actual candidate authored design"
+    if variant == "ambiguous":
+        data["workflows"].append({**data["workflows"][0], "id": "another"})
+    content = json.dumps(data)
+    path.write_text(content, encoding="utf-8")
+    b.candidate_git.git("add", "--", PLAN_PATH, cwd=b.candidate_metadata["worktree"])
+    b.candidate_git.git(
+        "commit",
+        "--amend",
+        "-m",
+        "Original candidate fixture",
+        cwd=b.candidate_metadata["worktree"],
+    )
+    b.candidate_metadata["change_commit"] = b.candidate_git.git(
+        "rev-parse", "HEAD", cwd=b.candidate_metadata["worktree"]
+    )
+    with b.host.store.connect() as conn:
+        row = conn.execute(
+            "SELECT id,payload FROM core.day3_records WHERE kind='AgentRunResult' AND work_item_id=%s",
+            (b.candidate_work.work_item_id,),
+        ).fetchone()
+        patch = json.loads(row["payload"]["analysis_artifacts"][0])
+        patch["files"][0]["content"] = content
+        row["payload"]["analysis_artifacts"] = [json.dumps(patch)]
+        conn.execute(
+            "UPDATE core.day3_records SET payload=%s WHERE id=%s",
+            (Jsonb(row["payload"]), row["id"]),
+        )
+        grant = b.daily.product.get("workspace-" + b.candidate_work.work_item_id, conn=conn)
+        approval = b.daily.host.get(grant["approval_id"], conn=conn)
+        approval["proposal"]["value_plan"] = {
+            "application_contribution": {
+                "workflow": "missing-id"
+                if variant == "unknown_id"
+                else "Supply data and inspect a chart",
+                "entry_point": "/triad/product",
+                "input_producer": "Fixture",
+                "output_consumer": "Fixture",
+                "contracts_and_versions": ["fixture.v1"],
+                "integration_checks": ["fixture"],
+                "status": "FOUNDATION",
+            }
+        }
+        conn.execute(
+            "UPDATE core.intelligence_records SET payload=%s WHERE id=%s",
+            (Jsonb(approval), grant["approval_id"]),
+        )
+    b.host.append(
+        "ProductBuildFailure",
+        {
+            "mission_id": b.cycle.cycle_id,
+            "work_item_id": b.candidate_work.work_item_id,
+            "reason": WORKFLOW_ERROR,
+            "error_class": "ValueError",
+        },
+        owner="triad",
+    )
+    prior = b.daily.current(b.cycle.cycle_id)
+    data = {k: v for k, v in prior.items() if k in CycleRecord.model_fields}
+    data.update(
+        failure_code="ValueError", failures=[{"code": "ValueError", "message": WORKFLOW_ERROR}]
+    )
+    b.host.append(
+        "CycleRecord", CycleRecord.model_validate(data).model_dump(mode="json"), owner="triad"
+    )
+    before = totals(b)
+    if variant == "historical_prose":
+        record, _, _ = resume_patch_failure(b.flow, b.cycle.cycle_id)
+        assert record.status == "CREATED"
+        assert (
+            b.flow.retained_application_candidate["application_format_errors"][0][
+                "expected_workflow_id"
+            ]
+            == "workspace"
+        )
+        assert totals(b) == {**before, "changes": before["changes"] - 1}
+    else:
+        with pytest.raises((PermissionError, ValueError)):
+            resume_patch_failure(b.flow, b.cycle.cycle_id)
+        assert totals(b) == before
+        assert b.daily.current(b.cycle.cycle_id)["status"] == "BLOCKED"

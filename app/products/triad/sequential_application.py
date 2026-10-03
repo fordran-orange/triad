@@ -1,6 +1,7 @@
 """Validate the autonomous product's persistent application map, not its roadmap."""
 
 import json
+import re
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -9,6 +10,8 @@ from trading_core.product_sdk import SDK_FILES
 from trading_core.work import Record
 
 PLAN_PATH = "app/products/triad/application_plan.json"
+WORKFLOW_PATTERN = r"^[a-z][a-z0-9_-]{0,63}$"
+WORKFLOW_ERROR = "Candidate application plan must retain the proposed workflow and entry point"
 
 
 class Component(Record):
@@ -105,6 +108,25 @@ class ApplicationContribution(Record):
         description="Exact check_id values from this proposal's acceptance criteria, not test paths or descriptions",
     )
     status: Literal["FOUNDATION", "CONNECTED_INCREMENT", "REPAIR", "DEPENDENCY_REMOVAL"]
+
+
+class CurrentApplicationContribution(ApplicationContribution):
+    workflow: str = Field(
+        pattern=WORKFLOW_PATTERN,
+        description="Exact stable workflows[].id in application_plan.json, for example dataset-workspace. Describe the user journey in user_outcome, not this identifier.",
+    )
+
+
+def contributed_workflow(plan, contribution):
+    matches = [w for w in plan.workflows if w.id == contribution.workflow]
+    if not re.fullmatch(WORKFLOW_PATTERN, contribution.workflow):
+        # Historical approvals used an unconstrained prose workflow field. An
+        # exact, unique entry point retains their reference without rewriting
+        # that approval or weakening current identifier-based submissions.
+        matches = [w for w in plan.workflows if w.entry_point == contribution.entry_point]
+    if len(matches) != 1 or matches[0].entry_point != contribution.entry_point:
+        raise ValueError(WORKFLOW_ERROR)
+    return matches[0]
 
 
 def validate_plan(files, *, core_paths=SDK_FILES):

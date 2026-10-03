@@ -22,6 +22,7 @@ from trading_core.work import Record, now, uid
 from products.triad.development import ProductResponseFormatError
 from products.triad.sequential_application import (
     PLAN_PATH,
+    contributed_workflow,
     validate_connection_proof,
     validate_plan,
 )
@@ -388,6 +389,7 @@ class SequentialCycle:
             "assessment of the largest remaining gaps in the complete application, not a fixed feature checklist), "
             "at least two meaningful alternatives with reasons not selected, next steps, and dependencies or blockers. "
             "Supply application_contribution: user workflow and entry point, input producer, output consumer, "
+            "workflow is the exact stable workflows[].id in application_plan.json, not a prose description of the journey. "
             "versioned contracts, integration checks and FOUNDATION/CONNECTED_INCREMENT/REPAIR/DEPENDENCY_REMOVAL status. "
             "integration_checks must contain exact acceptance check_id values, not test filenames or descriptions. "
             "Maintain app/products/triad/application_plan.json in every CHANGE manifest. It is your revisable architecture, "
@@ -750,13 +752,7 @@ class SequentialCycle:
         )
         if proposal.value_plan and proposal.value_plan.application_contribution:
             contribution = proposal.value_plan.application_contribution
-            workflow = next(
-                (w for w in application.workflows if w.id == contribution.workflow), None
-            )
-            if workflow is None or workflow.entry_point != contribution.entry_point:
-                raise ValueError(
-                    "Candidate application plan must retain the proposed workflow and entry point"
-                )
+            contributed_workflow(application, contribution)
         proof = check_candidate(
             self.test_snapshot(git, metadata),
             lambda: self.guard(mission),

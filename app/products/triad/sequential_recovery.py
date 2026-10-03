@@ -8,6 +8,8 @@ from trading_core.product_changes import PRODUCT_ROOTS
 from trading_core.product_deployment import health
 from trading_core.work import State, now
 
+from products.triad.sequential_application import WORKFLOW_ERROR
+
 ERROR = "Product source changed since proposal"
 SELECTION_ERROR = "Requested agent is not eligible; no silent substitution"
 EMPTY_PATCH_ERROR = 'Invalid product artifact: [{"type": "too_short", "loc": ["files"], "msg": "Tuple should have at least 1 item after validation, not 0"}]'
@@ -305,7 +307,7 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                 and isinstance(error, str)
                 and "validation error" in error.partition("\n")[0]
                 and " for ApplicationPlan" in error.partition("\n")[0]
-            )
+            ) or (prior.get("failure_code") == "ValueError" and error == WORKFLOW_ERROR)
             require(
                 prior["status"] == "BLOCKED"
                 and (
@@ -399,7 +401,7 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                 ]
                 require(
                     bool(failures) and failures[-1].get("reason") == (error if application_failure else ERROR)
-                    and (not application_failure or failures[-1].get("error_class") == "ValidationError"),
+                    and (not application_failure or failures[-1].get("error_class") == prior.get("failure_code")),
                     "Canonical patch rejection required",
                 )
             implementations = daily.product.list("ImplementationRun", conn=conn)

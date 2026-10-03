@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import subprocess
 
 from pydantic import ValidationError
@@ -9,7 +10,14 @@ from trading_core.product_changes import ProductGit
 from trading_core.product_workspace_grant import PROFILE
 from trading_core.resource_policy import scope_digest
 
-from products.triad.sequential_application import PLAN_PATH, ApplicationPlan
+from products.triad.sequential_application import (
+    PLAN_PATH,
+    WORKFLOW_ERROR,
+    WORKFLOW_PATTERN,
+    ApplicationContribution,
+    ApplicationPlan,
+    contributed_workflow,
+)
 from products.triad.sequential_recovery import require
 
 
@@ -155,15 +163,39 @@ def retain_application_candidate(flow, mission, agent, prior, work, checkpoint, 
         "Retained application plan required",
     )
     try:
-        ApplicationPlan.model_validate(json.loads(actual["sources"][PLAN_PATH]))
+        plan = ApplicationPlan.model_validate(json.loads(actual["sources"][PLAN_PATH]))
     except ValidationError as exc:
+        require(
+            prior["failure_code"] == "ValidationError",
+            "Not the recorded application format failure",
+        )
         require(
             str(exc)[:500] == prior["failures"][-1]["message"],
             "Retained application failure differs",
         )
         feedback = exc.errors(include_input=False, include_url=False, include_context=False)
     else:
-        raise PermissionError("Retained candidate is not the recorded application format failure")
+        require(
+            prior["failure_code"] == "ValueError"
+            and prior["failures"][-1]["message"] == WORKFLOW_ERROR,
+            "Retained candidate is not the recorded application reference failure",
+        )
+        contribution = ApplicationContribution.model_validate(
+            approved["proposal"]["value_plan"]["application_contribution"]
+        )
+        require(
+            not re.fullmatch(WORKFLOW_PATTERN, contribution.workflow),
+            "Only a historical prose workflow may use this recovery",
+        )
+        workflow = contributed_workflow(plan, contribution)
+        feedback = [
+            {
+                "type": "workflow_reference",
+                "loc": ["application_contribution", "workflow"],
+                "msg": "Use the stable workflow identifier instead of a prose journey description",
+                "expected_workflow_id": workflow.id,
+            }
+        ]
     return {
         "agent": agent,
         "commit": commit,

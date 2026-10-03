@@ -11,6 +11,7 @@ from products.triad.sequential_application import (
     PLAN_PATH,
     ApplicationContribution,
     ApplicationPlan,
+    CurrentApplicationContribution,
 )
 
 # Immutable Day 6 assessments remain available as history, never current grants.
@@ -61,7 +62,7 @@ class ValuePlan(Record):
 class CurrentValuePlan(ValuePlan):
     mission_contribution: str = Field(min_length=1)
     major_gaps: tuple[str, ...] = Field(min_length=1)
-    application_contribution: ApplicationContribution
+    application_contribution: CurrentApplicationContribution
 
 
 def token_targets(agent):
