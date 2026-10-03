@@ -8,6 +8,7 @@ from products.triad.sequential_application import (
     PLAN_PATH,
     ApplicationPlan,
     current_plan,
+    validate_connection_proof,
     validate_plan,
 )
 from products.triad.sequential_mission import render_application
@@ -63,6 +64,47 @@ def test_connections_cannot_invent_components_or_execution_evidence():
     raw["workflows"][0]["status"] = "CONNECTED"
     with pytest.raises(ValidationError, match="tested adjacent"):
         ApplicationPlan.model_validate(raw)
+
+
+def test_planned_component_and_non_discovered_helper_cannot_claim_tested_connection():
+    raw = current_plan().model_dump(mode="json")
+    raw["components"][-1]["status"] = "PLANNED"
+    with pytest.raises(ValidationError, match="endpoints must exist"):
+        ApplicationPlan.model_validate(raw)
+    raw = current_plan().model_dump(mode="json")
+    raw["connections"][0]["tests"] = ["tests/products/triad/helper.py"]
+    with pytest.raises(ValidationError, match="product tests"):
+        ApplicationPlan.model_validate(raw)
+
+
+def test_connection_proof_requires_actual_passing_cases_in_each_declared_file():
+    application = current_plan()
+    path = application.connections[0].tests[0]
+    for files in ({}, {path: 0}, {"tests/products/triad/test_unrelated.py": 100}):
+        with pytest.raises(ValueError, match="actual passing"):
+            validate_connection_proof(application, {"status": "PASS", "passed_test_files": files})
+    validate_connection_proof(application, {"status": "PASS", "passed_test_files": {path: 5}})
+
+
+def test_image_identity_is_stable_across_windows_and_unix_checkout(tmp_path):
+    from trading_core.product_changes import image_input_bytes, test_image_digest
+
+    roots = [tmp_path / "unix", tmp_path / "windows"]
+    inputs = (
+        "infrastructure/product-tests.Dockerfile",
+        "requirements.lock",
+        "infrastructure/product-tests.lock",
+        *SDK_FILES,
+    )
+    for root in roots:
+        for path in inputs:
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(
+                b"first\nsecond\n" if root.name == "unix" else b"first\r\nsecond\r\n"
+            )
+    assert test_image_digest(roots[0]) == test_image_digest(roots[1])
+    assert image_input_bytes(roots[0], inputs[0]) == image_input_bytes(roots[1], inputs[0])
 
 
 def test_other_product_cannot_become_a_core_or_triad_component():

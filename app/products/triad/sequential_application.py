@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 from trading_core.product_changes import product_path
+from trading_core.product_sdk import SDK_FILES
 from trading_core.work import Record
 
 PLAN_PATH = "app/products/triad/application_plan.json"
@@ -65,14 +66,26 @@ class ApplicationPlan(Record):
                 raise ValueError("Connection references an unknown component")
             if connection.status == "TESTED" and not connection.tests:
                 raise ValueError("A tested connection requires executable evidence")
+            if connection.status == "TESTED" and any(
+                c.status != "EXISTS"
+                for c in self.components
+                if c.id in {connection.producer, connection.consumer}
+            ):
+                raise ValueError("Tested connection endpoints must exist")
             for path in connection.tests:
                 product_path(path)
-                if not path.startswith("tests/products/triad/") or not path.endswith(".py"):
+                if not path.startswith(
+                    ("tests/products/triad/test_", "tests/products/triad/browser_")
+                ) or not path.endswith(".py"):
                     raise ValueError("Connection evidence must identify product tests")
         for workflow in self.workflows:
             if not set(workflow.components) <= set(ids):
                 raise ValueError("Workflow references an unknown component")
             if workflow.status == "CONNECTED":
+                if any(
+                    c.status != "EXISTS" for c in self.components if c.id in workflow.components
+                ):
+                    raise ValueError("Connected workflow components must exist")
                 edges = {(c.producer, c.consumer) for c in self.connections if c.status == "TESTED"}
                 if len(workflow.components) < 2 or any(
                     pair not in edges for pair in zip(workflow.components, workflow.components[1:])
@@ -91,7 +104,7 @@ class ApplicationContribution(Record):
     status: Literal["FOUNDATION", "CONNECTED_INCREMENT", "REPAIR", "DEPENDENCY_REMOVAL"]
 
 
-def validate_plan(files):
+def validate_plan(files, *, core_paths=SDK_FILES):
     if PLAN_PATH not in files:
         raise ValueError("Retain the agent-owned application plan across product turns")
     plan = ApplicationPlan.model_validate(json.loads(files[PLAN_PATH]))
@@ -102,10 +115,29 @@ def validate_plan(files):
             and (not component.paths or any(path not in files for path in component.paths))
         ):
             raise ValueError("Existing product components require actual candidate files")
+        if (
+            component.status == "EXISTS"
+            and component.owner == "core"
+            and (not component.paths or not set(component.paths) <= set(core_paths))
+        ):
+            raise ValueError("Existing Core components require tracked protected source")
     for connection in plan.connections:
         if connection.status == "TESTED" and any(path not in files for path in connection.tests):
             raise ValueError("Connection test evidence is missing from the candidate")
     return plan
+
+
+def validate_connection_proof(plan, proof):
+    passed = proof.get("passed_test_files", {})
+    if proof.get("status") != "PASS" or any(
+        passed.get(path, 0) < 1
+        for connection in plan.connections
+        if connection.status == "TESTED"
+        for path in connection.tests
+    ):
+        raise ValueError(
+            "Every tested application connection requires actual passing tests from its declared files"
+        )
 
 
 def current_plan():

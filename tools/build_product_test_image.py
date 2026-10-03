@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from trading_core.product_changes import test_image_digest
+from trading_core.product_changes import image_input_bytes, test_image_digest
 from trading_core.product_sdk import SDK_FILES
 from trading_core.settings import ROOT
 
@@ -21,7 +21,7 @@ def main():
         ):
             target = context / path
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes((ROOT / path).read_bytes())
+            target.write_bytes(image_input_bytes(ROOT, path))
         subprocess.run(
             [
                 "docker",

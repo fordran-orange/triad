@@ -20,7 +20,11 @@ from trading_core.product_changes import (
 from trading_core.work import Record, now, uid
 
 from products.triad.development import ProductResponseFormatError
-from products.triad.sequential_application import PLAN_PATH, validate_plan
+from products.triad.sequential_application import (
+    PLAN_PATH,
+    validate_connection_proof,
+    validate_plan,
+)
 from products.triad.sequential_planning import (
     HISTORICAL,
     CurrentValuePlan,
@@ -716,7 +720,10 @@ class SequentialCycle:
         git.apply(metadata, patch.files)
         git.commit(metadata, agent)
         checks = git.verify(metadata)
-        application = validate_plan(self.test_snapshot(git, metadata))
+        application = validate_plan(
+            self.test_snapshot(git, metadata),
+            core_paths=git.git("ls-files", cwd=metadata["worktree"]).splitlines(),
+        )
         if proposal.value_plan and proposal.value_plan.application_contribution:
             contribution = proposal.value_plan.application_contribution
             workflow = next(
@@ -734,6 +741,7 @@ class SequentialCycle:
         checks["checks"].append(
             "Offline syntax validation; executed unit tests: " + str(proof["executed_tests"])
         )
+        validate_connection_proof(application, proof)
         checks["test_result"] = proof
         check_id = self.s.canonical.append(
             "EngineeringTestRun",
@@ -782,6 +790,13 @@ class SequentialCycle:
                 self.test_snapshot(git, build["git"]),
                 lambda: self.guard(mission),
                 self.policy["test_image"],
+            )
+            validate_connection_proof(
+                validate_plan(
+                    self.test_snapshot(git, build["git"]),
+                    core_paths=git.git("ls-files", cwd=build["git"]["worktree"]).splitlines(),
+                ),
+                repeated,
             )
             repeated_id = self.s.canonical.append(
                 "EngineeringTestRun",

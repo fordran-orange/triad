@@ -148,6 +148,12 @@ ORCHESTRATION = (
 )
 
 
+def image_input_bytes(root, path):
+    # Git can materialize text as CRLF. Build and fingerprint the same portable
+    # representation so a new Windows checkout cannot invalidate the image.
+    return (root / path).read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
 def test_image_digest(root):
     from trading_core.product_sdk import SDK_FILES
 
@@ -159,7 +165,7 @@ def test_image_digest(root):
     )
     fingerprint = hashlib.sha256()
     for path in inputs:
-        fingerprint.update(path.encode() + b"\0" + (root / path).read_bytes() + b"\0")
+        fingerprint.update(path.encode() + b"\0" + image_input_bytes(root, path) + b"\0")
     return fingerprint.hexdigest()
 
 
@@ -407,6 +413,13 @@ def check_candidate(files, guard, image=None):
 sys.path.insert(0, str(pathlib.Path('app').resolve()))
 count=browser_count=0
 root=pathlib.Path('.')
+passed_files={}
+class RecordedResult(unittest.TextTestResult):
+ def addSuccess(self,test):
+  super().addSuccess(test)
+  module=sys.modules[type(test).__module__]
+  path=pathlib.Path(module.__file__).resolve().relative_to(root.resolve()).as_posix()
+  passed_files[path]=passed_files.get(path,0)+1
 for p in root.rglob('*'):
  if p.is_file() and p.suffix=='.py': ast.parse(p.read_text(),filename=str(p))
  if p.is_file() and p.suffix=='.json': json.loads(p.read_text())
@@ -414,15 +427,15 @@ tests=root/'tests/products/triad'
 if tests.exists():
  suite=unittest.defaultTestLoader.discover(str(tests))
  count=suite.countTestCases()
- result=unittest.TextTestRunner().run(suite)
- if not result.wasSuccessful(): raise SystemExit(1)
+ result=unittest.TextTestRunner(resultclass=RecordedResult).run(suite)
+ if not result.wasSuccessful() or result.expectedFailures: raise SystemExit(1)
  count=result.testsRun-len(result.skipped)
  suite=unittest.defaultTestLoader.discover(str(tests),pattern='browser_*.py')
  browser_count=suite.countTestCases()
  if browser_count:
-  result=unittest.TextTestRunner().run(suite)
-  if not result.wasSuccessful() or result.skipped: raise SystemExit(1)
-print(json.dumps({'syntax':'PASS','unit_tests':count,'test_status':'PASSED' if count else 'NOT_PRESENT','browser_tests':browser_count,'browser_status':'PASSED' if browser_count else 'NOT_PRESENT'}))
+  result=unittest.TextTestRunner(resultclass=RecordedResult).run(suite)
+  if not result.wasSuccessful() or result.skipped or result.expectedFailures: raise SystemExit(1)
+print(json.dumps({'syntax':'PASS','unit_tests':count,'test_status':'PASSED' if count else 'NOT_PRESENT','browser_tests':browser_count,'browser_status':'PASSED' if browser_count else 'NOT_PRESENT','passed_test_files':passed_files}))
 """
     result = OfflineSandbox(image=image, profile="product").run(
         ["python", "-B", "-c", script],
@@ -441,6 +454,7 @@ print(json.dumps({'syntax':'PASS','unit_tests':count,'test_status':'PASSED' if c
         "test_status": measured["test_status"],
         "executed_browser_tests": measured["browser_tests"],
         "browser_status": measured["browser_status"],
+        "passed_test_files": measured["passed_test_files"],
         "stdout": result.stdout,
         "boundary": result.boundary,
         "image": result.image,
