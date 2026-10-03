@@ -657,6 +657,15 @@ class CodexReadOnlyRun:
                 while turn_id not in completions:
                     observe(app.receive(timeout=None, guard=check))
                 if completions[turn_id].get("status") != "completed":
+                    from trading_core.security import redact
+
+                    error = completions[turn_id].get("error")
+                    safe = redact(error) if isinstance(error, dict) else {}
+                    self.evidence["failed_turn"] = {
+                        "status": str(completions[turn_id].get("status"))[:80],
+                        "message": str(safe.get("message", "Vendor turn did not complete"))[:2000],
+                        "openai_error_info": str(safe.get("openaiErrorInfo", "Unknown"))[:1000],
+                    }
                     raise ProviderError("DEGRADED", "CodexTurnFailed")
                 final = final_messages.get(turn_id)
                 if final is None or usage is None:

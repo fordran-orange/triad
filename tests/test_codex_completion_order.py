@@ -138,6 +138,35 @@ def test_terminal_event_survives_rpc_reply_order(monkeypatch, early, status):
     assert app.closed and not app.queue
 
 
+def test_vendor_failure_detail_is_preserved_and_redacted(monkeypatch):
+    from trading_core import security
+
+    secret = "fixture-private-value-12345"
+    monkeypatch.setattr(security, "secrets", lambda: [secret])
+
+    class FailedApp(App):
+        def send(self, msg):
+            super().send(msg)
+            for event in self.queue:
+                if event.get("method") == "turn/completed":
+                    event["params"]["turn"]["error"] = {
+                        "message": "Vendor request failed: " + secret,
+                        "openaiErrorInfo": "Other",
+                    }
+
+    app = FailedApp(True, "failed")
+    runner = codex.CodexReadOnlyRun([], lambda: None)
+    monkeypatch.setattr(codex, "CodexReadOnlyRun", lambda *a, **kw: runner)
+    with pytest.raises(ProviderError, match="CodexTurnFailed"):
+        execute(monkeypatch, app)
+    assert runner.evidence["failed_turn"] == {
+        "status": "failed",
+        "message": "Vendor request failed: [REDACTED]",
+        "openai_error_info": "Other",
+    }
+    assert app.closed
+
+
 @pytest.mark.parametrize("early", [False, True])
 def test_foreign_and_stale_events_cannot_replace_matching_completion_or_result(monkeypatch, early):
     app = App(early, foreign=True)

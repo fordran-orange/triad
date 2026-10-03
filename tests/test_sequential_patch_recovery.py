@@ -248,27 +248,36 @@ def test_other_product_records_do_not_change_recovery_authority(blocked):
 
 
 @pytest.mark.parametrize(
-    "tamper",
+    "native_kind,tamper",
     [
-        None,
-        "grant_epoch",
-        "missing_evidence",
-        "checkpoint",
-        "reservation",
-        "empty_run",
-        "missing_run",
-        "wrong_request",
+        (kind, tamper)
+        for kind in ("legacy", "empty", "codex")
+        for tamper in (
+            None,
+            "grant_epoch",
+            "missing_evidence",
+            "checkpoint",
+            "reservation",
+            "empty_run",
+            "missing_run",
+            "wrong_request",
+        )
+    ]
+    + [
+        ("codex", tamper)
+        for tamper in ("tool_calls", "denials", "turn_identity", "accepted_result", "commands")
     ],
 )
-@pytest.mark.parametrize("empty_patch", [False, True])
 def test_native_result_recovery_requires_proven_unapplied_workspace(
-    engine, blocked, tamper, empty_patch
+    engine, blocked, tamper, native_kind
 ):
     from trading_core.cycle_records import CycleRecord
     from trading_core.product_workspace_grant import PROFILE
     from trading_core.resource_policy import scope_digest
 
     b = blocked
+    empty_patch = native_kind == "empty"
+    codex_empty = native_kind == "codex"
     work = engine.host.create(
         WorkItem(
             owner="triad",
@@ -298,17 +307,51 @@ def test_native_result_recovery_requires_proven_unapplied_workspace(
     )
     events = (
         (
-            ("provider_failed", {"error_class": "NativeResultViolation"}),
-            ("native_executor_evidence", {"boundary": "DOCKER_OFFLINE_TOOLS"}),
-        )
-        if not empty_patch
-        else (
+            ("provider_failed", {"error_class": "CodexTurnFailed"}),
             (
                 "native_executor_evidence",
-                {"boundary": "DOCKER_PRODUCT_WORKSPACE", "calls": [], "denials": 0},
+                {
+                    "boundary": "DOCKER_PRODUCT_WORKSPACE",
+                    "calls": [],
+                    "commands": [],
+                    "executed_argv": [],
+                    "denied_operations": 0,
+                    "turn_start_acknowledged": True,
+                    "active_turn_id": "fixture-turn",
+                    "completed_turn_ids": ["fixture-turn"],
+                    "last_native_event": "turn/completed",
+                },
             ),
         )
+        if codex_empty
+        else (
+            (
+                ("provider_failed", {"error_class": "NativeResultViolation"}),
+                ("native_executor_evidence", {"boundary": "DOCKER_OFFLINE_TOOLS"}),
+            )
+            if not empty_patch
+            else (
+                (
+                    "native_executor_evidence",
+                    {"boundary": "DOCKER_PRODUCT_WORKSPACE", "calls": [], "denials": 0},
+                ),
+            )
+        )
     )
+    if codex_empty:
+        native = events[1][1]
+        if tamper == "tool_calls":
+            native["calls"] = [{"tool": "write_file", "path": "app.py"}]
+        elif tamper == "denials":
+            native["denied_operations"] = 1
+        elif tamper == "turn_identity":
+            native["completed_turn_ids"] = ["other-turn"]
+        elif tamper == "commands":
+            native["commands"] = ["uncounted command"]
+        elif tamper == "accepted_result":
+            b.host.ledger.put(
+                "AgentRunResult", {"run_id": "fixture-native-run"}, work_id=work.work_item_id
+            )
     if empty_patch:
         b.host.ledger.put(
             "AgentRunResult",
@@ -358,7 +401,11 @@ def test_native_result_recovery_requires_proven_unapplied_workspace(
         failures=[
             {
                 "code": code,
-                "message": EMPTY_PATCH_ERROR if empty_patch else "NativeResultViolation",
+                "message": EMPTY_PATCH_ERROR
+                if empty_patch
+                else "CodexTurnFailed"
+                if codex_empty
+                else "NativeResultViolation",
             }
         ],
     )

@@ -182,20 +182,42 @@ def native_rejection(daily, mission, agent, prior, policy, conn, *, empty_patch=
         run_id = result.get("run_id")
     else:
         interrupted = prior.get("failures", [{}])[-1].get("message") == "GrokTurnIncomplete"
+        codex_empty = prior.get("failures", [{}])[-1].get("message") == "CodexTurnFailed"
+        expected_error = (
+            "CodexTurnFailed"
+            if codex_empty
+            else "GrokTurnIncomplete"
+            if interrupted
+            else "NativeResultViolation"
+        )
         require(
             len(failures) == len(evidence) == 1
-            and failures[0].get("error_class")
-            == ("GrokTurnIncomplete" if interrupted else "NativeResultViolation")
+            and failures[0].get("error_class") == expected_error
             and (
-                agent == "GROK"
-                and evidence[0].get("failure") == "GrokTurnIncomplete"
-                and evidence[0].get("boundary") in {None, "DOCKER_PRODUCT_WORKSPACE"}
-                if interrupted
-                else evidence[0].get("boundary") == "DOCKER_OFFLINE_TOOLS"
+                agent == "CODEX"
+                and evidence[0].get("boundary") == "DOCKER_PRODUCT_WORKSPACE"
+                and evidence[0].get("calls") == []
+                and evidence[0].get("commands") == []
+                and evidence[0].get("executed_argv") == []
+                and type(evidence[0].get("denied_operations")) is int
+                and evidence[0]["denied_operations"] == 0
+                and evidence[0].get("turn_start_acknowledged") is True
+                and isinstance(evidence[0].get("active_turn_id"), str)
+                and bool(evidence[0]["active_turn_id"])
+                and evidence[0].get("completed_turn_ids") == [evidence[0]["active_turn_id"]]
+                and evidence[0].get("last_native_event") == "turn/completed"
+                if codex_empty
+                else (
+                    agent == "GROK"
+                    and evidence[0].get("failure") == "GrokTurnIncomplete"
+                    and evidence[0].get("boundary") in {None, "DOCKER_PRODUCT_WORKSPACE"}
+                    if interrupted
+                    else evidence[0].get("boundary") == "DOCKER_OFFLINE_TOOLS"
+                )
             ),
             "Canonical native rejection required",
         )
-        if interrupted:
+        if interrupted or codex_empty:
             require(
                 not conn.execute(
                     "SELECT id FROM core.day3_records WHERE owner='triad' AND kind='AgentRunResult' AND work_item_id=%s",
@@ -271,6 +293,7 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
             native = prior.get("failure_code") == "ProviderError" and error in {
                 "NativeResultViolation",
                 "GrokTurnIncomplete",
+                "CodexTurnFailed",
             }
             empty_patch = (
                 prior.get("failure_code") == "ProductResponseFormatError"
