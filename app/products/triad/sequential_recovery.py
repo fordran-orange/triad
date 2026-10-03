@@ -258,6 +258,10 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                     prior.get("failure_code") == "PermissionError"
                     and error == "Invalid or terminal cycle transition"
                 )
+                or (
+                    prior.get("failure_code") == "ProviderError"
+                    and error == "NativeReadEvidenceMissing"
+                )
             )
             require(
                 not read_failure or read_selection,

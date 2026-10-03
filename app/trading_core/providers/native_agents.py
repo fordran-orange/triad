@@ -787,6 +787,7 @@ class ClaudeRun(NativeRun):
                             )
                         )
                         outputs += token_count(usage.get("output_tokens"))
+                        self.evidence["usage_scope"] = "COMPLETE"
                         try:
                             return self.finish(message.get("structured_output"), inputs, outputs)
                         except ProviderError as exc:
@@ -809,6 +810,14 @@ class ClaudeRun(NativeRun):
                             self.evidence.setdefault("read_evidence_repairs", []).append(
                                 {"attempt": read_repairs, "missing_paths": missing}
                             )
+                            # Runtime must not mistake an earlier completed turn for
+                            # the total while another inference turn is outstanding.
+                            self.evidence["completed_turn_usage"] = {
+                                "input_tokens": inputs, "output_tokens": outputs,
+                            }
+                            self.evidence["usage_scope"] = "PARTIAL_COMPLETED_TURNS"
+                            self.evidence.pop("input_tokens", None)
+                            self.evidence.pop("output_tokens", None)
                             app.send(
                                 {
                                     "type": "user",

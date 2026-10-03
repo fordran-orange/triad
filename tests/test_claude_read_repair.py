@@ -9,7 +9,7 @@ from trading_core.providers import native_agents as native
 from trading_core.runtime import ProviderError
 
 
-def setup(monkeypatch, *, complete=True, invalid=False, stop=False):
+def setup(monkeypatch, *, complete=True, invalid=False, stop=False, next_failure=None):
     request = AgentRunRequest(
         run_id="fixture",
         agent_id="CLAUDE",
@@ -52,6 +52,8 @@ def setup(monkeypatch, *, complete=True, invalid=False, stop=False):
                     "tools": ["mcp__triad__read_file", "StructuredOutput"],
                 }
             self.results += 1
+            if self.results == 3 and next_failure == "disconnect":
+                raise RuntimeError("fixture disconnected")
             required = sorted(run.required_reads)
             if self.results == 2:
                 run.broker.calls.append({"tool": "read_file", "path": required[0]})
@@ -66,7 +68,7 @@ def setup(monkeypatch, *, complete=True, invalid=False, stop=False):
             ).model_dump(mode="json")
             if stop:
                 run.cancel()
-            return {
+            message = {
                 "type": "result",
                 "subtype": "success",
                 "is_error": False,
@@ -78,6 +80,14 @@ def setup(monkeypatch, *, complete=True, invalid=False, stop=False):
                     "output_tokens": 5,
                 },
             }
+            if self.results == 3:
+                if next_failure == "error":
+                    message["is_error"] = True
+                elif next_failure == "missing_usage":
+                    message.pop("usage")
+                elif next_failure == "invalid_output":
+                    message["usage"]["output_tokens"] = True
+            return message
 
         def close(self):
             self.closed = True
@@ -123,3 +133,14 @@ def test_cancel_before_read_continuation_sends_no_extra_prompt(monkeypatch):
     with pytest.raises(ProviderError, match="DeadlineExceeded"):
         run.execute(request, {"one.py": "first", "two.py": "second"})
     assert len(wire.sent) == 1 and wire.closed
+
+
+@pytest.mark.parametrize("failure", ["disconnect", "error", "missing_usage", "invalid_output"])
+def test_interrupted_continuation_keeps_partial_usage_without_claiming_total(monkeypatch, failure):
+    run, request, wire = setup(monkeypatch, next_failure=failure)
+    with pytest.raises((ProviderError, RuntimeError)):
+        run.execute(request, {"one.py": "first", "two.py": "second"})
+    assert "input_tokens" not in run.evidence and "output_tokens" not in run.evidence
+    assert run.evidence["completed_turn_usage"] == {"input_tokens": 60, "output_tokens": 5}
+    assert run.evidence["usage_scope"] == "PARTIAL_COMPLETED_TURNS"
+    assert len(wire.sent) == 2 and wire.closed

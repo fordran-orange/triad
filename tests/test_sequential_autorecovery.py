@@ -261,6 +261,63 @@ def test_saved_read_checkpoint_preserves_original_author(checkpoint):
 
 
 @pytest.mark.parametrize(
+    "tamper", [None, "running", "result", "writes", "denial", "cleanup", "error", "transport"]
+)
+def test_saved_missing_read_checkpoint_requires_canonical_cleanup(checkpoint, tamper):
+    from trading_core.work import State, now
+
+    b = checkpoint
+    b.prior.update(
+        failure_code="ProviderError", failures=[{"message": "NativeReadEvidenceMissing"}]
+    )
+    b.works["review-work"].status = State.FAILED
+    transport = b.records[-1]["payload"]
+    transport.update(
+        status="DEGRADED", error_class="NativeReadEvidenceMissing", completed_at=now().isoformat()
+    )
+    native = {
+        "run_id": "failed",
+        "event": "native_executor_evidence",
+        "boundary": "DOCKER_OFFLINE_TOOLS",
+        "denials": 0,
+        "calls": [{"tool": "read_file", "path": "evidence/part.txt"}],
+    }
+    failure = {
+        "run_id": "failed",
+        "event": "provider_failed",
+        "error_class": "NativeReadEvidenceMissing",
+    }
+    for event in (native, failure):
+        b.records.append({"kind": "Event", "payload": event, "work_item_id": "review-work"})
+    if tamper == "running":
+        b.works["review-work"].status = State.IN_PROGRESS
+    elif tamper == "result":
+        b.records.append(
+            {
+                "kind": "AgentRunResult",
+                "payload": {"run_id": "failed"},
+                "work_item_id": "review-work",
+            }
+        )
+    elif tamper == "writes":
+        native["calls"].append({"tool": "write_file", "path": "app.py"})
+    elif tamper == "denial":
+        native["denials"] = 1
+    elif tamper == "cleanup":
+        b.records.remove(next(r for r in b.records if r["payload"] is native))
+    elif tamper == "error":
+        failure["error_class"] = "DifferentError"
+    elif tamper == "transport":
+        transport.pop("completed_at")
+    if tamper:
+        with pytest.raises(PermissionError):
+            recovery.retained_selection(b.flow, "cycle", "GROK", b.prior, b.conn)
+    else:
+        saved = recovery.retained_selection(b.flow, "cycle", "GROK", b.prior, b.conn)
+        assert saved["author_run_id"] == "author" and saved["failed_run_id"] == "failed"
+
+
+@pytest.mark.parametrize(
     "tamper",
     [
         "stale",

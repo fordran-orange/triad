@@ -167,7 +167,7 @@ def retained_selection(flow, mission, agent, prior, conn):
     proposal = Proposal.model_validate(saved["proposal"])
     records = conn.execute(
         "SELECT kind,work_item_id,payload FROM core.day3_records "
-        "WHERE owner='triad' AND kind IN ('AgentRunRequest','AgentRunResult','ResourceExtensionDecision','TransportRun') "
+        "WHERE owner='triad' AND kind IN ('AgentRunRequest','AgentRunResult','ResourceExtensionDecision','TransportRun','Event') "
         "ORDER BY created_at,id"
     ).fetchall()
     requests = [
@@ -214,12 +214,16 @@ def retained_selection(flow, mission, agent, prior, conn):
         "Failed request record identity mismatch",
     )
     work = daily.product.store.get(failed["work_item_id"], conn=conn)
+    missing_reads = (
+        prior.get("failure_code") == "ProviderError"
+        and prior.get("failures", [{}])[-1].get("message") == "NativeReadEvidenceMissing"
+    )
     require(
         failed.get("role") == "REVIEW"
         and failed.get("agent_id") == REVIEWERS[agent]
         and work.owner == "triad"
         and work.mission_id == mission
-        and work.status == State.BLOCKED
+        and work.status == (State.FAILED if missing_reads else State.BLOCKED)
         and work.work_type == "review"
         and work.authority_tier == 0
         and work.assigned_agent == REVIEWERS[agent]
@@ -246,19 +250,40 @@ def retained_selection(flow, mission, agent, prior, conn):
         not any(r["kind"] == "AgentRunResult" for r in evidence),
         "Completed review must not be replayed",
     )
-    decisions = [r["payload"] for r in evidence if r["kind"] == "ResourceExtensionDecision"]
-    require(
-        bool(decisions)
-        and decisions[-1].get("decision") == "DENY"
-        and decisions[-1].get("resource_type") == ResourceType.TIME
-        and decisions[-1].get("reason") == "No new progress; repeated evidence cannot extend a run",
-        "Canonical read timeout required",
-    )
     transports = [r["payload"] for r in evidence if r["kind"] == "TransportRun"]
-    require(
-        bool(transports) and transports[-1].get("status") == "BLOCKED_RESOURCE_LIMIT",
-        "Terminal transport evidence required",
-    )
+    if missing_reads:
+        events = [r["payload"] for r in evidence if r["kind"] == "Event"]
+        failures = [r for r in events if r.get("event") == "provider_failed"]
+        native = [r for r in events if r.get("event") == "native_executor_evidence"]
+        # Native evidence is appended only after the isolated harness's finally
+        # closes/waits for its process. Require that cleanup evidence plus the
+        # terminal transport, never a model's assertion that its work stopped.
+        require(
+            len(failures) == len(native) == len(transports) == 1
+            and failures[0].get("error_class") == "NativeReadEvidenceMissing"
+            and native[0].get("boundary") == "DOCKER_OFFLINE_TOOLS"
+            and type(native[0].get("denials")) is int
+            and native[0]["denials"] == 0
+            and bool(native[0].get("calls"))
+            and all(call.get("tool") == "read_file" for call in native[0]["calls"])
+            and transports[0].get("status") == "DEGRADED"
+            and transports[0].get("error_class") == "NativeReadEvidenceMissing"
+            and bool(transports[0].get("completed_at")),
+            "Canonical stopped native read evidence required",
+        )
+    else:
+        decisions = [r["payload"] for r in evidence if r["kind"] == "ResourceExtensionDecision"]
+        require(
+            bool(decisions)
+            and decisions[-1].get("decision") == "DENY"
+            and decisions[-1].get("resource_type") == ResourceType.TIME
+            and decisions[-1].get("reason") == "No new progress; repeated evidence cannot extend a run",
+            "Canonical read timeout required",
+        )
+        require(
+            bool(transports) and transports[-1].get("status") == "BLOCKED_RESOURCE_LIMIT",
+            "Terminal transport evidence required",
+        )
     route = daily.product.get("route-" + work.work_item_id, conn=conn)["selected"]
     require(
         route.get("agent_id") == REVIEWERS[agent]
