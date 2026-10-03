@@ -61,7 +61,7 @@ def execution_lease(
                     {**h, "backend_start": str(h.get("backend_start"))}
                     for h in getattr(exc, "lease_holders", ())
                 ]
-                service.host.append(
+                service.canonical.append(
                     "DailyStartupState",
                     {
                         "cycle_id": cycle_id,
@@ -84,7 +84,7 @@ def execution_lease(
         try:
             authority()
             if cycle_id:
-                service.host.append(
+                service.canonical.append(
                     "DailyStartupState",
                     {
                         "cycle_id": cycle_id,

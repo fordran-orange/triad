@@ -1111,7 +1111,7 @@ class SequentialCycle:
             if scheduled:
                 import os
 
-                self.s.host.append(
+                self.s.canonical.append(
                     "DailyDispatchAcknowledged",
                     {
                         "cycle_id": mission,

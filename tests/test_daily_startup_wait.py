@@ -28,7 +28,8 @@ def service(failures=0):
             events.append(("released", {}))
 
     s = NS(
-        host=NS(store=NS(lease=lease), append=lambda kind, row, **_: events.append((kind, row))),
+        host=NS(store=NS(lease=lease)),
+        canonical=NS(append=lambda kind, row, **_: events.append((kind, row))),
         ledger=NS(guard=lambda **kw: guards.append(kw)),
         daily=NS(schedule=lambda: {"id": "schedule", "enabled": True, "control_epoch": 4}),
     )
@@ -101,7 +102,7 @@ def test_changed_schedule_denies_waiting_startup(monkeypatch):
 
 def test_failed_ack_releases_execution_lock():
     s, events, _, _ = service()
-    s.host.append = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("database write failed"))
+    s.canonical.append = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("database write failed"))
     with pytest.raises(RuntimeError), daily_startup.execution_lease(s, "id"):
         pytest.fail("work started")
     assert events[-1][0] == "released"
