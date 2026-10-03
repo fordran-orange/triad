@@ -740,6 +740,7 @@ class ClaudeRun(NativeRun):
             app = LineProcess(argv, cwd=cwd)
             expected = {"mcp__triad__" + t["name"] for t in self.broker.definitions()}
             initialized = False
+            inputs = outputs = read_repairs = 0
             try:
                 claude_initialize(app, self.check, {t["name"] for t in self.broker.definitions()})
                 app.send(
@@ -777,7 +778,7 @@ class ClaudeRun(NativeRun):
                             raise ProviderError("DEGRADED", "ClaudeTurnIncomplete")
                         usage = message.get("usage", {})
                         token_count(usage.get("input_tokens"))
-                        inputs = sum(
+                        inputs += sum(
                             token_count(usage.get(k, 0))
                             for k in (
                                 "input_tokens",
@@ -785,8 +786,47 @@ class ClaudeRun(NativeRun):
                                 "cache_creation_input_tokens",
                             )
                         )
-                        outputs = token_count(usage.get("output_tokens"))
-                        return self.finish(message.get("structured_output"), inputs, outputs)
+                        outputs += token_count(usage.get("output_tokens"))
+                        try:
+                            return self.finish(message.get("structured_output"), inputs, outputs)
+                        except ProviderError as exc:
+                            # Repair incomplete read evidence in this same isolated session.
+                            # Never accept a verdict before the required callbacks, retry writes,
+                            # expand tools, or repair a different protocol/result violation here.
+                            if (
+                                exc.error_class != "NativeReadEvidenceMissing"
+                                or workspace is not None
+                                or writable
+                                or read_repairs >= 2
+                            ):
+                                raise
+                            self.check()
+                            observed = {
+                                c["path"] for c in self.broker.calls if c["tool"] == "read_file"
+                            }
+                            missing = sorted(getattr(self, "required_reads", set(files)) - observed)
+                            read_repairs += 1
+                            self.evidence.setdefault("read_evidence_repairs", []).append(
+                                {"attempt": read_repairs, "missing_paths": missing}
+                            )
+                            app.send(
+                                {
+                                    "type": "user",
+                                    "message": {
+                                        "role": "user",
+                                        "content": (
+                                            "Your assessment has not been accepted because required evidence reads "
+                                            "are missing. In this same session, use mcp__triad__read_file to read "
+                                            "each of these missing parts, one path per tool call: "
+                                            + json.dumps(missing)
+                                            + ". Do not repeat completed reads or fetch optional memory unless needed. "
+                                            "Then reassess the assignment using all required evidence and return the "
+                                            "same requested JSON result schema and run_id. You may change your verdict "
+                                            "based on the newly read evidence. No writing, extra tools or permissions."
+                                        ),
+                                    },
+                                }
+                            )
                 raise ProviderError("DEGRADED", "NativeFrameLimit")
             finally:
                 self.evidence.update(

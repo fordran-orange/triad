@@ -100,7 +100,10 @@ class ApplicationContribution(Record):
     input_producer: str = Field(min_length=1)
     output_consumer: str = Field(min_length=1)
     contracts_and_versions: tuple[str, ...] = Field(min_length=1)
-    integration_checks: tuple[str, ...] = Field(min_length=1)
+    integration_checks: tuple[str, ...] = Field(
+        min_length=1,
+        description="Exact check_id values from this proposal's acceptance criteria, not test paths or descriptions",
+    )
     status: Literal["FOUNDATION", "CONNECTED_INCREMENT", "REPAIR", "DEPENDENCY_REMOVAL"]
 
 

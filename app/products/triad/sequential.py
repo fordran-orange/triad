@@ -381,6 +381,7 @@ class SequentialCycle:
             "at least two meaningful alternatives with reasons not selected, next steps, and dependencies or blockers. "
             "Supply application_contribution: user workflow and entry point, input producer, output consumer, "
             "versioned contracts, integration checks and FOUNDATION/CONNECTED_INCREMENT/REPAIR/DEPENDENCY_REMOVAL status. "
+            "integration_checks must contain exact acceptance check_id values, not test filenames or descriptions. "
             "Maintain app/products/triad/application_plan.json in every CHANGE manifest. It is your revisable architecture, "
             "not a fixed operator roadmap. Identify and remove missing application connections before adding isolated tools. "
             "Consult current Core interfaces and prior-cycle outcomes. Continue worthwhile prior work or explain changing direction. "
