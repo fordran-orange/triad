@@ -40,7 +40,7 @@ class ProductFileChange(Record):
 
 class RequiredCheck(Record):
     check_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
-    method: Literal["SOURCE_REVIEW", "PYTHON_UNIT_TEST"]
+    method: Literal["SOURCE_REVIEW", "PYTHON_UNIT_TEST", "BROWSER_TEST"]
     description: str = Field(min_length=1)
 
 
@@ -104,6 +104,20 @@ def acceptance_problems(required, assessment, commit, proofs):
             failures.append(
                 required_check.check_id + ": passing exact-candidate unit tests required"
             )
+        if required_check.method == "BROWSER_TEST" and (
+            not proofs
+            or not set(proofs) <= references
+            or any(
+                p.get("status") != "PASS"
+                or p.get("browser_status") != "PASSED"
+                or p.get("executed_browser_tests", 0) < 1
+                or p.get("commit") != commit
+                for p in proofs.values()
+            )
+        ):
+            failures.append(
+                required_check.check_id + ": passing exact-candidate browser tests required"
+            )
     return tuple(failures)
 
 
@@ -134,13 +148,25 @@ ORCHESTRATION = (
 )
 
 
+def test_image_digest(root):
+    from trading_core.product_sdk import SDK_FILES
+
+    inputs = (
+        "infrastructure/product-tests.Dockerfile",
+        "requirements.lock",
+        "infrastructure/product-tests.lock",
+        *SDK_FILES,
+    )
+    fingerprint = hashlib.sha256()
+    for path in inputs:
+        fingerprint.update(path.encode() + b"\0" + (root / path).read_bytes() + b"\0")
+    return fingerprint.hexdigest()
+
+
 def reviewed_test_image():
     from trading_core.settings import ROOT
 
-    digest = hashlib.sha256(
-        (ROOT / "infrastructure/product-tests.Dockerfile").read_bytes()
-        + (ROOT / "requirements.lock").read_bytes()
-    ).hexdigest()
+    digest = test_image_digest(ROOT)
     row = json.loads(
         subprocess.check_output(
             ["docker", "image", "inspect", "triad-product-tests:" + digest[:16]], text=True
@@ -191,6 +217,43 @@ def active_policy(records):
     if qa["id"] != policy["qa_id"] or policy["owner"] != "core":
         raise PermissionError("Product policy approval changed")
     return policy
+
+
+def upgrade_test_environment(records, implementation, commit):
+    """Replace reviewed tooling while preserving existing workspace authority."""
+    from trading_core.intelligence.quality import Quality
+
+    if records.store.scope is not None:
+        raise PermissionError("Only Core can update the product test environment")
+    records.ledger.guard()
+    qa = Quality(records).require_pass(implementation, commit)
+    build = records.get(implementation)
+    required = {
+        "app/products/triad/sequential.py",
+        "app/trading_core/product_sdk.py",
+        "infrastructure/product-tests.Dockerfile",
+        "app/trading_core/providers/isolation.py",
+    }
+    image = reviewed_test_image()
+    if (
+        build["owner"] != "core"
+        or not required <= set(build["files"])
+        or not any(image in check for check in qa["tests_repeated"])
+    ):
+        raise PermissionError(
+            "Independent review must cover executor, SDK, boundary and actual image"
+        )
+    previous = active_policy(records)
+    payload = {k: v for k, v in previous.items() if k not in {"id", "kind", "owner"}}
+    payload.update(
+        implementation=implementation,
+        commit=commit,
+        qa_id=qa["id"],
+        test_image=image,
+        previous_policy_id=previous["id"],
+        test_environment="core-sdk-browser-v1",
+    )
+    return records.append("ProductCyclePolicy", payload)
 
 
 def protected_orchestration(path):
@@ -342,7 +405,7 @@ def check_candidate(files, guard, image=None):
         product_path(p)
     script = """import ast, json, pathlib, unittest, sys
 sys.path.insert(0, str(pathlib.Path('app').resolve()))
-count=0
+count=browser_count=0
 root=pathlib.Path('.')
 for p in root.rglob('*'):
  if p.is_file() and p.suffix=='.py': ast.parse(p.read_text(),filename=str(p))
@@ -353,9 +416,15 @@ if tests.exists():
  count=suite.countTestCases()
  result=unittest.TextTestRunner().run(suite)
  if not result.wasSuccessful(): raise SystemExit(1)
-print(json.dumps({'syntax':'PASS','unit_tests':count,'test_status':'PASSED' if count else 'NOT_PRESENT'}))
+ count=result.testsRun-len(result.skipped)
+ suite=unittest.defaultTestLoader.discover(str(tests),pattern='browser_*.py')
+ browser_count=suite.countTestCases()
+ if browser_count:
+  result=unittest.TextTestRunner().run(suite)
+  if not result.wasSuccessful() or result.skipped: raise SystemExit(1)
+print(json.dumps({'syntax':'PASS','unit_tests':count,'test_status':'PASSED' if count else 'NOT_PRESENT','browser_tests':browser_count,'browser_status':'PASSED' if browser_count else 'NOT_PRESENT'}))
 """
-    result = OfflineSandbox(image=image).run(
+    result = OfflineSandbox(image=image, profile="product").run(
         ["python", "-B", "-c", script],
         files,
         writable=(),
@@ -370,6 +439,8 @@ print(json.dumps({'syntax':'PASS','unit_tests':count,'test_status':'PASSED' if c
         "status": "PASS",
         "executed_tests": measured["unit_tests"],
         "test_status": measured["test_status"],
+        "executed_browser_tests": measured["browser_tests"],
+        "browser_status": measured["browser_status"],
         "stdout": result.stdout,
         "boundary": result.boundary,
         "image": result.image,

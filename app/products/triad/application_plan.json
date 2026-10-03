@@ -1,0 +1,104 @@
+{
+  "schema_version": "triad.application.v1",
+  "goal": "Build one refined, connected stock-trading application that can rival TradingView and thinkorswim. The autonomous agents choose and evolve its architecture and priorities.",
+  "architecture_reasoning": "Baseline inventory, not an adopted final architecture. The current page exposes isolated analysis tools; their existence is not proof of a trading application. Retain useful work, but prove input, output, contract and workflow connections before describing it as integrated.",
+  "components": [
+    {
+      "id": "workspace",
+      "name": "Current product page",
+      "responsibility": "User entry point for currently available tools; not the complete product",
+      "owner": "triad",
+      "status": "EXISTS",
+      "paths": [
+        "app/products/triad/static/product.html",
+        "app/products/triad/product_app.py"
+      ]
+    },
+    {
+      "id": "bar-inspector",
+      "name": "OHLCV CSV inspector",
+      "responsibility": "Inspect user-supplied CSV; its output is not canonical research data",
+      "owner": "triad",
+      "status": "EXISTS",
+      "paths": [
+        "app/products/triad/bar_inspection.py"
+      ]
+    },
+    {
+      "id": "cost-calculator",
+      "name": "Cost sensitivity calculator",
+      "responsibility": "Analyze manually entered hypothetical trade costs",
+      "owner": "triad",
+      "status": "EXISTS",
+      "paths": [
+        "app/products/triad/cost_sensitivity.py"
+      ]
+    },
+    {
+      "id": "ledger-analyzer",
+      "name": "Submitted trade CSV analyzer",
+      "responsibility": "Analyze externally supplied records; does not generate or execute trades",
+      "owner": "triad",
+      "status": "EXISTS",
+      "paths": [
+        "app/products/triad/trade_ledger.py"
+      ]
+    },
+    {
+      "id": "core-research",
+      "name": "Core research contracts and engine",
+      "responsibility": "Shared validation and computation; pure product SDK is available without host storage or credentials",
+      "owner": "core",
+      "status": "EXISTS",
+      "paths": [
+        "app/trading_core/research/contracts.py",
+        "app/trading_core/research/engine.py",
+        "app/trading_core/product_sdk.py"
+      ]
+    },
+    {
+      "id": "research-adapter",
+      "name": "Triad research adapter",
+      "responsibility": "Reusable product consumer of the pure Core SDK with explicit input identity; not yet a user-facing research workflow",
+      "owner": "triad",
+      "status": "EXISTS",
+      "paths": [
+        "app/products/triad/research_adapter.py"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "producer": "research-adapter",
+      "consumer": "core-research",
+      "contract": "core.product-research",
+      "version": "v1",
+      "status": "TESTED",
+      "tests": [
+        "tests/products/triad/test_research_adapter.py"
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "id": "trading-application",
+      "user_outcome": "Research and test a trading idea through one coherent workspace with traceable results",
+      "entry_point": "/triad/product",
+      "components": [
+        "workspace",
+        "core-research"
+      ],
+      "status": "NOT_BUILT",
+      "next_connection": "Agents should choose and establish the application backbone and a first useful connected workflow using proven Core interfaces. Identify required concepts, contracts and dependencies; do not assume unrelated CSV tools already integrate."
+    }
+  ],
+  "decisions": [
+    "2026-10-03 operator correction: the application itself is the product. product.html and disconnected calculators are prototypes, not completion of the mission.",
+    "Triad and Aegis independently consume Core. Triad chooses its own design and builds missing product tools and spaces. No Aegis dependency, broker credential grant, or live-trading authority is implied.",
+    "Core SDK connection is demonstrated on explicit synthetic fixtures. It does not connect the existing CSV tools, certify real data, supply stored research or create the user-facing trading workflow."
+  ],
+  "next_initiatives": [
+    "Agent-selected application structure and first connected user workflow",
+    "Explicit versioned contracts and integration tests for every adopted connection"
+  ]
+}

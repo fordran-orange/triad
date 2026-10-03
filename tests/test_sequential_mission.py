@@ -90,6 +90,9 @@ def test_progress_queries_only_latest_cycle_and_triad_owner(monkeypatch):
     from products.triad.sequential_mission import progress
     from trading_core.store import Store
 
+    monkeypatch.setenv("POSTGRES_PASSWORD", "fixture")
+    monkeypatch.setenv("NEO4J_PASSWORD", "fixture")
+
     calls = []
 
     class Connection:

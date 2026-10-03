@@ -22,7 +22,7 @@ where = ["app"]
 
 [tool.setuptools.package-data]
 trading_core = ["static/*.html", "static/*.js", "static/*.css", "resources/**/*"]
-"products.triad" = ["static/*.html", "static/*.js", "features/*.html", "features/*.js", "features/*.css", "resources/*"]
+"products.triad" = ["*.json", "static/*.html", "static/*.js", "features/*.html", "features/*.js", "features/*.css", "resources/*"]
 "products.aegis" = ["static/*.html", "resources/*"]
 
 [tool.pytest.ini_options]

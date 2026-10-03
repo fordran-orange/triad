@@ -5,6 +5,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 from products.triad.sequential import CurrentProposal, Proposal, SequentialCycle
+from products.triad.sequential_application import PLAN_PATH
 from products.triad.sequential_planning import (
     CORE_REFERENCES,
     HISTORICAL,
@@ -36,6 +37,15 @@ def plan():
         "dependencies_or_blockers": ["Product-scoped retained-result access needs proof"],
         "mission_contribution": "Creates a research evaluation workflow beyond the shell",
         "major_gaps": ["No experiment comparison workflow", "No chart analysis workspace"],
+        "application_contribution": {
+            "workflow": "research-comparison",
+            "entry_point": "/triad/product",
+            "input_producer": "Core scoped research",
+            "output_consumer": "Triad comparison view",
+            "contracts_and_versions": ["ResearchResult-v1"],
+            "integration_checks": ["comparison"],
+            "status": "FOUNDATION",
+        },
     }
 
 
@@ -44,7 +54,7 @@ def proposal(**updates):
         "title": "Compare research results",
         "problem": "No comparison workflow",
         "change": "Build a comparator",
-        "files": ["app/products/triad/compare.py"],
+        "files": ["app/products/triad/compare.py", PLAN_PATH],
         "evidence": ["Inspected sources"],
         "acceptance": [
             {"check_id": "comparison", "method": "SOURCE_REVIEW", "description": "Review contract"}
@@ -87,6 +97,10 @@ def service(tmp_path):
                     "product_scope": ["research", "risk"],
                 }
             )
+        if path == PLAN_PATH:
+            from products.triad.sequential_application import current_plan
+
+            return current_plan().model_dump_json()
         assert path in CORE_REFERENCES or path.endswith("server.py")
         return "# current published source"
 
@@ -120,7 +134,7 @@ def test_history_is_product_private_and_does_not_reapply_old_grants(tmp_path):
     assert "superseded" in packet["current_authority"]["obsolete_limits"]
     assert packet["shared_core"]["source_revision"] == "base"
     assert set(packet["shared_core"]["references_read_only"]) == set(CORE_REFERENCES)
-    assert "not installed" in packet["shared_core"]["availability"]
+    assert "installed read-only" in packet["shared_core"]["availability"]
 
 
 def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(

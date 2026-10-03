@@ -107,6 +107,23 @@ that no useful product work remains. Carry initiatives and next steps across day
 The operator subsequently requested a lower advisory effort target for Codex while
 retaining its daily turn, scope and ability to exceed that target when needed.
 
+On 2026-10-03 the operator clarified that the missing application is the priority:
+separate calculators and CSV tools do not constitute a trading platform. Triad
+must maintain its own evolving application structure, versioned concepts and
+contracts, component producers/consumers, connected user workflows, and the next
+missing connection across runs. Its agents choose and revise architecture and
+priorities; this is not an operator feature checklist. Every proposed increment
+must explain its place in that application and verify adopted connections with
+integration tests. Browser behavior requires executed browser evidence. Existing
+tools may be adopted, adapted, deferred or replaced based on evidence.
+
+The operator agreed to five-minute idle scheduling checks, deadline wake-up at
+09:00 local time, immediate wake for submitted work and independent monitoring
+and execution locks. Known lock contention before any work begins is waiting;
+retry only the same identity after proving the prior process stopped, current
+authority still applies and no work began. Unknown execution is not replay
+authority. Reporting failures should not cause completed product work to rerun.
+
 Aegis is the operator-directed platform. Its priorities, design, tools, and
 workspaces follow the operator's decisions and do not depend on Triad's roadmap
 or outputs. The operator may explicitly choose to adopt selected Triad work

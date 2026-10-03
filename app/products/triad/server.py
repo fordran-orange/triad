@@ -117,3 +117,10 @@ def trading_product_shell():
     source = (Path(__file__).parent / "static/product.html").read_text(encoding="utf-8")
     # Keep the operator mission outside the autonomous product file's content.
     return HTMLResponse(insert_panel(source, mission_panel()))
+
+
+@app.get("/triad/api/application-plan")
+def application_plan():
+    from products.triad.sequential_application import current_plan
+
+    return current_plan()

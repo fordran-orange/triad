@@ -115,8 +115,13 @@ def test_next_author_waits_for_deployment(fail_health, resume, monkeypatch):
             lambda *a: (cycle, 1, "2026-09-29"),
         )
     flow.s = NS(
-        ledger=NS(store=NS(lease=lambda _: nullcontext()), gate=nullcontext),
-        host=NS(store=NS(lease=lambda _: nullcontext(), list_work=lambda _: [])),
+        ledger=NS(
+            store=NS(lease=lambda _: nullcontext()), gate=nullcontext, guard=lambda **_: None
+        ),
+        host=NS(
+            store=NS(lease=lambda _: nullcontext(), list_work=lambda _: []),
+            append=lambda *a, **k: None,
+        ),
         daily=NS(
             create=lambda **k: cycle,
             current=lambda _: {"status": "COMPLETED", "parent_work_item_id": "p"},

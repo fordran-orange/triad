@@ -7,6 +7,12 @@ import json
 from pydantic import Field, model_serializer
 from trading_core.work import Record
 
+from products.triad.sequential_application import (
+    PLAN_PATH,
+    ApplicationContribution,
+    ApplicationPlan,
+)
+
 # Immutable Day 6 assessments remain available as history, never current grants.
 HISTORICAL = frozenset(
     "products/triad/docs/" + name + ".md"
@@ -18,6 +24,7 @@ HISTORICAL = frozenset(
     )
 )
 CORE_REFERENCES = {
+    "app/trading_core/product_sdk.py": "Pure product-owned research input adapter, installed read-only in the product test image",
     "app/trading_core/research/contracts.py": "Research data, experiment and result contracts",
     "app/trading_core/research/engine.py": "Deterministic research engine; inspect supported strategies",
     "app/trading_core/research/planning.py": "Walk-forward window construction; not an optimizer",
@@ -40,11 +47,12 @@ class ValuePlan(Record):
     dependencies_or_blockers: tuple[str, ...]
     mission_contribution: str | None = None
     major_gaps: tuple[str, ...] | None = None
+    application_contribution: ApplicationContribution | None = None
 
     @model_serializer(mode="wrap")
     def preserve_historical_plan(self, handler):
         data = handler(self)
-        for key in ("mission_contribution", "major_gaps"):
+        for key in ("mission_contribution", "major_gaps", "application_contribution"):
             if getattr(self, key) is None:
                 data.pop(key, None)
         return data
@@ -53,6 +61,7 @@ class ValuePlan(Record):
 class CurrentValuePlan(ValuePlan):
     mission_contribution: str = Field(min_length=1)
     major_gaps: tuple[str, ...] = Field(min_length=1)
+    application_contribution: ApplicationContribution
 
 
 def token_targets(agent):
@@ -96,11 +105,17 @@ def core_context(git, baseline):
         "references_read_only": references,
         "availability": (
             "These are existing source interfaces, not proof of product access to live services. "
-            "Core modules are not installed in the offline product test image. Use explicit fixtures "
-            "or injected adapters for product unit tests; report unverified integration separately. "
+            "The pure product_sdk and its listed Core dependencies are installed read-only in the reviewed "
+            "offline product test image. ProductResearch('triad') accepts explicitly supplied validated ResearchInput "
+            "and Experiment objects, preserving owner, dataset identity, source provenance and fixture/real mode. "
+            "Supply a product Strategy implementation when needed; built-in strategies validate the engine only. "
+            "Use real SDK integration tests, not mock-only or copied Core implementations. Browser tests use "
+            "Playwright Chromium inside the same offline boundary, named tests/products/triad/browser_*.py. "
+            "Serve only container-local candidate assets/API or explicitly labeled fixtures; no live provider calls. "
             "No network, host database, credentials, or other product records are granted. "
             "Do not instantiate unscoped host services. Request a product-scoped Core interface "
-            "where one is missing, and continue independent product work. Alpaca is not integrated."
+            "where one is missing, and continue independent product work. Stored research access, full calendars, "
+            "non-minute adapter aggregation and Alpaca are not supplied by this SDK. Alpaca is not integrated."
         ),
     }
 
@@ -109,6 +124,8 @@ def planning_context(service, mission, baseline):
     charter = json.loads(
         service.git.git("show", baseline + ":app/products/triad/resources/product.json")
     )
+    application_source = service.git.git("show", baseline + ":" + PLAN_PATH)
+    application = ApplicationPlan.model_validate_json(application_source)
     # Use product-scoped records only. Old proposals are history, not current grants.
     history = {}
     fields = {
@@ -143,11 +160,22 @@ def planning_context(service, mission, baseline):
     return {
         "mission": charter["mission"],
         "product_scope": charter["product_scope"],
+        "application_plan": {
+            "path": PLAN_PATH,
+            "source_revision": baseline,
+            "sha256": hashlib.sha256(application_source.encode()).hexdigest(),
+            "plan": application.model_dump(mode="json"),
+            "ownership": "Agent-owned and revisable. Maintain this file with each adopted increment. It is not an operator feature checklist or proof of delivery.",
+        },
         "current_direction": (
             "The product is the complete stock-trading application, not product.html or the current prototype. "
             "Assess major missing end-to-end capabilities against the mission before choosing a change. "
             "Identify a substantial initiative and an independently useful, testable contribution to it this turn; "
             "the initiative may span many days. The turn is a delivery increment, not a ceiling on ambition. "
+            "Build one connected application. Maintain the persistent application plan: components, versioned contracts, "
+            "producers, consumers, user workflows, decisions and the next missing connection. Choose and evolve your own "
+            "architecture. Establish missing foundations before adding isolated tools. State which existing tools are "
+            "adopted, adapted, deferred or replaced; their presence on a page is not proof they fit. "
             "Each provider independently chooses and implements its perceived highest-value product change. "
             "Build Triad's own useful trading application, tools and spaces; do not merely polish its shell. "
             "Core supplies shared infrastructure. Aegis is separately operator-directed; Triad does not build "

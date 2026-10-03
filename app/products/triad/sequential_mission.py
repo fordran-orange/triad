@@ -109,11 +109,72 @@ def render_panel(mission, state=None, *, unavailable=False):
 
 def mission_panel():
     mission = mission_statement()
+    from products.triad.sequential_application import current_plan
+
+    plan_panel = render_application(current_plan())
     try:
-        return render_panel(mission, progress())
+        return render_panel(mission, progress()) + plan_panel
     except Exception:  # Read-only progress must not take down the product page.
         logging.getLogger(__name__).warning("Mission progress unavailable", exc_info=True)
-        return render_panel(mission, unavailable=True)
+        return render_panel(mission, unavailable=True) + plan_panel
+
+
+def render_application(plan):
+    text = lambda value: escape(str(value))
+    parts = [
+        '<section id="triad-application-plan" aria-labelledby="application-plan-heading">',
+        '<h2 id="application-plan-heading">Building the application</h2>',
+        "<p>This is the agents’ evolving application plan. Plans and component availability are not proof of a connected, delivered workflow.</p>",
+        "<p>" + text(plan.architecture_reasoning) + "</p>",
+    ]
+    for workflow in plan.workflows:
+        parts.append(
+            "<h3>"
+            + text(workflow.user_outcome)
+            + "</h3><p><strong>"
+            + text(workflow.status.replace("_", " ").title())
+            + "</strong> · Entry point: "
+            + text(workflow.entry_point)
+            + "</p><p>Next connection: "
+            + text(workflow.next_connection)
+            + "</p>"
+        )
+    parts.append("<details><summary>Components, contracts and design decisions</summary><ul>")
+    parts.extend(
+        "<li>"
+        + text(c.name)
+        + " ("
+        + text(c.owner.title())
+        + ", "
+        + text(c.status.lower())
+        + "): "
+        + text(c.responsibility)
+        + "</li>"
+        for c in plan.components
+    )
+    parts.append("</ul>")
+    if not plan.connections:
+        parts.append("<p>No application connections have been demonstrated in this plan yet.</p>")
+    else:
+        parts.append("<ul>")
+        parts.extend(
+            "<li>"
+            + text(c.producer)
+            + " → "
+            + text(c.consumer)
+            + ": "
+            + text(c.contract)
+            + " "
+            + text(c.version)
+            + " — "
+            + text(c.status.lower())
+            + "</li>"
+            for c in plan.connections
+        )
+        parts.append("</ul>")
+    parts.extend("<p>" + text(d) + "</p>" for d in plan.decisions)
+    parts.append("</details></section>")
+    return "".join(parts)
 
 
 def insert_panel(source, panel):

@@ -106,10 +106,13 @@ class OfflineSandbox:
     Supply the WorkItem/control-epoch guard for production use.
     """
 
-    def __init__(self, image=None):
+    def __init__(self, image=None, *, profile="standard"):
         if image is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", image):
             raise ValueError("Test image must use an immutable local image ID")
         self.image = image or IMAGE
+        if profile not in {"standard", "product"} or (profile == "product" and image is None):
+            raise ValueError("Product resource profile requires a reviewed immutable image")
+        self.profile = profile
         self.cancelled = threading.Event()
         self.runner = None
 
@@ -121,7 +124,10 @@ class OfflineSandbox:
     @staticmethod
     def _docker(args, *, stdin="", timeout=20, output_limit=131072):
         result = ManagedProcess().run(
-            ["docker", *args], cwd=ROOT, stdin=stdin, timeout=timeout,
+            ["docker", *args],
+            cwd=ROOT,
+            stdin=stdin,
+            timeout=timeout,
             output_limit=output_limit,
         )
         if result.status != "EXITED" or result.exit_code:
@@ -138,8 +144,8 @@ class OfflineSandbox:
             return False
 
     @staticmethod
-    def create_options(name, image=IMAGE):
-        return [
+    def create_options(name, image=IMAGE, *, profile="standard"):
+        options = [
             "create",
             "--pull=never",
             "--name",
@@ -175,6 +181,18 @@ class OfflineSandbox:
             "-c",
             "import time; time.sleep(180)",
         ]
+        if profile == "product":
+            replacements = {
+                "--pids-limit=64": "--pids-limit=128",
+                "--memory=256m": "--memory=768m",
+                "--memory-swap=256m": "--memory-swap=768m",
+                "nofile=128:128": "nofile=512:512",
+                "/tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777": "/tmp:rw,nosuid,nodev,noexec,size=96m,mode=1777",
+            }
+            options = [replacements.get(value, value) for value in options]
+        elif profile != "standard":
+            raise ValueError("Unknown sandbox resource profile")
+        return options
 
     def run(
         self,
@@ -221,7 +239,7 @@ class OfflineSandbox:
         name = "triad-tools-" + uuid4().hex
         # No option comes from model output. In particular: no -v, env-file,
         # device, published port, privileged mode or host namespace is exposed.
-        options = self.create_options(name, self.image)
+        options = self.create_options(name, self.image, profile=self.profile)
         try:
             self._docker(options)
             check()

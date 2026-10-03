@@ -39,7 +39,7 @@ class ProductWorkspace:
         self.guard, self.resources = guard, resources
         self.calls, self.denials = [], 0
         self.denial_details = []
-        self.sandbox = OfflineSandbox(image=image)
+        self.sandbox = OfflineSandbox(image=image, profile="product")
         self.lock = threading.Lock()
         self.cancelled = threading.Event()
 

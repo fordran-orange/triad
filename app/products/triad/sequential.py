@@ -20,6 +20,7 @@ from trading_core.product_changes import (
 from trading_core.work import Record, now, uid
 
 from products.triad.development import ProductResponseFormatError
+from products.triad.sequential_application import PLAN_PATH, validate_plan
 from products.triad.sequential_planning import (
     HISTORICAL,
     CurrentValuePlan,
@@ -69,6 +70,16 @@ class CurrentProposal(Proposal):
     """New plans require value reasoning; historical evidence keeps its old schema."""
 
     value_plan: CurrentValuePlan
+
+    @model_validator(mode="after")
+    def maintains_application(self):
+        if self.outcome == "CHANGE" and PLAN_PATH not in self.files:
+            raise ValueError("Include the agent-owned application plan in the change manifest")
+        if self.outcome == "CHANGE" and not set(
+            self.value_plan.application_contribution.integration_checks
+        ) <= {check.check_id for check in self.acceptance}:
+            raise ValueError("Application integration checks must resolve to acceptance criteria")
+        return self
 
 
 class SequentialCycle:
@@ -364,14 +375,19 @@ class SequentialCycle:
             "mission_contribution (the capability gap this increment closes), major_gaps (your evidence-based "
             "assessment of the largest remaining gaps in the complete application, not a fixed feature checklist), "
             "at least two meaningful alternatives with reasons not selected, next steps, and dependencies or blockers. "
+            "Supply application_contribution: user workflow and entry point, input producer, output consumer, "
+            "versioned contracts, integration checks and FOUNDATION/CONNECTED_INCREMENT/REPAIR/DEPENDENCY_REMOVAL status. "
+            "Maintain app/products/triad/application_plan.json in every CHANGE manifest. It is your revisable architecture, "
+            "not a fixed operator roadmap. Identify and remove missing application connections before adding isolated tools. "
             "Consult current Core interfaces and prior-cycle outcomes. Continue worthwhile prior work or explain changing direction. "
             "NO_CHANGE is valid only with evidence explaining why the compared meaningful alternatives cannot responsibly "
             "advance now; a finished checklist or lack of existing feature files is not sufficient. Keep files and acceptance "
             "empty for NO_CHANGE. Never invent low-value work to meet a quota. Historical grants are not current restrictions. "
             "Choose exact existing/new product file paths. The following turn sees the prior deployed change. "
             "Every acceptance criterion must name its verification method and unique check_id. Available premerge methods are "
-            "SOURCE_REVIEW (exact source/diff inspection; no executed browser or interaction claims) and PYTHON_UNIT_TEST "
-            "(offline Python unittest with installed project dependencies). Browser rendering/keyboard/viewport checks are NOT available. "
+            "SOURCE_REVIEW (exact source/diff inspection), PYTHON_UNIT_TEST (offline Python unittest with installed Core SDK), "
+            "and BROWSER_TEST (Playwright Chromium unittest named browser_*.py inside the offline container). "
+            "For UI behavior, include BROWSER_TEST criteria and browser test paths in the manifest. "
             "Do not require unsupported checks or pretend source review proves browser behavior. For behavioral changes include meaningful "
             "unit tests and their tests/products/triad file paths in the initial manifest. "
             "Address all prior review feedback when supplied. Read-only integration source establishes mount prefixes; "
@@ -416,9 +432,14 @@ class SequentialCycle:
         if len({c.check_id for c in proposal.acceptance}) != len(proposal.acceptance):
             raise PermissionError("Acceptance check IDs must be unique")
         if any(c.method == "PYTHON_UNIT_TEST" for c in proposal.acceptance) and not any(
-            p.startswith("tests/products/triad/") and p.endswith(".py") for p in proposal.files
+            p.startswith("tests/products/triad/test_") and p.endswith(".py") for p in proposal.files
         ):
             raise PermissionError("Required unit tests must be in the approved manifest")
+        if any(c.method == "BROWSER_TEST" for c in proposal.acceptance) and not any(
+            p.startswith("tests/products/triad/browser_") and p.endswith(".py")
+            for p in proposal.files
+        ):
+            raise PermissionError("Required browser tests must be in the approved manifest")
         self.s.record(
             "ProductProposal",
             mission,
@@ -462,6 +483,9 @@ class SequentialCycle:
             "Assess mission_contribution and major_gaps against the complete application mission. An initiative may "
             "span multiple turns or days; require a useful tested increment, not completion of the entire initiative today. "
             "Challenge cosmetic churn and unsupported NO_CHANGE: a finished shell is not a finished trading product. "
+            "Assess application_contribution against the persistent plan. Require a credible connection to a user workflow, "
+            "explicit producers/consumers and versioned contracts with integration tests. A foundation is useful when it "
+            "enables the next connection; do not force a feature checklist or treat a submitted CSV tool as real trading. "
             "Do not require a large diff or choose the author's roadmap for them; small high-impact fixes are valid. "
             "Return APPROVE/REQUEST_CHANGES/REJECT with concrete findings, including the value assessment. "
             "Do not apply historical document-only grants or grant new authority.",
@@ -477,6 +501,7 @@ class SequentialCycle:
                 "available_checks": {
                     "SOURCE_REVIEW": "Exact source/diff inspection only; cannot establish rendered, responsive or keyboard behavior",
                     "PYTHON_UNIT_TEST": "Offline Python unittest with pinned project dependencies; include test paths in manifest",
+                    "BROWSER_TEST": "Playwright Chromium interactions with container-local candidate assets/API; include browser_*.py paths in manifest",
                 },
                 "sources": {
                     p: ProductGit(tuple(set(inventory) | set(proposal.files)), root=self.root)
@@ -691,6 +716,16 @@ class SequentialCycle:
         git.apply(metadata, patch.files)
         git.commit(metadata, agent)
         checks = git.verify(metadata)
+        application = validate_plan(self.test_snapshot(git, metadata))
+        if proposal.value_plan and proposal.value_plan.application_contribution:
+            contribution = proposal.value_plan.application_contribution
+            workflow = next(
+                (w for w in application.workflows if w.id == contribution.workflow), None
+            )
+            if workflow is None or workflow.entry_point != contribution.entry_point:
+                raise ValueError(
+                    "Candidate application plan must retain the proposed workflow and entry point"
+                )
         proof = check_candidate(
             self.test_snapshot(git, metadata),
             lambda: self.guard(mission),
