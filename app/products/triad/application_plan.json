@@ -1,12 +1,12 @@
 {
   "schema_version": "triad.application.v1",
   "goal": "Build one refined, connected stock-trading application that can rival TradingView and thinkorswim. The autonomous agents choose and evolve its architecture and priorities.",
-  "architecture_reasoning": "Baseline inventory, not an adopted final architecture. The current page exposes isolated analysis tools; their existence is not proof of a trading application. Retain useful work, but prove input, output, contract and workflow connections before describing it as integrated.",
+  "architecture_reasoning": "Adopt supplied dataset preparation as the first connected research workspace: existing inspection produces exact rows, preparation records identity and provenance, chart and Core validation consume the same dataset. Utilities remain independent and do not generate strategy results.",
   "components": [
     {
       "id": "workspace",
       "name": "Current product page",
-      "responsibility": "User entry point for currently available tools; not the complete product",
+      "responsibility": "Dataset chart, exact-value table, eligibility and separate report/Core downloads; legacy utilities retained",
       "owner": "triad",
       "status": "EXISTS",
       "paths": [
@@ -59,11 +59,21 @@
     {
       "id": "research-adapter",
       "name": "Triad research adapter",
-      "responsibility": "Reusable product consumer of the pure Core SDK with explicit input identity; not yet a user-facing research workflow",
+      "responsibility": "Owner-scoped Core frame validation and reusable research execution adapter; UI executes no experiments",
       "owner": "triad",
       "status": "EXISTS",
       "paths": [
         "app/products/triad/research_adapter.py"
+      ]
+    },
+    {
+      "id": "dataset-preparation",
+      "name": "Supplied dataset preparation",
+      "responsibility": "Bounded metadata and CSV to traceable chart rows and separately validated Core input",
+      "owner": "triad",
+      "status": "IMPLEMENTED",
+      "paths": [
+        "app/products/triad/research_dataset.py"
       ]
     }
   ],
@@ -76,6 +86,36 @@
       "status": "TESTED",
       "tests": [
         "tests/products/triad/test_research_adapter.py"
+      ]
+    },
+    {
+      "producer": "bar-inspector",
+      "consumer": "dataset-preparation",
+      "contract": "triad.bar-inspection.v1",
+      "status": "IMPLEMENTED_REQUIRES_INDEPENDENT_QA",
+      "tests": [
+        "tests/products/triad/test_research_dataset.py",
+        "tests/products/triad/browser_research_dataset.py"
+      ]
+    },
+    {
+      "producer": "dataset-preparation",
+      "consumer": "workspace",
+      "contract": "triad.research-dataset.v1",
+      "status": "IMPLEMENTED_REQUIRES_INDEPENDENT_QA",
+      "tests": [
+        "tests/products/triad/test_research_dataset.py",
+        "tests/products/triad/browser_research_dataset.py"
+      ]
+    },
+    {
+      "producer": "dataset-preparation",
+      "consumer": "research-adapter",
+      "contract": "core.product-research.v1",
+      "status": "IMPLEMENTED_REQUIRES_INDEPENDENT_QA",
+      "tests": [
+        "tests/products/triad/test_research_dataset.py",
+        "tests/products/triad/browser_research_dataset.py"
       ]
     }
   ],
@@ -90,6 +130,21 @@
       ],
       "status": "NOT_BUILT",
       "next_connection": "Agents should choose and establish the application backbone and a first useful connected workflow using proven Core interfaces. Identify required concepts, contracts and dependencies; do not assume unrelated CSV tools already integrate."
+    },
+    {
+      "id": "supplied-dataset-research",
+      "user_outcome": "Supply bars and provenance, chart observed values, understand Core eligibility, export traceable input",
+      "entry_point": "/triad/product#dataset-workspace",
+      "api": "/triad/product-api/research/dataset-preparation",
+      "components": [
+        "bar-inspector",
+        "dataset-preparation",
+        "workspace",
+        "research-adapter",
+        "core-research"
+      ],
+      "status": "CONNECTED_INCREMENT",
+      "next_connection": "Establish product Strategy callback contract and connect eligible datasets to experiments with explicit costs and execution assumptions; then link result charts and ledger review through a versioned result contract."
     }
   ],
   "decisions": [
@@ -98,7 +153,58 @@
     "Core SDK connection is demonstrated on explicit synthetic fixtures. It does not connect the existing CSV tools, certify real data, supply stored research or create the user-facing trading workflow."
   ],
   "next_initiatives": [
-    "Agent-selected application structure and first connected user workflow",
-    "Explicit versioned contracts and integration tests for every adopted connection"
+    "Dataset-to-experiment connection after product strategy interface is established",
+    "Versioned experiment results to chart overlays and performance review"
+  ],
+  "identity_specification": {
+    "algorithm": "SHA-256",
+    "canonical_serialization": "UTF-8 json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False)",
+    "payload": [
+      "schema_version",
+      "owner",
+      "metadata",
+      "window",
+      "rows"
+    ],
+    "timestamps": "UTC isoformat; supplied offsets normalized",
+    "decimal_strings": "Inspector fixed-point formatting retained, including trailing zeros",
+    "excluded": [
+      "raw digest",
+      "transformations",
+      "eligibility",
+      "volatile report timestamps"
+    ],
+    "raw_digest": "SHA-256 of exact submitted CSV UTF-8 including BOM and whitespace",
+    "ordering": "Rows sorted by UTC timestamp then symbol; equivalent row reorder changes raw digest only"
+  },
+  "transformations": [
+    "Leading BOM removed if present",
+    "Header and cell whitespace trimmed",
+    "Timestamps converted to UTC",
+    "Decimals encoded as fixed-point strings",
+    "Rows sorted by timestamp and symbol",
+    "SDK Bar converts decimal strings to floats only in Core input; exact strings remain in preparation report"
+  ],
+  "provenance_limits": [
+    "Caller-supplied source label, timezone, mode, version and ingestion time; source_symbol unchanged",
+    "Owner fixed to triad; provenance_id and dataset_id are prepared-content identity",
+    "Core assumes XNYS one-minute regular-session USD equities, UNADJUSTED; structural checks do not certify these source attributes",
+    "No fabricated provider provenance, repaired gaps, aggregation or dropped rows",
+    "Inspector-valid Core-rejected rows remain chartable; Core export requires actual ProductResearch.frame acceptance"
+  ],
+  "verification_references": [
+    "dataset-identity-01",
+    "dataset-core-02",
+    "dataset-api-03",
+    "dataset-browser-04",
+    "dataset-browser-05",
+    "dataset-plan-06"
+  ],
+  "remaining_gaps": [
+    "Provider-backed discovery and ingestion",
+    "Product strategy and experiment execution with linked result evaluation",
+    "Persistent dataset and experiment library",
+    "Portfolio construction and ongoing risk monitoring",
+    "Brokerage workflow; live trading disabled"
   ]
 }

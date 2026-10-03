@@ -8,3 +8,8 @@ def run_research(
     supplied: ResearchInput, experiment: Experiment, *, strategy=None, guard=lambda: None
 ):
     return ProductResearch("triad").run(supplied, experiment, strategy=strategy, guard=guard)
+
+
+def validate_research_input(supplied: ResearchInput):
+    """Validate with the real owner-scoped SDK; no engine execution."""
+    return ProductResearch("triad").frame(supplied)
