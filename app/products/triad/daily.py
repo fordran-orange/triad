@@ -536,7 +536,82 @@ class Daily:
             raise PermissionError("Debrief publication QA is superseded")
         return published
 
-    def resume_debrief(self, cycle_id):
+    def _blocked_debrief_format_repair(self, cycle_id, prior, run_id, conn):
+        """Bind explicit operator recovery to a completed reporting-only refusal."""
+        def record(kind, identifier):
+            row = conn.execute(
+                "SELECT payload FROM core.day3_records WHERE kind=%s AND owner='triad' "
+                "AND payload->>'run_id'=%s ORDER BY created_at DESC LIMIT 1",
+                (kind, identifier),
+            ).fetchone()
+            return row["payload"] if row else {}
+
+        request = record("AgentRunRequest", run_id)
+        result = record("AgentRunResult", run_id)
+        usage = record("Usage", run_id)
+        previous = request.get("context_packet", {}).get("previous_run_id")
+        original = record("AgentRunRequest", previous)
+        original_result = record("AgentRunResult", previous)
+        original_usage = record("Usage", previous)
+        original_context = original.get("context_packet", {})
+        artifact = request.get("context_packet", {}).get("original_artifact")
+        tomorrow_schema = original_context.get("schema", {}).get("properties", {}).get(
+            "what_changed_about_tomorrow", {}
+        )
+        retries = self.product.list(
+            "ProductResponseRetry",
+            matching={"mission_id": cycle_id, "previous_run_id": previous},
+            conn=conn,
+        )
+        failure = (prior.get("failures") or [{}])[-1]
+        eligible = (
+            prior.get("failure_code") == "PermissionError"
+            and result.get("status") == "BLOCKED"
+            and usage.get("status") == "SUCCESS"
+            and original_usage.get("status") == "SUCCESS"
+            and original_result.get("analysis_artifacts") == [artifact]
+            and original_context.get("cycle", {}).get("cycle_id") == cycle_id
+            and original_context.get("cycle", {}).get("verified_revision") == prior.get("verified_revision")
+            and set(original_context.get("required_tomorrow_keys", [])) == set(TOMORROW_KEYS)
+            and tomorrow_schema.get("type") == "object"
+            and tomorrow_schema.get("additionalProperties") == {"type": "string"}
+            and not tomorrow_schema.get("properties")
+            and "What changed about tomorrow requires all seven answers"
+                in request.get("context_packet", {}).get("validation_errors", "")
+            and failure.get("message") == ("Provider blocked this assignment: " + result.get("summary", ""))[:500]
+            and request.get("objective", "").startswith("Repair only the response format of the supplied complete artifact.")
+            and original.get("objective", "").startswith("Write a candid Daily Debrief using supplied actual evidence.")
+            and all(
+                r.get("mission_id") == cycle_id
+                and r.get("agent_id") == "CLAUDE"
+                and r.get("role") == "REVIEW"
+                and r.get("execution_permissions") == ["read"]
+                and r.get("control_epoch") == prior.get("control_epoch")
+                and set(r.get("allowed_tools", [])) <= {"read_file"}
+                for r in (request, original)
+            )
+            and request.get("context_packet", {}).get("schema", {}).get("title") == "Debrief"
+            and any(
+                r.get("agent") == "CLAUDE" and r.get("recovery_mode") == "FORMAT_REPAIR"
+                and r.get("failure_category") == "SCHEMA" for r in retries
+            )
+        )
+        if eligible:
+            for r in (request, original):
+                work = self.host.store.get(r["work_item_id"], conn=conn)
+                eligible = eligible and (
+                    str(work.status) == "FAILED" and work.mission_id == cycle_id
+                    and work.assigned_agent == "CLAUDE" and work.work_type == "review"
+                    and work.authority_tier == 0
+                    and work.parent_work_item_id == prior.get("parent_work_item_id")
+                    and tuple(work.execution_permissions) == ("read",)
+                    and set(work.allowed_tools) <= {"read_file"}
+                )
+        if not eligible:
+            raise PermissionError("Blocked debrief format-repair evidence does not match")
+        return True
+
+    def resume_debrief(self, cycle_id, *, blocked_format_repair_run_id=None):
         """Operator recovery of reporting only; never replays a build or merge."""
         from trading_core.product_changes import active_policy
 
@@ -549,6 +624,10 @@ class Daily:
                 r for r in self.product.list("CycleRecord", conn=conn) if r["cycle_id"] == cycle_id
             ]
             active = [r for r in history if r["status"] not in TERMINAL]
+            blocked_format_repair = (
+                self._blocked_debrief_format_repair(cycle_id, prior, blocked_format_repair_run_id, conn)
+                if blocked_format_repair_run_id else False
+            )
             rejected_runtime_result = (
                 prior.get("failure_code") == "ProviderError"
                 and prior.get("failures", [{}])[-1].get("message") == "InvalidRuntimeResult"
@@ -580,6 +659,7 @@ class Daily:
                     not in {"ProductResponseFormatError", "UniqueViolation"}
                     and not review_exhausted
                     and not rejected_runtime_result
+                    and not blocked_format_repair
                 )
                 or not active
                 or active[-1]["status"] != "DEBRIEFING"
@@ -606,6 +686,7 @@ class Daily:
                     "prior_status": prior["status"],
                     "prior_failure": prior.get("failures"),
                     "merge_commit": prior["merge_commit"],
+                    "blocked_format_repair_run_id": blocked_format_repair_run_id,
                 },
                 conn=conn,
             )
