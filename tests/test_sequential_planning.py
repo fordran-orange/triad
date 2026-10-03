@@ -143,9 +143,10 @@ def test_history_is_product_private_and_does_not_reapply_old_grants(tmp_path):
 
 @pytest.mark.parametrize("agent,receives_candidate", [("CODEX", True), ("CLAUDE", False)])
 def test_workspace_receives_exact_plan_schema_and_only_its_own_retained_candidate(monkeypatch, agent, receives_candidate):
-    from products.triad import sequential
     from products.triad.sequential_application import ApplicationPlan
     from trading_core.product_workspace_grant import PROFILE
+
+    from products.triad import sequential
 
     flow = SequentialCycle.__new__(SequentialCycle)
     flow.policy = {"workspace_profile": PROFILE}
