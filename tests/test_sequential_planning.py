@@ -5,7 +5,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 from products.triad.sequential import CurrentProposal, Proposal, SequentialCycle
-from products.triad.sequential_application import PLAN_PATH
+from products.triad.sequential_application import APPLICATION_RULES, PLAN_PATH
 from products.triad.sequential_planning import (
     CORE_REFERENCES,
     HISTORICAL,
@@ -131,7 +131,10 @@ def test_current_proposals_require_workflow_id_without_changing_historical_bytes
     with pytest.raises(ValidationError, match="workflow"):
         CurrentProposal(**historical)
     schema = CurrentProposal.model_json_schema()
-    assert schema["$defs"]["CurrentApplicationContribution"]["properties"]["workflow"]["pattern"] == r"^[a-z][a-z0-9_-]{0,63}$"
+    assert (
+        schema["$defs"]["CurrentApplicationContribution"]["properties"]["workflow"]["pattern"]
+        == r"^[a-z][a-z0-9_-]{0,63}$"
+    )
 
 
 def test_history_is_product_private_and_does_not_reapply_old_grants(tmp_path):
@@ -147,13 +150,17 @@ def test_history_is_product_private_and_does_not_reapply_old_grants(tmp_path):
     from products.triad.sequential_application import ApplicationPlan
 
     assert packet["application_plan"]["schema"] == ApplicationPlan.model_json_schema()
+    assert packet["application_plan"]["consistency_rules"] == APPLICATION_RULES
+    assert "adjacent pair" in APPLICATION_RULES and "separate workflows" in APPLICATION_RULES
     assert "unsupported keys are rejected" in packet["application_plan"]["format"]
     assert set(packet["shared_core"]["references_read_only"]) == set(CORE_REFERENCES)
     assert "installed read-only" in packet["shared_core"]["availability"]
 
 
 @pytest.mark.parametrize("agent,receives_candidate", [("CODEX", True), ("CLAUDE", False)])
-def test_workspace_receives_exact_plan_schema_and_only_its_own_retained_candidate(monkeypatch, agent, receives_candidate):
+def test_workspace_receives_exact_plan_schema_and_only_its_own_retained_candidate(
+    monkeypatch, agent, receives_candidate
+):
     from products.triad.sequential_application import ApplicationPlan
     from trading_core.product_workspace_grant import PROFILE
 
@@ -166,14 +173,33 @@ def test_workspace_receives_exact_plan_schema_and_only_its_own_retained_candidat
     material = {"agent": "CODEX", "files": [{"path": PLAN_PATH, "content": "retained"}]}
     flow.retained_application_candidate = material
     captured = {}
+
     def call(*args, **kwargs):
         captured.update(context=args[4])
         return "fixture"
-    flow.s = NS(call=call, git=NS(git=lambda *a: "base"), daily=NS(current=lambda *a: {"parent_work_item_id": "parent"}))
+
+    flow.s = NS(
+        call=call,
+        git=NS(git=lambda *a: "base"),
+        daily=NS(current=lambda *a: {"parent_work_item_id": "parent"}),
+    )
     monkeypatch.setattr(sequential, "core_context", lambda *a: {})
-    assert flow.implementation_call("mission", agent, "unused", {"proposal": {"files": [PLAN_PATH]}}, None, approval="approval") == "fixture"
+    assert (
+        flow.implementation_call(
+            "mission",
+            agent,
+            "unused",
+            {"proposal": {"files": [PLAN_PATH]}},
+            None,
+            approval="approval",
+        )
+        == "fixture"
+    )
     assert captured["context"]["application_plan_schema"] == ApplicationPlan.model_json_schema()
-    assert captured["context"]["retained_unmerged_candidate"] == (material if receives_candidate else None)
+    assert captured["context"]["application_plan_consistency_rules"] == APPLICATION_RULES
+    assert captured["context"]["retained_unmerged_candidate"] == (
+        material if receives_candidate else None
+    )
 
 
 def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
@@ -204,7 +230,9 @@ def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
     flow.s, flow.root, flow.policy = s, tmp_path, {"id": "policy"}
     flow.inventory = lambda: existing
     material = {
-        "agent": "CLAUDE", "commit": "unmerged", "snapshot_sha256": "digest",
+        "agent": "CLAUDE",
+        "commit": "unmerged",
+        "snapshot_sha256": "digest",
         "authority": "Advisory only; fresh approval required",
         "files": [{"path": PLAN_PATH, "content": "retained-source-" * 10000}],
     }
@@ -231,18 +259,26 @@ def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
     assert approval == "approved" and type(chosen) is Proposal
     author, reviewer = calls[0][1], calls[1][1]
     assert author["product_planning"] == reviewer["product_planning"]
-    assert author["retained_unmerged_candidate"] == reviewer["retained_unmerged_candidate"] == material
+    assert (
+        author["retained_unmerged_candidate"] == reviewer["retained_unmerged_candidate"] == material
+    )
     assert "files" not in author["product_planning"]["retained_candidate_reference"]
     from trading_core.contracts import AgentRunRequest, AgentRunResult
     from trading_core.evidence_delivery import PART_CHARS, prepare
 
     for context in (author, reviewer):
         request = AgentRunRequest(
-            agent_id="CLAUDE", work_item_id="fixture", mission_id="today", role="REVIEW",
-            objective="Inspect candidate", context_packet={**context, "evidence_delivery": "files-v1"},
-            allowed_tools=("read_file",), execution_permissions=("read",),
+            agent_id="CLAUDE",
+            work_item_id="fixture",
+            mission_id="today",
+            role="REVIEW",
+            objective="Inspect candidate",
+            context_packet={**context, "evidence_delivery": "files-v1"},
+            allowed_tools=("read_file",),
+            execution_permissions=("read",),
             allowed_paths=(),
-            acceptance_criteria=("Inspect evidence",), policy_decision={},
+            acceptance_criteria=("Inspect evidence",),
+            policy_decision={},
             required_output_schema=AgentRunResult.model_json_schema(),
         )
         delivered, files, required, proof = prepare(request, {})

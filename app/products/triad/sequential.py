@@ -21,6 +21,7 @@ from trading_core.work import Record, now, uid
 
 from products.triad.development import ProductResponseFormatError
 from products.triad.sequential_application import (
+    APPLICATION_RULES,
     PLAN_PATH,
     contributed_workflow,
     validate_connection_proof,
@@ -650,6 +651,7 @@ class SequentialCycle:
                 "inventory": paths,
                 "shared_core": core_context(self.s.git, self.s.git.git("rev-parse", "HEAD")),
                 "application_plan_schema": ApplicationPlan.model_json_schema(),
+                "application_plan_consistency_rules": APPLICATION_RULES,
                 "retained_unmerged_candidate": retained_candidate,
             },
             schema=schema,

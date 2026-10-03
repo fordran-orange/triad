@@ -12,6 +12,18 @@ from trading_core.work import Record
 PLAN_PATH = "app/products/triad/application_plan.json"
 WORKFLOW_PATTERN = r"^[a-z][a-z0-9_-]{0,63}$"
 WORKFLOW_ERROR = "Candidate application plan must retain the proposed workflow and entry point"
+APPLICATION_RULES = (
+    "Workflow components are an ordered producer-to-consumer chain, not an inventory of features. "
+    "CONNECTED requires at least two EXISTS components and a TESTED directed connection for every "
+    "adjacent pair in that exact order. Model parallel branches as separate workflows or leave the "
+    "larger journey PARTIAL and identify its next missing connection. Every TESTED connection must "
+    "name existing endpoints and actual product test files which pass in the offline image; skips "
+    "and expected failures are not proof. EXISTS components must name actual candidate files or "
+    "tracked read-only Core source. IDs must be unique and references must resolve exactly. "
+    "A proposal application_contribution.workflow is the exact workflows[].id, and entry_point "
+    "must match that workflow exactly. These consistency rules validate your own architecture; "
+    "they do not prescribe which features or architecture to build."
+)
 
 
 class Component(Record):

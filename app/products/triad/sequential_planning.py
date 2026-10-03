@@ -8,6 +8,7 @@ from pydantic import Field, model_serializer
 from trading_core.work import Record
 
 from products.triad.sequential_application import (
+    APPLICATION_RULES,
     PLAN_PATH,
     ApplicationContribution,
     ApplicationPlan,
@@ -167,6 +168,7 @@ def planning_context(service, mission, baseline):
             "sha256": hashlib.sha256(application_source.encode()).hexdigest(),
             "plan": application.model_dump(mode="json"),
             "schema": ApplicationPlan.model_json_schema(),
+            "consistency_rules": APPLICATION_RULES,
             "format": "Use these exact fields and status values. Put additional reasoning in decisions or architecture_reasoning; unsupported keys are rejected.",
             "ownership": "Agent-owned and revisable. Maintain this file with each adopted increment. It is not an operator feature checklist or proof of delivery.",
         },
