@@ -23,9 +23,10 @@ def fixture(engine, monkeypatch, defect=None):
             owner="triad", mission_id=cycle.cycle_id, work_type="review", title="Disposable debrief",
             description="Fixture only", assigned_agent="CLAUDE", authority_tier=0,
             parent_work_item_id=cycle.parent_work_item_id, execution_permissions=("read",),
+            allowed_tools=("read_file",),
+            allowed_paths=("app/product.py",) if run == "repair" and defect == "work_paths" else (),
         ))
         updates = {"status": State.FAILED, "revision": 1}
-        if run == "repair" and defect == "work_paths": updates["allowed_paths"] = ("app/product.py",)
         stopped = work.model_copy(update=updates)
         s.host.store.step(work, stopped, "Disposable completed failed reporting run")
         works.append(stopped)
