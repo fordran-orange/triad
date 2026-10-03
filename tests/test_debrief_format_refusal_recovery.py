@@ -24,7 +24,9 @@ def fixture(engine, monkeypatch, defect=None):
             description="Fixture only", assigned_agent="CLAUDE", authority_tier=0,
             parent_work_item_id=cycle.parent_work_item_id, execution_permissions=("read",),
         ))
-        stopped = work.model_copy(update={"status": State.FAILED, "revision": 1})
+        updates = {"status": State.FAILED, "revision": 1}
+        if run == "repair" and defect == "work_paths": updates["allowed_paths"] = ("app/product.py",)
+        stopped = work.model_copy(update=updates)
         s.host.store.step(work, stopped, "Disposable completed failed reporting run")
         works.append(stopped)
         context = {
@@ -47,7 +49,7 @@ def fixture(engine, monkeypatch, defect=None):
         }
         result = {"run_id": run, "status": "BLOCKED" if run == "repair" else "DOCUMENTATION_CHANGE",
                   "summary": summary, "analysis_artifacts": [artifact]}
-        usage = {"run_id": run, "status": "SUCCESS"}
+        usage = {"run_id": run, "agent": "CLAUDE", "status": "SUCCESS"}
         if run == "repair":
             if defect == "foreign_mission": request["mission_id"] = "foreign"
             if defect == "writer": request["execution_permissions"] = ["write_code"]
@@ -58,10 +60,17 @@ def fixture(engine, monkeypatch, defect=None):
             if defect == "unbound_artifact": context["original_artifact"] = {"different": "artifact"}
             if defect == "not_stopped": usage["status"] = "RUNNING"
             if defect == "not_refused": result["status"] = "DOCUMENTATION_CHANGE"
+            if defect == "usage_wrong_agent": usage["agent"] = "GROK"
+            if defect == "request_paths": request["allowed_paths"] = ["app/product.py"]
         if run == "original" and defect == "not_schema_conflict":
             context["schema"]["properties"]["what_changed_about_tomorrow"]["properties"] = {"new_capability": {"type": "string"}}
         for kind, payload in [("AgentRunRequest", request), ("AgentRunResult", result), ("Usage", usage)]:
-            s.host.ledger.put(kind, payload, work_id=work.work_item_id)
+            column_work = works[0].work_item_id if run == "repair" and (
+                (defect == "result_other_work" and kind == "AgentRunResult")
+                or (defect == "usage_other_work" and kind == "Usage")
+                or (defect == "request_other_work" and kind == "AgentRunRequest")
+            ) else work.work_item_id
+            s.host.ledger.put(kind, payload, work_id=column_work)
     if defect != "missing_retry":
         s.host.append("ProductResponseRetry", {"mission_id": cycle.cycle_id, "previous_run_id": "original",
             "agent": "CLAUDE", "recovery_mode": "FORMAT_REPAIR", "failure_category": "SCHEMA"}, owner="triad")
@@ -88,7 +97,8 @@ def test_explicit_recovery_preserves_work_and_still_requires_completed_turns(eng
 
 @pytest.mark.parametrize("defect", ["foreign_mission", "writer", "wrong_epoch", "wrong_agent",
     "unrelated_request", "unrelated_schema", "unbound_artifact", "not_stopped", "not_refused",
-    "not_schema_conflict", "missing_retry", "wrong_failure"])
+    "not_schema_conflict", "missing_retry", "wrong_failure", "usage_wrong_agent", "request_paths",
+    "work_paths", "result_other_work", "usage_other_work", "request_other_work"])
 def test_unrelated_or_incomplete_proof_cannot_reopen_reporting(engine, monkeypatch, defect):
     s, cycle, _ = fixture(engine, monkeypatch, defect)
     with pytest.raises(PermissionError, match="evidence does not match"):

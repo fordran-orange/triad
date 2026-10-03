@@ -538,21 +538,25 @@ class Daily:
 
     def _blocked_debrief_format_repair(self, cycle_id, prior, run_id, conn):
         """Bind explicit operator recovery to a completed reporting-only refusal."""
-        def record(kind, identifier):
+        def record(kind, identifier, work_id=None):
             row = conn.execute(
-                "SELECT payload FROM core.day3_records WHERE kind=%s AND owner='triad' "
+                "SELECT payload,work_item_id FROM core.day3_records WHERE kind=%s AND owner='triad' "
                 "AND payload->>'run_id'=%s ORDER BY created_at DESC LIMIT 1",
                 (kind, identifier),
             ).fetchone()
-            return row["payload"] if row else {}
+            if not row or (work_id and row["work_item_id"] != work_id):
+                return {}
+            if kind == "AgentRunRequest" and row["work_item_id"] != row["payload"].get("work_item_id"):
+                return {}
+            return row["payload"]
 
         request = record("AgentRunRequest", run_id)
-        result = record("AgentRunResult", run_id)
-        usage = record("Usage", run_id)
+        result = record("AgentRunResult", run_id, request.get("work_item_id"))
+        usage = record("Usage", run_id, request.get("work_item_id"))
         previous = request.get("context_packet", {}).get("previous_run_id")
         original = record("AgentRunRequest", previous)
-        original_result = record("AgentRunResult", previous)
-        original_usage = record("Usage", previous)
+        original_result = record("AgentRunResult", previous, original.get("work_item_id"))
+        original_usage = record("Usage", previous, original.get("work_item_id"))
         original_context = original.get("context_packet", {})
         artifact = request.get("context_packet", {}).get("original_artifact")
         tomorrow_schema = original_context.get("schema", {}).get("properties", {}).get(
@@ -568,7 +572,9 @@ class Daily:
             prior.get("failure_code") == "PermissionError"
             and result.get("status") == "BLOCKED"
             and usage.get("status") == "SUCCESS"
+            and usage.get("agent") == "CLAUDE"
             and original_usage.get("status") == "SUCCESS"
+            and original_usage.get("agent") == "CLAUDE"
             and original_result.get("analysis_artifacts") == [artifact]
             and original_context.get("cycle", {}).get("cycle_id") == cycle_id
             and original_context.get("cycle", {}).get("verified_revision") == prior.get("verified_revision")
@@ -588,6 +594,7 @@ class Daily:
                 and r.get("execution_permissions") == ["read"]
                 and r.get("control_epoch") == prior.get("control_epoch")
                 and set(r.get("allowed_tools", [])) <= {"read_file"}
+                and not r.get("allowed_paths")
                 for r in (request, original)
             )
             and request.get("context_packet", {}).get("schema", {}).get("title") == "Debrief"
@@ -603,9 +610,11 @@ class Daily:
                     str(work.status) == "FAILED" and work.mission_id == cycle_id
                     and work.assigned_agent == "CLAUDE" and work.work_type == "review"
                     and work.authority_tier == 0
+                    and work.owner == "triad"
                     and work.parent_work_item_id == prior.get("parent_work_item_id")
                     and tuple(work.execution_permissions) == ("read",)
                     and set(work.allowed_tools) <= {"read_file"}
+                    and not work.allowed_paths
                 )
         if not eligible:
             raise PermissionError("Blocked debrief format-repair evidence does not match")
