@@ -254,5 +254,26 @@ class ProductReadinessContentTests(unittest.TestCase):
                 self.assertNotIn('aria-current', nav_links[label].attrs)
 
 
+    def test_bar_inspection_section_contract(self):
+        nodes = {n.attrs.get("id"): n for n in self.elements}
+        section = nodes["bar-inspection"]
+        self.assertEqual(section.tag, "section")
+        self.assertEqual([n.attrs.get("id") for n in self.elements].count("bar-inspection"), 1)
+        text = section.text()
+        for phrase in (
+            "user-supplied",
+            "not a market feed",
+            "not a chart",
+            "not a backtest",
+            "not strategy edge",
+        ):
+            self.assertIn(phrase, text)
+        source = PRODUCT_HTML.read_text(encoding="utf-8")
+        bar_source = source.split('id="bar-inspection"', 1)[1]
+        self.assertIn("/triad/product-api/research/bar-inspection", bar_source)
+        self.assertIn(".textContent", bar_source)
+        self.assertNotIn("innerHTML", bar_source)
+
+
 if __name__ == '__main__':
     unittest.main()

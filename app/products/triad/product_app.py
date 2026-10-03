@@ -9,7 +9,9 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from products.triad.bar_inspection import inspect_bars
 from products.triad.cost_sensitivity import calculate_cost_sensitivity
+from products.triad.trade_ledger import analyze_trade_ledger
 
 
 class CostAssumptions(BaseModel):
@@ -23,6 +25,17 @@ class CostAssumptions(BaseModel):
     commission_bps: Decimal = Field(ge=0, le=1000, allow_inf_nan=False)
     full_spread_bps: Decimal = Field(ge=0, le=1000, allow_inf_nan=False)
     slippage_bps: Decimal = Field(ge=0, le=1000, allow_inf_nan=False)
+
+
+class TradeLedgerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    initial_balance: str = Field(strict=True, max_length=32)
+    csv_text: str = Field(strict=True, max_length=1_000_000)
+
+
+class BarInspectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csv_text: str = Field(strict=True, max_length=1_000_000)
 
 
 app = FastAPI(title="Triad product application")
@@ -51,22 +64,18 @@ def cost_sensitivity(assumptions: CostAssumptions):
     return calculate_cost_sensitivity(assumptions.model_dump())
 
 
-from products.triad.trade_ledger import analyze_trade_ledger
-
-
-class TradeLedgerRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    initial_balance: str = Field(strict=True, max_length=32)
-    csv_text: str = Field(strict=True, max_length=1_000_000)
-
-
 @app.exception_handler(RequestValidationError)
-async def bounded_ledger_errors(request: Request, error: RequestValidationError):
-    if request.url.path.endswith("/research/trade-ledger"):
+async def bounded_request_errors(request: Request, error: RequestValidationError):
+    path = request.url.path
+    if path.endswith("/research/trade-ledger"):
         # Do not echo submitted text or arbitrarily many unknown field names.
         return JSONResponse(status_code=422, content={"detail":
             "Invalid request: require only initial_balance (decimal string, <=32 characters) "
             "and csv_text (string, <=1,000,000 characters and UTF-8 bytes)."})
+    if path.endswith("/research/bar-inspection"):
+        # Do not echo submitted CSV or unknown field names.
+        return JSONResponse(status_code=422, content={"detail":
+            "Invalid request: require only csv_text (string, <=1,000,000 characters and UTF-8 bytes)."})
     return await request_validation_exception_handler(request, error)
 
 
@@ -74,5 +83,13 @@ async def bounded_ledger_errors(request: Request, error: RequestValidationError)
 def trade_ledger(payload: TradeLedgerRequest):
     try:
         return analyze_trade_ledger(payload.initial_balance, payload.csv_text)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/research/bar-inspection")
+def bar_inspection(payload: BarInspectionRequest):
+    try:
+        return inspect_bars(payload.csv_text)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

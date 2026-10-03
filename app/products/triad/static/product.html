@@ -335,4 +335,87 @@
   });
 })();
 </script>
+<section id="bar-inspection"><h2>User-supplied OHLCV inspection</h2>
+<p>Paste user-supplied completed price bars. This input is user-supplied, not a market feed, not a chart, not a backtest, and not strategy edge. Rows are checked for structure and summarized; prices are not adjusted for corporate actions, returns and signals are not computed, and nothing here places orders or reads a live account.</p>
+<p>CSV columns, in any order, are exactly timestamp,symbol,open,high,low,close,volume. At most 5,000 data rows and 1,000,000 UTF-8 bytes. Symbols are 1–20 characters matching uppercase letters, digits, dots, underscores, or hyphens. Timestamps are timezone-aware ISO-8601 values and are reported in UTC. Prices are positive ordinary decimals and volume is nonnegative; each is at most 1,000,000, with at most eight fractional digits and no exponents. High must be at least the maximum of open, low, and close, and low must be at most the minimum of open and close. Duplicate symbol and timestamp pairs are rejected.</p>
+<form id="bar-form">
+<label for="bar-csv">Completed bars (CSV)</label>
+<textarea id="bar-csv" rows="8" maxlength="1000000" required style="width:100%;box-sizing:border-box;font:14px monospace"></textarea>
+<button type="submit">Inspect bars</button>
+</form>
+<p id="bar-status" role="status" aria-live="polite">Paste user-supplied bars to inspect coverage.</p>
+<div id="bar-results" hidden>
+<dl id="bar-summary"></dl>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Symbol coverage">
+<table id="bar-coverage-table"><caption>Symbol coverage — alphabetical; counts and UTC timestamps only</caption>
+<thead><tr><th scope="col">Symbol</th><th scope="col">Bars</th><th scope="col">First timestamp (UTC)</th><th scope="col">Last timestamp (UTC)</th></tr></thead>
+<tbody id="bar-coverage-rows"></tbody></table></div></div>
+<noscript>JavaScript is required to submit this inspection.</noscript>
+</section>
+<script>
+(() => {
+  const node = id => document.getElementById('bar-' + id);
+  const form = node('form');
+  const results = node('results');
+  let version = 0;
+  let controller;
+  function clear() {
+    version++;
+    if (controller) controller.abort();
+    results.hidden = true;
+    node('summary').replaceChildren();
+    node('coverage-rows').replaceChildren();
+    form.removeAttribute('aria-busy');
+  }
+  form.addEventListener('input', () => {
+    clear();
+    node('status').textContent = 'Input changed. Inspect bars to see updated coverage.';
+  });
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    clear();
+    const current = version;
+    controller = new AbortController();
+    form.setAttribute('aria-busy', 'true');
+    node('status').textContent = 'Inspecting\u2026';
+    try {
+      const response = await fetch('/triad/product-api/research/bar-inspection', {
+        method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal,
+        body:JSON.stringify({csv_text:node('csv').value})
+      });
+      const data = await response.json();
+      if (current !== version) return;
+      if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Bar inspection failed.');
+      const fields = {
+        row_count:'Rows', duplicate_count:'Duplicate symbol and timestamp pairs',
+        symbols:'Symbols (alphabetical)'
+      };
+      for (const [key,label] of Object.entries(fields)) {
+        const term = document.createElement('dt'), value = document.createElement('dd');
+        term.textContent = label;
+        value.textContent = key === 'symbols' ? data.symbols.join(', ') : String(data[key]);
+        node('summary').append(term, value);
+      }
+      for (const item of data.coverage) {
+        const row = document.createElement('tr');
+        for (const key of ['symbol','bar_count','first_timestamp','last_timestamp']) {
+          const cell = document.createElement(key === 'symbol' ? 'th' : 'td');
+          if (key === 'symbol') cell.scope = 'row';
+          cell.textContent = String(item[key]);
+          row.appendChild(cell);
+        }
+        node('coverage-rows').appendChild(row);
+      }
+      results.hidden = false;
+      node('status').textContent = 'Inspection complete. Coverage of user-supplied bars only; not a market feed, not a chart, not a backtest, and not strategy edge.';
+    } catch (error) {
+      if (current !== version) return;
+      clear();
+      node('status').textContent = error.message || 'Inspection failed. Please try again.';
+    } finally {
+      if (current === version) form.removeAttribute('aria-busy');
+    }
+  });
+})();
+</script>
 </main></body></html>
