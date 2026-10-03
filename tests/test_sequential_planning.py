@@ -192,6 +192,12 @@ def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
     flow = object.__new__(SequentialCycle)
     flow.s, flow.root, flow.policy = s, tmp_path, {"id": "policy"}
     flow.inventory = lambda: existing
+    material = {
+        "agent": "CLAUDE", "commit": "unmerged", "snapshot_sha256": "digest",
+        "authority": "Advisory only; fresh approval required",
+        "files": [{"path": PLAN_PATH, "content": "retained-source-" * 10000}],
+    }
+    flow.retained_application_candidate = material
 
     def call(mission, agent, objective, context, schema=None, paths=()):
         calls.append((objective, context, paths))
@@ -214,6 +220,25 @@ def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
     assert approval == "approved" and type(chosen) is Proposal
     author, reviewer = calls[0][1], calls[1][1]
     assert author["product_planning"] == reviewer["product_planning"]
+    assert author["retained_unmerged_candidate"] == reviewer["retained_unmerged_candidate"] == material
+    assert "files" not in author["product_planning"]["retained_candidate_reference"]
+    from trading_core.contracts import AgentRunRequest, AgentRunResult
+    from trading_core.evidence_delivery import PART_CHARS, prepare
+
+    for context in (author, reviewer):
+        request = AgentRunRequest(
+            agent_id="CLAUDE", work_item_id="fixture", mission_id="today", role="REVIEW",
+            objective="Inspect candidate", context_packet={**context, "evidence_delivery": "files-v1"},
+            allowed_tools=("read_file",), execution_permissions=("read",),
+            acceptance_criteria=("Inspect evidence",), policy_decision={},
+            required_output_schema=AgentRunResult.model_json_schema(),
+        )
+        delivered, files, required, proof = prepare(request, {})
+        assert material["files"][0]["content"] not in json.dumps(delivered.context_packet)
+        entry = next(e for e in proof["manifest"] if e["source"] == "retained_unmerged_candidate")
+        assert set(entry["parts"]) <= required
+        assert all(len(files[p]) <= PART_CHARS for p in entry["parts"])
+        assert json.loads("".join(files[p] for p in entry["parts"])) == material
     assert not HISTORICAL.intersection(author["additional_product_sources_read_only"])
     assert not HISTORICAL.intersection(reviewer["sources"])
     assert len(reviewer["sources"]["tests/products/triad/test_large.py"]) > 12000

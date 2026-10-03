@@ -364,7 +364,12 @@ class SequentialCycle:
         strategy = planning_context(self.s, mission, baseline)
         retained_candidate = getattr(self, "retained_application_candidate", None)
         if retained_candidate and retained_candidate["agent"] == agent:
-            strategy["retained_unmerged_candidate"] = retained_candidate
+            strategy["retained_candidate_reference"] = {
+                k: retained_candidate[k]
+                for k in ("agent", "commit", "snapshot_sha256", "authority")
+            }
+        else:
+            retained_candidate = None
         sources = tuple(p for p in inventory if p.startswith("app/products/triad/"))
         additional_sources = {}
         for path in inventory:
@@ -405,6 +410,7 @@ class SequentialCycle:
             "Return exactly one Proposal JSON object in analysis_artifacts using the supplied schema.",
             {
                 "product_planning": strategy,
+                "retained_unmerged_candidate": retained_candidate,
                 "inventory": inventory,
                 "additional_product_sources_read_only": additional_sources,
                 "base_commit": baseline,
@@ -483,6 +489,9 @@ class SequentialCycle:
         author_work_id,
         author_run_id,
     ):
+        retained_candidate = getattr(self, "retained_application_candidate", None)
+        if retained_candidate and retained_candidate["agent"] != agent:
+            retained_candidate = None
         review_work, review, _, usage = self.call(
             mission,
             REVIEWERS[agent],
@@ -499,6 +508,7 @@ class SequentialCycle:
             "Do not apply historical document-only grants or grant new authority.",
             {
                 "product_planning": strategy,
+                "retained_unmerged_candidate": retained_candidate,
                 "proposal": proposal.model_dump(mode="json"),
                 "inventory": inventory,
                 "base_commit": baseline,
