@@ -660,11 +660,15 @@ class CodexReadOnlyRun:
                     from trading_core.security import redact
 
                     error = completions[turn_id].get("error")
-                    safe = redact(error) if isinstance(error, dict) else {}
+                    safe = redact({
+                        "status": str(completions[turn_id].get("status")),
+                        "error": error if isinstance(error, dict) else {},
+                    })
+                    safe_error = safe["error"]
                     self.evidence["failed_turn"] = {
-                        "status": str(completions[turn_id].get("status"))[:80],
-                        "message": str(safe.get("message", "Vendor turn did not complete"))[:2000],
-                        "openai_error_info": str(safe.get("openaiErrorInfo", "Unknown"))[:1000],
+                        "status": str(safe["status"])[:80],
+                        "message": str(safe_error.get("message", "Vendor turn did not complete"))[:2000],
+                        "openai_error_info": str(safe_error.get("openaiErrorInfo", "Unknown"))[:1000],
                     }
                     raise ProviderError("DEGRADED", "CodexTurnFailed")
                 final = final_messages.get(turn_id)

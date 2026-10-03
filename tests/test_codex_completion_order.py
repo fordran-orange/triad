@@ -154,13 +154,13 @@ def test_vendor_failure_detail_is_preserved_and_redacted(monkeypatch):
                         "openaiErrorInfo": "Other",
                     }
 
-    app = FailedApp(True, "failed")
+    app = FailedApp(True, "failed " + secret)
     runner = codex.CodexReadOnlyRun([], lambda: None)
     monkeypatch.setattr(codex, "CodexReadOnlyRun", lambda *a, **kw: runner)
     with pytest.raises(ProviderError, match="CodexTurnFailed"):
         execute(monkeypatch, app)
     assert runner.evidence["failed_turn"] == {
-        "status": "failed",
+        "status": "failed [REDACTED]",
         "message": "Vendor request failed: [REDACTED]",
         "openai_error_info": "Other",
     }
