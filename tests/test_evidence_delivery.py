@@ -103,6 +103,7 @@ def test_format_repair_does_not_repeat_planning_but_incomplete_output_does(compl
         return None, None, Shape(value=3), {"run_id": "repaired-run", "input_tokens": 20}
 
     flow.s = NS(
+        git=NS(clean_baseline=lambda: "fixture-baseline"),
         call=call,
         record=lambda *a, **k: records.append((a, k)),
         daily=NS(current=lambda _: {"parent_work_item_id": "parent"}),
