@@ -1,7 +1,7 @@
 {
   "schema_version": "triad.application.v1",
   "goal": "Build one refined, connected stock-trading application that can rival TradingView and thinkorswim. The autonomous agents choose and evolve its architecture and priorities.",
-  "architecture_reasoning": "Baseline inventory, not an adopted final architecture. The current page exposes isolated analysis tools; their existence is not proof of a trading application. Retain useful work, but prove input, output, contract and workflow connections before describing it as integrated.",
+  "architecture_reasoning": "Supplied observations connect structural parsing to exact dataset preparation and owner-scoped Core validation. Chart consumption is a separate branch. Experiments remain the next missing connection; shared page placement does not imply integration.",
   "components": [
     {
       "id": "workspace",
@@ -65,6 +65,34 @@
       "paths": [
         "app/products/triad/research_adapter.py"
       ]
+    },
+    {
+      "id": "dataset-preparation",
+      "name": "Dataset preparation",
+      "responsibility": "Bounded metadata, exact identity and separate Core eligibility",
+      "owner": "triad",
+      "status": "EXISTS",
+      "paths": [
+        "app/products/triad/research_dataset.py"
+      ]
+    },
+    {
+      "id": "chart-workspace",
+      "name": "Dataset chart workspace",
+      "responsibility": "Consume prepared exact rows as candles, volume, tables and downloads",
+      "owner": "triad",
+      "status": "EXISTS",
+      "paths": [
+        "app/products/triad/static/product.html"
+      ]
+    },
+    {
+      "id": "experiments",
+      "name": "Product experiments",
+      "responsibility": "Future strategy and execution assumptions consuming eligible datasets",
+      "owner": "triad",
+      "status": "PLANNED",
+      "paths": []
     }
   ],
   "connections": [
@@ -77,6 +105,58 @@
       "tests": [
         "tests/products/triad/test_research_adapter.py"
       ]
+    },
+    {
+      "producer": "workspace",
+      "consumer": "bar-inspector",
+      "contract": "triad.dataset-request",
+      "version": "v1",
+      "status": "TESTED",
+      "tests": [
+        "tests/products/triad/test_research_dataset.py",
+        "tests/products/triad/browser_research_dataset.py"
+      ]
+    },
+    {
+      "producer": "bar-inspector",
+      "consumer": "dataset-preparation",
+      "contract": "triad.bar-inspection",
+      "version": "v1",
+      "status": "TESTED",
+      "tests": [
+        "tests/products/triad/test_research_dataset.py",
+        "tests/products/triad/browser_research_dataset.py"
+      ]
+    },
+    {
+      "producer": "dataset-preparation",
+      "consumer": "research-adapter",
+      "contract": "core.product-research",
+      "version": "v1",
+      "status": "TESTED",
+      "tests": [
+        "tests/products/triad/test_research_dataset.py",
+        "tests/products/triad/browser_research_dataset.py"
+      ]
+    },
+    {
+      "producer": "dataset-preparation",
+      "consumer": "chart-workspace",
+      "contract": "triad.research-dataset",
+      "version": "v1",
+      "status": "TESTED",
+      "tests": [
+        "tests/products/triad/test_research_dataset.py",
+        "tests/products/triad/browser_research_dataset.py"
+      ]
+    },
+    {
+      "producer": "core-research",
+      "consumer": "experiments",
+      "contract": "core.product-research",
+      "version": "v1",
+      "status": "PLANNED",
+      "tests": []
     }
   ],
   "workflows": [
@@ -86,19 +166,57 @@
       "entry_point": "/triad/product",
       "components": [
         "workspace",
+        "bar-inspector",
+        "dataset-preparation",
+        "research-adapter",
+        "core-research",
+        "experiments"
+      ],
+      "status": "PARTIAL",
+      "next_connection": "Connect validated Core input to product experiments after establishing the strategy callback contract."
+    },
+    {
+      "id": "supplied-dataset-research",
+      "user_outcome": "Supply provenance and bars, understand eligibility and download the exact validated Core input",
+      "entry_point": "/triad/product#dataset-workspace",
+      "components": [
+        "workspace",
+        "bar-inspector",
+        "dataset-preparation",
+        "research-adapter",
         "core-research"
       ],
-      "status": "NOT_BUILT",
-      "next_connection": "Agents should choose and establish the application backbone and a first useful connected workflow using proven Core interfaces. Identify required concepts, contracts and dependencies; do not assume unrelated CSV tools already integrate."
+      "status": "CONNECTED",
+      "next_connection": "Connect datasets to experiments and versioned simulated results."
+    },
+    {
+      "id": "supplied-dataset-chart",
+      "user_outcome": "Inspect supplied observations as symbol-selectable candles, volume and exact values",
+      "entry_point": "/triad/product#dataset-workspace",
+      "components": [
+        "workspace",
+        "bar-inspector",
+        "dataset-preparation",
+        "chart-workspace"
+      ],
+      "status": "CONNECTED",
+      "next_connection": "Connect datasets to experiments and versioned simulated results."
     }
   ],
   "decisions": [
     "2026-10-03 operator correction: the application itself is the product. product.html and disconnected calculators are prototypes, not completion of the mission.",
     "Triad and Aegis independently consume Core. Triad chooses its own design and builds missing product tools and spaces. No Aegis dependency, broker credential grant, or live-trading authority is implied.",
-    "Core SDK connection is demonstrated on explicit synthetic fixtures. It does not connect the existing CSV tools, certify real data, supply stored research or create the user-facing trading workflow."
+    "Dataset preparation is mounted at /triad/product-api/research/dataset-preparation. workspace to bar-inspector denotes CSV carried by the bounded triad.dataset-request.v1 through this endpoint; parsing precedes preparation.",
+    "Raw identity hashes exact submitted UTF-8. Prepared identity hashes schema_version, owner, metadata, window and rows as UTF-8 sorted-key compact JSON with ensure_ascii=False and allow_nan=False.",
+    "The unchanged inspector removes leading BOM, trims cells and headers, normalizes UTC, preserves decimal strings and sorts timestamp then symbol. No gaps filled or rows dropped. Metadata timestamps normalize to UTC; other metadata remains verbatim. Floats occur only at the Core boundary and for chart geometry.",
+    "Market declarations require strict caller confirmation before Core validation. Ineligible structural rows remain chartable without Core export.",
+    "Mode and provenance are caller supplied, not certified. No persistence, strategy-performance, backtest or execution claims. Independent QA required before merge.",
+    "Cost and submitted-ledger tools remain available and independent until a simulated-result contract exists.",
+    "Named dataset unit and Chromium checks passed against candidate-local HTML and mounted API with the installed Core SDK. TESTED records development evidence, not independent QA or merge approval."
   ],
   "next_initiatives": [
-    "Agent-selected application structure and first connected user workflow",
-    "Explicit versioned contracts and integration tests for every adopted connection"
+    "Establish strategy callback contract and dataset-to-experiment connection",
+    "Versioned experiment results to chart overlays and performance review",
+    "Product-scoped persistence, then supported provider ingestion"
   ]
 }

@@ -3,7 +3,7 @@
 import unittest
 from datetime import UTC, datetime, timedelta
 
-from products.triad.research_adapter import run_research
+from products.triad.research_adapter import run_research, validate_research_input
 from trading_core.product_sdk import ResearchInput
 from trading_core.research.contracts import Bar, Experiment, Partition
 
@@ -58,6 +58,19 @@ def fixture():
 
 
 class ResearchAdapterTest(unittest.TestCase):
+    def test_frame_validation_preserves_rows_and_rejects_foreign_owner(self):
+        data, _ = fixture()
+        frame = validate_research_input(data)
+        self.assertEqual(len(frame), 12)
+        self.assertEqual(frame["symbol"].tolist(), ["LABTEST"] * 12)
+        self.assertEqual(frame["open"].tolist(), list(range(100, 112)))
+        self.assertTrue(frame["timestamp"].is_monotonic_increasing)
+        with self.assertRaises(PermissionError):
+            validate_research_input(data.model_copy(update={"owner": "aegis"}))
+        with self.assertRaises(ValueError):
+            validate_research_input(data.model_copy(update={"bars": data.bars[:5] + data.bars[6:]}))
+
+
     def test_real_core_engine_preserves_identity_and_is_repeatable(self):
         data, experiment = fixture()
         first = run_research(data, experiment)
