@@ -7,10 +7,10 @@ complete, or grant scheduling authority. Canonical snapshots append history.
 import hashlib
 import json
 from datetime import timedelta
-from typing import Literal
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, Field, WithJsonSchema, model_validator
 from trading_core.cycle_records import CycleRecord
 from trading_core.intelligence.quality import Quality
 from trading_core.intelligence.records import Records
@@ -20,6 +20,15 @@ from trading_core.work import Record, WorkItem, now, uid
 from products.triad.cycle_history import CycleHistory
 
 GAIN = Literal["NONE", "LOW", "MEDIUM", "HIGH", "TRANSFORMATIVE"]
+TOMORROW_KEYS = (
+    "new_capability",
+    "more_important",
+    "less_important",
+    "changed_assumption",
+    "new_dependency",
+    "risk_to_monitor",
+    "next_cycle",
+)
 TERMINAL = {"COMPLETED", "BLOCKED", "FAILED", "CANCELLED"}
 NEXT = {
     "CREATED": {"INSPECTING"},
@@ -109,21 +118,25 @@ class Debrief(Record):
     debt_introduced_statement: str = Field(min_length=1)
     debt_retired_statement: str = Field(min_length=1)
     net_effect: dict[str, str]
-    what_changed_about_tomorrow: dict[str, str]
+    # Advertise the existing required answers before vendor strict-schema
+    # conversion closes objects. Keep the stored dictionary shape compatible.
+    what_changed_about_tomorrow: Annotated[
+        dict[str, str],
+        WithJsonSchema(
+            {
+                "type": "object",
+                "properties": {key: {"type": "string", "minLength": 1} for key in TOMORROW_KEYS},
+                "required": list(TOMORROW_KEYS),
+                "additionalProperties": {"type": "string"},
+            }
+        ),
+    ]
     failures: tuple[str, ...]
     evidence: tuple[str, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def complete(self):
-        required = {
-            "new_capability",
-            "more_important",
-            "less_important",
-            "changed_assumption",
-            "new_dependency",
-            "risk_to_monitor",
-            "next_cycle",
-        }
+        required = set(TOMORROW_KEYS)
         if not required <= self.what_changed_about_tomorrow.keys() or any(
             not self.what_changed_about_tomorrow[k].strip() for k in required
         ):
