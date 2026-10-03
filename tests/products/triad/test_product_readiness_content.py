@@ -117,7 +117,7 @@ class ProductReadinessContentTests(unittest.TestCase):
                        "margin feasibility", "executable portfolio risk",
                        "not leverage or capital required", "ratios are dimensionless"):
             self.assertIn(phrase, text)
-        source = PRODUCT_HTML.read_text(encoding="utf-8").split("const el = id =>")[1]
+        source = PRODUCT_HTML.read_text(encoding="utf-8").split("const el = id =>")[1].split("</script>", 1)[0]
         for phrase in ("el('exposure-summary').replaceChildren()",
                        "el('exposure-rows').replaceChildren()", "cell.textContent = point[key]",
                        "key === 'profit_factor' ? 'Not defined: no losses'",
@@ -142,7 +142,7 @@ class ProductReadinessContentTests(unittest.TestCase):
                        "mark-to-market changes", "no future-risk claim",
                        "first subsequent balance", "final grouped exit"):
             self.assertIn(phrase, results.text())
-        source = PRODUCT_HTML.read_text(encoding="utf-8").split("const el = id =>")[1]
+        source = PRODUCT_HTML.read_text(encoding="utf-8").split("const el = id =>")[1].split("</script>", 1)[0]
         for phrase in ("el('recovery-dollar').replaceChildren()",
                        "el('recovery-percent').replaceChildren()",
                        "No realized drawdown:", "initial balance has no observed timestamp",
