@@ -68,11 +68,37 @@ class Store:
                 "SELECT pg_try_advisory_lock(hashtextextended(%s, 0)) AS ok", (work_id,)
             ).fetchone()["ok"]
             if not acquired:
-                raise ConcurrentUpdate("Work is already being executed")
+                error = ConcurrentUpdate("Work is already being executed")
+                try:
+                    error.lease_holders = self.lease_holders(work_id)
+                except Exception:  # noqa: BLE001 - optional contention diagnostics
+                    error.lease_holders = []  # Diagnostics must not mask known contention.
+                raise error
+            import os
+
+            conn.execute(
+                "SELECT set_config('application_name',%s,false)",
+                (f"Triad pid:{os.getpid()} lease:{work_id}"[:63],),
+            )
             try:
                 yield
             finally:
                 conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (work_id,))
+
+    def lease_holders(self, name):
+        """Operational identity only; never return SQL text or credentials."""
+        with self.connect() as conn:
+            return [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT a.pid AS database_pid,a.application_name,a.backend_start "
+                    "FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid "
+                    "WHERE l.locktype='advisory' AND l.granted "
+                    "AND l.classid::bigint=((hashtextextended(%s,0)>>32)&4294967295) "
+                    "AND l.objid::bigint=(hashtextextended(%s,0)&4294967295)",
+                    (name, name),
+                ).fetchall()
+            ]
 
     @staticmethod
     def enqueue(conn, kind: str, entity_id: str, payload: dict):

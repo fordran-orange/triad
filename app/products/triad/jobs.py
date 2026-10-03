@@ -69,6 +69,9 @@ class Jobs:
                     "SELECT * FROM triad.cycle_jobs WHERE day=%s AND mode=%s",
                     (self.cycles.day, mode),
                 ).fetchone()
+        from products.triad.daily_wakeup import notify
+
+        notify(self.store)
         return {"accepted": True, "job": redact(row)}
 
     def finish(self, job_id, status, result=None, reason=None):

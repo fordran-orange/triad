@@ -44,6 +44,9 @@ def schedule(service=DEP):
 @router.post("/triad/api/daily-schedule", dependencies=[Depends(require_operator)])
 def configure(body: DailySchedule, service=DEP):
     identifier = service.configure(body)
+    from products.triad.daily_wakeup import notify
+
+    notify(service.host.store)
     return {"record_id": identifier, "schedule": service.schedule()}
 
 

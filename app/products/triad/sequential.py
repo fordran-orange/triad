@@ -1008,6 +1008,7 @@ class SequentialCycle:
         resume_patch_failure=False,
         resume_citation_failure=False,
         resume_read_failure=False,
+        startup_attempt_id=None,
     ):
         from contextlib import nullcontext
 
@@ -1020,7 +1021,16 @@ class SequentialCycle:
             scheduled or not cycle_id or expected_epoch is not None or schedule_id is not None
         ):
             raise PermissionError("Patch recovery requires an explicit existing manual cycle ID")
-        with self.s.host.store.lease("triad-daily-product-execution"):
+        from products.triad.daily_startup import execution_lease
+
+        with execution_lease(
+            self.s,
+            cycle_id,
+            scheduled=scheduled,
+            expected_epoch=expected_epoch,
+            schedule_id=schedule_id,
+            attempt_id=startup_attempt_id,
+        ):
             completed = 0
             retained = None
             with (
@@ -1048,6 +1058,20 @@ class SequentialCycle:
                         schedule_id=schedule_id,
                     )
             mission = cycle.cycle_id
+            if scheduled:
+                import os
+
+                self.s.host.append(
+                    "DailyDispatchAcknowledged",
+                    {
+                        "cycle_id": mission,
+                        "attempt_id": startup_attempt_id,
+                        "pid": os.getpid(),
+                        "parent_work_item_id": cycle.parent_work_item_id,
+                        "recorded_at": now().isoformat(),
+                    },
+                    owner="triad",
+                )
             if not recovering:
                 timezone = self.s.daily.schedule()["timezone"]
                 self.improvement_day = (

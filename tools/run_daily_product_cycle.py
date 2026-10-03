@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--schedule-id")
     parser.add_argument("--resume-patch-failure", action="store_true")
     parser.add_argument("--resume-read-failure", action="store_true")
+    parser.add_argument("--startup-attempt-id")
     args = parser.parse_args()
     result = DailyDevelopment().run_daily(
         cycle_id=args.cycle_id,
@@ -25,9 +26,15 @@ def main():
         schedule_id=args.schedule_id,
         resume_patch_failure=args.resume_patch_failure,
         resume_read_failure=args.resume_read_failure,
+        startup_attempt_id=args.startup_attempt_id,
     )
     print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":
-    main()
+    from products.triad.daily_startup import StartupDeferred
+
+    try:
+        main()
+    except StartupDeferred:
+        raise SystemExit(75)
