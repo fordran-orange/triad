@@ -1,6 +1,7 @@
 """Explicit host recovery of a rejected, unapplied patch; never replay a merge."""
 
 import json
+import re
 from zoneinfo import ZoneInfo
 
 from trading_core.cycle_records import CycleRecord
@@ -21,7 +22,9 @@ def require(condition, message):
         raise PermissionError(message)
 
 
-def selection_rejection(daily, mission, agent, prior, conn, turns):
+def selection_rejection(
+    daily, mission, agent, prior, conn, turns, *, stopped_author=False, git=None
+):
     """A routing refusal before a build can replan, never replay product writes."""
     works = [w for w in daily.product.store.list_work(10000) if w.mission_id == mission]
     retained_work = {
@@ -29,6 +32,12 @@ def selection_rejection(daily, mission, agent, prior, conn, turns):
         for t in turns
         if t.get("implementation_id")
     }
+    if stopped_author:
+        from products.triad.sequential_stopped_proposal import settled_failed_turn_work
+
+        retained_work.update(
+            settled_failed_turn_work(daily, mission, prior, works, turns, conn, git)
+        )
     pending = [
         w
         for w in works
@@ -95,7 +104,8 @@ def selection_rejection(daily, mission, agent, prior, conn, turns):
         for r in daily.product.list("ProductPlanningContext", conn=conn)
         if r.get("mission_id") == mission and r.get("proposer") == agent
     ]
-    require(bool(reviews) and bool(contexts), "Canonical read-only planning evidence required")
+    require(bool(reviews), "Canonical read-only planning work required")
+    require(stopped_author or bool(contexts), "Canonical read-only planning evidence required")
     requests = conn.execute(
         "SELECT payload FROM core.day3_records WHERE owner='triad' AND kind='AgentRunRequest' "
         "AND work_item_id=%s",
@@ -117,6 +127,22 @@ def selection_rejection(daily, mission, agent, prior, conn, turns):
         ),
         "Canonical read-only planning request required",
     )
+    if stopped_author:
+        # A failed first author call never reached ProductPlanningContext append.
+        # Its immutable host request already captures the exact planning baseline.
+        context = requests[0]["payload"].get("context_packet", {})
+        baseline = context.get("base_commit")
+        planning = context.get("product_planning", {})
+        require(
+            isinstance(baseline, str)
+            and re.fullmatch(r"[a-f0-9]{40}", baseline)
+            and planning.get("cycle_id") == mission
+            and planning.get("shared_core", {}).get("source_revision") == baseline
+            and planning.get("application_plan", {}).get("source_revision") == baseline
+            and context.get("schema", {}).get("title") == "CurrentProposal",
+            "Canonical stopped author planning context differs",
+        )
+        return reviews[0], baseline
     return reviews[0], contexts[-1]["base_commit"]
 
 
@@ -376,7 +402,16 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                 revision = turn.get("merge_commit") or turn.get("verified_revision")
                 service.git.git("merge-base", "--is-ancestor", revision, head)
             if selection:
-                work, base_commit = selection_rejection(daily, mission, agent, prior, conn, turns)
+                work, base_commit = selection_rejection(
+                    daily,
+                    mission,
+                    agent,
+                    prior,
+                    conn,
+                    turns,
+                    stopped_author=proposal_failure,
+                    git=service.git,
+                )
                 if proposal_failure:
                     from products.triad.sequential_stopped_proposal import require_stopped_proposal
 

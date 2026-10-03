@@ -73,14 +73,31 @@ def stopped_proposal(engine, monkeypatch, request):
         "execution_permissions": ["read"],
         "allowed_tools": ["read_file"],
         "control_epoch": cycle.control_epoch,
+        "context_packet": {
+            "base_commit": base,
+            "schema": {"title": "CurrentProposal"},
+            "product_planning": {
+                "cycle_id": cycle.cycle_id,
+                "shared_core": {"source_revision": base},
+                "application_plan": {"source_revision": base},
+            },
+        },
     }
     if variant == "request_write":
         payload["allowed_tools"].append("write_artifact")
+    elif variant == "missing_context":
+        payload.pop("context_packet")
+    elif variant == "context_core":
+        payload["context_packet"]["product_planning"]["shared_core"]["source_revision"] = "0" * 40
+    elif variant == "context_cycle":
+        payload["context_packet"]["product_planning"]["cycle_id"] = "other-cycle"
+    elif variant == "context_schema":
+        payload["context_packet"]["schema"]["title"] = "AcceptanceAssessment"
     host.ledger.put("AgentRunRequest", payload, work_id=work.work_item_id)
+    # Genuine telemetry is bound by payload/run, not the legacy SQL work column.
+    # It is not native execution/transport evidence and cannot veto safe recovery.
     host.append(
-        "ProductPlanningContext",
-        {"mission_id": cycle.cycle_id, "proposer": "CODEX", "base_commit": base},
-        owner="triad",
+        "ResourceProgress", {"run_id": run, "work_item_id": work.work_item_id}, owner="triad"
     )
     host.append(
         "CapabilityRoutingDecision",
@@ -156,6 +173,7 @@ def totals(b):
 
 def test_stopped_planning_recovery_keeps_inference_and_requires_new_review(stopped_proposal):
     b = stopped_proposal
+    assert not b.host.list("ProductPlanningContext")
     before = totals(b)
     record, count, day = resume_patch_failure(b.flow, b.cycle.cycle_id, read_failure=True)
     assert record.status == "CREATED" and count == 0 and day == b.day
@@ -187,6 +205,10 @@ def test_stopped_planning_recovery_keeps_inference_and_requires_new_review(stopp
         "live_transport",
         "result",
         "reservation",
+        "missing_context",
+        "context_core",
+        "context_cycle",
+        "context_schema",
     ],
 )
 def test_unproved_planning_recovery_has_no_effect(stopped_proposal, tamper):
@@ -195,3 +217,139 @@ def test_unproved_planning_recovery_has_no_effect(stopped_proposal, tamper):
     with pytest.raises(PermissionError):
         resume_patch_failure(b.flow, b.cycle.cycle_id, read_failure=True)
     assert totals(b) == before and b.daily.current(b.cycle.cycle_id)["status"] == "BLOCKED"
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        None,
+        "owner",
+        "action",
+        "work",
+        "cycle",
+        "prefix",
+        "health",
+        "day",
+        "revision",
+        "refund_bool",
+        "reservation",
+        "failure",
+        "after_turn",
+        "implementation",
+        "build",
+        "merge",
+    ],
+)
+def test_settled_predecessor_requires_exact_host_action(engine, tamper):
+    from products.triad.sequential_stopped_proposal import settled_failed_turn_work
+
+    host = Records(Store(engine.host.store.settings))
+    daily = Daily(host.store)
+    cycle = daily.create()
+    base = engine.git.clean_baseline()
+    day = now().astimezone(ZoneInfo("America/Chicago")).date().isoformat()
+    host.append(
+        "SequentialDailyProgram", {"cycle_id": cycle.cycle_id, "local_date": day}, owner="triad"
+    )
+    work = engine.host.create(
+        WorkItem(
+            owner="triad",
+            mission_id=cycle.cycle_id,
+            parent_work_item_id=cycle.parent_work_item_id,
+            assigned_agent="CODEX",
+            work_type="development",
+            authority_tier=2,
+            execution_permissions=("read", "write_code"),
+            allowed_tools=("read_file", "write_artifact"),
+            title="Disposable failed predecessor",
+            description="No provider execution",
+        )
+    )
+    work = engine.host.advance(work, State.VALIDATING, "fixture")
+    work = engine.host.advance(work, State.FAILED, "fixture")
+    host.ledger.reserve("CODEX", work.work_item_id, improvement=True, day=day)
+    with host.store.connect() as conn:
+        reservation = conn.execute(
+            "SELECT id FROM core.day3_records WHERE kind='BudgetReservation' AND work_item_id=%s",
+            (work.work_item_id,),
+        ).fetchone()["id"]
+        # This fixture simulates the already settled slot; recovery must never
+        # decrement it again. Production settlement itself is tested separately.
+        conn.execute("UPDATE core.autonomy_daily SET changes=changes-1 WHERE day=%s", (day,))
+    failures = [{"code": "ValidationError", "message": "fixture rejected unapplied plan"}]
+    host.append(
+        "CycleRecord",
+        {"cycle_id": cycle.cycle_id, "status": "BLOCKED", "failures": failures},
+        owner="triad",
+    )
+    payload = {
+        "action": "resume_unapplied_product_patch",
+        "cycle_id": cycle.cycle_id,
+        "failed_work_item_id": work.work_item_id,
+        "retained_turn_ids": [],
+        "day": day,
+        "revision": base,
+        "health": {
+            "loaded_revision": base,
+            "development_provider_gate": "PASS",
+            "routes": {"/core": 200},
+        },
+        "released_change_slots": 1,
+        "reservation_id": reservation,
+        "prior_failure": failures,
+    }
+    bad = {
+        "action": ("action", "unrelated"),
+        "work": ("failed_work_item_id", "other"),
+        "cycle": ("cycle_id", "other"),
+        "prefix": ("retained_turn_ids", ["other"]),
+        "day": ("day", "2001-01-01"),
+        "revision": ("revision", "0" * 40),
+        "refund_bool": ("released_change_slots", True),
+        "reservation": ("reservation_id", "other"),
+        "failure": ("prior_failure", []),
+    }
+    if tamper in bad:
+        key, value = bad[tamper]
+        payload[key] = value
+    if tamper == "health":
+        payload["health"]["routes"]["/core"] = 503
+    turn_payload = {"agent": "CODEX", "verified_revision": base, "mission_id": cycle.cycle_id}
+    if tamper == "after_turn":
+        turn_id = host.append("ProductTurn", turn_payload, owner="triad")
+    host.append(
+        "ControlAction",
+        payload,
+        owner="triad" if tamper == "owner" else "core",
+        identifier="patch-recovery-" + work.work_item_id,
+    )
+    if tamper != "after_turn":
+        turn_id = host.append("ProductTurn", turn_payload, owner="triad")
+    if tamper in {"implementation", "build", "merge"}:
+        kind = {
+            "implementation": "ImplementationRun",
+            "build": "ProductBuild",
+            "merge": "ProductMerge",
+        }[tamper]
+        host.append(kind, {"work_item_id": work.work_item_id}, owner="triad")
+    turns = [host.get(turn_id)]
+    prior = {"parent_work_item_id": cycle.parent_work_item_id}
+    with host.store.connect() as conn:
+        before = conn.execute(
+            "SELECT changes FROM core.autonomy_daily WHERE day=%s", (day,)
+        ).fetchone()
+        if tamper:
+            with pytest.raises(PermissionError):
+                settled_failed_turn_work(
+                    daily, cycle.cycle_id, prior, [work], turns, conn, engine.git
+                )
+        else:
+            assert settled_failed_turn_work(
+                daily, cycle.cycle_id, prior, [work], turns, conn, engine.git
+            ) == {work.work_item_id}
+        assert (
+            before
+            == conn.execute(
+                "SELECT changes FROM core.autonomy_daily WHERE day=%s", (day,)
+            ).fetchone()
+        )
