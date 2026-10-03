@@ -230,6 +230,7 @@ def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
             agent_id="CLAUDE", work_item_id="fixture", mission_id="today", role="REVIEW",
             objective="Inspect candidate", context_packet={**context, "evidence_delivery": "files-v1"},
             allowed_tools=("read_file",), execution_permissions=("read",),
+            allowed_paths=(),
             acceptance_criteria=("Inspect evidence",), policy_decision={},
             required_output_schema=AgentRunResult.model_json_schema(),
         )
