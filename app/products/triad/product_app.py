@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from products.triad.bar_inspection import inspect_bars
+from products.triad.research_dataset import DatasetRequest, prepare_dataset
 from products.triad.cost_sensitivity import calculate_cost_sensitivity
 from products.triad.trade_ledger import analyze_trade_ledger
 
@@ -67,6 +68,8 @@ def cost_sensitivity(assumptions: CostAssumptions):
 @app.exception_handler(RequestValidationError)
 async def bounded_request_errors(request: Request, error: RequestValidationError):
     path = request.url.path
+    if path.endswith("/research/dataset-preparation"):
+        return JSONResponse(status_code=422, content={"detail": "Invalid dataset request: bounded CSV, explicit metadata, market declarations and aware window of at most 31 days required."})
     if path.endswith("/research/trade-ledger"):
         # Do not echo submitted text or arbitrarily many unknown field names.
         return JSONResponse(status_code=422, content={"detail":
@@ -93,3 +96,11 @@ def bar_inspection(payload: BarInspectionRequest):
         return inspect_bars(payload.csv_text)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/research/dataset-preparation")
+def dataset_preparation(payload: DatasetRequest):
+    try:
+        return prepare_dataset(payload)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid OHLCV CSV: check columns, values, duplicates and byte/row limits.") from None
