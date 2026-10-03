@@ -173,9 +173,11 @@ def test_reconciler_cannot_use_old_process_snapshot_during_recovery(blocked, mon
     from products.triad.daily_process import reconcile
 
     def unexpected(*a, **k):
-        pytest.fail("Reconciler must not read stale records while the runner owns the lease")
+        pytest.fail("Reconciler must not change lifecycle while the runner owns the lease")
 
-    monkeypatch.setattr(blocked.daily.product, "list", unexpected)
+    monkeypatch.setattr(blocked.daily, "transition", unexpected)
+    monkeypatch.setattr(blocked.daily.history, "blocked", unexpected)
+    monkeypatch.setattr("products.triad.daily_process.launch", unexpected)
     with blocked.host.store.lease("triad-daily-product-execution"):
         reconcile(blocked.daily)
 

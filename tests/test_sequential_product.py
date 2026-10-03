@@ -220,12 +220,14 @@ def test_detached_runner_reconciliation(monkeypatch, state, identity, blocked):
 
     changes = []
     records = {
-        "DailyDispatch": [{"cycle_id": "c", "control_epoch": 1}],
-        "DailyDispatchProcess": [{"cycle_id": "c", "pid": 123, "creation_id": "original"}],
+        "DailyDispatch": [{"id": "attempt", "cycle_id": "c", "control_epoch": 1}],
+        "DailyDispatchProcess": [
+            {"id": "process", "cycle_id": "c", "pid": 123, "creation_id": "original"}
+        ],
     }
     service = NS(
         host=NS(store=NS(lease=lambda _: nullcontext())),
-        product=NS(list=lambda kind: records[kind]),
+        product=NS(list=lambda kind, **_: records[kind]),
         current=lambda _: {"status": "BUILDING"},
         transition=lambda *a, **k: changes.append(a),
         history=None,
