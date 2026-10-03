@@ -19,6 +19,7 @@ TRANSIENT = frozenset(
         "CodexTurnFailed",
         "CodexExecutionEvidenceMissing",
         "NativeReadEvidenceMissing",
+        "NativeProposalEvidenceMismatch",
         "GrokTurnIncomplete",
     }
 )
@@ -277,7 +278,8 @@ def retained_selection(flow, mission, agent, prior, conn):
             bool(decisions)
             and decisions[-1].get("decision") == "DENY"
             and decisions[-1].get("resource_type") == ResourceType.TIME
-            and decisions[-1].get("reason") == "No new progress; repeated evidence cannot extend a run",
+            and decisions[-1].get("reason")
+            == "No new progress; repeated evidence cannot extend a run",
             "Canonical read timeout required",
         )
         require(

@@ -272,19 +272,27 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (mission,))
             prior = daily.current(mission, conn)
             error = prior.get("failures", [{}])[-1].get("message")
+            proposal_failure = (
+                read_failure
+                and prior.get("failure_code") == "ProviderError"
+                and error == "NativeProposalEvidenceMismatch"
+            )
             selection = prior.get("failure_code") == "PermissionError" and error == SELECTION_ERROR
-            read_selection = read_failure and (
-                (
-                    prior.get("failure_code") == "ResourceBlocked"
-                    and error == "No new progress; repeated evidence cannot extend a run"
-                )
-                or (
-                    prior.get("failure_code") == "PermissionError"
-                    and error == "Invalid or terminal cycle transition"
-                )
-                or (
-                    prior.get("failure_code") == "ProviderError"
-                    and error == "NativeReadEvidenceMissing"
+            read_selection = proposal_failure or (
+                read_failure
+                and (
+                    (
+                        prior.get("failure_code") == "ResourceBlocked"
+                        and error == "No new progress; repeated evidence cannot extend a run"
+                    )
+                    or (
+                        prior.get("failure_code") == "PermissionError"
+                        and error == "Invalid or terminal cycle transition"
+                    )
+                    or (
+                        prior.get("failure_code") == "ProviderError"
+                        and error == "NativeReadEvidenceMissing"
+                    )
                 )
             )
             require(
@@ -325,7 +333,8 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
             ]
             require(
                 bool(history)
-                and history[-1]["from"] == ("SELECTING" if selection else "BUILDING")
+                and history[-1]["from"]
+                == ("INSPECTING" if proposal_failure else "SELECTING" if selection else "BUILDING")
                 and history[-1]["to"] == "BLOCKED",
                 "Recovery requires a pre-QA build failure",
             )
@@ -346,7 +355,7 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
             )
             day = program["local_date"]
             require(
-                read_selection
+                (read_selection and not proposal_failure)
                 or now().astimezone(ZoneInfo(program["timezone"])).date().isoformat() == day,
                 "Patch recovery must use the original local day",
             )
@@ -368,7 +377,11 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                 service.git.git("merge-base", "--is-ancestor", revision, head)
             if selection:
                 work, base_commit = selection_rejection(daily, mission, agent, prior, conn, turns)
-                if read_selection:
+                if proposal_failure:
+                    from products.triad.sequential_stopped_proposal import require_stopped_proposal
+
+                    require_stopped_proposal(daily, mission, agent, prior, work, conn)
+                elif read_selection:
                     from products.triad.sequential_autorecovery import retained_selection
 
                     flow.saved_selection = retained_selection(flow, mission, agent, prior, conn)
@@ -400,8 +413,12 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                     if r.get("work_item_id") == work.work_item_id
                 ]
                 require(
-                    bool(failures) and failures[-1].get("reason") == (error if application_failure else ERROR)
-                    and (not application_failure or failures[-1].get("error_class") == prior.get("failure_code")),
+                    bool(failures)
+                    and failures[-1].get("reason") == (error if application_failure else ERROR)
+                    and (
+                        not application_failure
+                        or failures[-1].get("error_class") == prior.get("failure_code")
+                    ),
                     "Canonical patch rejection required",
                 )
             implementations = daily.product.list("ImplementationRun", conn=conn)
@@ -470,7 +487,9 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                     "Unexpected reservation contents",
                 )
             failed_work_id = (
-                flow.saved_selection["failed_work_id"] if read_selection else work.work_item_id
+                flow.saved_selection["failed_work_id"]
+                if read_selection and not proposal_failure
+                else work.work_item_id
             )
             action_key = failed_work_id or "proposal-" + flow.saved_selection["checkpoint_id"]
             action_id = ("read-recovery-" if read_selection else "patch-recovery-") + action_key
@@ -498,20 +517,23 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
             host.ledger.put(
                 "ControlAction",
                 {
-                    "action": "resume_stopped_read_review"
-                    if read_selection
+                    "action": "resume_stopped_read_proposal"
+                    if proposal_failure
+                    else "resume_stopped_read_review"
+                    if read_selection and not proposal_failure
                     else "resume_unapproved_product_selection"
                     if selection
                     else "resume_unapplied_product_patch",
                     "cycle_id": mission,
                     "failed_work_item_id": failed_work_id,
                     "retained_proposal_id": flow.saved_selection["checkpoint_id"]
-                    if read_selection
+                    if read_selection and not proposal_failure
                     else None,
                     "reservation_id": reservation["id"] if reservation else None,
                     "retained_turn_ids": [r["id"] for r in turns],
                     "retained_candidate_commit": flow.retained_application_candidate["commit"]
-                    if application_failure else None,
+                    if application_failure
+                    else None,
                     "prior_failure": prior["failures"],
                     "released_change_slots": refund,
                     "day": day,

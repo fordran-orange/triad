@@ -46,6 +46,22 @@ def test_retry_keeps_same_assignment_and_failed_evidence(flow):
     assert len(calls) == 2
 
 
+def test_read_only_result_mismatch_retries_only_after_provider_stop(flow):
+    error = ProviderError("DEGRADED", "NativeProposalEvidenceMismatch")
+    assert not recovery.recoverable(error)
+    calls = []
+
+    def operation():
+        calls.append(1)
+        if len(calls) == 1:
+            raise stopped(error)
+        return None, None, None, {"run_id": "new-assessment"}
+
+    assert run(flow, operation)[3]["run_id"] == "new-assessment"
+    assert len(calls) == 2
+    assert flow.events[0]["status"] == "RETRYING"
+
+
 def test_retries_exhaust_and_stay_exhausted_after_new_wrapper(flow):
     calls = []
 

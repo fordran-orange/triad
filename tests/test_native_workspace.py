@@ -96,6 +96,48 @@ def test_bad_result_remains_rejected_with_field_names_only():
     assert "untrusted text" not in json.dumps(run.evidence)
 
 
+def test_read_only_formatter_forbids_edits_and_preserves_analysis():
+    run = NativeRun([], lambda: None)
+    schema = AgentRunResult.model_json_schema()
+    original = json.dumps(schema, sort_keys=True)
+    request = SimpleNamespace(
+        required_output_schema=schema, run_id="fixture", execution_permissions=("read",)
+    )
+    formatted = run.result_schema(request)
+    assert formatted["properties"]["files_changed"]["maxItems"] == 0
+    assert "maxItems" not in formatted["properties"]["analysis_artifacts"]
+    request.execution_permissions = ("read", "write_docs")
+    assert "maxItems" not in run.result_schema(request)["properties"]["files_changed"]
+    run.observed_asset_output = True
+    assert run.result_schema(request)["properties"]["files_changed"]["maxItems"] == 0
+    assert json.dumps(schema, sort_keys=True) == original
+
+
+def test_read_only_prompt_and_host_never_accept_claimed_edits():
+    from trading_core.contracts import FileChange
+    from trading_core.providers.bounded_tools import BoundedTools
+
+    run = NativeRun([], lambda: None)
+    run.broker = BoundedTools({"evidence.json": "source"})
+    run.broker.calls = [{"tool": "read_file", "path": "evidence.json"}]
+    request = SimpleNamespace(
+        execution_permissions=("read",), model_dump_json=lambda **kw: "read-only"
+    )
+    prompt = run.prompt(request, run.broker.original)
+    assert "files_changed must be empty" in prompt and "without duplicating file bodies" in prompt
+    raw = AgentRunResult(
+        run_id="fixture",
+        status="CODE_CHANGE",
+        summary="claimed edits",
+        files_changed=(FileChange(path="evidence.json", content="secret-content-not-diagnostic"),),
+    )
+    with pytest.raises(ProviderError, match="NativeProposalEvidenceMismatch"):
+        run.finish(raw.model_dump(), 100, 10)
+    assert run.evidence["rejected_file_counts"] == {"reported": 1, "observed": 0}
+    assert "secret-content-not-diagnostic" not in json.dumps(run.evidence)
+    assert run.broker.files == {"evidence.json": "source"}
+
+
 def test_workspace_denials_retain_code_location_not_arguments():
     broker = workspace()
     with pytest.raises(PermissionError):

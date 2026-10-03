@@ -89,6 +89,9 @@ class NativeRun:
             + (
                 "Keep files_changed empty: Core reconstructs the exact implementation from observed isolated tool writes. "
                 if getattr(self, "observed_asset_output", False)
+                else "For this read-only planning/review, files_changed must be empty. Put the proposal/verdict "
+                "in analysis_artifacts; describe intended files there without duplicating file bodies as changes. "
+                if set(getattr(request, "execution_permissions", ())) == {"read"}
                 else "For a review keep files_changed empty. For implementation report staged file contents. "
             )
             + "Never invoke a slash command, plugin, skill, network tool or another agent.\n"
@@ -162,6 +165,10 @@ class NativeRun:
         elif {c.path: c.content for c in result.files_changed} != {
             c.path: c.content for c in changes
         }:
+            self.evidence["rejected_file_counts"] = {
+                "reported": len(result.files_changed),
+                "observed": len(changes),
+            }
             raise ProviderError("DEGRADED", "NativeProposalEvidenceMismatch")
         self.check()
         # Original hashes come from the observed immutable input, never model arithmetic.
@@ -174,6 +181,10 @@ class NativeRun:
         empty = ["commands_executed", "permission_requests", "claims", "actions_taken", "tests_run"]
         if getattr(self, "product_workspace", False):
             empty += ["files_changed", "analysis_artifacts"]
+        elif set(getattr(request, "execution_permissions", ())) == {"read"} or getattr(
+            self, "observed_asset_output", False
+        ):
+            empty += ["files_changed"]
         for field in empty:
             schema["properties"][field]["maxItems"] = 0
         return schema
@@ -463,6 +474,7 @@ class GrokRun(NativeRun):
         self.product_workspace = workspace is not None
         if workspace is None and not writable:
             from trading_core.evidence_delivery import prepare
+
             request, files, self.required_reads, proof = prepare(request, files)
             self.evidence.update(evidence_delivery=proof)
         if self.product_workspace:
@@ -553,7 +565,9 @@ class GrokRun(NativeRun):
                                 {
                                     "type": "text",
                                     "text": "Use the read_file tool to read every one of these supplied files now: "
-                                    + json.dumps(sorted(getattr(self, "required_reads", set(files))))
+                                    + json.dumps(
+                                        sorted(getattr(self, "required_reads", set(files)))
+                                    )
                                     + ". Read one file per tool call. These are available through the isolated client file tools. "
                                     "Do not merely announce an intention. After all tool reads finish, reply READY. "
                                     "No writing, shell commands, plugins, network tools or other agents.",
@@ -712,6 +726,7 @@ class ClaudeRun(NativeRun):
         self.product_workspace = workspace is not None
         if workspace is None and not writable:
             from trading_core.evidence_delivery import prepare
+
             request, files, self.required_reads, proof = prepare(request, files)
             self.evidence.update(evidence_delivery=proof)
         self.broker = (
@@ -813,7 +828,8 @@ class ClaudeRun(NativeRun):
                             # Runtime must not mistake an earlier completed turn for
                             # the total while another inference turn is outstanding.
                             self.evidence["completed_turn_usage"] = {
-                                "input_tokens": inputs, "output_tokens": outputs,
+                                "input_tokens": inputs,
+                                "output_tokens": outputs,
                             }
                             self.evidence["usage_scope"] = "PARTIAL_COMPLETED_TURNS"
                             self.evidence.pop("input_tokens", None)
