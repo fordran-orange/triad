@@ -62,13 +62,18 @@ def test_current_inventory_validates_without_a_fixed_product_status():
     snapshot = {PLAN_PATH: application.model_dump_json()}
     root = Path(__file__).resolve().parents[1]
     for component in application.components:
-        if component.owner == "triad":
+        if component.owner == "triad" and component.status == "EXISTS":
             for path in component.paths:
                 snapshot[path] = (root / path).read_text(encoding="utf-8")
     for connection in application.connections:
-        for path in connection.tests:
-            snapshot[path] = (root / path).read_text(encoding="utf-8")
-    assert validate_plan(snapshot) == application
+        if connection.status == "TESTED":
+            for path in connection.tests:
+                snapshot[path] = (root / path).read_text(encoding="utf-8")
+    core_paths = {
+        path for component in application.components if component.owner == "core"
+        for path in component.paths if (root / path).is_file()
+    }
+    assert validate_plan(snapshot, core_paths=core_paths) == application
 
 
 def test_connections_cannot_invent_components_or_execution_evidence():
