@@ -85,7 +85,8 @@ def reviewed_revision(daily, mission, agent, prior, author_work, conn):
         (mission, mission),
     ).fetchall()
     requests = [r["payload"] for r in rows if r["kind"] == "AgentRunRequest"]
-    author = proposal_author(daily, rows, requests, proposal, mission, agent, prior, conn)
+    author_requests = [r for r in requests if r.get("work_item_id") == author_work.work_item_id]
+    author = proposal_author(daily, rows, author_requests, proposal, mission, agent, prior, conn)
     require(author["work_item_id"] == author_work.work_item_id, "Latest revision author differs")
     require(bool(requests), "Latest revision reviewer request required")
     request = requests[-1]

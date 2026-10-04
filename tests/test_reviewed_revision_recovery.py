@@ -47,6 +47,7 @@ def checkpoint(engine, monkeypatch, request):
     proposal = candidate().model_dump(mode="json")
     summary = "Correct remaining contract"
     findings = ["Quality preflight before the engine"]
+    previous = None
     if stalled and tamper != "no_prior":
         previous = candidate(
             "Different behavior" if tamper == "different_behavior" else proposal["change"]
@@ -76,7 +77,12 @@ def checkpoint(engine, monkeypatch, request):
         owner="triad",
     )
     works = []
-    for index, agent in enumerate(("CODEX", "CLAUDE")):
+    agents = ("CODEX", "CLAUDE") * (2 if previous else 1)
+    for index, agent in enumerate(agents):
+        is_review = index % 2 == 1
+        current = index >= len(agents) - 2
+        altered_review = current and is_review
+        artifact = proposal if current else previous
         work = engine.host.create(
             WorkItem(
                 owner="triad",
@@ -112,8 +118,10 @@ def checkpoint(engine, monkeypatch, request):
                 "application_plan": {"source_revision": base},
             },
         }
-        if index:
-            context["proposal"] = {"different": True} if tamper == "review_context" else proposal
+        if is_review:
+            context["proposal"] = (
+                {"different": True} if altered_review and tamper == "review_context" else artifact
+            )
         host.ledger.put(
             "AgentRunRequest",
             {
@@ -131,14 +139,18 @@ def checkpoint(engine, monkeypatch, request):
         )
         result = {
             "run_id": run,
-            "mode": "SIMULATED" if index and tamper == "mode" else "REAL",
+            "mode": "SIMULATED" if altered_review and tamper == "mode" else "REAL",
             "status": "RESEARCH_FINDING",
             "proposal": None,
-            "files_changed": [{"path": "claimed"}] if index and tamper == "claimed_edit" else [],
-            "analysis_artifacts": [] if index else [candidate().model_dump_json()],
-            "review_decision": "APPROVE" if index and tamper == "result_verdict" else verdict,
-            "summary": "Different" if index and tamper == "summary" else summary,
-            "findings": ["Different"] if index and tamper == "findings" else findings,
+            "files_changed": [{"path": "claimed"}]
+            if altered_review and tamper == "claimed_edit"
+            else [],
+            "analysis_artifacts": [] if is_review else [artifact],
+            "review_decision": "APPROVE"
+            if altered_review and tamper == "result_verdict"
+            else verdict,
+            "summary": "Different" if altered_review and tamper == "summary" else summary,
+            "findings": ["Different"] if altered_review and tamper == "findings" else findings,
         }
         host.ledger.put("AgentRunResult", result, work_id=work.work_item_id)
         host.ledger.put(
@@ -165,10 +177,10 @@ def checkpoint(engine, monkeypatch, request):
             "status": "SUCCESS",
             "completed_at": now().isoformat(),
         }
-        if index and tamper == "live":
+        if altered_review and tamper == "live":
             transport.update(status="RUNNING", completed_at=None)
         host.ledger.put("TransportRun", transport, work_id=work.work_item_id)
-        if index and tamper == "duplicate":
+        if altered_review and tamper == "duplicate":
             host.ledger.put("TransportRun", transport, work_id=work.work_item_id)
         native = (
             {
@@ -180,7 +192,7 @@ def checkpoint(engine, monkeypatch, request):
             if agent == "CODEX"
             else {
                 "boundary": "DOCKER_OFFLINE_TOOLS",
-                "denials": 1 if tamper == "denials" else 0,
+                "denials": 1 if altered_review and tamper == "denials" else 0,
                 "calls": [{"tool": "read_file"}],
                 "usage_scope": "COMPLETE",
             }
@@ -214,7 +226,7 @@ def checkpoint(engine, monkeypatch, request):
         "decision": "APPROVE" if tamper == "verdict" else verdict,
         "summary": summary,
         "findings": findings,
-        "run_id": "fixture-read-1",
+        "run_id": f"fixture-read-{len(agents) - 1}",
     }
     if tamper == "attempt":
         review["attempt"] = 2
