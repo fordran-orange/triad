@@ -371,9 +371,9 @@ def test_unresolved_proposal_cannot_be_approved_by_exhaustion():
         return proposal, None, {"decision": "REQUEST_CHANGES", "summary": "Still incorrect"}
 
     flow.proposal_attempt = attempt
-    with pytest.raises(PermissionError, match="exhausted"):
+    with pytest.raises(PermissionError, match="no progress"):
         flow.propose("cycle", "CLAUDE")
-    assert calls == [1, 2, 3]
+    assert calls == [1, 2]
 
 
 @pytest.mark.parametrize("prefixed", [False, True])

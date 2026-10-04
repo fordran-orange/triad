@@ -317,15 +317,27 @@ class SequentialCycle:
             raise PermissionError("Development readiness: " + json.dumps(checks))
 
     def propose(self, mission, agent):
+        from itertools import count
+
+        from products.triad.sequential_proposal_revisions import proposal_digest
+
         # Explicit recovery must retain the previous review's corrections.
         feedback = [
             {k: row[k] for k in ("proposal", "decision", "summary", "findings") if k in row}
             for row in self.s.rows("ProductProposalReview", mission)
             if row.get("proposer") == agent and row.get("decision") in {"REQUEST_CHANGES", "REJECT"}
         ][-3:]
-        start_attempt = 1
+        previous = [
+            r
+            for r in self.s.rows("ProductProposal", mission)
+            if r.get("proposer") == agent and type(r.get("attempt")) is int
+        ]
+        start_attempt = max((r["attempt"] for r in previous), default=0) + 1
+        self._proposal_selection_started = False
+        seen = {proposal_digest(r["proposal"]) for r in feedback if "proposal" in r}
         saved = getattr(self, "saved_selection", None)
         if saved is not None:
+            self._proposal_selection_started = True
             self.saved_selection = None
             start_attempt = saved["attempt"] + 1
             self.s.transition(
@@ -349,14 +361,18 @@ class SequentialCycle:
             feedback.append({"proposal": proposal.model_dump(mode="json"), **review})
             if review["decision"] not in {"REQUEST_CHANGES", "REJECT"}:
                 raise PermissionError("Invalid proposal review: " + review["summary"])
-        for attempt in range(start_attempt, 4):
+        for attempt in count(start_attempt):
             proposal, approval, review = self.proposal_attempt(mission, agent, feedback, attempt)
             if approval:
                 return proposal, approval
             feedback.append({"proposal": proposal.model_dump(mode="json"), **review})
             if review["decision"] not in {"REQUEST_CHANGES", "REJECT"}:
                 raise PermissionError("Invalid proposal review: " + review["summary"])
-        raise PermissionError("Proposal revision attempts exhausted: " + feedback[-1]["summary"])
+            digest = proposal_digest(proposal.model_dump(mode="json"))
+            if digest in seen:
+                raise PermissionError("Proposal revision made no progress: " + review["summary"])
+            seen.add(digest)
+            feedback = feedback[-3:]
 
     def proposal_attempt(self, mission, agent, feedback, attempt):
         from trading_core.intake import Intake
@@ -407,6 +423,10 @@ class SequentialCycle:
             "Do not require unsupported checks or pretend source review proves browser behavior. For behavioral changes include meaningful "
             "unit tests and their tests/products/triad file paths in the initial manifest. "
             "Address all prior review feedback when supplied. Read-only integration source establishes mount prefixes; "
+            "Three proposal revisions are an advisory target, not a cutoff. Close every open review finding together: "
+            "cite the current interface facts and describe each correction in existing proposal evidence. "
+            "Do not merely rename or reformat an unchanged rejected proposal. Reuse supplied evidence; "
+            "reread sources when needed to resolve a finding rather than repeat unrelated inspection. "
             "it is context, never permission to change protected code. "
             "A rejected candidate is not approved: inspect the findings and propose a different useful candidate "
             "or an evidence-supported NO_CHANGE for a fresh independent review. Inspect existing tests before proposing new ones. "
@@ -464,8 +484,9 @@ class SequentialCycle:
             proposal=proposal.model_dump(mode="json"),
             attempt=attempt,
         )
-        if attempt == 1:
+        if not getattr(self, "_proposal_selection_started", attempt != 1):
             self.s.transition(mission, "SELECTING", ["Independent proposal review"])
+            self._proposal_selection_started = True
         return self.review_proposal(
             mission,
             agent,
@@ -508,6 +529,8 @@ class SequentialCycle:
             "enables the next connection; do not force a feature checklist or treat a submitted CSV tool as real trading. "
             "Do not require a large diff or choose the author's roadmap for them; small high-impact fixes are valid. "
             "Return APPROVE/REQUEST_CHANGES/REJECT with concrete findings, including the value assessment. "
+            "Check all prior findings together for closure; distinguish a newly observed defect from a changed "
+            "preference and keep corrections consistent with current source and the bounded user outcome. "
             "Do not apply historical document-only grants or grant new authority.",
             {
                 "product_planning": strategy,

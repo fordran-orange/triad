@@ -303,8 +303,15 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                 and prior.get("failure_code") == "ProviderError"
                 and error == "NativeProposalEvidenceMismatch"
             )
+            revision_failure = (
+                read_failure
+                and prior.get("failure_code") == "PermissionError"
+                and isinstance(error, str)
+                and error.startswith("Proposal revision attempts exhausted: ")
+            )
+            new_proposal = proposal_failure or revision_failure
             selection = prior.get("failure_code") == "PermissionError" and error == SELECTION_ERROR
-            read_selection = proposal_failure or (
+            read_selection = new_proposal or (
                 read_failure
                 and (
                     (
@@ -381,7 +388,7 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
             )
             day = program["local_date"]
             require(
-                (read_selection and not proposal_failure)
+                (read_selection and not new_proposal)
                 or now().astimezone(ZoneInfo(program["timezone"])).date().isoformat() == day,
                 "Patch recovery must use the original local day",
             )
@@ -409,13 +416,19 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                     prior,
                     conn,
                     turns,
-                    stopped_author=proposal_failure,
+                    stopped_author=new_proposal,
                     git=service.git,
                 )
                 if proposal_failure:
                     from products.triad.sequential_stopped_proposal import require_stopped_proposal
 
                     require_stopped_proposal(daily, mission, agent, prior, work, conn)
+                elif revision_failure:
+                    from products.triad.sequential_proposal_revisions import reviewed_revision
+
+                    revision_checkpoint = reviewed_revision(
+                        daily, mission, agent, prior, work, conn
+                    )
                 elif read_selection:
                     from products.triad.sequential_autorecovery import retained_selection
 
@@ -523,11 +536,17 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                 )
             failed_work_id = (
                 flow.saved_selection["failed_work_id"]
-                if read_selection and not proposal_failure
+                if read_selection and not new_proposal
                 else work.work_item_id
             )
+            if revision_failure:
+                failed_work_id = revision_checkpoint["work_item_id"]
             action_key = failed_work_id or "proposal-" + flow.saved_selection["checkpoint_id"]
-            action_id = ("read-recovery-" if read_selection else "patch-recovery-") + action_key
+            action_id = (
+                "proposal-recovery-" + revision_checkpoint["review_id"]
+                if revision_failure
+                else ("read-recovery-" if read_selection else "patch-recovery-") + action_key
+            )
             require(
                 not conn.execute(
                     "SELECT 1 FROM core.day3_records WHERE id=%s", (action_id,)
@@ -552,17 +571,22 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
             host.ledger.put(
                 "ControlAction",
                 {
-                    "action": "resume_stopped_read_proposal"
+                    "action": "continue_reviewed_product_revision"
+                    if revision_failure
+                    else "resume_stopped_read_proposal"
                     if proposal_failure
                     else "resume_stopped_read_review"
-                    if read_selection and not proposal_failure
+                    if read_selection and not new_proposal
                     else "resume_unapproved_product_selection"
                     if selection
                     else "resume_unapplied_product_patch",
                     "cycle_id": mission,
                     "failed_work_item_id": failed_work_id,
                     "retained_proposal_id": flow.saved_selection["checkpoint_id"]
-                    if read_selection and not proposal_failure
+                    if read_selection and not new_proposal
+                    else None,
+                    "review_checkpoint_id": revision_checkpoint["review_id"]
+                    if revision_failure
                     else None,
                     "reservation_id": reservation["id"] if reservation else None,
                     "retained_turn_ids": [r["id"] for r in turns],
