@@ -1,6 +1,7 @@
 """Correct independently rejected candidates without replaying completed turns."""
 
 from contextlib import nullcontext
+from math import isfinite
 
 from trading_core.contracts import AgentRunResult
 from trading_core.product_changes import AcceptanceAssessment, acceptance_problems
@@ -8,6 +9,100 @@ from trading_core.work import State
 
 from products.triad.sequential_candidate_recovery import retain_application_candidate
 from products.triad.sequential_recovery import require
+
+
+def require_closed_review(service, conn, reviewer, request, raw, usage, review, proposal):
+    """Bind canonical routing and actual completed native observation."""
+    run, expected = review["run_id"], reviewer.work_item_id
+    require(
+        all(
+            r.get("work_item_id", expected) == expected and r.get("run_id") == run
+            for r in (request, raw, usage)
+        )
+        and request.get("allowed_tools") == ["read_file"]
+        and set(request.get("allowed_paths", [])) == set(reviewer.allowed_paths)
+        and request.get("context_packet", {}).get("proposal") == proposal.model_dump(mode="json")
+        and request.get("context_packet", {}).get("exact_commit") == review["commit"]
+        and raw.get("mode") == usage.get("mode") == "REAL"
+        and raw.get("status") != "BLOCKED"
+        and not raw.get("files_changed")
+        and not raw.get("proposal")
+        and usage.get("usage_known") is True
+        and type(usage.get("duration")) in {int, float}
+        and isfinite(usage["duration"])
+        and usage["duration"] >= 0,
+        "Closed real read-only review and known usage required",
+    )
+    rows = conn.execute(
+        "SELECT kind,work_item_id,payload FROM core.day3_records WHERE owner='triad' AND payload->>'run_id'=%s AND kind IN ('TransportRun','Event')",
+        (run,),
+    ).fetchall()
+    require(
+        all(
+            r["work_item_id"] == expected and r["payload"].get("work_item_id", expected) == expected
+            for r in rows
+        ),
+        "Crossed native review evidence",
+    )
+    transports = [r["payload"] for r in rows if r["kind"] == "TransportRun"]
+    native = [
+        r["payload"]
+        for r in rows
+        if r["kind"] == "Event" and r["payload"].get("event") == "native_executor_evidence"
+    ]
+    require(
+        len(transports) == len(native) == 1
+        and not any(r["payload"].get("event") == "provider_failed" for r in rows),
+        "Unique completed native reviewer evidence required",
+    )
+    transport, evidence = transports[0], native[0]
+    routed = service.canonical.get("route-" + expected, conn=conn)
+    require(
+        routed["kind"] == "CapabilityRoutingDecision" and routed["owner"] == "triad",
+        "Canonical reviewer route required",
+    )
+    route = routed["selected"]
+    require(
+        route.get("agent_id") == reviewer.assigned_agent
+        and transport.get("agent") == reviewer.assigned_agent
+        and transport.get("status") == "SUCCESS"
+        and transport.get("completed_at")
+        and all(
+            r.get("provider") == route["provider"] and r.get("transport") == route["transport"]
+            for r in (usage, transport)
+        )
+        and all(
+            type(usage.get(k)) is int
+            and type(evidence.get(k)) is int
+            and usage[k] >= 0
+            and usage[k] == evidence[k]
+            for k in ("input_tokens", "output_tokens")
+        ),
+        "Actual reviewer route or measured usage differs",
+    )
+    if reviewer.assigned_agent == "CODEX":
+        require(
+            evidence.get("boundary") == "DOCKER_REMOTE_EXECUTOR_READ_ONLY"
+            and type(evidence.get("denied_operations")) is int
+            and evidence["denied_operations"] == 0
+            and evidence.get("commands")
+            and evidence.get("executed_argv")
+            and len(evidence["commands"]) == len(evidence["executed_argv"]),
+            "Completed Codex read-only review required",
+        )
+    else:
+        require(
+            evidence.get("boundary") == "DOCKER_OFFLINE_TOOLS"
+            and type(evidence.get("denials")) is int
+            and evidence["denials"] == 0
+            and evidence.get("calls")
+            and all(c.get("tool") == "read_file" for c in evidence["calls"])
+            and (
+                evidence.get("usage_scope") == "COMPLETE"
+                or (reviewer.assigned_agent == "GROK" and "usage_scope" not in evidence)
+            ),
+            "Completed native read-only review required",
+        )
 
 
 def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, existing_conn=None):
@@ -46,7 +141,9 @@ def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, exi
         )
         recorded = recorded or candidates[-1]
         require(
-            all(recorded[k] == build[k] for k in ("git", "checks", "approval", "work_item_id")),
+            recorded["owner"] == "triad"
+            and recorded["kind"] == "ProductBuild"
+            and all(recorded[k] == build[k] for k in ("git", "checks", "approval", "work_item_id")),
             "Build identity changed",
         )
         approved = flow.approval(mission, agent, proposal, build["approval"])
@@ -70,7 +167,9 @@ def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, exi
         require(bool(reviews), "Canonical QA required")
         qa = reviews[-1]
         require(
-            qa["id"] == qa_id
+            qa["owner"] == "triad"
+            and qa["kind"] == "QARun"
+            and qa["id"] == qa_id
             and qa["decision"] == "CHANGES_REQUIRED"
             and qa["qa_agent"] == REVIEWERS[agent]
             and qa["execution_mode"] == "REAL_PROVIDER"
@@ -135,6 +234,7 @@ def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, exi
             )
             records[kind] = rows[0]["payload"]
         request, raw, usage = (records[k] for k in ("AgentRunRequest", "AgentRunResult", "Usage"))
+        require_closed_review(service, conn, reviewer, request, raw, usage, review, proposal)
         require(
             request["mission_id"] == mission
             and request["agent_id"] == REVIEWERS[agent]
