@@ -108,7 +108,7 @@ class ApplicationPlanTest(unittest.TestCase):
     def test_schema_graph_and_mount(self):
         plan=validate(self.data)
         workflow=next(w for w in plan.workflows if w.id=="trading-application")
-        self.assertEqual(workflow.status,"PARTIAL")
+        self.assertEqual(workflow.status,"CONNECTED")
         self.assertEqual(workflow.entry_point,"/triad/product")
         from products.triad.product_app import app
         self.assertIn("/research/dataset-preparation", {r.path for r in app.routes})
