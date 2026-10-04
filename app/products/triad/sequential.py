@@ -963,6 +963,8 @@ class SequentialCycle:
         return git, build
 
     def qa(self, mission, agent, proposal, git, build, *, retained=None):
+        from products.triad.sequential_correction_review import BEHAVIORAL_EVIDENCE_GUIDANCE
+
         before = git.verify(build["git"])
         if any(before[k] != build["checks"][k] for k in ("files", "hashes", "diff")):
             raise PermissionError("Candidate changed before independent QA")
@@ -999,7 +1001,9 @@ class SequentialCycle:
                 "Assess EVERY required check separately; VERIFIED requires its supplied exact evidence ID, otherwise NOT_VERIFIED/BLOCKED. "
                 "Copy IDs from allowed_evidence_ids verbatim; unit-test criteria must cite both raw test IDs. "
                 "Source review cannot verify rendering, keyboard interaction or viewport behavior. Never APPROVE while any mandatory criterion "
-                "is unmet or unverified. Do not claim tool execution; evaluate the supplied host test results.",
+                "is unmet or unverified. Do not claim tool execution; evaluate the supplied host test results. "
+                "A passing test suite does not establish coverage of a behavior the tests never exercise."
+                + BEHAVIORAL_EVIDENCE_GUIDANCE,
                 {
                     "proposal": proposal.model_dump(mode="json"),
                     "exact_commit": build["git"]["change_commit"],
