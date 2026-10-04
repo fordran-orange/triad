@@ -89,7 +89,8 @@ def core_context(git, baseline):
             "sha256": hashlib.sha256(source.encode()).hexdigest(),
         }
         if path.endswith("/engine.py"):
-            # Discovery signatures avoid repeatedly sending the engine implementation.
+            # Keep discovery signatures, but consumers also need the actual result
+            # construction: function signatures alone hide trade/curve fields.
             tree = ast.parse(source)
             references[path]["public_signatures"] = [
                 f"{node.name}({ast.unparse(node.args)})"
@@ -98,10 +99,9 @@ def core_context(git, baseline):
                 and not node.name.startswith("_")
             ]
             references[path]["source_scope"] = (
-                "Public function signatures only; implementation omitted"
+                "Read-only implementation, including result fields, units and timestamps"
             )
-        else:
-            references[path]["source"] = source
+        references[path]["source"] = source
     return {
         "source_revision": baseline,
         "references_read_only": references,

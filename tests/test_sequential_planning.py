@@ -221,6 +221,34 @@ def test_workspace_receives_exact_plan_schema_and_only_its_own_retained_candidat
     assert ("Implement those obligations" in captured["objective"]) is receives_candidate
 
 
+def test_core_engine_result_construction_is_available_to_product_planners():
+    import hashlib
+    from pathlib import Path
+
+    from products.triad.sequential_planning import core_context
+
+    root = Path(__file__).resolve().parents[1]
+    sources = {path: (root / path).read_text(encoding="utf-8") for path in CORE_REFERENCES}
+    calls = []
+
+    def git(*args):
+        calls.append(args)
+        assert args[0] == "show" and args[1].startswith("pinned:")
+        return sources[args[1].split(":", 1)[1]]
+
+    packet = core_context(NS(git=git), "pinned")
+    assert packet["source_revision"] == "pinned"
+    assert set(packet["references_read_only"]) == set(CORE_REFERENCES)
+    engine = packet["references_read_only"]["app/trading_core/research/engine.py"]
+    source = sources["app/trading_core/research/engine.py"]
+    assert engine["source"] == source
+    assert engine["sha256"] == hashlib.sha256(source.encode()).hexdigest()
+    assert any(signature.startswith("run_engine(") for signature in engine["public_signatures"])
+    for field in ("trades", "equity", "entry_time", "exit_time", "entry_price", "timestamp"):
+        assert '"' + field + '"' in engine["source"]
+    assert len(calls) == len(CORE_REFERENCES)
+
+
 def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
     tmp_path, monkeypatch
 ):
