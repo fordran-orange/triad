@@ -67,8 +67,7 @@ def test_explicit_resume_transaction_preserves_rejection_and_slot(proof, monkeyp
     p.daily.transition(
         p.mission,
         "BLOCKED",
-        ["fixture"],
-        failure_code="PermissionError",
+        ["PermissionError"],
         failures=(
             {
                 "code": "PermissionError",
