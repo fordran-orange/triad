@@ -33,7 +33,11 @@ def resume_citation_failure(flow, mission, *, substantive=False):
         with host.ledger.gate(), host.store.connect() as conn:
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (mission,))
             prior = daily.current(mission, conn)
-            from products.triad.sequential_correction_renewal import PLANNING_DENIED, PREFIX
+            from products.triad.sequential_correction_renewal import (
+                PLANNING_DENIED,
+                PREFIX,
+                REVIEW_BASELINE_MOVED,
+            )
 
             renewal = substantive and prior.get("failures", [{}])[-1].get("message", "").startswith(
                 PREFIX
@@ -41,7 +45,11 @@ def resume_citation_failure(flow, mission, *, substantive=False):
             planning_denial = (
                 substantive and prior.get("failures", [{}])[-1].get("message") == PLANNING_DENIED
             )
-            renewal = renewal or planning_denial
+            baseline_moved = (
+                substantive
+                and prior.get("failures", [{}])[-1].get("message") == REVIEW_BASELINE_MOVED
+            )
+            renewal = renewal or planning_denial or baseline_moved
             require(
                 prior["status"] == "BLOCKED"
                 and prior.get("failure_code") == "PermissionError"
@@ -267,6 +275,7 @@ def resume_citation_failure(flow, mission, *, substantive=False):
                         qa,
                         conn,
                         planning_denial=planning_denial,
+                        baseline_moved=baseline_moved,
                     )
                 prepared = prepare_correction(
                     flow,

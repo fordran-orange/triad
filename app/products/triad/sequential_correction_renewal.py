@@ -6,9 +6,12 @@ from products.triad.sequential_recovery import require
 
 PREFIX = "Current-baseline correction proposal did not pass independent review: "
 PLANNING_DENIED = "No authorized verified provider/role fits this task"
+REVIEW_BASELINE_MOVED = "Source changed during proposal review"
 
 
-def renewal_checkpoint(flow, mission, prior, build, proposal, qa, conn, *, planning_denial=False):
+def renewal_checkpoint(
+    flow, mission, prior, build, proposal, qa, conn, *, planning_denial=False, baseline_moved=False
+):
     from products.triad.sequential import REVIEWERS
     from products.triad.sequential_corrections import require_closed_review
 
@@ -21,10 +24,17 @@ def renewal_checkpoint(flow, mission, prior, build, proposal, qa, conn, *, plann
     require(
         review["owner"] == "triad"
         and review["reviewer"] == REVIEWERS[agent]
-        and review["decision"] == "REQUEST_CHANGES"
+        and review["decision"]
+        in ({"REQUEST_CHANGES", "APPROVE"} if baseline_moved else {"REQUEST_CHANGES"})
         and review["proposal"] == proposal.model_dump(mode="json")
         and prior["failures"][-1]["message"]
-        == (PLANNING_DENIED if planning_denial else (PREFIX + review["summary"])[:500]),
+        == (
+            REVIEW_BASELINE_MOVED
+            if baseline_moved
+            else PLANNING_DENIED
+            if planning_denial
+            else (PREFIX + review["summary"])[:500]
+        ),
         "Exact stopped renewal REQUEST_CHANGES required",
     )
     records = {}
@@ -76,6 +86,16 @@ def renewal_checkpoint(flow, mission, prior, build, proposal, qa, conn, *, plann
     )
     base = context.get("base_commit")
     require(isinstance(base, str), "Renewal baseline required")
+    if baseline_moved:
+        require(base != flow.s.git.clean_baseline(), "A moved reviewer baseline is required")
+        require(
+            not conn.execute(
+                "SELECT 1 FROM core.work_items WHERE owner='triad' AND mission_id=%s "
+                "AND created_at>(SELECT created_at FROM core.work_items WHERE id=%s)",
+                (mission, work_id),
+            ).fetchone(),
+            "Later work prevents completed-review baseline recovery",
+        )
     flow.s.git.git("merge-base", "--is-ancestor", base, flow.s.git.clean_baseline())
     require_closed_review(
         flow.s,
