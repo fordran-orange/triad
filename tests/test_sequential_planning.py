@@ -170,12 +170,17 @@ def test_workspace_receives_exact_plan_schema_and_only_its_own_retained_candidat
     flow.policy = {"workspace_profile": PROFILE}
     flow.guard = lambda _: None
     flow.inventory = lambda: [PLAN_PATH]
-    material = {"agent": "CODEX", "files": [{"path": PLAN_PATH, "content": "retained"}]}
+    material = {
+        "agent": "CODEX",
+        "files": [{"path": PLAN_PATH, "content": "retained"}],
+        "author_correction_plan": {"id": "approved-plan", "plan": {"steps": ["obligation"]}},
+        "independent_qa": {"qa_id": "failed-qa", "decision": "CHANGES_REQUIRED"},
+    }
     flow.retained_application_candidate = material
     captured = {}
 
     def call(*args, **kwargs):
-        captured.update(context=args[4])
+        captured.update(context=args[4], objective=args[3], args=args, kwargs=kwargs)
         return "fixture"
 
     flow.s = NS(
@@ -200,6 +205,20 @@ def test_workspace_receives_exact_plan_schema_and_only_its_own_retained_candidat
     assert captured["context"]["retained_unmerged_candidate"] == (
         material if receives_candidate else None
     )
+    assert captured["args"][2] == "IMPLEMENT"
+    assert captured["kwargs"]["workspace_approval"] == "approval"
+    assert captured["kwargs"]["paths"] == (PLAN_PATH,)
+    assert captured["context"]["writable_files"] == [PLAN_PATH]
+    assert captured["context"]["approved_correction_plan"] == (
+        material["author_correction_plan"] if receives_candidate else None
+    )
+    assert captured["context"]["required_code_corrections"] == (
+        material["independent_qa"] if receives_candidate else None
+    )
+    from products.triad.sequential_correction_review import BEHAVIORAL_EVIDENCE_GUIDANCE
+
+    assert (BEHAVIORAL_EVIDENCE_GUIDANCE in captured["objective"]) is receives_candidate
+    assert ("Implement those obligations" in captured["objective"]) is receives_candidate
 
 
 def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
