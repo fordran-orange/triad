@@ -33,11 +33,19 @@ def resume_citation_failure(flow, mission, *, substantive=False):
         with host.ledger.gate(), host.store.connect() as conn:
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (mission,))
             prior = daily.current(mission, conn)
+            from products.triad.sequential_correction_renewal import PREFIX
+
+            renewal = substantive and prior.get("failures", [{}])[-1].get("message", "").startswith(
+                PREFIX
+            )
             require(
                 prior["status"] == "BLOCKED"
                 and prior.get("failure_code") == "PermissionError"
-                and prior.get("failures", [{}])[-1].get("message")
-                == "Latest independent QA did not pass this revision",
+                and (
+                    renewal
+                    or prior.get("failures", [{}])[-1].get("message")
+                    == "Latest independent QA did not pass this revision"
+                ),
                 "Not a citation QA block",
             )
             flow.guard(mission)
@@ -46,7 +54,7 @@ def resume_citation_failure(flow, mission, *, substantive=False):
             )
             require(
                 bool(history)
-                and history[-1]["from"] == "AWAITING_QA"
+                and history[-1]["from"] == ("CORRECTING" if renewal else "AWAITING_QA")
                 and history[-1]["to"] == "BLOCKED",
                 "Not an interrupted QA turn",
             )
@@ -242,10 +250,27 @@ def resume_citation_failure(flow, mission, *, substantive=False):
                     "Rejected or blocked execution is not correction authority",
                 )
                 flow.improvement_day = day
+                stopped = None
+                if renewal:
+                    from products.triad.sequential_correction_renewal import renewal_checkpoint
+
+                    stopped = renewal_checkpoint(flow, mission, prior, build, proposal, qa, conn)
                 prepared = prepare_correction(
-                    flow, mission, agent, proposal, git, build, qa["id"], existing_conn=conn
+                    flow,
+                    mission,
+                    agent,
+                    proposal,
+                    git,
+                    build,
+                    qa["id"],
+                    existing_conn=conn,
+                    reuse_checkpoint=renewal,
                 )
-                action = "qa-resume-" + qa["id"]
+                if stopped:
+                    prepared["renewal_feedback"] = {
+                        k: stopped[k] for k in ("id", "decision", "summary", "findings", "run_id")
+                    }
+                action = "qa-resume-" + qa["id"] + ("-" + stopped["id"] if stopped else "")
                 require(
                     not conn.execute(
                         "SELECT 1 FROM core.day3_records WHERE id=%s", (action,)

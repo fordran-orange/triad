@@ -13,7 +13,9 @@ from products.triad.sequential_candidate_recovery import retain_application_cand
 from products.triad.sequential_recovery import require
 
 
-def require_closed_review(service, conn, reviewer, request, raw, usage, review, proposal):
+def require_closed_review(
+    service, conn, reviewer, request, raw, usage, review, proposal, *, context_key="exact_commit"
+):
     """Bind canonical routing and actual completed native observation."""
     run, expected = review["run_id"], reviewer.work_item_id
     require(
@@ -24,7 +26,7 @@ def require_closed_review(service, conn, reviewer, request, raw, usage, review, 
         and request.get("allowed_tools") == ["read_file"]
         and set(request.get("allowed_paths", [])) == set(reviewer.allowed_paths)
         and request.get("context_packet", {}).get("proposal") == proposal.model_dump(mode="json")
-        and request.get("context_packet", {}).get("exact_commit") == review["commit"]
+        and request.get("context_packet", {}).get(context_key) == review["commit"]
         and raw.get("mode") == usage.get("mode") == "REAL"
         and raw.get("status") != "BLOCKED"
         and not raw.get("files_changed")
@@ -107,7 +109,9 @@ def require_closed_review(service, conn, reviewer, request, raw, usage, review, 
         )
 
 
-def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, existing_conn=None):
+def prepare_correction(
+    flow, mission, agent, proposal, git, build, qa_id, *, existing_conn=None, reuse_checkpoint=False
+):
     """Bind advisory code/findings and the one turn reservation to closed real QA."""
     from products.triad.sequential import REVIEWERS
 
@@ -362,10 +366,38 @@ def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, exi
             reservation_work_item_id=slot,
         )
         action = "candidate-correction-" + qa_id
-        require(
-            not conn.execute("SELECT 1 FROM core.day3_records WHERE id=%s", (action,)).fetchone(),
-            "Correction already dispatched",
-        )
+        previous = conn.execute(
+            "SELECT kind,owner,payload FROM core.day3_records WHERE id=%s", (action,)
+        ).fetchone()
+        if previous:
+            require(reuse_checkpoint and existing_conn is not None, "Correction already dispatched")
+            require(
+                not conn.execute(
+                    "SELECT 1 FROM core.day3_records WHERE id=%s", ("correction-build-" + qa_id,)
+                ).fetchone(),
+                "Correction build already attempted",
+            )
+            expected = {
+                "action": "correct_independently_rejected_candidate",
+                "cycle_id": mission,
+                "implementation_id": build["implementation_id"],
+                "qa_id": qa_id,
+                "candidate_commit": retained["commit"],
+                "snapshot_sha256": retained["snapshot_sha256"],
+                "reservation_id": retained["reservation_id"],
+                "reservation_work_item_id": slot,
+                "approval_id": build["approval"],
+                "agent": agent,
+                "day": flow.improvement_day,
+                "released_change_slots": 0,
+            }
+            require(
+                previous["kind"] == "ControlAction"
+                and previous["owner"] == "core"
+                and all(previous["payload"].get(k) == v for k, v in expected.items()),
+                "Original correction checkpoint changed",
+            )
+            return retained
         host.ledger.put(
             "ControlAction",
             {
@@ -412,6 +444,10 @@ def claim_correction_build(flow, mission, agent, proposal, approval, retained):
             old["proposal"] == approved["proposal"],
             "Correction must preserve exact approved proposal",
         )
+        if approved["base_commit"] != retained["base_commit"]:
+            from products.triad.sequential_correction_plan import require_approved_plan
+
+            require_approved_plan(flow, conn, mission, agent, proposal, retained, approved)
         action = "correction-build-" + qa_id
         checkpoint = conn.execute(
             "SELECT kind,owner,payload FROM core.day3_records WHERE id=%s",
@@ -466,6 +502,7 @@ def claim_correction_build(flow, mission, agent, proposal, approval, retained):
                 "approval": approval,
                 "reservation_id": retained["reservation_id"],
                 "released_change_slots": 0,
+                "correction_plan_id": approved.get("correction_plan_id"),
             },
             identifier=action,
             conn=conn,
@@ -494,34 +531,9 @@ def correct_until_pass(flow, mission, agent, proposal, git, build, qa):
         approval = build["approval"]
         baseline = flow.s.git.clean_baseline()
         if baseline != build["git"]["base_commit"]:
-            from products.triad.sequential_planning import planning_context
+            from products.triad.sequential_correction_plan import renew_with_plan
 
-            original = flow.s.canonical.get(approval)
-            prior_reviews = flow.s.rows("ProductProposalReview", mission)
-            attempt = (
-                max(
-                    (r.get("attempt", 0) for r in prior_reviews if r.get("proposer") == agent),
-                    default=0,
-                )
-                + 1
-            )
-            _, renewed, assessment = flow.review_proposal(
-                mission,
-                agent,
-                proposal,
-                [],
-                attempt,
-                baseline,
-                flow.inventory(),
-                planning_context(flow.s, mission, baseline),
-                original["author_work_item_id"],
-                original["author_run_id"],
-            )
-            require(
-                renewed is not None,
-                "Current-baseline correction proposal did not pass independent review: "
-                + assessment["summary"],
-            )
+            renewed, planned = renew_with_plan(flow, mission, agent, proposal, retained, baseline)
             flow.s.record(
                 "ProductProposalApprovalRenewal",
                 mission,
@@ -529,6 +541,7 @@ def correct_until_pass(flow, mission, agent, proposal, git, build, qa):
                 approval=renewed,
                 proposal=proposal.model_dump(mode="json"),
                 base_commit=baseline,
+                correction_plan_id=planned["id"],
             )
             approval = renewed
         git, build = flow.build(mission, agent, proposal, approval)
