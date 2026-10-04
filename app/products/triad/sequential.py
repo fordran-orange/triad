@@ -762,6 +762,20 @@ class SequentialCycle:
         retained_candidate = getattr(self, "retained_application_candidate", None)
         if retained_candidate and retained_candidate["agent"] != agent:
             retained_candidate = None
+        correction_guidance = ""
+        if (retained_candidate or {}).get("author_correction_plan") is not None:
+            from products.triad.sequential_correction_review import BEHAVIORAL_EVIDENCE_GUIDANCE
+
+            correction_guidance = (
+                " The supplied approved_correction_plan records independently approved correction "
+                "obligations. Implement those obligations; retained source is reusable evidence, "
+                "not a waiver of the failed checks. Preserve already verified behavior. Equivalent "
+                "credible test techniques remain allowed; satisfy the original acceptance contract. "
+                "Derive distinguishable expectations from actual UI-owned responses and compare "
+                "identities or text the UI really renders. A concatenated marker absent from the "
+                "markup or a fixed sleep alone cannot prove the old handler finished or was suppressed."
+                + BEHAVIORAL_EVIDENCE_GUIDANCE
+            )
         return self.s.call(
             mission,
             agent,
@@ -773,10 +787,11 @@ class SequentialCycle:
             "the offline container; fix failures and retry as needed. Product commands have no host credentials or network. "
             "Use python -m unittest discover -s tests/products/triad for product tests where appropriate. "
             "Maintain application_plan.json using the supplied exact application_plan_schema. Do not invent fields or status values; "
-            "put additional design reasoning in decisions or architecture_reasoning. Retained candidate material is advisory: "
+            "put additional design reasoning in decisions or architecture_reasoning. Retained source is reusable evidence: "
             "reuse its useful code through workspace tools where it fits the fresh approved manifest, correcting the recorded errors. "
             "Keep your final files_changed, analysis_artifacts, claims, actions_taken, commands_executed and tests_run empty; "
             "Core exports your actual edits and observed tool evidence. Never fabricate a patch in the response. "
+            + correction_guidance
             + token_guidance(agent),
             {
                 "proposal": context["proposal"],
@@ -969,8 +984,9 @@ class SequentialCycle:
         if any(before[k] != build["checks"][k] for k in ("files", "hashes", "diff")):
             raise PermissionError("Candidate changed before independent QA")
         if retained is None:
+            snapshot = self.test_snapshot(git, build["git"])
             repeated = check_candidate(
-                self.test_snapshot(git, build["git"]),
+                snapshot,
                 lambda: self.guard(mission),
                 self.policy["test_image"],
             )
@@ -1012,6 +1028,17 @@ class SequentialCycle:
                     "repeated_test_record_id": repeated_id,
                     "assessment_schema": AcceptanceAssessment.model_json_schema(),
                     "source_evidence_id": "candidate:" + build["git"]["change_commit"],
+                    # Adopted interfaces and their existing assertions can be
+                    # required evidence even when the patch does not edit them.
+                    "candidate_read_only_dependency_sources": {
+                        path: {
+                            "sha256": hashlib.sha256(source.encode()).hexdigest(),
+                            "source": source,
+                        }
+                        for path, source in snapshot.items()
+                        if path.endswith(".py")
+                        and path.startswith(("app/products/triad/", "tests/products/triad/"))
+                    },
                     "allowed_evidence_ids": [
                         "candidate:" + build["git"]["change_commit"],
                         build["checks"]["test_record_id"],
