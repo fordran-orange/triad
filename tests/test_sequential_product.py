@@ -140,7 +140,7 @@ def test_next_author_waits_for_deployment(fail_health, resume, monkeypatch):
 
     flow.propose = propose
     flow.build = lambda m, a, p, r: (None, {"implementation_id": a})
-    flow.qa = lambda m, a, p, g, b: NS(qa_run_id="qa")
+    flow.qa = lambda m, a, p, g, b: NS(qa_run_id="qa", decision="PASS")
     flow.merge = lambda m, a, g, b, q: {"merge_commit": a}
 
     def verify(m):

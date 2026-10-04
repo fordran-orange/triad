@@ -446,6 +446,7 @@ class SequentialCycle:
                 },
                 "product_planning": strategy,
                 "retained_unmerged_candidate": retained_candidate,
+                "required_code_corrections": (retained_candidate or {}).get("independent_qa"),
                 "inventory": inventory,
                 "additional_product_sources_read_only": additional_sources,
                 "base_commit": baseline,
@@ -702,6 +703,7 @@ class SequentialCycle:
                 "application_plan_schema": ApplicationPlan.model_json_schema(),
                 "application_plan_consistency_rules": APPLICATION_RULES,
                 "retained_unmerged_candidate": retained_candidate,
+                "required_code_corrections": (retained_candidate or {}).get("independent_qa"),
             },
             schema=schema,
             paths=paths,
@@ -749,6 +751,12 @@ class SequentialCycle:
         git = ProductGit(proposal.files, root=self.root)
         if git.clean_baseline() != approved["base_commit"]:
             raise PermissionError("Baseline changed after proposal review")
+        correction = getattr(self, "retained_application_candidate", None)
+        correction = correction if correction and correction.get("independent_qa") and correction["agent"] == agent else None
+        if correction:
+            from products.triad.sequential_corrections import claim_correction_build
+
+            claim_correction_build(self, mission, agent, proposal, approval, correction)
         sources = {
             p: git.path(self.root, p).read_text(encoding="utf-8")
             for p in proposal.files
@@ -778,13 +786,11 @@ class SequentialCycle:
             Patch,
             approval=approval,
         )
-        self.s.ledger.reserve(
-            agent,
-            work.work_item_id,
-            improvement=True,
-            day=self.improvement_day,
-            billing_source="SUBSCRIPTION",
-        )
+        if correction is None:
+            self.s.ledger.reserve(
+                agent, work.work_item_id, improvement=True, day=self.improvement_day,
+                billing_source="SUBSCRIPTION",
+            )
         metadata = git.isolate(work.work_item_id, agent)
         self.s.record(
             "ProductBuildCheckpoint",
@@ -849,6 +855,14 @@ class SequentialCycle:
             "usage": usage,
             "approval": approval,
         }
+        if correction:
+            build.update(
+                correction_of=correction["implementation_id"],
+                correction_qa_id=correction["independent_qa"]["qa_id"],
+                reservation_id=correction["reservation_id"],
+                reservation_work_item_id=correction["reservation_work_item_id"],
+                renewed_approval_from=correction["approval_id"] if correction["approval_id"] != approval else None,
+            )
         self.s.record("ProductBuild", mission, **build)
         return git, build
 
@@ -935,7 +949,7 @@ class SequentialCycle:
             build["git"]["change_commit"],
             proofs,
         )
-        if missing:
+        if missing and decision not in {"REJECT", "BLOCKED"}:
             decision = "CHANGES_REQUIRED"
         qa_id, acceptance_id = uid(), uid()
         self.s.canonical.append(
@@ -1017,7 +1031,8 @@ class SequentialCycle:
                         execution_mode="REAL",
                     ),
                 )
-        self.s.quality.require_pass(build["implementation_id"], build["git"]["change_commit"])
+        if decision != "CHANGES_REQUIRED":
+            self.s.quality.require_pass(build["implementation_id"], build["git"]["change_commit"])
         return qa
 
     def require_acceptance(self, mission, build, qa):
@@ -1128,6 +1143,7 @@ class SequentialCycle:
         schedule_id=None,
         resume_patch_failure=False,
         resume_citation_failure=False,
+        resume_qa_failure=False,
         resume_read_failure=False,
         startup_attempt_id=None,
     ):
@@ -1135,8 +1151,8 @@ class SequentialCycle:
 
         if verify is None:
             raise PermissionError("Trusted post-deployment verification required")
-        recovering = resume_patch_failure or resume_citation_failure or resume_read_failure
-        if sum((resume_patch_failure, resume_citation_failure, resume_read_failure)) > 1:
+        recovering = resume_patch_failure or resume_citation_failure or resume_read_failure or resume_qa_failure
+        if sum((resume_patch_failure, resume_citation_failure, resume_read_failure, resume_qa_failure)) > 1:
             raise PermissionError("Choose one recovery path")
         if recovering and (
             scheduled or not cycle_id or expected_epoch is not None or schedule_id is not None
@@ -1157,12 +1173,14 @@ class SequentialCycle:
             with (
                 self.s.host.store.lease("triad-daily-schedule-slot") if scheduled else nullcontext()
             ):
-                if resume_citation_failure:
+                if resume_citation_failure or resume_qa_failure:
                     from products.triad.sequential_qa_recovery import (
                         resume_citation_failure as recover,
                     )
 
-                    cycle, completed, self.improvement_day, retained = recover(self, cycle_id)
+                    cycle, completed, self.improvement_day, retained = (
+                        recover(self, cycle_id, substantive=True) if resume_qa_failure else recover(self, cycle_id)
+                    )
                 elif resume_patch_failure or resume_read_failure:
                     from products.triad.sequential_recovery import resume_patch_failure as recover
 
@@ -1218,7 +1236,7 @@ class SequentialCycle:
                     if retained is not None:
                         proposal, git, build, previous_review = retained
                         retained = None
-                        qa = self.qa(mission, agent, proposal, git, build, retained=previous_review)
+                        qa = previous_review if resume_qa_failure else self.qa(mission, agent, proposal, git, build, retained=previous_review)
                     else:
                         self.s.record(
                             "ProductTurnStarted", mission, agent=agent, reviewer=REVIEWERS[agent]
@@ -1239,6 +1257,10 @@ class SequentialCycle:
                         git, build = self.build(mission, agent, proposal, approval)
                         self.s.transition(mission, "AWAITING_QA", [build["implementation_id"]])
                         qa = self.qa(mission, agent, proposal, git, build)
+                    from products.triad.sequential_corrections import correct_until_pass
+
+                    git, build, qa = correct_until_pass(self, mission, agent, proposal, git, build, qa)
+                    self.retained_application_candidate = None
                     self.s.transition(mission, "MERGING", [qa.qa_run_id])
                     merged = self.merge(mission, agent, git, build, qa)
                     self.s.transition(

@@ -6,7 +6,7 @@ complete, or grant scheduling authority. Canonical snapshots append history.
 
 import hashlib
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
@@ -827,6 +827,17 @@ class Daily:
             self.require_complete(prerequisite)
         stamp = now()
         next_day = stamp.astimezone(ZoneInfo(config.timezone)).date() + timedelta(days=1)
+        existing = self.schedule()
+        if (
+            config.enabled and existing.get("enabled") is True
+            and existing.get("control_epoch") == control["epoch"]
+            and DailySchedule.model_validate({k: existing[k] for k in DailySchedule.model_fields}) == config
+            and existing.get("effective_after")
+        ):
+            # Renewing accepted policy preserves the operator's existing cadence.
+            # In particular, finishing acceptance after midnight must not skip
+            # the already authorized morning. Durable date claims prevent replay.
+            next_day = date.fromisoformat(existing["effective_after"])
         return self.host.append(
             "DailySchedule",
             {

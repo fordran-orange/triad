@@ -17,7 +17,7 @@ from products.triad.sequential_citations import (
 from products.triad.sequential_recovery import require
 
 
-def resume_citation_failure(flow, mission):
+def resume_citation_failure(flow, mission, *, substantive=False):
     """Caller holds daily execution lease. No build, reservation refund or test replay."""
     service, daily = flow.s, flow.s.daily
     host = daily.host
@@ -64,7 +64,8 @@ def resume_citation_failure(flow, mission):
             )
             day = program["local_date"]
             require(
-                now().astimezone(ZoneInfo(program["timezone"])).date().isoformat() == day,
+                substantive
+                or now().astimezone(ZoneInfo(program["timezone"])).date().isoformat() == day,
                 "Recovery requires original local day",
             )
             turns = daily.require_turn_prefix(mission, prior, conn)
@@ -76,11 +77,12 @@ def resume_citation_failure(flow, mission):
                 all(r.get("implementation_id") in retained for r in merges), "Unaccounted merge"
             )
             builds = daily.product.list("ProductBuild", matching={"mission_id": mission}, conn=conn)
-            pending = [b for b in builds if b["implementation_id"] not in retained]
+            superseded = {b.get("correction_of") for b in builds}
+            pending = [b for b in builds if b["implementation_id"] not in retained | superseded]
             require(len(pending) == 1, "One pending implementation required")
             build = pending[0]
             require(
-                build["builder"] == agent and build["git"]["base_commit"] == head,
+                build["builder"] == agent and (substantive or build["git"]["base_commit"] == head),
                 "Candidate baseline or builder changed",
             )
             work = service.host.store.get(build["work_item_id"], conn=conn)
@@ -105,7 +107,30 @@ def resume_citation_failure(flow, mission):
             approved = host.get(build["approval"], conn=conn)
             proposal = Proposal.model_validate(approved["proposal"])
             flow.approval(mission, agent, proposal, build["approval"])
-            require(approved["base_commit"] == head, "Approval baseline changed")
+            require(
+                approved["base_commit"] == build["git"]["base_commit"], "Approval baseline changed"
+            )
+            if substantive:
+                from trading_core.product_changes import PRODUCT_ROOTS, protected_orchestration
+
+                from products.triad.sequential_planning import CORE_REFERENCES
+
+                service.git.git("merge-base", "--is-ancestor", approved["base_commit"], head)
+                moved = service.git.git(
+                    "diff", "--name-only", approved["base_commit"], head, "--", *PRODUCT_ROOTS
+                ).splitlines()
+                require(
+                    all(protected_orchestration(p) for p in moved),
+                    "Product source changed after rejected QA",
+                )
+                require(
+                    not service.git.git(
+                        "diff", "--name-only", approved["base_commit"], head, "--", *CORE_REFERENCES
+                    ),
+                    "Published Core contract changed after rejected QA",
+                )
+            else:
+                require(approved["base_commit"] == head, "Approval baseline changed")
             git = ProductGit(proposal.files, root=flow.root)
             require(
                 git.git("rev-parse", "HEAD", cwd=build["git"]["worktree"])
@@ -187,12 +212,17 @@ def resume_citation_failure(flow, mission):
                 all(p.get("work_item_id") == build["work_item_id"] for p in proofs.values()),
                 "Test work identity changed",
             )
-            require(
-                citation_omission(
-                    review["required"], assessment, review["commit"], proofs, result.review_decision
-                ),
-                "Not solely a citation omission",
-            )
+            if not substantive:
+                require(
+                    citation_omission(
+                        review["required"],
+                        assessment,
+                        review["commit"],
+                        proofs,
+                        result.review_decision,
+                    ),
+                    "Not solely a citation omission",
+                )
             problems = acceptance_problems(review["required"], assessment, review["commit"], proofs)
             require(
                 list(problems) == review["problems"]
@@ -202,6 +232,72 @@ def resume_citation_failure(flow, mission):
                 and qa["execution_mode"] == "REAL_PROVIDER",
                 "Latest QA contains additional or different findings",
             )
+            if substantive:
+                from trading_core.intelligence.contracts import QARun
+
+                from products.triad.sequential_corrections import prepare_correction
+
+                require(
+                    result.review_decision in {"REQUEST_CHANGES", "APPROVE"},
+                    "Rejected or blocked execution is not correction authority",
+                )
+                flow.improvement_day = day
+                prepared = prepare_correction(
+                    flow, mission, agent, proposal, git, build, qa["id"], existing_conn=conn
+                )
+                action = "qa-resume-" + qa["id"]
+                require(
+                    not conn.execute(
+                        "SELECT 1 FROM core.day3_records WHERE id=%s", (action,)
+                    ).fetchone(),
+                    "QA continuation already attempted",
+                )
+                flow.guard(mission)
+                require(service.git.clean_baseline() == head, "Recovery baseline moved")
+                host.ledger.put(
+                    "ControlAction",
+                    {
+                        "action": "resume_independently_requested_candidate_correction",
+                        "cycle_id": mission,
+                        "implementation_id": build["implementation_id"],
+                        "prior_qa_id": qa["id"],
+                        "candidate_commit": build["git"]["change_commit"],
+                        "revision": head,
+                        "health": healthy,
+                        "retained_turn_ids": [t["id"] for t in turns],
+                        "released_change_slots": 0,
+                    },
+                    identifier=action,
+                    conn=conn,
+                )
+                payload = {k: v for k, v in prior.items() if k in CycleRecord.model_fields}
+                payload.update(
+                    status="AWAITING_QA",
+                    finished_at=None,
+                    blocked_at=None,
+                    failure_code=None,
+                    recovery_action=action,
+                    recorded_at=now(),
+                )
+                cycle = CycleRecord.model_validate(payload)
+                host.append("CycleRecord", cycle.model_dump(mode="json"), owner="triad", conn=conn)
+                host.append(
+                    "DailyCycleTransition",
+                    {
+                        "cycle_id": mission,
+                        "from": "BLOCKED",
+                        "to": "AWAITING_QA",
+                        "timestamp": now().isoformat(),
+                        "evidence": [action],
+                    },
+                    owner="triad",
+                    conn=conn,
+                )
+                qa_model = QARun.model_validate(
+                    {k: v for k, v in qa.items() if k in QARun.model_fields}
+                )
+                flow._prepared_correction = prepared
+                return cycle, len(turns), day, (proposal, git, build, qa_model)
             attempted = daily.product.list(
                 "ProductCitationCorrectionRequested",
                 matching={"implementation_id": build["implementation_id"]},

@@ -21,7 +21,9 @@ from products.triad.sequential_application import (
 from products.triad.sequential_recovery import require
 
 
-def retain_application_candidate(flow, mission, agent, prior, work, checkpoint, conn):
+def retain_application_candidate(
+    flow, mission, agent, prior, work, checkpoint, conn, *, qa_feedback=None
+):
     from products.triad.sequential import Patch
 
     daily = flow.s.daily
@@ -175,6 +177,21 @@ def retain_application_candidate(flow, mission, agent, prior, work, checkpoint, 
         )
         feedback = exc.errors(include_input=False, include_url=False, include_context=False)
     else:
+        if qa_feedback is not None:
+            # The caller has bound this feedback to canonical independent QA of
+            # this exact native export. It grants no new scope or approval.
+            return {
+                "agent": agent,
+                "commit": commit,
+                "base_commit": metadata["base_commit"],
+                "native_run_id": request["run_id"],
+                "files": [f.model_dump(mode="json") for f in patch.files],
+                "snapshot_sha256": hashlib.sha256(
+                    json.dumps(actual["sources"], sort_keys=True).encode()
+                ).hexdigest(),
+                "independent_qa": qa_feedback,
+                "authority": "Advisory unmerged candidate. Correct the actual QA findings through a current approved workspace; fresh tests and independent QA remain mandatory.",
+            }
         require(
             prior["failure_code"] == "ValueError"
             and prior["failures"][-1]["message"] == WORKFLOW_ERROR,
