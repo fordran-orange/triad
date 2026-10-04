@@ -15,15 +15,14 @@ def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, exi
     from products.triad.sequential import REVIEWERS
 
     service = flow.s
-    require(service.host.store.scope is None, "Core host correction required")
+    host = service.daily.host
+    require(host.store.scope is None, "Core host correction required")
     with (
         nullcontext()
         if existing_conn is not None
-        else service.host.store.lease("triad-product-development"),
+        else host.store.lease("triad-product-development"),
         nullcontext() if existing_conn is not None else service.ledger.gate(),
-        nullcontext(existing_conn)
-        if existing_conn is not None
-        else service.host.store.connect() as conn,
+        nullcontext(existing_conn) if existing_conn is not None else host.store.connect() as conn,
     ):
         conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (mission,))
         prior = service.daily.current(mission, conn)
@@ -97,8 +96,8 @@ def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, exi
             and review["required"] == approved["proposal"]["acceptance"],
             "Acceptance review binding changed",
         )
-        work = service.host.store.get(build["work_item_id"], conn=conn)
-        reviewer = service.host.store.get(qa["qa_work_item_id"], conn=conn)
+        work = host.store.get(build["work_item_id"], conn=conn)
+        reviewer = host.store.get(qa["qa_work_item_id"], conn=conn)
         require(
             work.status == State.CHANGES_REQUESTED
             and work.owner == "triad"
@@ -120,7 +119,7 @@ def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, exi
                 w.mission_id == mission
                 and w.work_item_id != prior["parent_work_item_id"]
                 and w.status in {State.IN_PROGRESS, State.AWAITING_REVIEW}
-                for w in service.host.store.list_work(10000)
+                for w in host.store.list_work(10000)
             ),
             "Active child work prevents correction",
         )
@@ -251,7 +250,7 @@ def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, exi
             not conn.execute("SELECT 1 FROM core.day3_records WHERE id=%s", (action,)).fetchone(),
             "Correction already dispatched",
         )
-        service.host.ledger.put(
+        host.ledger.put(
             "ControlAction",
             {
                 "action": "correct_independently_rejected_candidate",
@@ -274,7 +273,9 @@ def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, exi
 def claim_correction_build(flow, mission, agent, proposal, approval, retained):
     """One dispatch per closed QA; interrupted native execution is never replayed."""
     qa_id = retained["independent_qa"]["qa_id"]
-    with flow.s.ledger.gate(), flow.s.host.store.connect() as conn:
+    host = flow.s.daily.host
+    require(host.store.scope is None, "Core host correction required")
+    with flow.s.ledger.gate(), host.store.connect() as conn:
         conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (mission,))
         flow.guard(mission)
         current = flow.s.daily.current(mission, conn)
@@ -303,7 +304,7 @@ def claim_correction_build(flow, mission, agent, proposal, approval, retained):
             not conn.execute("SELECT 1 FROM core.day3_records WHERE id=%s", (action,)).fetchone(),
             "Correction build already attempted",
         )
-        flow.s.host.ledger.put(
+        host.ledger.put(
             "ControlAction",
             {
                 "action": "dispatch_exact_candidate_correction",
