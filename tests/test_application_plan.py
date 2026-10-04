@@ -19,6 +19,34 @@ from trading_core.product_sdk import SDK_FILES
 from trading_core.providers.isolation import OfflineSandbox
 
 
+def fixture_plan():
+    """Fixed validator inputs; the autonomous product's evolving plan is not a fixture."""
+    return ApplicationPlan.model_validate({
+        "schema_version": "triad.application.v1",
+        "goal": "Fixture connected application",
+        "architecture_reasoning": "One tested edge does not complete the whole chain",
+        "components": [
+            {"id": "workspace", "name": "Workspace", "responsibility": "User input",
+             "owner": "triad", "status": "EXISTS", "paths": ["app/products/triad/static/fixture.html"]},
+            {"id": "adapter", "name": "Adapter", "responsibility": "SDK input",
+             "owner": "triad", "status": "EXISTS", "paths": ["app/products/triad/fixture_adapter.py"]},
+            {"id": "core", "name": "Core", "responsibility": "Shared computation",
+             "owner": "core", "status": "EXISTS", "paths": ["app/trading_core/product_sdk.py"]},
+        ],
+        "connections": [
+            {"producer": "adapter", "consumer": "core", "contract": "core.product-research",
+             "version": "v1", "status": "TESTED", "tests": ["tests/products/triad/test_fixture.py"]},
+            {"producer": "workspace", "consumer": "adapter", "contract": "fixture.input",
+             "version": "v1", "status": "PLANNED", "tests": []},
+        ],
+        "workflows": [{"id": "fixture-research", "user_outcome": "Fixture research",
+                       "entry_point": "/triad/product", "components": ["workspace", "adapter", "core"],
+                       "status": "NOT_BUILT", "next_connection": "Connect workspace to adapter"}],
+        "decisions": ["This is an immutable test fixture, not the product roadmap"],
+        "next_initiatives": ["Connect the missing edge"],
+    })
+
+
 def test_plan_is_product_owned_but_its_validator_is_protected():
     assert product_path(PLAN_PATH) == PLAN_PATH
     with pytest.raises(PermissionError):
@@ -29,9 +57,8 @@ def test_plan_is_product_owned_but_its_validator_is_protected():
         CurrentProposal(**raw)
 
 
-def test_current_inventory_is_not_claimed_as_a_built_application():
+def test_current_inventory_validates_without_a_fixed_product_status():
     application = current_plan()
-    assert application.workflows[0].status == "NOT_BUILT"
     snapshot = {PLAN_PATH: application.model_dump_json()}
     root = Path(__file__).resolve().parents[1]
     for component in application.components:
@@ -45,7 +72,7 @@ def test_current_inventory_is_not_claimed_as_a_built_application():
 
 
 def test_connections_cannot_invent_components_or_execution_evidence():
-    raw = current_plan().model_dump(mode="json")
+    raw = fixture_plan().model_dump(mode="json")
     invalid = {
         **raw,
         "connections": [
@@ -67,18 +94,18 @@ def test_connections_cannot_invent_components_or_execution_evidence():
 
 
 def test_planned_component_and_non_discovered_helper_cannot_claim_tested_connection():
-    raw = current_plan().model_dump(mode="json")
+    raw = fixture_plan().model_dump(mode="json")
     raw["components"][-1]["status"] = "PLANNED"
     with pytest.raises(ValidationError, match="endpoints must exist"):
         ApplicationPlan.model_validate(raw)
-    raw = current_plan().model_dump(mode="json")
+    raw = fixture_plan().model_dump(mode="json")
     raw["connections"][0]["tests"] = ["tests/products/triad/helper.py"]
     with pytest.raises(ValidationError, match="product tests"):
         ApplicationPlan.model_validate(raw)
 
 
 def test_connection_proof_requires_actual_passing_cases_in_each_declared_file():
-    application = current_plan()
+    application = fixture_plan()
     path = application.connections[0].tests[0]
     for files in ({}, {path: 0}, {"tests/products/triad/test_unrelated.py": 100}):
         with pytest.raises(ValueError, match="actual passing"):
@@ -108,14 +135,14 @@ def test_image_identity_is_stable_across_windows_and_unix_checkout(tmp_path):
 
 
 def test_other_product_cannot_become_a_core_or_triad_component():
-    raw = current_plan().model_dump(mode="json")
+    raw = fixture_plan().model_dump(mode="json")
     raw["components"][0]["paths"] = ["app/products/aegis/private.py"]
     with pytest.raises(PermissionError):
         ApplicationPlan.model_validate(raw)
 
 
 def test_application_panel_escapes_agent_owned_design_content():
-    plan = current_plan().model_copy(update={"architecture_reasoning": "<script>bad()</script>"})
+    plan = fixture_plan().model_copy(update={"architecture_reasoning": "<script>bad()</script>"})
     html = render_application(plan)
     assert "<script>" not in html and "&lt;script&gt;" in html
     assert "Not Built" in html and "not proof" in html

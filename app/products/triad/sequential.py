@@ -398,7 +398,12 @@ class SequentialCycle:
         author_work, _, proposal, author_usage = self.call(
             mission,
             agent,
-            "Choose your perceived highest-value improvement toward Triad's trading-product mission and implement it this turn. "
+            "Choose your perceived highest-value improvement toward Triad's trading-product mission and prepare its proposal now; "
+            "implementation follows independent approval later in this same provider turn. "
+            "You are the PROPOSAL_AUTHOR for this call, not the independent reviewer. Core's execution role REVIEW means "
+            "read-only reasoning permissions; it does not assign you to review another author's submission. "
+            "There is no new candidate to wait for: author the fresh candidate yourself from the evidence and corrections. "
+            "A different provider reviews it; writing a proposal in analysis_artifacts is not self-approval or a source edit. "
             "Look beyond existing page polish: you may create new tools, spaces and capabilities using product UI, "
             "backend modules, data-processing logic, documentation and tests. Governance, orchestration and other products are protected. "
             "Supply value_plan: your initiative, concrete user outcome, why this is the highest-value feasible change, "
@@ -432,6 +437,13 @@ class SequentialCycle:
             "or an evidence-supported NO_CHANGE for a fresh independent review. Inspect existing tests before proposing new ones. "
             "Return exactly one Proposal JSON object in analysis_artifacts using the supplied schema.",
             {
+                "task_assignment": {
+                    "phase": "PROPOSAL_AUTHOR",
+                    "author": agent,
+                    "independent_reviewer": REVIEWERS[agent],
+                    "execution_role": "REVIEW",
+                    "execution_role_meaning": "Read-only reasoning; create proposal data, do not edit source",
+                },
                 "product_planning": strategy,
                 "retained_unmerged_candidate": retained_candidate,
                 "inventory": inventory,
@@ -520,6 +532,10 @@ class SequentialCycle:
             mission,
             REVIEWERS[agent],
             "Independently review product value as well as correctness, protected boundaries, feasibility and acceptance. "
+            "You are the independent PROPOSAL_REVIEWER; the supplied proposal is the current author's submission. "
+            "Core's REVIEW execution role defines read-only permissions, not whether the prior caller was an author. "
+            "An author can propose within read-only reasoning; waiting for another candidate solely because of that role "
+            "does not justify NO_CHANGE. Judge the current proposal, not an old proposal in review history. "
             "Evaluate the author's highest-value reasoning against alternatives, prior outcomes and current Core interfaces. "
             "Assess mission_contribution and major_gaps against the complete application mission. An initiative may "
             "span multiple turns or days; require a useful tested increment, not completion of the entire initiative today. "
@@ -533,12 +549,22 @@ class SequentialCycle:
             "preference and keep corrections consistent with current source and the bounded user outcome. "
             "Do not apply historical document-only grants or grant new authority.",
             {
+                "task_assignment": {
+                    "phase": "PROPOSAL_REVIEWER",
+                    "author": agent,
+                    "independent_reviewer": REVIEWERS[agent],
+                    "execution_role": "REVIEW",
+                    "execution_role_meaning": "Read-only independent review of the current proposal",
+                },
                 "product_planning": strategy,
                 "retained_unmerged_candidate": retained_candidate,
                 "proposal": proposal.model_dump(mode="json"),
                 "inventory": inventory,
                 "base_commit": baseline,
-                "review_feedback": feedback,
+                "review_feedback": [
+                    {k: row[k] for k in ("decision", "summary", "findings") if k in row}
+                    for row in feedback
+                ],
                 "integration_source_read_only": self.s.git.git(
                     "show", baseline + ":app/products/triad/server.py"
                 ),

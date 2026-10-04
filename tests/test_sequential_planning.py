@@ -221,7 +221,7 @@ def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
             "# large current test\n" * 1000 if "test_large" in path else "historical or current",
             encoding="utf-8",
         )
-    calls, records = [], []
+    calls, records, recipients = [], [], []
     s.record = lambda *args, **kw: records.append((args, kw))
     s.rows = lambda *args: []
     s.transition = lambda *args, **kw: None
@@ -240,6 +240,7 @@ def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
 
     def call(mission, agent, objective, context, schema=None, paths=()):
         calls.append((objective, context, paths))
+        recipients.append(agent)
         if schema:
             return (
                 NS(work_item_id="author"),
@@ -255,9 +256,29 @@ def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
         )
 
     flow.call = call
-    chosen, approval, _ = flow.proposal_attempt("today", "CLAUDE", [], 1)
+    feedback = [{
+        "proposal": {"change": "Old rejected design, not the current submission"},
+        "decision": "REQUEST_CHANGES",
+        "summary": "Correct the current contract",
+        "findings": ["Use the published interface"],
+    }]
+    chosen, approval, _ = flow.proposal_attempt("today", "CLAUDE", feedback, 1)
     assert approval == "approved" and type(chosen) is Proposal
     author, reviewer = calls[0][1], calls[1][1]
+    assert recipients == ["CLAUDE", "GROK"]
+    assert author["task_assignment"]["phase"] == "PROPOSAL_AUTHOR"
+    assert reviewer["task_assignment"]["phase"] == "PROPOSAL_REVIEWER"
+    for context in (author, reviewer):
+        assert context["task_assignment"]["author"] == "CLAUDE"
+        assert context["task_assignment"]["independent_reviewer"] == "GROK"
+        assert context["task_assignment"]["execution_role"] == "REVIEW"
+    assert author["review_feedback"] == feedback
+    assert reviewer["review_feedback"] == [{
+        "decision": "REQUEST_CHANGES",
+        "summary": "Correct the current contract",
+        "findings": ["Use the published interface"],
+    }]
+    assert reviewer["proposal"] == chosen.model_dump(mode="json")
     assert author["product_planning"] == reviewer["product_planning"]
     assert (
         author["retained_unmerged_candidate"] == reviewer["retained_unmerged_candidate"] == material
@@ -268,7 +289,7 @@ def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
 
     for context in (author, reviewer):
         request = AgentRunRequest(
-            agent_id="CLAUDE",
+            agent_id=("CLAUDE" if context is author else "GROK"),
             work_item_id="fixture",
             mission_id="today",
             role="REVIEW",
@@ -282,6 +303,11 @@ def test_proposer_and_reviewer_see_same_value_context_and_all_current_sources(
             required_output_schema=AgentRunResult.model_json_schema(),
         )
         delivered, files, required, proof = prepare(request, {})
+        assert delivered.role == "REVIEW"
+        assert delivered.allowed_tools == ("read_file",)
+        assert delivered.execution_permissions == ("read",)
+        assert not delivered.allowed_paths
+        assert delivered.context_packet["task_assignment"] == context["task_assignment"]
         assert material["files"][0]["content"] not in json.dumps(delivered.context_packet)
         entry = next(e for e in proof["manifest"] if e["source"] == "retained_unmerged_candidate")
         assert set(entry["parts"]) <= required
