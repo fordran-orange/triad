@@ -4,6 +4,7 @@ from types import SimpleNamespace as NS
 import pytest
 from products.triad.sequential_correction_plan import (
     CorrectionPlan,
+    author_plan,
     renew_with_plan,
     validate_steps,
 )
@@ -61,6 +62,61 @@ def test_host_detected_bad_evidence_remains_a_required_correction():
         validate_steps(
             plan(), contract(), assessment(), ["identity: exact candidate source review required"]
         )
+
+
+def test_author_planning_uses_supplied_candidate_without_requesting_build_path_grants():
+    from products.triad.development import Development
+
+    proposal = NS(
+        files=("tests/products/triad/test_runner.py",),
+        acceptance=(NS(check_id="runner"),),
+        model_dump=lambda **k: {"files": ["tests/products/triad/test_runner.py"]},
+    )
+    retained = {
+        "approval_id": "old",
+        "commit": "candidate",
+        "independent_qa": {
+            "qa_id": "qa",
+            "assessment": {"checks": [{"check_id": "runner", "status": "NOT_VERIFIED"}]},
+            "findings": [],
+        },
+    }
+    result = {"id": "saved-plan"}
+
+    def read(mission, agent, objective, context, schema, paths=()):
+        work, requirements = Development.call(
+            NS(),
+            mission,
+            agent,
+            "REVIEW",
+            objective,
+            context,
+            paths=paths,
+            schema=schema,
+            _preview=True,
+        )
+        assert work.allowed_paths == () and work.execution_permissions == ("read",)
+        assert requirements.role == "REVIEW" and requirements.preferred_agent == "CLAUDE"
+        assert context["approved_file_manifest"] == list(proposal.files)
+        assert context["retained_unmerged_candidate"] == retained
+        return (
+            NS(work_item_id="author"),
+            None,
+            plan().model_copy(
+                update={"steps": (plan().steps[0].model_copy(update={"files": proposal.files}),)}
+            ),
+            {"run_id": "author-run"},
+        )
+
+    flow = NS(
+        call=read,
+        s=NS(
+            git=NS(clean_baseline=lambda: "main"),
+            record=lambda *a, **kw: "saved-plan",
+            canonical=NS(get=lambda i: result),
+        ),
+    )
+    assert author_plan(flow, "cycle", "CLAUDE", proposal, retained, "main") == result
 
 
 def fake_flow(monkeypatch, plans, decisions):

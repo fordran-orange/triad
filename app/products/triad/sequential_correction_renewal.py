@@ -5,9 +5,10 @@ from trading_core.work import State
 from products.triad.sequential_recovery import require
 
 PREFIX = "Current-baseline correction proposal did not pass independent review: "
+PLANNING_DENIED = "No authorized verified provider/role fits this task"
 
 
-def renewal_checkpoint(flow, mission, prior, build, proposal, qa, conn):
+def renewal_checkpoint(flow, mission, prior, build, proposal, qa, conn, *, planning_denial=False):
     from products.triad.sequential import REVIEWERS
     from products.triad.sequential_corrections import require_closed_review
 
@@ -22,7 +23,8 @@ def renewal_checkpoint(flow, mission, prior, build, proposal, qa, conn):
         and review["reviewer"] == REVIEWERS[agent]
         and review["decision"] == "REQUEST_CHANGES"
         and review["proposal"] == proposal.model_dump(mode="json")
-        and prior["failures"][-1]["message"] == (PREFIX + review["summary"])[:500],
+        and prior["failures"][-1]["message"]
+        == (PLANNING_DENIED if planning_denial else (PREFIX + review["summary"])[:500]),
         "Exact stopped renewal REQUEST_CHANGES required",
     )
     records = {}

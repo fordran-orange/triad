@@ -33,11 +33,15 @@ def resume_citation_failure(flow, mission, *, substantive=False):
         with host.ledger.gate(), host.store.connect() as conn:
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (mission,))
             prior = daily.current(mission, conn)
-            from products.triad.sequential_correction_renewal import PREFIX
+            from products.triad.sequential_correction_renewal import PLANNING_DENIED, PREFIX
 
             renewal = substantive and prior.get("failures", [{}])[-1].get("message", "").startswith(
                 PREFIX
             )
+            planning_denial = (
+                substantive and prior.get("failures", [{}])[-1].get("message") == PLANNING_DENIED
+            )
+            renewal = renewal or planning_denial
             require(
                 prior["status"] == "BLOCKED"
                 and prior.get("failure_code") == "PermissionError"
@@ -254,7 +258,16 @@ def resume_citation_failure(flow, mission, *, substantive=False):
                 if renewal:
                     from products.triad.sequential_correction_renewal import renewal_checkpoint
 
-                    stopped = renewal_checkpoint(flow, mission, prior, build, proposal, qa, conn)
+                    stopped = renewal_checkpoint(
+                        flow,
+                        mission,
+                        prior,
+                        build,
+                        proposal,
+                        qa,
+                        conn,
+                        planning_denial=planning_denial,
+                    )
                 prepared = prepare_correction(
                     flow,
                     mission,
@@ -271,6 +284,13 @@ def resume_citation_failure(flow, mission, *, substantive=False):
                         k: stopped[k] for k in ("id", "decision", "summary", "findings", "run_id")
                     }
                 action = "qa-resume-" + qa["id"] + ("-" + stopped["id"] if stopped else "")
+                if planning_denial:
+                    from products.triad.sequential_planning_denial import require_unstarted_planning
+
+                    denied = require_unstarted_planning(
+                        flow, mission, prior, proposal, prepared, stopped, conn
+                    )
+                    action += "-" + denied
                 require(
                     not conn.execute(
                         "SELECT 1 FROM core.day3_records WHERE id=%s", (action,)

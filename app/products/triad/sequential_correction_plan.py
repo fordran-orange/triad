@@ -44,15 +44,16 @@ def validate_steps(plan, proposal, assessment, problems=()):
     )
 
 
-def author_plan(flow, mission, agent, proposal, retained, baseline):
-    work, _result, plan, usage = flow.call(
-        mission,
-        agent,
-        "You are the CORRECTION_AUTHOR for your retained, unmerged implementation. Write one brief CorrectionPlan "
-        "addressing the actual independent QA gaps, using exactly the supplied schema. Do not restate already verified "
-        "initial work as the new change. Give a concrete test/code approach and approved file paths for each unverified "
-        "check. Preserve the original proposal, file manifest, acceptance criteria and fixture limitations. No new features "
-        "or scope expansion; no code execution or claims that proposed tests already passed.",
+def author_request(agent, proposal, retained, baseline):
+    """Deterministic evidence packet; planning does not request build file grants."""
+    return (
+        (
+            "You are the CORRECTION_AUTHOR for your retained, unmerged implementation. Write one brief CorrectionPlan "
+            "addressing the actual independent QA gaps, using exactly the supplied schema. Do not restate already verified "
+            "initial work as the new change. Give a concrete test/code approach and approved file paths for each unverified "
+            "check. Preserve the original proposal, file manifest, acceptance criteria and fixture limitations. No new features "
+            "or scope expansion; no code execution or claims that proposed tests already passed."
+        ),
         {
             "task_assignment": {
                 "phase": "CORRECTION_AUTHOR",
@@ -68,9 +69,12 @@ def author_plan(flow, mission, agent, proposal, retained, baseline):
             "approved_file_manifest": list(proposal.files),
             "schema": CorrectionPlan.model_json_schema(),
         },
-        CorrectionPlan,
-        proposal.files,
     )
+
+
+def author_plan(flow, mission, agent, proposal, retained, baseline):
+    objective, context = author_request(agent, proposal, retained, baseline)
+    work, _result, plan, usage = flow.call(mission, agent, objective, context, CorrectionPlan)
     validate_steps(
         plan,
         proposal,
