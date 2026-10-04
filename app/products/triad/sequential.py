@@ -984,8 +984,9 @@ class SequentialCycle:
         if any(before[k] != build["checks"][k] for k in ("files", "hashes", "diff")):
             raise PermissionError("Candidate changed before independent QA")
         if retained is None:
+            snapshot = self.test_snapshot(git, build["git"])
             repeated = check_candidate(
-                self.test_snapshot(git, build["git"]),
+                snapshot,
                 lambda: self.guard(mission),
                 self.policy["test_image"],
             )
@@ -1027,6 +1028,17 @@ class SequentialCycle:
                     "repeated_test_record_id": repeated_id,
                     "assessment_schema": AcceptanceAssessment.model_json_schema(),
                     "source_evidence_id": "candidate:" + build["git"]["change_commit"],
+                    # Adopted interfaces and their existing assertions can be
+                    # required evidence even when the patch does not edit them.
+                    "candidate_read_only_dependency_sources": {
+                        path: {
+                            "sha256": hashlib.sha256(source.encode()).hexdigest(),
+                            "source": source,
+                        }
+                        for path, source in snapshot.items()
+                        if path.endswith(".py")
+                        and path.startswith(("app/products/triad/", "tests/products/triad/"))
+                    },
                     "allowed_evidence_ids": [
                         "candidate:" + build["git"]["change_commit"],
                         build["checks"]["test_record_id"],
