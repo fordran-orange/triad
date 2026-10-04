@@ -154,3 +154,127 @@ class ExperimentBrowserTest(ProductBrowserTest):
             self.page.keyboard.press("Tab")
         self.assertTrue(self.page.locator("#exp-form button[type=submit]").is_visible())
         self.assertLessEqual(self.page.evaluate("document.scrollingElement.scrollWidth"), 390)
+
+    def _dataset_csv(self, count=12, symbol="LABTEST"):
+        rows = ["timestamp,symbol,open,high,low,close,volume"]
+        for i in range(count):
+            minute = 30 + i
+            rows.append(
+                f"2026-10-02T13:{minute:02d}:00Z,{symbol},{100+i},{102+i},{99+i},{101+i},1000"
+            )
+        return "\n".join(rows)
+
+    def _fill_preparation(self, *, count=12, symbol="LABTEST", version="browser-fixture-v1", confirmed=True):
+        end_minute = 30 + count
+        self.page.locator("#ds-source").fill("synthetic-browser")
+        self.page.locator("#ds-source_timezone").fill("America/New_York")
+        self.page.locator("#ds-dataset_version").fill(version)
+        self.page.locator("#ds-ingested_at").fill("2026-10-03T00:00:00Z")
+        self.page.locator("#ds-start").fill("2026-10-02T13:30:00Z")
+        self.page.locator("#ds-end").fill(f"2026-10-02T13:{end_minute:02d}:00Z")
+        self.page.locator("#ds-mode").select_option("FIXTURE")
+        self.page.locator("#ds-confirm").set_checked(confirmed)
+        self.page.locator("#ds-csv").fill(self._dataset_csv(count, symbol))
+
+    def _assert_handoff_cleared(self):
+        self.assertEqual(self.page.locator("#exp-core_input").input_value(), "")
+        self.assertEqual(self.page.locator("#exp-prepared").inner_text(), "")
+        self.assertTrue(self.page.locator("#exp-results").is_hidden())
+
+    def test_handoff_eligible_core_input(self):
+        self._fill_preparation()
+        with self.page.expect_response("**/research/dataset-preparation") as caught:
+            self.page.locator("#dataset-form button[type=submit]").click()
+        body = caught.value.json()
+        self.page.wait_for_function("document.getElementById('exp-core_input').value.length > 2")
+        handed = json.loads(self.page.locator("#exp-core_input").input_value())
+        self.assertEqual(handed, body["core_input"])
+        self.assertTrue(body["core_eligibility"]["eligible"])
+        self.assertEqual(body["core_input"]["dataset_id"], body["prepared_sha256"])
+        self.assertEqual(
+            self.page.locator("#exp-prepared").inner_text(),
+            "Dataset SHA-256: " + body["prepared_sha256"],
+        )
+
+    def test_handoff_invalidation(self):
+        self._fill_preparation()
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("document.getElementById('exp-core_input').value.length > 2")
+        self.page.locator("#exp-period").fill("4")
+        self.page.locator("#exp-hold").fill("2")
+        self.page.locator("[name=direction_long]").check()
+        self.page.locator("#exp-form button[type=submit]").click()
+        self.page.wait_for_function("!document.getElementById('exp-results').hidden")
+
+        self.page.locator("#ds-source").fill("edited-source")
+        self._assert_handoff_cleared()
+
+        self._fill_preparation()
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("document.getElementById('exp-core_input').value.length > 2")
+        self.page.locator("#ds-confirm").set_checked(False)
+        self._assert_handoff_cleared()
+
+        self._fill_preparation(count=1, confirmed=True)
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("!document.getElementById('ds-results').hidden")
+        self.assertTrue(self.page.locator("#ds-core").is_disabled())
+        self._assert_handoff_cleared()
+
+        self._fill_preparation()
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("document.getElementById('exp-core_input').value.length > 2")
+        self.page.evaluate(
+            """() => {
+              const original = window.fetch.bind(window);
+              window.fetch = async (url, init) => {
+                if (typeof url === 'string' && url.includes('/research/dataset-preparation')) {
+                  return new Response(JSON.stringify({schema_version:'bad', owner:'triad', core_input:{dataset_id:'nope'}}), {
+                    status: 200, headers: {'Content-Type':'application/json'}
+                  });
+                }
+                return original(url, init);
+              };
+            }"""
+        )
+        self.page.locator("#ds-source").fill("malformed-trigger")
+        self._assert_handoff_cleared()
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("document.getElementById('ds-status').textContent.includes('Preparation failed')")
+        self._assert_handoff_cleared()
+
+        self.page.goto(self.url)
+        self.page.evaluate(
+            """() => {
+              window.__prepBodies = [];
+              window.__releaseFirstPrep = new Promise(resolve => { window.__resolveFirstPrep = resolve; });
+              const original = window.fetch.bind(window);
+              window.fetch = async (url, init) => {
+                if (typeof url === 'string' && url.includes('/research/dataset-preparation')) {
+                  const response = await original(url, init);
+                  const body = await response.clone().json();
+                  window.__prepBodies.push(body);
+                  if (window.__prepBodies.length === 1) await window.__releaseFirstPrep;
+                  return response;
+                }
+                return original(url, init);
+              };
+            }"""
+        )
+        self._fill_preparation(version="stale-v1")
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("window.__prepBodies && window.__prepBodies.length === 1")
+        self.page.locator("#ds-dataset_version").fill("fresh-v2")
+        self._assert_handoff_cleared()
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("document.getElementById('exp-prepared').textContent.includes('Dataset SHA-256')")
+        fresh = self.page.evaluate("() => window.__prepBodies[window.__prepBodies.length - 1]")
+        self.assertNotEqual(fresh["prepared_sha256"], self.page.evaluate("() => window.__prepBodies[0].prepared_sha256"))
+        self.assertEqual(json.loads(self.page.locator("#exp-core_input").input_value()), fresh["core_input"])
+        self.page.evaluate("() => { window.__resolveFirstPrep(); return new Promise(r => setTimeout(r, 0)); }")
+        self.page.wait_for_timeout(50)
+        self.assertEqual(json.loads(self.page.locator("#exp-core_input").input_value()), fresh["core_input"])
+        self.assertEqual(
+            self.page.locator("#exp-prepared").inner_text(),
+            "Dataset SHA-256: " + fresh["prepared_sha256"],
+        )
