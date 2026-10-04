@@ -1,7 +1,7 @@
 {
   "schema_version": "triad.application.v1",
   "goal": "Build one refined, connected stock-trading application that can rival TradingView and thinkorswim. The autonomous agents choose and evolve its architecture and priorities.",
-  "architecture_reasoning": "Supplied observations connect structural parsing to exact dataset preparation and owner-scoped Core validation. Chart consumption is a separate branch. Experiments remain the next missing connection; shared page placement does not imply integration.",
+  "architecture_reasoning": "Supplied observations connect structural parsing to exact dataset preparation and owner-scoped Core validation. Chart consumption is a separate branch. Experiments now connect eligible datasets to the Core fixture engine through an ownership-pinned runner with a fully bounded, non-echoing request layer.",
   "components": [
     {
       "id": "workspace",
@@ -59,7 +59,7 @@
     {
       "id": "research-adapter",
       "name": "Triad research adapter",
-      "responsibility": "Reusable product consumer of the pure Core SDK with explicit input identity; not yet a user-facing research workflow",
+      "responsibility": "Reusable product consumer of the pure Core SDK with explicit input identity; shared by dataset preparation and experiments",
       "owner": "triad",
       "status": "EXISTS",
       "paths": [
@@ -89,10 +89,13 @@
     {
       "id": "experiments",
       "name": "Product experiments",
-      "responsibility": "Future strategy and execution assumptions consuming eligible datasets",
+      "responsibility": "Ownership-pinned, bounded fixture experiments consuming eligible datasets through Core",
       "owner": "triad",
-      "status": "PLANNED",
-      "paths": []
+      "status": "EXISTS",
+      "paths": [
+        "app/products/triad/experiment_runner.py",
+        "app/products/triad/product_app.py"
+      ]
     }
   ],
   "connections": [
@@ -155,8 +158,23 @@
       "consumer": "experiments",
       "contract": "core.product-research",
       "version": "v1",
-      "status": "PLANNED",
-      "tests": []
+      "status": "TESTED",
+      "tests": [
+        "tests/products/triad/test_experiment_runner.py",
+        "tests/products/triad/test_product_app.py"
+      ]
+    },
+    {
+      "producer": "research-adapter",
+      "consumer": "experiments",
+      "contract": "triad.experiment-request",
+      "version": "v1",
+      "status": "TESTED",
+      "tests": [
+        "tests/products/triad/test_experiment_runner.py",
+        "tests/products/triad/test_product_app.py",
+        "tests/products/triad/browser_experiment.py"
+      ]
     }
   ],
   "workflows": [
@@ -172,8 +190,8 @@
         "core-research",
         "experiments"
       ],
-      "status": "PARTIAL",
-      "next_connection": "Connect validated Core input to product experiments after establishing the strategy callback contract."
+      "status": "CONNECTED",
+      "next_connection": "Overlay experiment trades and equity curve on the dataset chart workspace."
     },
     {
       "id": "supplied-dataset-research",
@@ -187,7 +205,7 @@
         "core-research"
       ],
       "status": "CONNECTED",
-      "next_connection": "Connect datasets to experiments and versioned simulated results."
+      "next_connection": "Overlay experiment trades and equity curve on the dataset chart workspace."
     },
     {
       "id": "supplied-dataset-chart",
@@ -200,7 +218,7 @@
         "chart-workspace"
       ],
       "status": "CONNECTED",
-      "next_connection": "Connect datasets to experiments and versioned simulated results."
+      "next_connection": "Overlay experiment trades and equity curve on the dataset chart workspace."
     }
   ],
   "decisions": [
@@ -210,13 +228,15 @@
     "Raw identity hashes exact submitted UTF-8. Prepared identity hashes schema_version, owner, metadata, window and rows as UTF-8 sorted-key compact JSON with ensure_ascii=False and allow_nan=False.",
     "The unchanged inspector removes leading BOM, trims cells and headers, normalizes UTC, preserves decimal strings and sorts timestamp then symbol. No gaps filled or rows dropped. Metadata timestamps normalize to UTC; other metadata remains verbatim. Floats occur only at the Core boundary and for chart geometry.",
     "Market declarations require strict caller confirmation before Core validation. Ineligible structural rows remain chartable without Core export.",
-    "Mode and provenance are caller supplied, not certified. No persistence, strategy-performance, backtest or execution claims. Independent QA required before merge.",
+    "Mode and provenance are caller supplied, not certified. No persistence, backtest-track-record or execution claims. Independent QA required before merge.",
     "Cost and submitted-ledger tools remain available and independent until a simulated-result contract exists.",
-    "Named dataset unit and Chromium checks passed against candidate-local HTML and mounted API with the installed Core SDK. TESTED records development evidence, not independent QA or merge approval."
+    "Named dataset unit and Chromium checks passed against candidate-local HTML and mounted API with the installed Core SDK. TESTED records development evidence, not independent QA or merge approval.",
+    "/triad/product-api/research/experiment is mounted at the product app; it calls preflight(core_input) (ownership plus Core quality eligibility) strictly before constructing any Experiment, then run_experiment builds a fixed fixture-conformance Experiment from the preflight-returned ResearchInput only. Only period, hold, directions, fees and slippage are caller-supplied request fields.",
+    "ExperimentRequest enforces distinct directions and 1<=hold<period<=1000 at the request-model layer, mirroring Experiment.validate_windows exactly, so malformed request shapes receive a bounded non-echoing 422 before any engine call, while a post-preflight construction or engine failure remains an uncaught 500."
   ],
   "next_initiatives": [
-    "Establish strategy callback contract and dataset-to-experiment connection",
-    "Versioned experiment results to chart overlays and performance review",
-    "Product-scoped persistence, then supported provider ingestion"
+    "Overlay experiment trades/equity curve on the dataset chart workspace",
+    "Product-scoped persistence for prepared datasets and experiment results",
+    "Expose trading_core.research.planning.walk_forward_windows as an optional read-only partition helper"
   ]
 }
