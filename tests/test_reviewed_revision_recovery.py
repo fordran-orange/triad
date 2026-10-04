@@ -1,4 +1,4 @@
-"""Disposable canonical evidence for continuation after the old revision cap."""
+"""Disposable canonical evidence for explicit stopped-revision continuation."""
 
 # ruff: noqa: F811
 from types import SimpleNamespace as NS
@@ -20,6 +20,8 @@ pytestmark = pytest.mark.integration
 def checkpoint(engine, monkeypatch, request):
     variant = getattr(request.node, "callspec", None)
     tamper = variant.params.get("tamper") if variant else None
+    stalled = bool(variant and variant.params.get("checkpoint_kind") == "no_progress")
+    verdict = "REJECT" if stalled else "REQUEST_CHANGES"
     host = Records(Store(engine.host.store.settings))
     daily = Daily(host.store)
     cycle = daily.create()
@@ -45,6 +47,29 @@ def checkpoint(engine, monkeypatch, request):
     proposal = candidate().model_dump(mode="json")
     summary = "Correct remaining contract"
     findings = ["Quality preflight before the engine"]
+    if stalled and tamper != "no_prior":
+        previous = candidate(
+            "Different behavior" if tamper == "different_behavior" else proposal["change"]
+        ).model_dump(mode="json")
+        host.append(
+            "ProductProposal",
+            {"mission_id": m, "proposer": "CODEX", "attempt": 1, "proposal": previous},
+            owner="triad",
+        )
+        host.append(
+            "ProductProposalReview",
+            {
+                "mission_id": m,
+                "proposer": "CODEX",
+                "reviewer": "CLAUDE",
+                "attempt": 1,
+                "proposal": {"different": True} if tamper == "prior_binding" else previous,
+                "decision": "APPROVE" if tamper == "prior_approved" else "REJECT",
+                "summary": "Earlier unapproved submission",
+                "findings": findings,
+            },
+            owner="triad",
+        )
     host.append(
         "ProductProposal",
         {"mission_id": m, "proposer": "CODEX", "attempt": 3, "proposal": proposal},
@@ -111,9 +136,7 @@ def checkpoint(engine, monkeypatch, request):
             "proposal": None,
             "files_changed": [{"path": "claimed"}] if index and tamper == "claimed_edit" else [],
             "analysis_artifacts": [] if index else [candidate().model_dump_json()],
-            "review_decision": "APPROVE"
-            if index and tamper == "result_verdict"
-            else "REQUEST_CHANGES",
+            "review_decision": "APPROVE" if index and tamper == "result_verdict" else verdict,
             "summary": "Different" if index and tamper == "summary" else summary,
             "findings": ["Different"] if index and tamper == "findings" else findings,
         }
@@ -188,7 +211,7 @@ def checkpoint(engine, monkeypatch, request):
         "reviewer": "CLAUDE",
         "attempt": 3,
         "proposal": proposal,
-        "decision": "APPROVE" if tamper == "verdict" else "REQUEST_CHANGES",
+        "decision": "APPROVE" if tamper == "verdict" else verdict,
         "summary": summary,
         "findings": findings,
         "run_id": "fixture-read-1",
@@ -203,7 +226,14 @@ def checkpoint(engine, monkeypatch, request):
         failures=(
             {
                 "code": "PermissionError",
-                "message": "Proposal revision attempts exhausted: " + summary,
+                "message": (
+                    "Unsupported failure: "
+                    if tamper == "unsupported_prefix"
+                    else "Proposal revision made no progress: "
+                    if stalled
+                    else "Proposal revision attempts exhausted: "
+                )
+                + summary,
             },
         ),
     )
@@ -217,7 +247,8 @@ def checkpoint(engine, monkeypatch, request):
     return NS(flow=flow, daily=daily, host=host, cycle=cycle, day=day, works=works)
 
 
-def test_exact_review_continuation_preserves_work_and_accounting(checkpoint):
+@pytest.mark.parametrize("checkpoint_kind", ["revision_cap", "no_progress"])
+def test_exact_review_continuation_preserves_work_and_accounting(checkpoint, checkpoint_kind):
     b = checkpoint
     before = b.host.ledger.totals()
     record, count, day = resume_patch_failure(b.flow, b.cycle.cycle_id, read_failure=True)
@@ -250,7 +281,22 @@ def test_exact_review_continuation_preserves_work_and_accounting(checkpoint):
         "denials",
     ],
 )
-def test_unproved_review_continuation_rejects_without_effect(checkpoint, tamper):
+@pytest.mark.parametrize("checkpoint_kind", ["revision_cap", "no_progress"])
+def test_unproved_review_continuation_rejects_without_effect(checkpoint, tamper, checkpoint_kind):
+    b = checkpoint
+    before = b.host.ledger.totals()
+    with pytest.raises(PermissionError):
+        resume_patch_failure(b.flow, b.cycle.cycle_id, read_failure=True)
+    assert b.host.ledger.totals() == before
+    assert b.daily.current(b.cycle.cycle_id)["status"] == "BLOCKED"
+
+
+@pytest.mark.parametrize("checkpoint_kind", ["no_progress"])
+@pytest.mark.parametrize(
+    "tamper",
+    ["no_prior", "different_behavior", "prior_binding", "prior_approved", "unsupported_prefix"],
+)
+def test_no_progress_continuation_requires_observed_repetition(checkpoint, tamper, checkpoint_kind):
     b = checkpoint
     before = b.host.ledger.totals()
     with pytest.raises(PermissionError):

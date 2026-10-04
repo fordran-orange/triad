@@ -307,7 +307,12 @@ def resume_patch_failure(flow, mission, *, read_failure=False):
                 read_failure
                 and prior.get("failure_code") == "PermissionError"
                 and isinstance(error, str)
-                and error.startswith("Proposal revision attempts exhausted: ")
+                and error.startswith(
+                    (
+                        "Proposal revision attempts exhausted: ",
+                        "Proposal revision made no progress: ",
+                    )
+                )
             )
             new_proposal = proposal_failure or revision_failure
             selection = prior.get("failure_code") == "PermissionError" and error == SELECTION_ERROR

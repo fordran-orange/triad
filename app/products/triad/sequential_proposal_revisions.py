@@ -26,7 +26,7 @@ def proposal_digest(proposal):
 
 
 def reviewed_revision(daily, mission, agent, prior, author_work, conn):
-    """Prove the latest request-changes verdict; never replay or override it."""
+    """Prove a stopped, unapproved read-only revision; never override its verdict."""
     from trading_core.work import State
 
     from products.triad.sequential import REVIEWERS, Proposal
@@ -44,17 +44,39 @@ def reviewed_revision(daily, mission, agent, prior, author_work, conn):
     require(bool(proposals) and bool(reviews), "Completed revision checkpoint required")
     saved, review = proposals[-1], reviews[-1]
     proposal = Proposal.model_validate(saved["proposal"])
+    message = prior["failures"][-1]["message"]
+    stalled = message == "Proposal revision made no progress: " + review["summary"]
     require(
-        review.get("decision") == "REQUEST_CHANGES"
+        review.get("decision")
+        in ({"REQUEST_CHANGES", "REJECT"} if stalled else {"REQUEST_CHANGES"})
         and review.get("reviewer") == REVIEWERS[agent]
         and review.get("attempt") == saved.get("attempt")
         and review.get("proposal") == saved["proposal"]
         and type(saved.get("attempt")) is int
-        and saved["attempt"] >= 3
-        and prior["failures"][-1]["message"]
-        == "Proposal revision attempts exhausted: " + review["summary"],
-        "Exact latest request-changes checkpoint required",
+        and saved["attempt"] >= (2 if stalled else 3)
+        and (stalled or message == "Proposal revision attempts exhausted: " + review["summary"]),
+        "Exact latest unapproved revision checkpoint required",
     )
+    if stalled:
+        # The stop was deliberate. Explicit continuation requires its actual
+        # repeated behavior, not just a caller-supplied failure message.
+        repeated = {
+            p["attempt"]: p["proposal"]
+            for p in proposals[:-1]
+            if type(p.get("attempt")) is int and p["attempt"] < saved["attempt"]
+        }
+        require(
+            any(
+                r.get("decision") in {"REQUEST_CHANGES", "REJECT"}
+                and r.get("reviewer") == REVIEWERS[agent]
+                and type(r.get("attempt")) is int
+                and r["attempt"] in repeated
+                and r.get("proposal") == repeated[r["attempt"]]
+                and proposal_digest(r["proposal"]) == proposal_digest(saved["proposal"])
+                for r in reviews[:-1]
+            ),
+            "Stopped revision requires matching earlier unapproved repeated behavior",
+        )
     rows = conn.execute(
         "SELECT kind,work_item_id,payload FROM core.day3_records WHERE owner='triad' "
         "AND kind IN ('AgentRunRequest','AgentRunResult','Usage','TransportRun','Event') "
