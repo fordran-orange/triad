@@ -80,7 +80,10 @@ def test_author_planning_uses_supplied_candidate_without_requesting_build_path_g
             "assessment": {"checks": [{"check_id": "runner", "status": "NOT_VERIFIED"}]},
             "findings": [],
         },
+        "author_correction_plan": {"summary": "unapproved historical approach"},
+        "renewal_feedback": {"findings": ["Preserve the adequate engine injection"]},
     }
+    original = deepcopy(retained)
     result = {"id": "saved-plan"}
 
     def read(mission, agent, objective, context, schema, paths=()):
@@ -98,7 +101,12 @@ def test_author_planning_uses_supplied_candidate_without_requesting_build_path_g
         assert work.allowed_paths == () and work.execution_permissions == ("read",)
         assert requirements.role == "REVIEW" and requirements.preferred_agent == "CLAUDE"
         assert context["approved_file_manifest"] == list(proposal.files)
-        assert context["retained_unmerged_candidate"] == retained
+        assert context["retained_unmerged_candidate"] == {
+            k: v for k, v in retained.items() if k not in {"author_correction_plan", "renewal_feedback"}
+        }
+        assert context["latest_renewal_feedback"] == retained["renewal_feedback"]
+        assert context["correction_author_version"] == "current-obligations-v2"
+        assert "unapproved historical approach" not in str(context)
         return (
             NS(work_item_id="author"),
             None,
@@ -117,6 +125,7 @@ def test_author_planning_uses_supplied_candidate_without_requesting_build_path_g
         ),
     )
     assert author_plan(flow, "cycle", "CLAUDE", proposal, retained, "main") == result
+    assert retained == original
 
 
 def fake_flow(monkeypatch, plans, decisions):

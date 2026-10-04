@@ -73,6 +73,8 @@ def author_request(agent, proposal, retained, baseline):
 
 
 def author_plan(flow, mission, agent, proposal, retained, baseline):
+    from products.triad.sequential_correction_review import BEHAVIORAL_EVIDENCE_GUIDANCE
+
     objective, context = author_request(agent, proposal, retained, baseline)
     # Keep author_request reproducible for the proved historical pre-start denial.
     # Newly dispatched revisions must resolve feedback, not paraphrase an old plan.
@@ -83,6 +85,18 @@ def author_plan(flow, mission, agent, proposal, retained, baseline):
         "repeating them as options. If concrete values or an ordered sequence are required, "
         "supply actual values and actions, not statements that they will be concrete later. "
         "Describe the currently proposed behavior separately from historical mistakes."
+    ) + BEHAVIORAL_EVIDENCE_GUIDANCE
+    # Preserve exact candidate/QA bytes and authority; do not invite copying an
+    # unapproved plan embedded inside the retained candidate as current guidance.
+    context["retained_unmerged_candidate"] = {
+        k: v for k, v in retained.items() if k not in {"author_correction_plan", "renewal_feedback"}
+    }
+    context["correction_author_version"] = "current-obligations-v2"
+    context["historical_context_notice"] = (
+        "Retained source and independent QA describe the candidate before correction. "
+        "latest_renewal_feedback evaluates the previous unapproved plan; its method "
+        "suggestions do not replace the original acceptance behavior. Preserve adequate "
+        "approaches and correct the remaining causal gaps using the actual source."
     )
     work, _result, plan, usage = flow.call(mission, agent, objective, context, CorrectionPlan)
     validate_steps(

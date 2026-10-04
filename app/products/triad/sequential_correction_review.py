@@ -1,5 +1,20 @@
 """Review the current correction, without re-running product feature selection."""
 
+BEHAVIORAL_EVIDENCE_GUIDANCE = (
+    " Trace each proposed test through the actual production entry point, asynchronous "
+    "continuations and observable result. Explain why the assertion would fail if the "
+    "behavior under test were removed. In an asynchronous UI stale-response test, both "
+    "operations must use the UI's own handler: hold delivery of the first completed "
+    "response to that handler, render the second result, then deliver the first response "
+    "to its original awaiting handler and verify the second result remains. A separate "
+    "manual API call whose response never reaches that handler does not exercise stale "
+    "response suppression. Independent response bodies can provide a noncircular oracle, "
+    "but comparing them without exercising the UI continuation is insufficient. "
+    "Prior reviewer implementation techniques are recommendations, not additional "
+    "acceptance criteria. Enforce the original behavior and causal evidence; accept a "
+    "credible equivalent technique rather than requiring an exact API or wording."
+)
+
 CORRECTION_REVIEW_OBJECTIVE = (
     "You are the independent PROPOSAL_REVIEWER of current_correction_plan. "
     "The original feature, file manifest and acceptance contract are immutable. "
@@ -17,7 +32,7 @@ CORRECTION_REVIEW_OBJECTIVE = (
     "verified QA checks or choose a new feature. Return APPROVE only if every remaining "
     "obligation has a credible approach, otherwise REQUEST_CHANGES, REJECT or BLOCKED "
     "with grounded findings. No code execution, new authority or invented test results."
-)
+) + BEHAVIORAL_EVIDENCE_GUIDANCE
 
 
 def correction_context(agent, reviewer, proposal, retained, plan, baseline, feedback, sources):
@@ -36,7 +51,7 @@ def correction_context(agent, reviewer, proposal, retained, plan, baseline, feed
             "execution_role": "REVIEW",
             "execution_role_meaning": "Read-only independent review of the current correction plan",
         },
-        "correction_review_version": "current-obligations-v1",
+        "correction_review_version": "current-obligations-v2",
         "proposal": proposal.model_dump(mode="json"),
         "base_commit": baseline,
         # These canonical fields are still checked against actual closed runs.
