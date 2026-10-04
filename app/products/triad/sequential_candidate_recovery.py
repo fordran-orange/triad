@@ -20,6 +20,18 @@ from products.triad.sequential_application import (
 )
 from products.triad.sequential_recovery import require
 
+NATIVE_IDENTITY_ERROR = "Retained native run identity differs"
+CHANGED_RESULT_STATUSES = frozenset(
+    {
+        "CODE_CHANGE",
+        "DOCUMENTATION_CHANGE",
+        "TEST_ADDITION",
+        "BUG_FIX",
+        "ARCHITECTURAL_IMPROVEMENT",
+        "PERFORMANCE_IMPROVEMENT",
+    }
+)
+
 
 def retain_application_candidate(
     flow, mission, agent, prior, work, checkpoint, conn, *, qa_feedback=None
@@ -86,9 +98,9 @@ def retain_application_candidate(
         and isinstance(request.get("run_id"), str)
         and bool(request["run_id"])
         and result.get("run_id") == request["run_id"]
-        and result.get("status") == "CODE_CHANGE"
+        and result.get("status") in CHANGED_RESULT_STATUSES
         and len(result.get("analysis_artifacts", [])) == 1,
-        "Retained native run identity differs",
+        NATIVE_IDENTITY_ERROR,
     )
     patch = Patch.model_validate_json(result["analysis_artifacts"][0])
     events = conn.execute(

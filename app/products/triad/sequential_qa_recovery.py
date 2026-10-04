@@ -50,11 +50,21 @@ def resume_citation_failure(flow, mission, *, substantive=False):
                 and prior.get("failures", [{}])[-1].get("message") == REVIEW_BASELINE_MOVED
             )
             renewal = renewal or planning_denial or baseline_moved
+            from products.triad.sequential_candidate_recovery import (
+                CHANGED_RESULT_STATUSES,
+                NATIVE_IDENTITY_ERROR,
+            )
+
+            native_change_label = (
+                substantive
+                and prior.get("failures", [{}])[-1].get("message") == NATIVE_IDENTITY_ERROR
+            )
             require(
                 prior["status"] == "BLOCKED"
                 and prior.get("failure_code") == "PermissionError"
                 and (
                     renewal
+                    or native_change_label
                     or prior.get("failures", [{}])[-1].get("message")
                     == "Latest independent QA did not pass this revision"
                 ),
@@ -262,6 +272,21 @@ def resume_citation_failure(flow, mission, *, substantive=False):
                     "Rejected or blocked execution is not correction authority",
                 )
                 flow.improvement_day = day
+                if native_change_label:
+                    # This repair is only for a legitimate change label refused
+                    # by the old CODE_CHANGE-only guard. The full candidate/run,
+                    # closed QA, manifest, export and slot proofs still follow.
+                    native = conn.execute(
+                        "SELECT payload FROM core.day3_records WHERE owner='triad' "
+                        "AND kind='AgentRunResult' AND work_item_id=%s",
+                        (work.work_item_id,),
+                    ).fetchall()
+                    require(
+                        len(native) == 1
+                        and native[0]["payload"].get("status")
+                        in CHANGED_RESULT_STATUSES - {"CODE_CHANGE"},
+                        "Not the historical native change-label mismatch",
+                    )
                 stopped = None
                 if renewal:
                     from products.triad.sequential_correction_renewal import renewal_checkpoint
