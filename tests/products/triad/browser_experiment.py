@@ -154,3 +154,149 @@ class ExperimentBrowserTest(ProductBrowserTest):
             self.page.keyboard.press("Tab")
         self.assertTrue(self.page.locator("#exp-form button[type=submit]").is_visible())
         self.assertLessEqual(self.page.evaluate("document.scrollingElement.scrollWidth"), 390)
+
+    def _fill_dataset(self, *, version="browser-fixture-v1", confirmed=True, csv_text=None):
+        rows = ["timestamp,symbol,open,high,low,close,volume"]
+        for i in range(12):
+            minute = 30 + i
+            price = 100 + i
+            rows.append(
+                f"2026-10-02T13:{minute:02d}:00Z,LABTEST,{price},{price+2},{price-1},{price+1},1000"
+            )
+        fields = {
+            "source": "synthetic-browser",
+            "source_timezone": "America/New_York",
+            "dataset_version": version,
+            "ingested_at": "2026-10-03T00:00:00Z",
+            "start": "2026-10-02T13:30:00Z",
+            "end": "2026-10-02T13:42:00Z",
+            "csv": "\n".join(rows) if csv_text is None else csv_text,
+        }
+        for key, value in fields.items():
+            self.page.locator("#ds-" + key).fill(value)
+        self.page.locator("#ds-mode").select_option("FIXTURE")
+        self.page.locator("#ds-confirm").set_checked(confirmed)
+
+    def _preparation_body(self, *, version="browser-fixture-v1", confirmed=True, csv_text=None):
+        rows = ["timestamp,symbol,open,high,low,close,volume"]
+        for i in range(12):
+            minute = 30 + i
+            price = 100 + i
+            rows.append(
+                f"2026-10-02T13:{minute:02d}:00Z,LABTEST,{price},{price+2},{price-1},{price+1},1000"
+            )
+        return {
+            "source": "synthetic-browser",
+            "source_timezone": "America/New_York",
+            "dataset_version": version,
+            "mode": "FIXTURE",
+            "ingested_at": "2026-10-03T00:00:00Z",
+            "start": "2026-10-02T13:30:00Z",
+            "end": "2026-10-02T13:42:00Z",
+            "csv_text": "\n".join(rows) if csv_text is None else csv_text,
+            "market": {
+                "resolution": "1m",
+                "exchange": "XNYS",
+                "session": "REGULAR",
+                "currency": "USD",
+                "asset_class": "equity",
+                "adjustment_status": "UNADJUSTED",
+                "confirmed": confirmed,
+            },
+        }
+
+    def _assert_handoff_cleared(self):
+        self.assertEqual(self.page.locator("#exp-core_input").input_value(), "")
+        self.assertEqual(self.page.locator("#exp-prepared").inner_text(), "")
+        self.assertTrue(self.page.locator("#exp-results").is_hidden())
+        self.assertEqual(self.page.locator("#exp-identity").inner_text(), "")
+
+    def test_eligible_preparation_hands_exact_core_input(self):
+        body = self._preparation_body()
+        api = self.page.request.post(
+            self.url.replace("/product", "/product-api/research/dataset-preparation"), data=body
+        ).json()
+        self._fill_dataset()
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("document.getElementById('exp-core_input').value.length > 2")
+        handed = json.loads(self.page.locator("#exp-core_input").input_value())
+        self.assertEqual(handed, api["core_input"])
+        shown = self.page.locator("#exp-prepared").inner_text()
+        self.assertIn(api["prepared_sha256"], shown)
+        self.assertEqual(api["core_input"]["dataset_id"], api["prepared_sha256"])
+        self.assertIn(api["core_input"]["dataset_id"], shown)
+
+    def test_handoff_clears_on_edit_confirmation_ineligible_and_malformed(self):
+        self._fill_dataset()
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("document.getElementById('exp-core_input').value.length > 2")
+        self.page.locator("#exp-period").fill("4")
+        self.page.locator("#exp-hold").fill("2")
+        self.page.locator("[name=direction_long]").check()
+        self.page.locator("#exp-form button[type=submit]").click()
+        self.page.wait_for_function("!document.getElementById('exp-results').hidden")
+        self.page.locator("#ds-source").fill("edited-after-handoff")
+        self._assert_handoff_cleared()
+
+        self._fill_dataset()
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("document.getElementById('exp-core_input').value.length > 2")
+        self.page.locator("#ds-confirm").set_checked(False)
+        self._assert_handoff_cleared()
+
+        self._fill_dataset(confirmed=False)
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("!document.getElementById('ds-results').hidden")
+        self.assertTrue(self.page.locator("#ds-core").is_disabled())
+        self._assert_handoff_cleared()
+
+        self._fill_dataset()
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("document.getElementById('exp-core_input').value.length > 2")
+        self.page.locator("#ds-csv").fill("not,a,valid,bar,file")
+        self._assert_handoff_cleared()
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("document.getElementById('ds-status').textContent.includes('Preparation failed')")
+        self._assert_handoff_cleared()
+
+    def test_delayed_preparation_does_not_overwrite_newer_handoff(self):
+        self.page.evaluate(
+            """
+            () => {
+              window.__datasetCallCount = 0;
+              window.__firstDatasetReady = false;
+              window.__releaseFirstDatasetResponse = new Promise(resolve => {
+                window.__resolveFirstDatasetGate = resolve;
+              });
+              const originalFetch = window.fetch.bind(window);
+              window.fetch = async (url, init) => {
+                if (typeof url === 'string' && url.endsWith('/research/dataset-preparation')) {
+                  window.__datasetCallCount += 1;
+                  if (window.__datasetCallCount === 1) {
+                    const response = await originalFetch(url, init);
+                    window.__firstDatasetReady = true;
+                    await window.__releaseFirstDatasetResponse;
+                    return response;
+                  }
+                }
+                return originalFetch(url, init);
+              };
+            }
+            """
+        )
+        self._fill_dataset(version="browser-fixture-v1")
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("window.__firstDatasetReady === true")
+        self._fill_dataset(version="browser-fixture-v2")
+        self.page.locator("#dataset-form button[type=submit]").click()
+        self.page.wait_for_function("document.getElementById('exp-core_input').value.includes('browser-fixture-v2')")
+        newer = self.page.locator("#exp-core_input").input_value()
+        shown = self.page.locator("#exp-prepared").inner_text()
+        handed = json.loads(newer)
+        self.assertEqual(handed["dataset_version"], "browser-fixture-v2")
+        self.assertIn(handed["dataset_id"], shown)
+        self.page.evaluate("() => { window.__resolveFirstDatasetGate(); }")
+        self.page.wait_for_timeout(100)
+        self.assertEqual(self.page.locator("#exp-core_input").input_value(), newer)
+        self.assertEqual(self.page.locator("#exp-prepared").inner_text(), shown)
+        self.assertNotIn("browser-fixture-v1", self.page.locator("#exp-core_input").input_value())

@@ -155,3 +155,21 @@ class ApplicationPlanTest(unittest.TestCase):
             data=copy.deepcopy(self.data); data[section][0][key]="UNSUPPORTED"
             with self.assertRaises(ValueError):
                 validate(data)
+
+    def test_handoff_recorded_and_chart_overlay_not_tested(self):
+        producers = {(e["producer"], e["consumer"]): e for e in self.data["connections"]}
+        handoff = producers[("dataset-preparation", "experiments")]
+        self.assertEqual(handoff["status"], "TESTED")
+        self.assertEqual(handoff["contract"], "core.product-research")
+        self.assertIn("tests/products/triad/browser_experiment.py", handoff["tests"])
+        chart = producers[("experiments", "chart-workspace")]
+        self.assertEqual(chart["status"], "PLANNED")
+        self.assertEqual(chart["tests"], [])
+        tested = [e for e in self.data["connections"] if e["status"]=="TESTED" and e["producer"]=="experiments" and e["consumer"]=="chart-workspace"]
+        self.assertEqual(tested, [])
+        joined = " ".join(self.data["decisions"] + [self.data["architecture_reasoning"]])
+        self.assertIn("does not invent", joined)
+        self.assertNotIn("equity-curve fields exist", joined)
+        for workflow in self.data["workflows"]:
+            self.assertIn("chart", workflow["next_connection"].lower())
+        self.assertTrue(any("Overlay experiment trades" in item for item in self.data["next_initiatives"]))
