@@ -153,7 +153,10 @@ def test_actual_plan_review_revision_then_claim_preserves_original_contract(plan
             payload = plan
         else:
             reviewer_count += 1
-            assert "already exists" in objective and context["correction_plan"]
+            assert context["correction_review_version"] == "current-obligations-v1"
+            assert context["current_correction_plan"] == context["correction_plan"]["plan"]
+            assert "inventory" not in context and "product_planning" not in context
+            assert "retained_unmerged_candidate" in context
             run = "auto-review-" + str(reviewer_count)
             raw = {
                 "summary": "Plan assessed",

@@ -531,17 +531,64 @@ class SequentialCycle:
         retained_candidate = getattr(self, "retained_application_candidate", None)
         if retained_candidate and retained_candidate["agent"] != agent:
             retained_candidate = None
+        if correction_plan:
+            from products.triad.sequential_correction_review import (
+                CORRECTION_REVIEW_OBJECTIVE,
+                correction_context,
+            )
+
+            # A correction reuses an approved feature. Unrelated product sources,
+            # roadmap selection and every earlier plan obscure its actual gaps.
+            sources = {
+                p: ProductGit(proposal.files, root=self.root)
+                .path(self.root, p)
+                .read_text(encoding="utf-8")
+                for p in sorted(proposal.files)
+                if (self.root / p).is_file()
+            }
+            review_work, review, _, usage = self.call(
+                mission,
+                REVIEWERS[agent],
+                CORRECTION_REVIEW_OBJECTIVE,
+                correction_context(
+                    agent,
+                    REVIEWERS[agent],
+                    proposal,
+                    retained_candidate,
+                    correction_plan,
+                    baseline,
+                    feedback,
+                    sources,
+                ),
+            )
+        else:
+            review_work, review, _, usage = self.review_feature_proposal(
+                mission, agent, proposal, feedback, baseline, inventory, strategy
+            )
+        return self.record_proposal_review(
+            mission,
+            agent,
+            proposal,
+            attempt,
+            baseline,
+            author_work_id,
+            author_run_id,
+            review_work,
+            review,
+            usage,
+            correction_plan,
+        )
+
+    def review_feature_proposal(
+        self, mission, agent, proposal, feedback, baseline, inventory, strategy
+    ):
+        retained_candidate = getattr(self, "retained_application_candidate", None)
+        if retained_candidate and retained_candidate["agent"] != agent:
+            retained_candidate = None
         review_work, review, _, usage = self.call(
             mission,
             REVIEWERS[agent],
-            (
-                "Review the supplied author's correction_plan for the exact original proposal. The unmerged candidate already exists; "
-                "assess how the plan closes the actual independent QA findings, not the historical proposal's description of the initial build. "
-                "The files and acceptance contract remain unchanged. This is approval to correct code/tests, not passing QA of code not yet corrected. "
-                if correction_plan
-                else ""
-            )
-            + "Independently review product value as well as correctness, protected boundaries, feasibility and acceptance. "
+            "Independently review product value as well as correctness, protected boundaries, feasibility and acceptance. "
             "You are the independent PROPOSAL_REVIEWER; the supplied proposal is the current author's submission. "
             "Core's REVIEW execution role defines read-only permissions, not whether the prior caller was an author. "
             "An author can propose within read-only reasoning; waiting for another candidate solely because of that role "
@@ -569,7 +616,7 @@ class SequentialCycle:
                 "product_planning": strategy,
                 "retained_unmerged_candidate": retained_candidate,
                 "proposal": proposal.model_dump(mode="json"),
-                "correction_plan": correction_plan,
+                "correction_plan": None,
                 "inventory": inventory,
                 "base_commit": baseline,
                 "review_feedback": [
@@ -593,6 +640,22 @@ class SequentialCycle:
                 },
             },
         )
+        return review_work, review, None, usage
+
+    def record_proposal_review(
+        self,
+        mission,
+        agent,
+        proposal,
+        attempt,
+        baseline,
+        author_work_id,
+        author_run_id,
+        review_work,
+        review,
+        usage,
+        correction_plan=None,
+    ):
         assessment = {
             "decision": review.review_decision,
             "summary": review.summary,

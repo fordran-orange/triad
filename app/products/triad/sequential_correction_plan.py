@@ -74,6 +74,16 @@ def author_request(agent, proposal, retained, baseline):
 
 def author_plan(flow, mission, agent, proposal, retained, baseline):
     objective, context = author_request(agent, proposal, retained, baseline)
+    # Keep author_request reproducible for the proved historical pre-start denial.
+    # Newly dispatched revisions must resolve feedback, not paraphrase an old plan.
+    objective += (
+        " latest_renewal_feedback concerns the PREVIOUS unapproved plan. Resolve each "
+        "remaining behavioral objection explicitly in the new steps. Preserve approaches "
+        "the reviewer already found adequate. Remove rejected alternatives instead of "
+        "repeating them as options. If concrete values or an ordered sequence are required, "
+        "supply actual values and actions, not statements that they will be concrete later. "
+        "Describe the currently proposed behavior separately from historical mistakes."
+    )
     work, _result, plan, usage = flow.call(mission, agent, objective, context, CorrectionPlan)
     validate_steps(
         plan,
