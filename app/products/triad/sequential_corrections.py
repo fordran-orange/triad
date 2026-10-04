@@ -1,5 +1,7 @@
 """Correct independently rejected candidates without replaying completed turns."""
 
+import hashlib
+import json
 from contextlib import nullcontext
 from math import isfinite
 
@@ -293,12 +295,18 @@ def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, exi
         # for one provider turn. Actual native inference is never refunded.
         chain = recorded
         seen = set()
+        corrected_builds = []
         while chain.get("correction_of"):
             require(chain["implementation_id"] not in seen, "Correction lineage loop")
             seen.add(chain["implementation_id"])
+            corrected_builds.append(chain)
             parents = [b for b in candidates if b["implementation_id"] == chain["correction_of"]]
             require(len(parents) == 1, "Correction predecessor missing")
             parent = parents[0]
+            require(
+                parent["owner"] == "triad" and parent["kind"] == "ProductBuild",
+                "Correction predecessor owner differs",
+            )
             require(
                 parent["approval"] == chain["approval"]
                 or chain.get("renewed_approval_from") == parent["approval"],
@@ -316,6 +324,14 @@ def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, exi
         ).fetchall()
         require(len(reservations) == 1, "One original improvement reservation required")
         reservation = reservations[0]
+        require(
+            all(
+                b.get("reservation_id") == reservation["id"]
+                and b.get("reservation_work_item_id") == slot
+                for b in corrected_builds
+            ),
+            "Correction lineage reservation differs",
+        )
         require(
             reservation["payload"]["day"] == flow.improvement_day
             and reservation["payload"]["agent"] == agent
@@ -360,6 +376,9 @@ def prepare_correction(flow, mission, agent, proposal, git, build, qa_id, *, exi
                 "candidate_commit": review["commit"],
                 "snapshot_sha256": retained["snapshot_sha256"],
                 "reservation_id": reservation["id"],
+                "reservation_work_item_id": slot,
+                "approval_id": build["approval"],
+                "agent": agent,
                 "released_change_slots": 0,
                 "retained_turn_ids": [t["id"] for t in turns],
                 "day": flow.improvement_day,
@@ -394,11 +413,42 @@ def claim_correction_build(flow, mission, agent, proposal, approval, retained):
             "Correction must preserve exact approved proposal",
         )
         action = "correction-build-" + qa_id
+        checkpoint = conn.execute(
+            "SELECT kind,owner,payload FROM core.day3_records WHERE id=%s",
+            ("candidate-correction-" + qa_id,),
+        ).fetchone()
         require(
-            conn.execute(
-                "SELECT 1 FROM core.day3_records WHERE id=%s", ("candidate-correction-" + qa_id,)
-            ).fetchone(),
+            checkpoint and checkpoint["kind"] == "ControlAction" and checkpoint["owner"] == "core",
             "Verified correction checkpoint required",
+        )
+        expected = {
+            "action": "correct_independently_rejected_candidate",
+            "cycle_id": mission,
+            "implementation_id": retained["implementation_id"],
+            "qa_id": qa_id,
+            "candidate_commit": retained["commit"],
+            "snapshot_sha256": retained["snapshot_sha256"],
+            "reservation_id": retained["reservation_id"],
+            "reservation_work_item_id": retained["reservation_work_item_id"],
+            "approval_id": retained["approval_id"],
+            "agent": agent,
+            "day": flow.improvement_day,
+            "released_change_slots": 0,
+        }
+        require(
+            all(checkpoint["payload"].get(k) == v for k, v in expected.items()),
+            "Retained correction differs from verified checkpoint",
+        )
+        contents = {
+            f["path"]: f["content"].replace("\r\n", "\n").replace("\r", "\n")
+            if f["content"] is not None
+            else None
+            for f in retained["files"]
+        }
+        require(
+            hashlib.sha256(json.dumps(contents, sort_keys=True).encode()).hexdigest()
+            == retained["snapshot_sha256"],
+            "Advisory candidate bytes changed",
         )
         require(
             not conn.execute("SELECT 1 FROM core.day3_records WHERE id=%s", (action,)).fetchone(),
