@@ -13,6 +13,20 @@ BEHAVIORAL_EVIDENCE_GUIDANCE = (
     "Prior reviewer implementation techniques are recommendations, not additional "
     "acceptance criteria. Enforce the original behavior and causal evidence; accept a "
     "credible equivalent technique rather than requiring an exact API or wording."
+    " One feasible late-success harness is to wrap window.fetch on the already loaded "
+    "page. For only the first UI-owned request, omit its AbortSignal when calling the "
+    "original fetch, await the real completed Response, capture a clone for the test "
+    "oracle, then await a test-controlled delivery gate before returning that same "
+    "Response to the UI's awaiting promise. The second UI submission uses the original "
+    "fetch normally; capture its completed Response clone and let it render. Release "
+    "the first delivery gate only after the second identity is visible, wait for that "
+    "original handler's continuation, then assert the second identity remains and the "
+    "first identity is absent. Disabling first-request cancellation in test transport "
+    "instrumentation makes the late body reach the unchanged production version guard. "
+    "Removing that success-path guard should make this particular assertion fail. "
+    "This is an illustrative technique, not a prescribed implementation or a claim "
+    "that any candidate already passed. It avoids an unreachable 'if still awaiting' "
+    "branch and does not require fulfilling an already aborted browser route."
 )
 
 CORRECTION_REVIEW_OBJECTIVE = (
