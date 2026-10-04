@@ -20,7 +20,7 @@ def moved_review(proof, request):
     p.retained = prepare(p)
     p.daily.transition(p.mission, "CORRECTING", [p.qa])
     variant = getattr(request.node, "callspec", None)
-    variant = variant.params.get("variant", "REQUEST_CHANGES") if variant else "REQUEST_CHANGES"
+    variant = variant.params.get("review_case", "REQUEST_CHANGES") if variant else "REQUEST_CHANGES"
     verdict = variant if variant in {"APPROVE", "REQUEST_CHANGES", "REJECT"} else "REQUEST_CHANGES"
     p.read = closed_read(
         p,
@@ -69,9 +69,9 @@ def moved_review(proof, request):
     return p
 
 
-@pytest.mark.parametrize("variant", ["APPROVE", "REQUEST_CHANGES"])
+@pytest.mark.parametrize("review_case", ["APPROVE", "REQUEST_CHANGES"])
 def test_closed_review_can_renew_without_using_stale_approval_or_refunding_slot(
-    moved_review, monkeypatch, variant
+    moved_review, monkeypatch, review_case
 ):
     p = moved_review
     healthy(monkeypatch)
@@ -80,7 +80,7 @@ def test_closed_review_can_renew_without_using_stale_approval_or_refunding_slot(
     assert cycle.status == "AWAITING_QA" and count == 0 and day == p.day
     assert snapshot(p) == before
     assert p.host.store.get(p.work.work_item_id).status == State.CHANGES_REQUESTED
-    assert p.flow._prepared_correction["renewal_feedback"]["decision"] == variant
+    assert p.flow._prepared_correction["renewal_feedback"]["decision"] == review_case
     assert not p.host.list("ProductTurnApproval", matching={"run_id": "completed-moved-review"})
     with p.host.store.connect() as c:
         assert not c.execute(
@@ -91,21 +91,21 @@ def test_closed_review_can_renew_without_using_stale_approval_or_refunding_slot(
 
 
 @pytest.mark.parametrize(
-    "variant", ["REJECT", "unchanged", "unknown_usage", "later_read", "duplicate_result"]
+    "review_case", ["REJECT", "unchanged", "unknown_usage", "later_read", "duplicate_result"]
 )
 def test_moved_review_recovery_requires_known_closed_last_read_and_real_source_movement(
-    moved_review, monkeypatch, variant
+    moved_review, monkeypatch, review_case
 ):
     p = moved_review
     healthy(monkeypatch)
     before = snapshot(p)
-    if variant == "unknown_usage":
+    if review_case == "unknown_usage":
         with p.host.store.connect() as c:
             c.execute(
                 "UPDATE core.day3_records SET payload=payload || %s WHERE kind='Usage' AND payload->>'run_id'='completed-moved-review'",
                 (Jsonb({"usage_known": False}),),
             )
-    elif variant == "later_read":
+    elif review_case == "later_read":
         seed_work(
             p.host.store,
             WorkItem(
@@ -119,7 +119,7 @@ def test_moved_review_recovery_requires_known_closed_last_read_and_real_source_m
                 allowed_tools=("read_file",),
             ),
         )
-    elif variant == "duplicate_result":
+    elif review_case == "duplicate_result":
         p.host.ledger.put(
             "AgentRunResult", {"run_id": "completed-moved-review"}, work_id=p.read.work_item_id
         )
