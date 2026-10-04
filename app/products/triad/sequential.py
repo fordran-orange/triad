@@ -857,6 +857,7 @@ class SequentialCycle:
         }
         if correction:
             build.update(
+                correction=list(correction["independent_qa"]["findings"]),
                 correction_of=correction["implementation_id"],
                 correction_qa_id=correction["independent_qa"]["qa_id"],
                 reservation_id=correction["reservation_id"],
