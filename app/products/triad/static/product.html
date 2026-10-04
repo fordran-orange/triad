@@ -420,7 +420,7 @@
 </script>
 
 <section id="dataset-workspace"><h2>Dataset workspace</h2>
-<p>Supply observations and provenance once to inspect candles, volume and exact values. Source and mode are caller declarations, not certification. No persistence or execution are provided. Cost and ledger tools remain independent. Download the Core input below to run an experiment.</p>
+<p>Supply observations and provenance once to inspect candles, volume and exact values. Source and mode are caller declarations, not certification. No persistence or execution are provided. Cost and ledger tools remain independent. When the preparation is Core-eligible, its exact Core input is copied into the experiment form and the prepared SHA-256 is shown. Ineligible or replaced preparations are not left in that form. Download remains available.</p>
 <form id="dataset-form">
 <label for="ds-source">Source label</label><input id="ds-source" name="source" required maxlength="120">
 <label for="ds-source_timezone">Source timezone (IANA)</label><input id="ds-source_timezone" name="source_timezone" required maxlength="80">
@@ -443,11 +443,19 @@
 (() => {
  const get=id=>document.getElementById('ds-'+id), form=document.getElementById('dataset-form');
  let report=null, version=0, controller, offset=0;
+ function clearHandoff() {
+  const area=document.getElementById('exp-core_input');
+  const shown=document.getElementById('exp-prepared');
+  if(area) area.value='';
+  if(shown) shown.textContent='';
+  document.dispatchEvent(new CustomEvent('triad-experiment-invalidate'));
+ }
  function clear() {
   version++; if(controller) controller.abort(); report=null; offset=0;
   get('results').hidden=true; get('report').disabled=true; get('core').disabled=true;
   for(const id of ['chart','rows','symbol','identity','source-label','provenance','transformations','eligibility','range']) get(id).replaceChildren();
   get('prev').disabled=true; get('next').disabled=true;
+  clearHandoff();
   form.removeAttribute('aria-busy'); get('status').textContent='Inputs changed. Prepare dataset again.';
  }
  form.addEventListener('input',clear); form.addEventListener('change',clear);
@@ -524,6 +532,10 @@
    get('eligibility').textContent=data.core_eligibility.eligible?'Core structurally eligible; source remains caller supplied.':data.core_eligibility.reasons.join(' ');
    for(const symbol of data.symbols){const option=document.createElement('option');option.textContent=symbol;option.value=symbol;get('symbol').append(option);}
    render();get('results').hidden=false;get('report').disabled=false;get('core').disabled=!data.core_eligibility.eligible;
+   if(data.core_eligibility.eligible){
+    document.getElementById('exp-core_input').value=JSON.stringify(data.core_input);
+    document.getElementById('exp-prepared').textContent='Dataset SHA-256: '+data.prepared_sha256;
+   } else clearHandoff();
    get('status').textContent='Dataset prepared. '+data.row_count+' bars. '+get('eligibility').textContent;
   }catch(error){if(current!==version)return;clear();get('status').textContent='Preparation failed. Check CSV, metadata, window and connection.';}
   finally{if(current===version)form.removeAttribute('aria-busy');}
@@ -538,9 +550,9 @@
 </script>
 
 <section id="experiment-workspace"><h2>Experiment workspace</h2>
-<p>Paste the Core input downloaded from the dataset workspace above, set bounded fixture parameters and run a fixture-strategy experiment through Core. This verifies fixture engine behavior only; it does not establish strategy edge or real-market performance. The dataset must belong to triad and pass Core research-contract eligibility before any experiment is constructed.</p>
+<p>When a preparation is Core-eligible, its exact Core input is placed in the form below and the prepared SHA-256 is shown. You may still paste a Core input. Set bounded fixture parameters and run a fixture-strategy experiment through Core. This verifies fixture engine behavior only; it does not establish strategy edge or real-market performance. The dataset must belong to triad and pass Core research-contract eligibility before any experiment is constructed.</p>
 <form id="exp-form">
-<label for="exp-core_input">Core input (JSON downloaded from the dataset workspace)</label><textarea id="exp-core_input" name="core_input" rows="8" maxlength="1000000" required style="width:100%;box-sizing:border-box;font:14px monospace"></textarea>
+<label for="exp-core_input">Core input (copied from an eligible preparation, or pasted JSON)</label><textarea id="exp-core_input" name="core_input" rows="8" maxlength="1000000" required style="width:100%;box-sizing:border-box;font:14px monospace"></textarea>
 <label for="exp-period">Period (integer; 2–1000)</label><input id="exp-period" name="period" type="number" min="2" max="1000" step="1" required>
 <label for="exp-hold">Hold (integer; 1–999, strictly less than period)</label><input id="exp-hold" name="hold" type="number" min="1" max="999" step="1" required>
 <fieldset><legend>Directions (select at least one, at most two distinct)</legend>
@@ -549,6 +561,7 @@
 <label for="exp-fees_bps">Fee basis points (0–100)</label><input id="exp-fees_bps" name="fees_bps" type="number" min="0" max="100" step="any" value="0">
 <label for="exp-slippage_bps">Slippage basis points (0–100)</label><input id="exp-slippage_bps" name="slippage_bps" type="number" min="0" max="100" step="any" value="0">
 <button type="submit">Run experiment</button></form>
+<p id="exp-prepared"></p>
 <p id="exp-status" role="status" aria-live="polite">Supply a Core input and bounded parameters.</p>
 <div id="exp-results" hidden><p id="exp-identity"></p><p id="exp-limitations"></p>
 <dl id="exp-summary"></dl>
@@ -567,7 +580,9 @@
   get('identity').textContent=''; get('limitations').textContent='';
   form.removeAttribute('aria-busy'); get('status').textContent='Inputs changed. Run the experiment again.';
  }
+ document.addEventListener('triad-experiment-invalidate', clear);
  form.addEventListener('input',clear); form.addEventListener('change',clear);
+ get('core_input').addEventListener('input', () => { get('prepared').textContent=''; });
  form.onsubmit=async event=>{
   event.preventDefault();clear();const current=version;controller=new AbortController();
   form.setAttribute('aria-busy','true');get('status').textContent='Validating and running through Core…';

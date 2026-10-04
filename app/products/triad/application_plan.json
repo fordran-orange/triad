@@ -1,7 +1,7 @@
 {
   "schema_version": "triad.application.v1",
   "goal": "Build one refined, connected stock-trading application that can rival TradingView and thinkorswim. The autonomous agents choose and evolve its architecture and priorities.",
-  "architecture_reasoning": "Supplied observations connect structural parsing to exact dataset preparation and owner-scoped Core validation. Chart consumption is a separate branch. Experiments now connect eligible datasets to the Core fixture engine through an ownership-pinned runner with a fully bounded, non-echoing request layer.",
+  "architecture_reasoning": "Supplied observations connect structural parsing to exact dataset preparation and owner-scoped Core validation. Chart consumption is a separate branch. Experiments now connect eligible datasets to the Core fixture engine through an ownership-pinned runner with a fully bounded, non-echoing request layer. Eligible dataset preparation hands its existing core_input to the experiment form in page memory. Chart overlay remains a separate planned connection because trade and equity geometry are not evidenced.",
   "components": [
     {
       "id": "workspace",
@@ -175,6 +175,24 @@
         "tests/products/triad/test_product_app.py",
         "tests/products/triad/browser_experiment.py"
       ]
+    },
+    {
+      "producer": "dataset-preparation",
+      "consumer": "experiments",
+      "contract": "core.product-research",
+      "version": "v1",
+      "status": "TESTED",
+      "tests": [
+        "tests/products/triad/browser_experiment.py"
+      ]
+    },
+    {
+      "producer": "experiments",
+      "consumer": "chart-workspace",
+      "contract": "triad.experiment-chart",
+      "version": "v1",
+      "status": "PLANNED",
+      "tests": []
     }
   ],
   "workflows": [
@@ -232,7 +250,8 @@
     "Cost and submitted-ledger tools remain available and independent until a simulated-result contract exists.",
     "Named dataset unit and Chromium checks passed against candidate-local HTML and mounted API with the installed Core SDK. TESTED records development evidence, not independent QA or merge approval.",
     "/triad/product-api/research/experiment is mounted at the product app; it calls preflight(core_input) (ownership plus Core quality eligibility) strictly before constructing any Experiment, then run_experiment builds a fixed fixture-conformance Experiment from the preflight-returned ResearchInput only. Only period, hold, directions, fees and slippage are caller-supplied request fields.",
-    "ExperimentRequest enforces distinct directions and 1<=hold<period<=1000 at the request-model layer, mirroring Experiment.validate_windows exactly, so malformed request shapes receive a bounded non-echoing 422 before any engine call, while a post-preflight construction or engine failure remains an uncaught 500."
+    "ExperimentRequest enforces distinct directions and 1<=hold<period<=1000 at the request-model layer, mirroring Experiment.validate_windows exactly, so malformed request shapes receive a bounded non-echoing 422 before any engine call, while a post-preflight construction or engine failure remains an uncaught 500.",
+    "The in-page dataset-preparation to experiments handoff copies the existing eligible core_input object and shows its prepared SHA-256 (core_input.dataset_id). It does not invent equity-curve, fill, or price geometry. Experiments to chart-workspace stays PLANNED and is not TESTED. Refresh drops the handoff because persistence is not granted."
   ],
   "next_initiatives": [
     "Overlay experiment trades/equity curve on the dataset chart workspace",
