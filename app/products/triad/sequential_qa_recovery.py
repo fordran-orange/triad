@@ -59,12 +59,18 @@ def resume_citation_failure(flow, mission, *, substantive=False):
                 substantive
                 and prior.get("failures", [{}])[-1].get("message") == NATIVE_IDENTITY_ERROR
             )
+            maintenance = (
+                substantive
+                and prior.get("failure_code") == "ConcurrentUpdate"
+                and prior.get("failures", [{}])[-1].get("message") == "Work is already being executed"
+            )
             require(
                 prior["status"] == "BLOCKED"
-                and prior.get("failure_code") == "PermissionError"
+                and (prior.get("failure_code") == "PermissionError" or maintenance)
                 and (
                     renewal
                     or native_change_label
+                    or maintenance
                     or prior.get("failures", [{}])[-1].get("message")
                     == "Latest independent QA did not pass this revision"
                 ),
@@ -201,6 +207,35 @@ def resume_citation_failure(flow, mission, *, substantive=False):
                 and review["required"] == [c.model_dump(mode="json") for c in proposal.acceptance],
                 "Review authority mismatch",
             )
+            if maintenance:
+                marker = conn.execute(
+                    "SELECT kind,owner,payload FROM core.day3_records WHERE id=%s",
+                    ("qa-maintenance-" + qa["id"],),
+                ).fetchone()
+                expected = {
+                    "action": "hold_at_closed_candidate_qa",
+                    "cycle_id": mission,
+                    "implementation_id": build["implementation_id"],
+                    "qa_id": qa["id"],
+                    "candidate_commit": build["git"]["change_commit"],
+                    "base_commit": build["git"]["base_commit"],
+                    "approval_id": build["approval"],
+                    "review_work_item_id": qa["qa_work_item_id"],
+                    "review_run_id": review["run_id"],
+                    "control_epoch": prior["control_epoch"],
+                    "product_policy_id": program["policy_id"],
+                    "retained_turn_ids": [t["id"] for t in turns],
+                    "released_change_slots": 0,
+                }
+                require(
+                    marker is not None
+                    and marker["kind"] == "ControlAction"
+                    and marker["owner"] == "core"
+                    and type(marker["payload"].get("control_epoch")) is int
+                    and type(marker["payload"].get("released_change_slots")) is int
+                    and all(marker["payload"].get(k) == v for k, v in expected.items()),
+                    "Exact closed-QA maintenance checkpoint required",
+                )
 
             def record(kind, run_id=None):
                 rows = conn.execute(
