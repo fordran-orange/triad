@@ -180,22 +180,19 @@ def _simulate_side(
                 budget = cash * settings.allocation_fraction
                 quantity = math.floor(max(0.0, (budget - commission) / fill))
                 if quantity > 0:
-                    cash -= quantity * fill + commission
                     position = {
-                        "entry_time": timestamp,
+                        "entry_time": timestamp.isoformat(),
                         "signal_time": pending["signal_time"],
                         "entry_price": fill,
                         "quantity": quantity,
                         "entry_tags": pending["tags"],
                         "entry_fee": commission,
+                        "capital_at_entry": cash,
                     }
             elif pending["action"] == "EXIT" and position is not None:
                 fill = _fill_price(float(row.open), side, False, slippage)
                 sign = _side_sign(side)
                 quantity = position["quantity"]
-                cash += quantity * fill - commission if side == "LONG" else -(quantity * fill) - commission
-                # Short accounting above uses negative proceeds only if treated as a cash liability.
-                # For stable single-position research accounting, reconstruct final equity from P&L.
                 gross = sign * quantity * (fill - position["entry_price"])
                 net = gross - position["entry_fee"] - commission
                 pre_trade_capital = position.get("capital_at_entry", settings.initial_capital)
@@ -206,7 +203,7 @@ def _simulate_side(
                         "entry_time": position["entry_time"],
                         "entry_price": position["entry_price"],
                         "exit_signal_time": pending["signal_time"],
-                        "exit_time": timestamp,
+                        "exit_time": timestamp.isoformat(),
                         "exit_price": fill,
                         "quantity": quantity,
                         "gross_pnl": gross,
@@ -222,11 +219,11 @@ def _simulate_side(
 
         if position is not None:
             sign = _side_sign(side)
-            marked = cash + sign * position["quantity"] * float(row.close)
-            if side == "SHORT":
-                marked = position.get("capital_at_entry", settings.initial_capital) + sign * position["quantity"] * (
-                    float(row.close) - position["entry_price"]
-                ) - position["entry_fee"]
+            marked = (
+                position["capital_at_entry"]
+                + sign * position["quantity"] * (float(row.close) - position["entry_price"])
+                - position["entry_fee"]
+            )
         else:
             marked = cash
 
@@ -259,8 +256,6 @@ def _simulate_side(
                 "tags": tags,
             }
 
-        if position is not None and "capital_at_entry" not in position:
-            position["capital_at_entry"] = marked
 
     if position is not None:
         row = data.iloc[-1]
