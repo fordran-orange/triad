@@ -68,4 +68,7 @@ def test_opening_window_is_preserved_in_temporal_breakdown():
 
     assert "ALL" in result["temporal"]["combined"]
     # Window keys appear only when a trade actually intersects the configured window.
-    assert all(key == "ALL" or key.startswith(("CLOCK:", "EVENT:")) for key in result["temporal"]["combined"])
+    assert all(
+        key == "ALL" or key.startswith(("CLOCK:", "EVENT:"))
+        for key in result["temporal"]["combined"]
+    )
