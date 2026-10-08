@@ -15,6 +15,17 @@ def test_triad_product_paths_remain_autonomous():
     )
 
 
+def test_aegis_product_paths_are_autonomous_without_cross_product_access():
+    assert not is_protected_core_path(
+        "app/products/aegis/static/index.html", product="aegis"
+    )
+    assert_product_merge_allowed(
+        ["app/products/aegis/static/index.html", "docs/UI.md"], product="aegis"
+    )
+    assert is_protected_core_path("app/products/aegis/server.py")
+    assert is_protected_core_path("app/products/triad/server.py", product="aegis")
+
+
 def test_product_merge_rejects_core_governance_changes():
     try:
         assert_product_merge_allowed(["app/trading_core/providers/control.py"])
