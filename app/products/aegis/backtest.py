@@ -7,12 +7,11 @@ and combined results are simulated independently so directional edge is never hi
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from products.aegis.strategy import StrategySpec
 
@@ -46,14 +45,6 @@ class BacktestRequest(BaseModel):
     events: list[EventPoint] = Field(default_factory=list)
     settings: BacktestSettings = Field(default_factory=BacktestSettings)
 
-
-@dataclass(frozen=True)
-class Signal:
-    timestamp: pd.Timestamp
-    bar_index: int
-    side: str
-    action: str
-    tags: tuple[str, ...]
 
 
 def _prepare_frame(rows: list[dict]) -> pd.DataFrame:
