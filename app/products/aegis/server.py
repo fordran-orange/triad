@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from trading_core.api import local_headers
 from trading_core.store import Store
 
+from products.aegis.backtest import BacktestRequest, run_backtest
 from products.aegis.strategy import default_strategy
 
 app = FastAPI(title="Aegis human-directed product")
@@ -38,3 +39,8 @@ def status():
 @app.get("/aegis/api/strategy/default")
 def strategy_default():
     return default_strategy().model_dump(mode="json")
+
+
+@app.post("/aegis/api/backtest")
+def backtest(request: BacktestRequest):
+    return run_backtest(request)
