@@ -86,6 +86,29 @@ def author_plan(flow, mission, agent, proposal, retained, baseline):
         "supply actual values and actions, not statements that they will be concrete later. "
         "Describe the currently proposed behavior separately from historical mistakes."
     ) + BEHAVIORAL_EVIDENCE_GUIDANCE
+    objective += (
+        " The retained candidate is UNMERGED and is not the current baseline. A corrective "
+        "workspace starts from base_commit, not from that candidate. Inspect the supplied "
+        "baseline_approved_file_snapshot and explicitly carry forward the original approved "
+        "increment before correcting its remaining gaps. Preserving previously verified "
+        "candidate behavior includes restoring it when absent from this baseline. Preserve "
+        "every original acceptance requirement. If it requires a TESTED connection, execute "
+        "the relevant fresh checks in this build before recording TESTED; do not substitute "
+        "a PLANNED connection or defer the requirement to another change."
+    )
+    existing = set(
+        flow.s.git.git("ls-tree", "--name-only", baseline, "--", *proposal.files).splitlines()
+    )
+    context["baseline_approved_file_snapshot"] = {}
+    for path in proposal.files:
+        source = flow.s.git.git("show", baseline + ":" + path) if path in existing else None
+        context["baseline_approved_file_snapshot"][path] = {
+            "state": "EXISTING" if source is not None else "ABSENT",
+            "source": source,
+            "sha256": hashlib.sha256(source.encode("utf-8")).hexdigest()
+            if source is not None
+            else None,
+        }
     # Preserve exact candidate/QA bytes and authority; do not invite copying an
     # unapproved plan embedded inside the retained candidate as current guidance.
     context["retained_unmerged_candidate"] = {
