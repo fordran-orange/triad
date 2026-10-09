@@ -27,9 +27,11 @@ def healthy(port, product=None):
         return False
 
 
-def occupied():
+def occupied(port=8101, timeout=10):
+    # A closed loopback port on this host is refused only after ~2 s; a shorter
+    # probe times out first and the supervisor then never relaunches the worker.
     try:
-        with socket.create_connection(("127.0.0.1", 8101), timeout=2):
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
             return True
     except ConnectionRefusedError:
         return False

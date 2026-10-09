@@ -1,4 +1,5 @@
 import importlib.util
+import socket
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
@@ -96,3 +97,22 @@ def test_supervisor_runs_product_check_and_propagates_failure(tmp_path, monkeypa
     assert m.main() == 1
     assert calls[1][0][-1] == str(tmp_path / "tools/ensure_triad_worker.py")
     assert calls[1][1]["creationflags"] == subprocess.CREATE_NO_WINDOW
+
+
+def test_closed_loopback_port_is_not_occupied():
+    # Real sockets on purpose: the supervisor failed for days because a closed
+    # loopback port on this host answers only after ~2 s, so probes must outlast it.
+    m = load("ensure_triad_worker")
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    assert m.occupied(port) is False
+
+
+def test_listening_loopback_port_is_occupied():
+    m = load("ensure_triad_worker")
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        assert m.occupied(listener.getsockname()[1]) is True

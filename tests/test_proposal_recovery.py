@@ -1,5 +1,7 @@
 """A rejected candidate may be replaced, never applied without fresh approval."""
 
+from types import SimpleNamespace
+
 import pytest
 from products.triad.sequential import Proposal, SequentialCycle
 
@@ -16,8 +18,15 @@ def proposal(title):
     )
 
 
-def test_rejected_candidate_gets_fresh_review_with_feedback():
+def cycle():
     flow = object.__new__(SequentialCycle)
+    # propose() first consults the mission's prior reviews and proposals; none exist here.
+    flow.s = SimpleNamespace(rows=lambda kind, mission: [])
+    return flow
+
+
+def test_rejected_candidate_gets_fresh_review_with_feedback():
+    flow = cycle()
     seen = []
 
     def attempt(mission, agent, feedback, number):
@@ -36,7 +45,7 @@ def test_rejected_candidate_gets_fresh_review_with_feedback():
 
 @pytest.mark.parametrize("decision", ["REJECT", "REQUEST_CHANGES", "BLOCKED"])
 def test_unapproved_candidates_never_return_an_approval(decision):
-    flow = object.__new__(SequentialCycle)
+    flow = cycle()
     seen = []
 
     def attempt(*args):
@@ -44,13 +53,16 @@ def test_unapproved_candidates_never_return_an_approval(decision):
         return proposal("Unapproved"), None, {"decision": decision, "summary": "Not approved"}
 
     flow.proposal_attempt = attempt
-    with pytest.raises(PermissionError):
+    # An invalid decision stops at once; a valid rejection allows exactly one resubmission,
+    # and an identical resubmission is refused as making no progress (rule added 2026-10-03).
+    expected = "Invalid proposal review" if decision == "BLOCKED" else "made no progress"
+    with pytest.raises(PermissionError, match=expected):
         flow.propose("cycle", "GROK")
-    assert seen == ([1] if decision == "BLOCKED" else [1, 2, 3])
+    assert seen == ([1] if decision == "BLOCKED" else [1, 2])
 
 
 def test_authority_failure_is_not_retried_as_candidate_feedback():
-    flow = object.__new__(SequentialCycle)
+    flow = cycle()
     seen = []
 
     def attempt(*args):

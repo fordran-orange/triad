@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import psycopg
 from neo4j import GraphDatabase
-from triad.settings import ROOT, Settings
+from trading_core.settings import ROOT, Settings
 
 
 def main():
@@ -32,7 +32,7 @@ def main():
             results["timescaledb"] = {"passed": True, "version": extension[0]}
             assert (
                 conn.execute(
-                    "SELECT count(*) FROM timescaledb_information.hypertables WHERE hypertable_schema='triad' AND hypertable_name='candles_1m'"
+                    "SELECT count(*) FROM timescaledb_information.hypertables WHERE hypertable_schema='core' AND hypertable_name='candles_1m'"
                 ).fetchone()[0]
                 == 1
             )

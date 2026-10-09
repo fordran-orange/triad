@@ -1,5 +1,6 @@
 """Independent Day 8 readiness adversarial tests; offline archive and real QA gate."""
 
+from contextlib import nullcontext
 from copy import deepcopy
 from types import SimpleNamespace
 
@@ -81,8 +82,17 @@ def attest(ready, request, manifest, *, mutate=None):
         "qa_id": q["id"],
     }
     rows = {"ReadinessEvidence": [e], "QARun": [q]}
+
+    def list_records(kind, *, shared=False, matching=None, conn=None):
+        # Mirror Records.list: optional JSONB-style containment filter, same keywords.
+        return [
+            r for r in rows.get(kind, []) if all(r.get(k) == v for k, v in (matching or {}).items())
+        ]
+
     ready.records = SimpleNamespace(
-        get=lambda ident, conn=None: b, list=lambda kind, conn=None: rows.get(kind, [])
+        get=lambda ident, conn=None: b,
+        list=list_records,
+        store=SimpleNamespace(connect=lambda: nullcontext(SimpleNamespace(name="offline-conn"))),
     )
     return e, q, rows
 

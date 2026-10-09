@@ -1,6 +1,7 @@
 """Independent offline daily UI/API checks; no workers or production services."""
 
 # ruff: noqa: I001 - initialize Core before product routers
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
@@ -26,7 +27,16 @@ def client():
         schedule.update(body.model_dump())
         return "test-schedule"
 
-    stub = SimpleNamespace(debriefs=list, schedule=lambda: dict(schedule), configure=configure)
+    # Scheduling notifies the worker through the host store; keep that offline and silent.
+    quiet_store = SimpleNamespace(
+        connect=lambda: nullcontext(SimpleNamespace(execute=lambda *args, **kwargs: None))
+    )
+    stub = SimpleNamespace(
+        debriefs=list,
+        schedule=lambda: dict(schedule),
+        configure=configure,
+        host=SimpleNamespace(store=quiet_store),
+    )
     token = "offline-test-key-" + "x" * 32
     server.app.dependency_overrides[daily_api.daily] = lambda: stub
     server.app.dependency_overrides[core_api.service] = lambda: SimpleNamespace(
