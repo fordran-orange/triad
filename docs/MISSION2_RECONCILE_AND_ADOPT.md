@@ -53,4 +53,5 @@ Also added: `docs/CORE_CHAT_VISION.md` "Operator corrections" section (2026-10-0
 
 ## Push
 
-Recorded after the push.
+- `git push origin main` → fast-forward `d57992a..40d753d` (merge commit `5a7a03f` plus this record), no force. `origin/aegis/product-first-reset` left untouched at `3de7eb7`; it is now fully contained in `main`.
+- Not done in this mission (operator's call): restarting the Aegis worker on 8102 and the Triad worker on 8101 so they load the merged code; refreshing Core's `static/launch.html` Aegis card and `app/products/aegis/resources/product.json`; bounding `BacktestRequest.bars`/`events`.
