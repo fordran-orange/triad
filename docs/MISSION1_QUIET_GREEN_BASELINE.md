@@ -51,7 +51,10 @@ Line endings: the six edited files were normalised back to LF (`.gitattributes` 
 
 ## Push
 
-Recorded after the push step completes.
+- `git fetch origin` (first since 2026-09-29) showed `origin/main` one commit ahead (`e9dc503` SECURITY.md) and a **new remote branch `aegis/product-first-reset`** (14 commits, pushed 2026-10-08 18:03–18:07 America/Chicago, author fordran-orange, based on `f8fffa3` = the Sep 29 origin/main, so it does not contain the 207 local commits).
+- `e9dc503` merged into `main` with `--no-ff` (`eaeeda0`, adds `SECURITY.md` only, no conflicts). `git push origin main` → `e9dc503..eaeeda0` fast-forward, no force.
+- Pushed as new remote branches, no force: `codex/connected-browser-final-proof`, `codex/provider-object-schema-completeness`, `codex/reconcile-stabilization-20260929`, the 14 unmerged `codex/triad/{claude,codex,grok}/<uuid>` candidates, and `wip/correction-plan-baseline-snapshot-20261004`. Remote now has 24 branches; `main...origin/main` is 0/0.
+- **Open item for the operator (not acted on):** `aegis/product-first-reset` rewrites `AGENTS.md` into a "product-first build mode" (risk-based QA for Aegis, Triad autonomy suspended), scopes `app/trading_core/governance.py` protections per product, and adds `app/products/aegis/{backtest,strategy}.py`, an Aegis workstation shell and tests. Both lines changed `AGENTS.md`, `governance.py` and `tests/test_governance.py` since `f8fffa3`; a dry-run merge into `main` conflicts in `AGENTS.md` and `governance.py`. Reconciling the two lines (merge, rebase, or adopt that branch's direction) is a Mission 2 decision. Nothing on that branch was merged, rebased or modified here.
 
 ## Independent QA
 
