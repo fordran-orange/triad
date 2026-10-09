@@ -164,3 +164,21 @@ Keep the full vision while delivering small, independently verified milestones.
 Avoid new routine human approval gates for Triad's already-authorized product
 work. This direction does not start tomorrow's build, enable paid APIs, change
 service configuration, or grant live-trading authority.
+
+## Operator corrections
+
+### 2026-10-09 — Aegis product-first build mode; Triad intentionally suspended
+
+The operator confirmed on 2026-10-09 that Aegis is now in product-first build mode and
+that Triad is intentionally suspended: its autonomous improvement game does not run while
+Aegis is built, and it resumes later with Aegis as a base to work with. This supersedes
+"Most work remains focused on Triad and Core" above and the earlier statement that the
+Aegis planning direction "does not start that build". Scheduled autonomy was disabled by
+`DailySchedule` record `c99fa831` on 2026-10-09; re-enabling it requires an explicit
+operator decision through the operator route. The product-first rules live in `AGENTS.md`
+(risk-based QA for reversible Aegis work; independent QA and Core governance still
+mandatory for live-money, secrets, destructive and shared-contract changes). Unchanged:
+Aegis is human-directed, exchange stays CLOSED, live trading stays disabled, Core imports
+neither product, the Jarvis vision and the two acceptance scenarios above remain the goal.
+Record: `CORE_STATE_AUDIT.md`, `docs/MISSION1_QUIET_GREEN_BASELINE.md`,
+`docs/MISSION2_RECONCILE_AND_ADOPT.md`.

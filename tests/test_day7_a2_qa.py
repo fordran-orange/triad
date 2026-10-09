@@ -42,5 +42,5 @@ def test_aegis_html_response_matches_declared_utf8_encoding():
     assert response.status_code == 200
     assert "charset=utf-8" in response.headers["content-type"]
     text = response.content.decode("utf-8", errors="strict")
-    assert "Aegis product shell" in text
+    assert "Aegis" in text
     assert "\ufffd" not in text

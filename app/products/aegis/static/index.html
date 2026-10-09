@@ -1,1 +1,254 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aegis — Human-directed workspace</title><link rel="stylesheet" href="/assets/record-view.css"><style>body{margin:0;background:#f2f5f3;color:#173139;font:16px/1.6 system-ui}header{background:#102831;color:white;padding:24px 6%;display:flex;gap:30px}a{color:#18745f}header a{color:#b4f2db}main{max-width:1000px;margin:60px auto;padding:24px}article{background:white;border:1px solid #dce4df;border-radius:14px;padding:32px;margin:24px 0}.label{color:#18745f;letter-spacing:.15em;font-size:12px}h1{font-size:40px;margin:8px 0}h2{font-size:22px}#status{color:#536d72}</style><header><strong>Aegis</strong><a href="/core">Core controls</a><a href="/triad">Triad</a></header><main><div class="label">HUMAN-DIRECTED · INACTIVE · PRESERVED</div><h1>Aegis product shell</h1><p>Preserved for future development. No product features are active.</p><article><h2>A clean starting point</h2><p>No strategy library or trading workflow has been imported. Charts, scanners, portfolio, risk and broker features are future work.</p><p id="status">Checking workspace…</p></article><article><h2>Knowledge stays with its product</h2><p>Aegis and Triad have separate work and research records. Cross-product exchange is closed. Any future transfer will require an explicit human review.</p></article></main><script>fetch('/aegis/api/status').then(r=>{if(!r.ok)throw Error();return r.json()}).then(s=>document.querySelector('#status').textContent=s.work_items.length+' Aegis assignments · Exchange closed').catch(()=>document.querySelector('#status').textContent='Workspace unavailable. Core controls remain accessible.');</script></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aegis — Strategy Research Workstation</title>
+<style>
+:root{
+  --bg:#071018;--panel:#0b1520;--panel2:#101c28;--line:#1d2c39;--muted:#7690a3;
+  --text:#d8e5ef;--bright:#f4f8fb;--blue:#2da7ff;--green:#39d98a;--red:#ff5c67;
+  --amber:#f5bd51;--violet:#b784ff;--radius:6px
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:12px/1.35 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.app{height:100vh;display:grid;grid-template-columns:178px 1fr;grid-template-rows:52px 1fr;background:#08111a}
+.topbar{grid-column:1/3;display:flex;align-items:center;border-bottom:1px solid var(--line);background:#09131d;padding:0 12px;gap:12px}
+.brand{width:166px;display:flex;align-items:center;gap:9px;font-weight:800;letter-spacing:.06em;color:var(--bright);font-size:15px}
+.brand-mark{width:25px;height:25px;border:2px solid var(--blue);transform:rotate(45deg);border-radius:5px;position:relative}
+.brand-mark:after{content:"";position:absolute;inset:6px;border:1px solid var(--green)}
+.search{flex:1;max-width:570px;height:32px;border:1px solid var(--line);border-radius:6px;background:#0c1722;color:var(--muted);display:flex;align-items:center;padding:0 10px}
+.top-controls{margin-left:auto;display:flex;gap:7px;align-items:center}
+.control,.btn{height:32px;border:1px solid var(--line);border-radius:5px;background:#0e1a25;color:var(--text);padding:0 10px}
+.btn-primary{background:#0969a8;border-color:#168bd5;color:white;font-weight:700}
+.btn-green{background:#0f7f55;border-color:#22a76f;color:white;font-weight:700}
+.sidebar{border-right:1px solid var(--line);background:#09131d;padding:12px 8px;display:flex;flex-direction:column;gap:3px}
+.nav{padding:9px 10px;border-radius:5px;color:#91a7b7;display:flex;gap:9px;align-items:center}
+.nav.active{background:#102438;color:#dcefff;border-left:2px solid var(--blue)}
+.nav .dot{width:7px;height:7px;border:1px solid currentColor;border-radius:50%}
+.sidebar-bottom{margin-top:auto;border-top:1px solid var(--line);padding:12px 8px;color:#627d91}
+.main{min-width:0;min-height:0;display:grid;grid-template-rows:1fr 248px}
+.workspace{min-height:0;display:grid;grid-template-columns:minmax(620px,1fr) 310px}
+.chart-panel{min-width:0;display:grid;grid-template-rows:38px 1fr;border-right:1px solid var(--line)}
+.tabs{display:flex;align-items:end;border-bottom:1px solid var(--line);background:#0a141e}
+.tab{padding:10px 14px 8px;color:#7f98aa}
+.tab.active{color:#e7f4ff;border-bottom:2px solid var(--blue)}
+.chart{position:relative;overflow:hidden;background:
+linear-gradient(#15233155 1px,transparent 1px),
+linear-gradient(90deg,#15233155 1px,transparent 1px),#08121c;
+background-size:100% 48px,74px 100%}
+.chart-header{position:absolute;z-index:3;left:14px;top:11px}
+.instrument{font-size:14px;font-weight:700;color:var(--bright)}
+.ohlc{color:#7f9fb2;margin-top:3px}
+.legend{margin-top:6px;display:flex;gap:12px;color:#9db1bf}
+.legend b{font-weight:600}
+.chart svg{width:100%;height:100%}
+.right-panel{min-width:0;background:#0a141e;overflow:auto}
+.right-tabs{height:38px;border-bottom:1px solid var(--line);display:flex}
+.right-tabs span{padding:11px 13px;color:#728b9c}
+.right-tabs .active{color:white;border-bottom:2px solid var(--blue)}
+.panel-section{padding:13px;border-bottom:1px solid var(--line)}
+.panel-title{font-size:13px;color:var(--bright);font-weight:700;display:flex;justify-content:space-between;align-items:center}
+.sub{font-size:11px;color:var(--muted);margin-top:4px}
+.pills{display:grid;grid-template-columns:1fr 1fr;margin-top:10px;gap:5px}
+.pill{background:#0f1c28;border:1px solid var(--line);padding:7px;border-radius:4px;text-align:center;color:#89a1b1}
+.pill.on{border-color:#2c8fc2;color:white;background:#102b3d}
+.row{display:grid;grid-template-columns:1fr 88px;gap:9px;align-items:center;margin-top:8px}
+.row label{color:#9ab0be}
+.row input,.row select{width:100%;height:29px;background:#07121b;border:1px solid var(--line);border-radius:4px;color:#dce7ef;padding:0 7px}
+.section-label{margin-top:12px;font-size:10px;letter-spacing:.12em;color:#617d91;text-transform:uppercase}
+.side-card{margin-top:8px;border:1px solid var(--line);border-radius:5px;background:#0b1722;padding:9px}
+.side-card.long{border-left:2px solid var(--green)}.side-card.short{border-left:2px solid var(--red)}
+.side-head{display:flex;justify-content:space-between;font-weight:700}
+.toggle{width:30px;height:16px;border-radius:8px;background:#243443;position:relative}
+.toggle:after{content:"";position:absolute;width:12px;height:12px;border-radius:50%;background:#72899a;top:2px;left:2px}
+.toggle.on{background:#145f48}.toggle.on:after{left:16px;background:#49df9b}
+.logic{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:#b7c7d3;font-size:11px;margin-top:7px;line-height:1.5}
+.window{display:grid;grid-template-columns:1fr 80px 70px;gap:5px;margin-top:6px;align-items:center}
+.badge{font-size:10px;padding:2px 5px;border-radius:3px;background:#152536;color:#88a5b8}
+.results{border-top:1px solid var(--line);background:#09131d;min-height:0}
+.result-tabs{height:38px;display:flex;border-bottom:1px solid var(--line);align-items:end}
+.result-tabs span{padding:11px 13px 9px;color:#70899b}.result-tabs .active{color:white;border-bottom:2px solid var(--green)}
+.result-body{height:calc(100% - 38px);display:grid;grid-template-columns:300px 1fr}
+.heatmap{border-right:1px solid var(--line);padding:12px}
+.heat-grid{display:grid;grid-template-columns:42px repeat(5,1fr);gap:3px;margin-top:9px}
+.cell{height:25px;border-radius:3px;background:#143125;display:flex;align-items:center;justify-content:center;font-size:10px;color:#9fdcbd}
+.cell.h{background:transparent;color:#698396}.cell.hot{background:#1b5c42;color:#d9ffe9}.cell.cool{background:#35232a;color:#dd98a0}
+.results-table{padding:12px;overflow:auto}
+table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:6px 8px;border-bottom:1px solid #152430;color:#9fb2c0}
+th{font-size:10px;text-transform:uppercase;color:#607b90}th:first-child,td:first-child{text-align:left}
+.kpis{position:absolute;left:178px;right:0;bottom:0;height:0}
+.status-strip{height:25px;position:fixed;left:178px;right:0;bottom:0;background:#071019;border-top:1px solid var(--line);display:flex;align-items:center;padding:0 10px;gap:18px;color:#748c9e;font-size:10px}
+.status-strip b{color:#cbd9e2}.good{color:var(--green)!important}.bad{color:var(--red)!important}
+.small{font-size:10px}.accent{color:var(--blue)}.green{color:var(--green)}.red{color:var(--red)}
+</style>
+</head>
+<body>
+<div class="app">
+<header class="topbar">
+  <div class="brand"><div class="brand-mark"></div>AEGIS</div>
+  <div class="search">Search assets, indicators, strategies, or type a command… <span style="margin-left:auto">Ctrl K</span></div>
+  <div class="top-controls">
+    <select class="control"><option>QQQ</option><option>SPY</option><option>ITOT</option></select>
+    <select class="control"><option>1h</option><option>30m</option><option>15m</option><option>1D</option></select>
+    <input class="control" value="2023-01-01 → 2026-10-08" size="22">
+    <button class="btn btn-primary">▶ Run Backtest</button>
+    <button class="btn btn-green">⚙ Optimize</button>
+  </div>
+</header>
+
+<aside class="sidebar">
+  <div class="nav"><span class="dot"></span>Dashboard</div>
+  <div class="nav active"><span class="dot"></span>Charts</div>
+  <div class="nav"><span class="dot"></span>Strategy Lab</div>
+  <div class="nav"><span class="dot"></span>Indicators</div>
+  <div class="nav"><span class="dot"></span>Data</div>
+  <div class="nav"><span class="dot"></span>Experiments</div>
+  <div class="nav"><span class="dot"></span>Paper Trade</div>
+  <div class="nav"><span class="dot"></span>Settings</div>
+  <div class="sidebar-bottom">
+    <div class="green">● PRODUCT BUILD MODE</div>
+    <div style="margin-top:5px">Human-directed<br>Exchange CLOSED</div>
+  </div>
+</aside>
+
+<main class="main">
+  <section class="workspace">
+    <div class="chart-panel">
+      <div class="tabs"><div class="tab active">QQQ</div><div class="tab">SPY</div><div class="tab">ITOT</div><div class="tab">＋</div></div>
+      <div class="chart">
+        <div class="chart-header">
+          <div class="instrument">QQQ · Nasdaq-100 ETF · 1h</div>
+          <div class="ohlc">O 598.42 &nbsp; H 601.18 &nbsp; L 597.91 &nbsp; C 600.84 <span class="green">+0.61%</span></div>
+          <div class="legend"><b class="accent">EMA 9</b><b class="green">SMA 30</b><span>Volume</span></div>
+        </div>
+        <svg viewBox="0 0 1000 560" preserveAspectRatio="none" aria-label="placeholder price chart">
+          <defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2da7ff" stop-opacity=".14"/><stop offset="1" stop-color="#2da7ff" stop-opacity="0"/></linearGradient></defs>
+          <path d="M0 370 C80 340,120 390,180 315 S300 355,360 280 S460 230,520 260 S620 210,680 235 S790 155,850 185 S930 125,1000 145 L1000 560 L0 560Z" fill="url(#fill)"/>
+          <path d="M0 370 C80 340,120 390,180 315 S300 355,360 280 S460 230,520 260 S620 210,680 235 S790 155,850 185 S930 125,1000 145" fill="none" stroke="#2da7ff" stroke-width="2"/>
+          <path d="M0 395 C120 350,210 355,290 330 S410 285,500 285 S610 250,710 235 S850 200,1000 175" fill="none" stroke="#39d98a" stroke-width="2"/>
+          <g stroke-width="2">
+            <line x1="135" y1="385" x2="135" y2="325" stroke="#39d98a"/><rect x="128" y="342" width="14" height="25" fill="#39d98a"/>
+            <line x1="220" y1="356" x2="220" y2="294" stroke="#ff5c67"/><rect x="213" y="310" width="14" height="27" fill="#ff5c67"/>
+            <line x1="345" y1="330" x2="345" y2="268" stroke="#39d98a"/><rect x="338" y="285" width="14" height="28" fill="#39d98a"/>
+            <line x1="472" y1="282" x2="472" y2="220" stroke="#39d98a"/><rect x="465" y="240" width="14" height="25" fill="#39d98a"/>
+            <line x1="590" y1="278" x2="590" y2="210" stroke="#ff5c67"/><rect x="583" y="226" width="14" height="30" fill="#ff5c67"/>
+            <line x1="715" y1="242" x2="715" y2="178" stroke="#39d98a"/><rect x="708" y="196" width="14" height="27" fill="#39d98a"/>
+            <line x1="836" y1="205" x2="836" y2="142" stroke="#39d98a"/><rect x="829" y="160" width="14" height="28" fill="#39d98a"/>
+          </g>
+          <g font-size="10" font-family="system-ui">
+            <rect x="334" y="252" width="24" height="18" rx="3" fill="#147b55"/><text x="346" y="265" fill="white" text-anchor="middle">BUY</text>
+            <rect x="578" y="192" width="28" height="18" rx="3" fill="#9b3540"/><text x="592" y="205" fill="white" text-anchor="middle">SELL</text>
+            <rect x="704" y="160" width="24" height="18" rx="3" fill="#147b55"/><text x="716" y="173" fill="white" text-anchor="middle">BUY</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <aside class="right-panel">
+      <div class="right-tabs"><span class="active">Strategy</span><span>Indicators</span><span>Objects</span></div>
+      <div class="panel-section">
+        <div class="panel-title"><span id="strategy-name">9 EMA / 30 SMA Cross</span><span>•••</span></div>
+        <div class="sub">Reference strategy · deterministic QA baseline</div>
+        <div class="pills"><div class="pill on">Long</div><div class="pill on">Short</div></div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Indicators</div>
+        <div class="row"><label>Fast EMA</label><input id="ema-length" type="number" value="9"></div>
+        <div class="row"><label>Slow SMA</label><input id="sma-length" type="number" value="30"></div>
+        <div class="row"><label>Price source</label><select><option>Close</option><option>Open</option><option>HL2</option></select></div>
+
+        <div class="section-label">Asymmetric strategy sides</div>
+        <div class="side-card long">
+          <div class="side-head"><span>LONG SIDE</span><span class="toggle on"></span></div>
+          <div class="logic">ENTRY: EMA(9) crosses ABOVE SMA(30)<br>EXIT: EMA(9) crosses BELOW SMA(30)</div>
+        </div>
+        <div class="side-card short">
+          <div class="side-head"><span>SHORT SIDE</span><span class="toggle on"></span></div>
+          <div class="logic">ENTRY: EMA(9) crosses BELOW SMA(30)<br>EXIT: EMA(9) crosses ABOVE SMA(30)</div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Temporal context</div>
+        <div class="window"><span>Opening window</span><span class="badge">09:30–10:00</span><span class="badge">ANALYZE</span></div>
+        <div class="window"><span>Closing window</span><span class="badge">15:30–16:00</span><span class="badge">ANALYZE</span></div>
+        <div class="window"><span>FOMC</span><span class="badge">± event</span><span class="badge">READY</span></div>
+        <div class="window"><span>Earnings</span><span class="badge">± event</span><span class="badge">READY</span></div>
+        <div class="window"><span>Rumor/news</span><span class="badge">feed later</span><span class="badge">SCHEMA</span></div>
+        <div class="window"><span>London/NY overlap</span><span class="badge">session</span><span class="badge">SCHEMA</span></div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Execution</div>
+        <div class="row"><label>Signal</label><select><option>Bar close</option></select></div>
+        <div class="row"><label>Fill</label><select><option>Next bar open</option></select></div>
+        <div class="row"><label>Commission / side</label><input value="0.00"></div>
+        <div class="row"><label>Slippage (bps)</label><input value="0.00"></div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Optimization range</div>
+        <div class="row"><label>EMA</label><input value="5 → 20 · step 1"></div>
+        <div class="row"><label>SMA</label><input value="20 → 100 · step 5"></div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="results">
+    <div class="result-tabs"><span>Backtest Summary</span><span>Trades</span><span class="active">Optimization</span><span>Equity Curve</span><span>Walk-Forward</span><span>Logs</span></div>
+    <div class="result-body">
+      <div class="heatmap">
+        <div class="panel-title">Optimization Heatmap <span class="small">Net Profit</span></div>
+        <div class="heat-grid">
+          <div class="cell h">EMA↓</div><div class="cell h">20</div><div class="cell h">30</div><div class="cell h">40</div><div class="cell h">50</div><div class="cell h">60</div>
+          <div class="cell h">5</div><div class="cell">—</div><div class="cell hot">—</div><div class="cell">—</div><div class="cell cool">—</div><div class="cell cool">—</div>
+          <div class="cell h">9</div><div class="cell hot">—</div><div class="cell hot">BASE</div><div class="cell hot">—</div><div class="cell">—</div><div class="cell">—</div>
+          <div class="cell h">12</div><div class="cell">—</div><div class="cell hot">—</div><div class="cell">—</div><div class="cell">—</div><div class="cell cool">—</div>
+          <div class="cell h">16</div><div class="cell cool">—</div><div class="cell">—</div><div class="cell">—</div><div class="cell cool">—</div><div class="cell cool">—</div>
+        </div>
+        <div class="sub">Placeholder until optimizer M0 is connected. Plateau stability will be scored, not just best peak.</div>
+      </div>
+      <div class="results-table">
+        <div class="panel-title">Optimization Results <span class="small">awaiting engine</span></div>
+        <table>
+          <thead><tr><th>Parameter set</th><th>Net P&L</th><th>Max DD</th><th>MAR</th><th>Win rate</th><th>Trades</th><th>Side</th><th>Window</th></tr></thead>
+          <tbody>
+            <tr><td>EMA 9 / SMA 30</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>Combined</td><td>All</td></tr>
+            <tr><td>EMA 9 / SMA 30</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td class="green">Long</td><td>Open</td></tr>
+            <tr><td>EMA 9 / SMA 30</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td class="red">Short</td><td>Close</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+</div>
+
+<div class="status-strip">
+  <span><b>QQQ</b> · 9 EMA / 30 SMA</span>
+  <span>CAGR <b>—</b></span>
+  <span>Net P&L <b>—</b></span>
+  <span>Max DD <b>—</b></span>
+  <span>MAR <b>—</b></span>
+  <span>Expectancy <b>—</b></span>
+  <span>Exposure <b>—</b></span>
+  <span style="margin-left:auto" id="api-state">Loading strategy contract…</span>
+</div>
+
+<script>
+fetch('/aegis/api/strategy/default')
+  .then(r=>{if(!r.ok)throw Error('strategy api');return r.json()})
+  .then(s=>{
+    document.querySelector('#strategy-name').textContent=s.name;
+    document.querySelector('#ema-length').value=s.indicators.find(x=>x.kind==='EMA').length;
+    document.querySelector('#sma-length').value=s.indicators.find(x=>x.kind==='SMA').length;
+    document.querySelector('#api-state').innerHTML='<span class="green">● Strategy contract connected</span>';
+  })
+  .catch(()=>document.querySelector('#api-state').innerHTML='<span class="bad">● Strategy API unavailable</span>');
+</script>
+</body>
+</html>

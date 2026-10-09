@@ -110,16 +110,24 @@ def test_product_rotation_is_independent_of_core_review_defaults():
     assert cycle.next_agent("CODEX") == "GROK"
 
 
-def test_aegis_shell_and_legacy_redirect():
+def test_aegis_shell_and_legacy_redirect(monkeypatch):
+    from types import SimpleNamespace
+
     from fastapi.testclient import TestClient
     from platform_host.api import app as gateway
+    from products.aegis import server
     from products.aegis.server import app as product
 
     response = TestClient(product).get("/aegis")
     assert response.status_code == 200
-    assert "Aegis product shell" in response.text
-    assert "INACTIVE" in response.text and "PRESERVED" in response.text
+    assert "text/html" in response.headers["content-type"] and "Aegis" in response.text
     assert TestClient(product).get("/health/live").json()["product"] == "aegis"
+    # The governance contract is the status shape, not the page copy: human-directed,
+    # exchange closed. Triad's post-merge verifier and Core dashboards read these fields.
+    monkeypatch.setattr(server, "Store", lambda **_: SimpleNamespace(list_work=list))
+    status = TestClient(product).get("/aegis/api/status").json()
+    assert status["product"] == "aegis" and status["mode"] == "human_directed"
+    assert status["exchange"] == "CLOSED" and status["work_items"] == []
     response = TestClient(gateway).get("/p2p/api/status?view=all", follow_redirects=False)
     assert response.status_code == 307
     assert response.headers["location"] == "/aegis/api/status?view=all"

@@ -1,25 +1,33 @@
 # Permanent implementation and QA rule
 
-For Core chat, Intake, memory, model routing, or Aegis planning and development,
-first read [the standing product direction](docs/CORE_CHAT_VISION.md). It records
-the operator's local-knowledge-first, multi-provider Jarvis vision and the GUI
-comparison/generation and NVDA backtest acceptance scenarios. Stage 1 limitations
-are not the long-term product goal. Preserve future explicit operator corrections.
+Aegis is in PRODUCT-FIRST BUILD MODE. The priority is a functioning, inspectable
+trading research application. Reversible product work should move quickly and must
+not be blocked by review ceremony that is disproportionate to its blast radius.
 
-Every implementation or correction requires a separate independent QA run.
-The builder must not be its sole verifier. Delegate QA to a separate agent after
-each bounded build segment; preserve its findings, test evidence and exact code
-revision. A correction invalidates the previous QA for the affected revision and
-requires another QA run. Do not merge without passing QA and Core governance.
+Before planning or changing Core chat, Intake, memory, model routing, or Aegis, read
+[the standing product direction](docs/CORE_CHAT_VISION.md), including its dated
+operator corrections. Documentation is not proof of capability; verify by running.
 
-Core owns generic intelligence, authority and providers. Products consume Core;
-Core imports neither product. Preserve product-private knowledge and credentials.
-Day 6 leaves P2P behavior unchanged, exchange CLOSED and live trading disabled.
-Keep scheduled autonomy disabled until separately authorized.
+For ordinary reversible Aegis product changes under `app/products/aegis/`, product
+tests, and product documentation, the builder may implement and run the relevant
+checks without a separate independent QA agent after every bounded edit. Preserve
+test evidence and use milestone QA when a vertical slice is ready for review.
 
-Day 7 renames the preserved P2P lineage to Aegis. Current names/routes use Aegis;
-historical P2P evidence stays intact through the fixed canonical alias. The later
-operator direction permits bounded Aegis charting and backtesting-interface work
-as the next scope, with Vela evaluated behind an adapter. Aegis remains
-human-directed; exchange stays closed and live trading disabled. This planning
-direction does not start that build or change runtime activation.
+Independent QA and explicit Core governance remain mandatory for changes that affect:
+- live-money execution, exchange enablement, broker/order paths, or risk limits;
+- secrets, credentials, authentication, provider authority, or permissions;
+- destructive operations, database migrations, or retained canonical data;
+- shared Core contracts, product-isolation boundaries, or governance enforcement.
+
+Core owns generic intelligence, authority, memory/knowledge, provider integration,
+and shared runtime. Products consume Core; Core imports neither product. Preserve
+product-private knowledge and credentials.
+
+Triad is intentionally suspended (operator decision 2026-10-09). Its autonomous
+improvement game does not run while Aegis is built; it resumes later with Aegis as a
+base to work with. Scheduled autonomy is disabled by `DailySchedule` record `c99fa831`
+(2026-10-09) and may be re-enabled only by an explicit operator decision through the
+operator route. Aegis remains human-directed. Exchange stays CLOSED and live trading
+stays disabled until separately and explicitly authorized.
+
+Historical P2P evidence remains preserved through the canonical Aegis alias.
