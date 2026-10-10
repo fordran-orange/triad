@@ -1,23 +1,16 @@
-import { api, errorMessage } from '../api/client';
+import { useState } from 'react';
+import { useRunBacktest } from '../state/run';
 import { TIMEFRAMES, useDispatch, useWorkspace, type Timeframe } from '../state/workspace';
+import { OptimizePopover } from './OptimizePopover';
 
 const SYMBOLS = ['QQQ', 'SPY', 'ITOT'];
 
 export function TopBar({ runsOpen, onToggleRuns }: { runsOpen: boolean; onToggleRuns: () => void }) {
-  const { selection, strategy, settings, running } = useWorkspace();
+  const { selection, strategy, running } = useWorkspace();
   const dispatch = useDispatch();
+  const runBacktest = useRunBacktest();
+  const [optimizeOpen, setOptimizeOpen] = useState(false);
   const set = (patch: Partial<typeof selection>) => dispatch({ type: 'SET_SELECTION', selection: patch });
-
-  const runBacktest = async () => {
-    if (!strategy || running) return;
-    dispatch({ type: 'RUN_STARTED' });
-    try {
-      const run = await api.backtest({ strategy, data: selection, settings });
-      dispatch({ type: 'RUN_COMPLETED', run });
-    } catch (error) {
-      dispatch({ type: 'RUN_FAILED', error: errorMessage(error) });
-    }
-  };
 
   return (
     <header className="topbar">
@@ -46,13 +39,24 @@ export function TopBar({ runsOpen, onToggleRuns }: { runsOpen: boolean; onToggle
           type="button"
           disabled={!strategy || running}
           title={!strategy ? 'Strategy contract not loaded' : running ? 'Backtest running' : 'Run the backtest on the pinned raw archive'}
-          onClick={runBacktest}
+          onClick={() => void runBacktest()}
         >
           ▶ {running ? 'Running…' : 'Run Backtest'}
         </button>
-        <button className="btn btn-green" type="button" disabled title="Optimizer not connected yet">
-          ⚙ Optimize
-        </button>
+        <div className="optimize-anchor">
+          <button
+            id="optimize"
+            className={'btn btn-green' + (optimizeOpen ? ' active' : '')}
+            type="button"
+            disabled={!strategy}
+            title={!strategy ? 'Strategy contract not loaded' : 'Plan and start a per-side grid optimization'}
+            aria-expanded={optimizeOpen}
+            onClick={() => setOptimizeOpen((v) => !v)}
+          >
+            ⚙ Optimize
+          </button>
+          {optimizeOpen && <OptimizePopover onClose={() => setOptimizeOpen(false)} />}
+        </div>
         <button className={'btn' + (runsOpen ? ' active' : '')} type="button" onClick={onToggleRuns} title="Saved runs" aria-pressed={runsOpen}>
           ☰ Runs
         </button>

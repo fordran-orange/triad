@@ -1,12 +1,10 @@
-import { useState } from 'react';
+import { useDispatch, useWorkspace, type ResultsTab } from '../state/workspace';
 import { EquityTab } from './EquityTab';
 import { OptimizationTab } from './OptimizationTab';
 import { SummaryTab } from './SummaryTab';
 import { TradesTab } from './TradesTab';
 
-type Tab = 'summary' | 'trades' | 'optimization' | 'equity';
-
-const TABS: Array<{ id: Tab | 'walkforward' | 'logs'; label: string; disabled?: boolean }> = [
+const TABS: Array<{ id: ResultsTab | 'walkforward' | 'logs'; label: string; disabled?: boolean }> = [
   { id: 'summary', label: 'Backtest Summary' },
   { id: 'trades', label: 'Trades' },
   { id: 'optimization', label: 'Optimization' },
@@ -16,7 +14,8 @@ const TABS: Array<{ id: Tab | 'walkforward' | 'logs'; label: string; disabled?: 
 ];
 
 export function ResultsTabs() {
-  const [tab, setTab] = useState<Tab>('summary');
+  const { resultsTab: tab } = useWorkspace();
+  const dispatch = useDispatch();
   return (
     <section className="results">
       <div className="result-tabs">
@@ -27,7 +26,7 @@ export function ResultsTabs() {
             className={(tab === t.id ? 'active' : '') + (t.disabled ? ' disabled' : '')}
             disabled={t.disabled}
             title={t.disabled ? 'Not yet built' : undefined}
-            onClick={() => !t.disabled && setTab(t.id as Tab)}
+            onClick={() => !t.disabled && dispatch({ type: 'SET_RESULTS_TAB', tab: t.id as ResultsTab })}
           >
             {t.label}
           </button>

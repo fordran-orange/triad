@@ -125,3 +125,11 @@ export interface BacktestRequest {
   events?: EventPoint[];
   settings?: BacktestSettings;
 }
+
+export interface OptimizeRequest {
+  strategy: StrategySpec;
+  side: 'long' | 'short';
+  data: DataReference;
+  settings?: BacktestSettings;
+  objective?: 'net_pnl' | 'mar' | 'max_drawdown' | 'trade_count';
+}

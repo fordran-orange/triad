@@ -63,6 +63,7 @@ export function ChartPanel() {
       .then(([bars, series]) => {
         if (cancelled) return;
         setLoaded({ count: bars.count, data: bars.data });
+        dispatch({ type: 'BARS_LOADED', bars: { count: bars.count, vintage: String(bars.data.vintage ?? '') } });
         syncChart(adapter, {
           bars: bars.bars,
           timeframe: selection.timeframe,
@@ -77,6 +78,7 @@ export function ChartPanel() {
         if (cancelled) return;
         adapter.clear(); // never leave a previous selection's candles under a header that names the new one
         setLoaded(null);
+        dispatch({ type: 'BARS_LOADED', bars: null });
         setError(errorMessage(e));
       })
       .finally(() => !cancelled && setLoading(false));

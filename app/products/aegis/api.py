@@ -26,6 +26,14 @@ from products.aegis.data import (
     to_records,
 )
 from products.aegis.indicators import compute
+from products.aegis.optimize import (
+    JobBusy,
+    OptimizeRequest,
+    OptimizerRunner,
+    engine_rows,
+    estimate_seconds,
+    expand_grid,
+)
 from products.aegis.results import canonical_payload, result_hash
 from products.aegis.runs import JsonRunRepository, RunRepository
 from products.aegis.strategy import IndicatorSpec
@@ -43,8 +51,14 @@ def get_repository() -> RunRepository:
     return JsonRunRepository()
 
 
+@lru_cache(maxsize=1)
+def get_runner() -> OptimizerRunner:
+    return OptimizerRunner(get_repository())
+
+
 STORE = Depends(get_store)
 REPOSITORY = Depends(get_repository)
+RUNNER = Depends(get_runner)
 
 
 def _timeframe(value: str) -> str:
@@ -128,7 +142,7 @@ def _envelope(request: BacktestRequest, store: ArchiveStore) -> dict:
             store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
         )
         engine_request = request.model_copy(
-            update={"bars": [{**r, "symbol": request.data.symbol} for r in _engine_rows(frame)]}
+            update={"bars": engine_rows(frame, request.data.symbol)}
         )
         identity = _provenance(pinned)
     else:
@@ -151,13 +165,6 @@ def _envelope(request: BacktestRequest, store: ArchiveStore) -> dict:
         "markers": markers(result),
         "state": "ok",
     }
-
-
-def _engine_rows(frame) -> list[dict]:
-    rows = frame.to_dict("records")
-    for row in rows:
-        row["timestamp"] = row["timestamp"].isoformat()
-    return rows
 
 
 @router.post("/backtest")
@@ -197,4 +204,65 @@ def run(
     return envelope
 
 
-__all__ = ["DataReference", "get_repository", "get_store", "router"]
+def _side_spec(request: OptimizeRequest):
+    return request.strategy.long_side if request.side == "long" else request.strategy.short_side
+
+
+@router.post("/optimize/plan")
+def optimize_plan(request: OptimizeRequest, store: ArchiveStore = STORE):
+    """What a start would do: valid cells, skipped cells, bars and the runtime estimate."""
+    frame, _ = _select(
+        store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
+    )
+    try:
+        plan = expand_grid(_side_spec(request))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {
+        "total_cells": len(plan.cells),
+        "skipped_cells": len(plan.skipped),
+        "estimated_seconds": round(estimate_seconds(len(plan.cells), len(frame)), 3),
+        "bars": len(frame),
+    }
+
+
+@router.post("/optimize", status_code=202)
+def optimize(
+    request: OptimizeRequest,
+    store: ArchiveStore = STORE,
+    runner: OptimizerRunner = RUNNER,
+):
+    frame, pinned = _select(
+        store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
+    )
+    try:
+        job_id = runner.start(request, frame, pinned)
+    except JobBusy as exc:
+        raise HTTPException(409, "an optimization is already running") from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    status = runner.status(job_id)
+    return {
+        key: status[key] for key in ("job_id", "total_cells", "skipped_cells", "estimated_seconds")
+    }
+
+
+@router.get("/optimize")
+def optimizations(runner: OptimizerRunner = RUNNER):
+    return runner.list_jobs()
+
+
+@router.get("/optimize/{job_id}")
+def optimization(job_id: str, runner: OptimizerRunner = RUNNER):
+    try:
+        return runner.status(job_id)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(404, f"unknown optimization {job_id!r}") from exc
+
+
+@router.post("/optimize/{job_id}/cancel")
+def cancel_optimization(job_id: str, runner: OptimizerRunner = RUNNER):
+    return {"cancelled": runner.cancel(job_id)}
+
+
+__all__ = ["DataReference", "get_repository", "get_runner", "get_store", "router"]

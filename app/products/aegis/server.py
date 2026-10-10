@@ -1,5 +1,7 @@
 """Aegis human-directed product host. Live exchange execution remains disabled."""
 
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -11,15 +13,27 @@ from trading_core.store import Store
 from products.aegis import api
 from products.aegis.strategy import default_strategy
 
-app = FastAPI(title="Aegis human-directed product")
+log = logging.getLogger("aegis")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Optimizations still queued/running in the repository belong to a dead worker.
+    lost = api.get_runner().mark_lost_on_startup()
+    if lost:
+        log.warning("marked %d unfinished optimization(s) as lost: %s", len(lost), lost)
+    yield
+
+
+app = FastAPI(title="Aegis human-directed product", lifespan=lifespan)
 app.middleware("http")(local_headers)
 
 
 UI_DIST = Path(__file__).parent / "ui" / "dist"
 UI_NOT_BUILT = (
-    "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-    "<title>Aegis</title></head><body style=\"background:#071018;color:#d8e5ef;"
-    "font:14px system-ui;padding:24px\"><p>Aegis workstation UI not built; run "
+    '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    '<title>Aegis</title></head><body style="background:#071018;color:#d8e5ef;'
+    'font:14px system-ui;padding:24px"><p>Aegis workstation UI not built; run '
     "<code>tools/build_aegis_ui.ps1</code> and reload.</p></body></html>"
 )
 
@@ -52,8 +66,6 @@ def status():
 @app.get("/aegis/api/strategy/default")
 def strategy_default():
     return default_strategy().model_dump(mode="json")
-
-
 
 
 app.include_router(api.router)

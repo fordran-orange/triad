@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StrategySpec } from '../contracts';
-import { initialState, reducer, type RunRecord, type WorkspaceState } from './workspace';
+import { applyConfigs, initialState, reducer, type RunRecord, type WorkspaceState } from './workspace';
 
 // Side-owned indicator parameters (the shape Task 3 makes canonical); typed loosely until then.
 function strategy(): StrategySpec {
@@ -107,5 +107,30 @@ describe('workspace reducer', () => {
     expect(state.lastRun?.state).toBe('source_unavailable');
     expect(state.running).toBe(false);
     expect(state.runError).toBeNull();
+  });
+
+  it('applyConfigs sets each side from its selected configuration independently', () => {
+    const applied = applyConfigs(strategy(), { long: { 'indicators.ema.length': 11, 'indicators.sma.length': 35 }, short: { 'indicators.ema.length': 6 } });
+    const lengths = (s: StrategySpec, side: 'long_side' | 'short_side') => s[side].indicators!.map((i) => i.length);
+    expect(lengths(applied, 'long_side')).toEqual([11, 35]);
+    expect(lengths(applied, 'short_side')).toEqual([6, 30]);
+    expect(applyConfigs(strategy(), { long: null, short: null })).toEqual(strategy());
+  });
+
+  it('SET_RANGE edits one optimization range of one side', () => {
+    const base = strategy();
+    const range = { path: 'indicators.ema.length', enabled: true, start: 5, stop: 20, step: 1 };
+    const withRanges = { ...base, long_side: { ...base.long_side, optimization: [range] }, short_side: { ...base.short_side, optimization: [{ ...range }] } };
+    let state = reducer(initialState, { type: 'SET_STRATEGY', strategy: withRanges });
+    state = reducer(state, { type: 'SET_RANGE', side: 'short', path: 'indicators.ema.length', field: 'stop', value: 12 });
+    expect(state.strategy!.short_side.optimization![0].stop).toBe(12);
+    expect(state.strategy!.long_side.optimization![0].stop).toBe(20);
+  });
+
+  it('BARS_LOADED and SET_RESULTS_TAB keep view state the optimizer needs', () => {
+    let state = reducer(initialState, { type: 'BARS_LOADED', bars: { count: 3493, vintage: 'v1' } });
+    expect(state.loadedBars).toEqual({ count: 3493, vintage: 'v1' });
+    state = reducer(state, { type: 'SET_RESULTS_TAB', tab: 'optimization' });
+    expect(state.resultsTab).toBe('optimization');
   });
 });

@@ -8,9 +8,14 @@ export interface HeatmapProps {
   /** rows = fast lengths ascending, columns = slow lengths ascending, null = skipped or pending */
   matrix: Array<Array<number | null>> | null;
   format?: (v: number) => string;
+  rowLabel?: string;
+  colLabel?: string;
+  selected?: { fast: number; slow: number } | null;
+  onSelect?: (fast: number, slow: number) => void;
+  empty?: string;
 }
 
-/** Maps a metric matrix onto the locked heat grid. Pure; vitest-covered in Task 12. */
+/** Maps a metric matrix onto the heat grid. Pure; vitest-covered (heatmap.test.ts). */
 export function cells(fast: number[], slow: number[], matrix: HeatmapProps['matrix']) {
   const values = (matrix ?? []).flat().filter((v): v is number => v !== null && Number.isFinite(v));
   const lo = values.length ? Math.min(...values) : 0;
@@ -28,7 +33,7 @@ export function cells(fast: number[], slow: number[], matrix: HeatmapProps['matr
   );
 }
 
-export function Heatmap({ title, metric, fast, slow, matrix, format }: HeatmapProps) {
+export function Heatmap({ title, metric, fast, slow, matrix, format, rowLabel = 'fast↓', colLabel = 'slow→', selected, onSelect, empty }: HeatmapProps) {
   const grid = cells(fast, slow, matrix);
   const fmt = format ?? ((v: number) => v.toFixed(0));
   return (
@@ -37,10 +42,12 @@ export function Heatmap({ title, metric, fast, slow, matrix, format }: HeatmapPr
         {title} <span className="small">{metric}</span>
       </div>
       {fast.length === 0 || slow.length === 0 ? (
-        <div className="sub">Optimization not run — no parameter grid to show.</div>
+        <div className="sub">{empty ?? 'Optimization not run — no parameter grid to show.'}</div>
       ) : (
-        <div className="heat-grid" style={{ gridTemplateColumns: `42px repeat(${slow.length}, 1fr)` }}>
-          <div className="cell h">EMA↓</div>
+        <div className="heat-grid" style={{ gridTemplateColumns: `48px repeat(${slow.length}, 1fr)` }}>
+          <div className="cell h" title={colLabel}>
+            {rowLabel}
+          </div>
           {slow.map((s) => (
             <div className="cell h" key={'h' + s}>
               {s}
@@ -49,11 +56,21 @@ export function Heatmap({ title, metric, fast, slow, matrix, format }: HeatmapPr
           {grid.map((row, r) => (
             <div key={'r' + fast[r]} style={{ display: 'contents' }}>
               <div className="cell h">{fast[r]}</div>
-              {row.map((cell) => (
-                <div key={`${cell.fast}-${cell.slow}`} className={'cell ' + (cell.tone === 'mid' ? '' : cell.tone)} title={`EMA ${cell.fast} / SMA ${cell.slow}`}>
-                  {cell.value === null ? DASH : fmt(cell.value)}
-                </div>
-              ))}
+              {row.map((cell) => {
+                const isSelected = selected?.fast === cell.fast && selected?.slow === cell.slow;
+                const className = 'cell ' + (cell.tone === 'mid' ? '' : cell.tone) + (isSelected ? ' selected' : '');
+                const label = cell.value === null ? DASH : fmt(cell.value);
+                const title = `${rowLabel} ${cell.fast} / ${colLabel} ${cell.slow}${cell.value === null ? ' · skipped or pending' : ''}`;
+                return onSelect && cell.value !== null ? (
+                  <button type="button" key={`${cell.fast}-${cell.slow}`} className={className} title={title} onClick={() => onSelect(cell.fast, cell.slow)} aria-pressed={isSelected}>
+                    {label}
+                  </button>
+                ) : (
+                  <div key={`${cell.fast}-${cell.slow}`} className={className} title={title}>
+                    {label}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>

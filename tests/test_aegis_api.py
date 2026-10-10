@@ -1,5 +1,7 @@
 """Offline API checks for the Aegis worker routes; no database, synthetic archive on tmp_path."""
 
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -7,10 +9,12 @@ from fastapi.testclient import TestClient
 from products.aegis import api, server
 from products.aegis.backtest import BacktestRequest
 from products.aegis.data import ArchiveStore
+from products.aegis.optimize import OptimizerRunner
 from products.aegis.runs import JsonRunRepository
 from products.aegis.strategy import default_strategy
 from pydantic import ValidationError
 from test_aegis_data import write_archive
+from test_aegis_optimize import small_strategy
 
 RANGE = {"start": "2026-10-30", "end": "2026-11-02"}
 
@@ -215,3 +219,110 @@ def test_backtest_hash_stable_across_two_requests(client, tmp_path):
     assert first["run_id"] != second["run_id"]
     assert first["data"]["sha256"] == second["data"]["sha256"]
     assert first["data"]["data_hash"] == second["data"]["data_hash"]
+
+
+# --- optimizer routes (Task 12) -----------------------------------------------------------
+
+
+def _optimize_payload(side="long", objective="net_pnl"):
+    return {
+        "strategy": small_strategy().model_dump(mode="json"),
+        "side": side,
+        "data": {"symbol": "QQQ", "timeframe": "15m", **RANGE},
+        "objective": objective,
+    }
+
+
+def _held_runner(repository):
+    """A runner that pauses after its first cell until the returned gate is set."""
+    gate = threading.Event()
+
+    def after_cell(done):
+        if done == 1:
+            gate.wait(10)
+
+    runner = OptimizerRunner(repository, after_cell=after_cell)
+    server.app.dependency_overrides[api.get_runner] = lambda: runner
+    return runner, gate
+
+
+def _wait(c, job_id, status, timeout=20.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        body = c.get(f"/aegis/api/optimize/{job_id}").json()
+        if body["status"] == status:
+            return body
+        time.sleep(0.02)
+    raise AssertionError(f"job {job_id} never reached {status}")
+
+
+def test_optimize_returns_202_with_plan(client):
+    c, _, repository = client
+    server.app.dependency_overrides[api.get_runner] = lambda: OptimizerRunner(repository)
+    plan = c.post("/aegis/api/optimize/plan", json=_optimize_payload())
+    assert plan.status_code == 200, plan.text
+    assert plan.json()["total_cells"] == 9 and plan.json()["skipped_cells"] == 0
+    assert plan.json()["bars"] == 52 and plan.json()["estimated_seconds"] > 0
+    response = c.post("/aegis/api/optimize", json=_optimize_payload())
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert set(body) == {"job_id", "total_cells", "skipped_cells", "estimated_seconds"}
+    assert body["total_cells"] == 9 and body["skipped_cells"] == 0
+    done = _wait(c, body["job_id"], "done")
+    assert done["progress"] == {"done": 9, "total": 9} and len(done["cells"]) == 9
+    assert done["data"]["symbol"] == "QQQ" and done["data"]["research_eligible"] is False
+    assert set(done["matrices"]) == {"net_pnl", "mar", "max_drawdown", "trade_count"}
+    assert [j["job_id"] for j in c.get("/aegis/api/optimize").json()] == [body["job_id"]]
+    too_big = _optimize_payload()
+    too_big["strategy"]["long_side"]["optimization"][0].update({"start": 1, "stop": 25, "step": 1})
+    too_big["strategy"]["long_side"]["optimization"][1].update(
+        {"start": 30, "stop": 200, "step": 10}
+    )
+    assert c.post("/aegis/api/optimize", json=too_big).status_code == 422
+    assert c.get("/aegis/api/optimize/does-not-exist").status_code == 404
+
+
+def test_optimize_status_progresses_and_is_responsive_while_running(client):
+    c, _, repository = client
+    _, gate = _held_runner(repository)
+    job_id = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    mid = _wait(c, job_id, "running")
+    deadline = time.monotonic() + 10
+    while mid["progress"]["done"] < 1 and time.monotonic() < deadline:
+        mid = c.get(f"/aegis/api/optimize/{job_id}").json()
+    assert 0 < mid["progress"]["done"] < mid["progress"]["total"]
+    assert len(mid["cells"]) == mid["progress"]["done"]
+    for _ in range(5):
+        started = time.perf_counter()
+        response = c.get(f"/aegis/api/optimize/{job_id}")
+        assert response.status_code == 200
+        assert time.perf_counter() - started < 0.5
+    assert c.get("/aegis/api/status").status_code == 200  # the rest of the API stays responsive
+    gate.set()
+    done = _wait(c, job_id, "done")
+    assert done["progress"]["done"] == done["progress"]["total"] == 9
+
+
+def test_optimize_cancel(client):
+    c, _, repository = client
+    _, gate = _held_runner(repository)
+    job_id = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    _wait(c, job_id, "running")
+    assert c.post(f"/aegis/api/optimize/{job_id}/cancel").json() == {"cancelled": True}
+    gate.set()
+    cancelled = _wait(c, job_id, "cancelled")
+    assert cancelled["progress"]["done"] == 1
+    assert c.post(f"/aegis/api/optimize/{job_id}/cancel").json() == {"cancelled": False}
+    assert repository.get_optimization(job_id)["status"] == "cancelled"
+
+
+def test_second_job_while_running_is_409_and_first_continues_api(client):
+    c, _, repository = client
+    _, gate = _held_runner(repository)
+    first = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    _wait(c, first, "running")
+    second = c.post("/aegis/api/optimize", json=_optimize_payload("short"))
+    assert second.status_code == 409
+    assert second.json() == {"detail": "an optimization is already running"}
+    gate.set()
+    assert _wait(c, first, "done")["progress"] == {"done": 9, "total": 9}

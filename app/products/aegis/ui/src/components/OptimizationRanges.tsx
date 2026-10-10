@@ -1,46 +1,48 @@
-import { useWorkspace } from '../state/workspace';
+import type { OptimizationParameter, StrategySide } from '../contracts';
+import { SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
 
-interface Range {
-  path: string;
-  enabled?: boolean;
-  start: number;
-  stop: number;
-  step: number;
+function label(range: OptimizationParameter, side: StrategySide): string {
+  const [, id, field] = range.path.split('.');
+  const indicator = side.indicators?.find((i) => i.id === id);
+  return `${indicator ? indicator.kind.toUpperCase() : id} ${field}`;
 }
 
-/** Ranges live on each side (side-owned after Task 3); read either shape. */
-function ranges(strategy: unknown, side: 'long_side' | 'short_side'): Range[] {
-  const s = strategy as Record<string, { optimization?: Range[] }> & { optimization?: Range[] };
-  return s[side]?.optimization ?? s.optimization ?? [];
-}
-
-const label = (path: string) => path.replace(/^indicators\./, '').replace(/\.length$/, '').toUpperCase();
-
+/** Per-side ranges the optimizer expands (spec §2b.1); edits go straight into the strategy document. */
 export function OptimizationRanges() {
   const { strategy } = useWorkspace();
+  const dispatch = useDispatch();
   if (!strategy) {
     return (
       <div className="panel-section">
-        <div className="section-label">Optimization range</div>
+        <div className="section-label">Optimization ranges</div>
         <div className="empty-state">Strategy contract not loaded</div>
       </div>
     );
   }
-  const long = ranges(strategy, 'long_side');
-  const short = ranges(strategy, 'short_side');
-  const shared = long === short; // pre-Task-3 contract: one top-level list
-  const groups: Array<[string, Range[]]> = shared ? [['', long]] : [['LONG · ', long], ['SHORT · ', short]];
+  const setNumber = (side: Side, path: string, field: 'start' | 'stop' | 'step', raw: string) => {
+    const value = Number(raw);
+    if (Number.isFinite(value) && (field !== 'step' || value > 0)) dispatch({ type: 'SET_RANGE', side, path, field, value });
+  };
   return (
     <div className="panel-section">
-      <div className="section-label">Optimization range</div>
-      {groups.map(([prefix, list]) =>
-        list.map((r) => (
-          <div className="row" key={prefix + r.path}>
+      <div className="section-label">
+        Optimization ranges <span className="muted">start → stop · step</span>
+      </div>
+      {SIDES.map((side) =>
+        (strategy[SIDE_KEY[side]].optimization ?? []).map((r) => (
+          <div className="row range" key={side + r.path}>
             <label>
-              {prefix}
-              {label(r.path)}
+              <input
+                type="checkbox"
+                checked={r.enabled ?? true}
+                aria-label={`${side} ${r.path} enabled`}
+                onChange={(e) => dispatch({ type: 'SET_RANGE', side, path: r.path, field: 'enabled', value: e.target.checked })}
+              />
+              {side.toUpperCase()} · {label(r, strategy[SIDE_KEY[side]])}
             </label>
-            <input value={`${r.start} → ${r.stop} · step ${r.step}`} readOnly title="Range editing connects in the optimizer phase" />
+            <input type="number" value={r.start} aria-label={`${side} ${r.path} start`} onChange={(e) => setNumber(side, r.path, 'start', e.target.value)} />
+            <input type="number" value={r.stop} aria-label={`${side} ${r.path} stop`} onChange={(e) => setNumber(side, r.path, 'stop', e.target.value)} />
+            <input type="number" value={r.step} min={1} aria-label={`${side} ${r.path} step`} onChange={(e) => setNumber(side, r.path, 'step', e.target.value)} />
           </div>
         )),
       )}

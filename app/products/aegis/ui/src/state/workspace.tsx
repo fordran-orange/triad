@@ -1,10 +1,12 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
 import type { StrategySpec, WindowMode } from '../contracts';
-import type { RunEnvelope } from '../results';
+import type { JobStatus, RunEnvelope } from '../results';
 
 export const TIMEFRAMES = ['1m', '15m', '30m', '1h', '1D'] as const;
 export type Timeframe = (typeof TIMEFRAMES)[number];
 export type Side = 'long' | 'short';
+export const SIDES: Side[] = ['long', 'short'];
+export const SIDE_KEY: Record<Side, 'long_side' | 'short_side'> = { long: 'long_side', short: 'short_side' };
 
 export interface Selection {
   symbol: string;
@@ -24,14 +26,10 @@ export const DEFAULT_SETTINGS: Settings = { initial_capital: 100_000, allocation
 /** A persisted backtest envelope as POST /aegis/api/backtest and GET /aegis/api/runs/{id} return it. */
 export type RunRecord = RunEnvelope;
 
-export interface JobRecord {
-  job_id: string;
-  status: 'queued' | 'running' | 'done' | 'cancelled' | 'failed' | 'lost';
-  progress: { done: number; total: number };
-  [key: string]: unknown;
-}
-
 export type ExecutionField = 'commission_per_side' | 'slippage_bps';
+export type RangeField = 'start' | 'stop' | 'step' | 'enabled';
+export type ResultsTab = 'summary' | 'trades' | 'optimization' | 'equity';
+export type SelectedConfigs = { long: Record<string, number> | null; short: Record<string, number> | null };
 
 export interface WorkspaceState {
   strategy: StrategySpec | null;
@@ -41,8 +39,10 @@ export interface WorkspaceState {
   running: boolean;
   runError: string | null;
   lastRun: RunRecord | null;
-  optimization: { long?: JobRecord; short?: JobRecord };
-  selectedConfigs: { long: Record<string, number> | null; short: Record<string, number> | null };
+  loadedBars: { count: number; vintage: string } | null;
+  resultsTab: ResultsTab;
+  optimization: { long?: JobStatus; short?: JobStatus };
+  selectedConfigs: SelectedConfigs;
 }
 
 export type Action =
@@ -53,11 +53,14 @@ export type Action =
   | { type: 'SET_WINDOW_MODE'; id: string; mode: WindowMode }
   | { type: 'SET_EXECUTION'; field: ExecutionField; value: number }
   | { type: 'SET_SETTINGS'; settings: Partial<Settings> }
+  | { type: 'SET_RANGE'; side: Side; path: string; field: RangeField; value: number | boolean }
+  | { type: 'BARS_LOADED'; bars: { count: number; vintage: string } | null }
+  | { type: 'SET_RESULTS_TAB'; tab: ResultsTab }
   | { type: 'RUN_STARTED' }
   | { type: 'RUN_COMPLETED'; run: RunRecord }
   | { type: 'RUN_FAILED'; error: string }
   | { type: 'LOAD_RUN'; run: RunRecord }
-  | { type: 'JOB_UPDATED'; side: Side; job: JobRecord }
+  | { type: 'JOB_UPDATED'; side: Side; job: JobStatus }
   | { type: 'SELECT_CONFIG'; side: Side; params: Record<string, number> | null };
 
 export const initialState: WorkspaceState = {
@@ -68,11 +71,11 @@ export const initialState: WorkspaceState = {
   running: false,
   runError: null,
   lastRun: null,
+  loadedBars: null,
+  resultsTab: 'summary',
   optimization: {},
   selectedConfigs: { long: null, short: null },
 };
-
-const SIDE_KEY: Record<Side, 'long_side' | 'short_side'> = { long: 'long_side', short: 'short_side' };
 
 /**
  * Set a side-relative path such as `indicators.ema.length`: the second segment of an
@@ -92,6 +95,20 @@ export function setPath<T>(target: T, path: string, value: unknown): T {
   }
   if (rest.length === 0) return { ...source, [head]: value } as T;
   return { ...source, [head]: setPath(source[head], rest.join('.'), value) } as T;
+}
+
+/** The strategy with each side's selected optimizer configuration applied; sides stay independent. */
+export function applyConfigs(strategy: StrategySpec, configs: SelectedConfigs): StrategySpec {
+  let next = strategy;
+  for (const side of SIDES) {
+    const params = configs[side];
+    if (!params) continue;
+    const key = SIDE_KEY[side];
+    let spec = next[key];
+    for (const [path, value] of Object.entries(params)) spec = setPath(spec, path, value);
+    next = { ...next, [key]: spec };
+  }
+  return next;
 }
 
 function isTimeframe(value: unknown): value is Timeframe {
@@ -137,6 +154,17 @@ export function reducer(state: WorkspaceState, action: Action): WorkspaceState {
       return { ...state, strategy: { ...state.strategy, execution: { ...state.strategy.execution, [action.field]: action.value } } };
     case 'SET_SETTINGS':
       return { ...state, settings: { ...state.settings, ...action.settings } };
+    case 'SET_RANGE': {
+      if (!state.strategy) return state;
+      const key = SIDE_KEY[action.side];
+      const side = state.strategy[key];
+      const optimization = (side.optimization ?? []).map((r) => (r.path === action.path ? { ...r, [action.field]: action.value } : r));
+      return { ...state, strategy: { ...state.strategy, [key]: { ...side, optimization } } };
+    }
+    case 'BARS_LOADED':
+      return { ...state, loadedBars: action.bars };
+    case 'SET_RESULTS_TAB':
+      return { ...state, resultsTab: action.tab };
     case 'RUN_STARTED':
       return { ...state, running: true, runError: null };
     case 'RUN_COMPLETED':

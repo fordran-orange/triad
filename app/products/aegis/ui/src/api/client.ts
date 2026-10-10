@@ -1,7 +1,7 @@
 // Thin typed fetch wrappers for the Aegis worker routes (spec §7). Same-origin under /aegis/api.
 import type { IndicatorSpec, StrategySpec } from '../contracts';
-import type { Provenance, RunEnvelope, RunSummary } from '../results';
-import type { JobRecord, Selection, Settings, Side } from '../state/workspace';
+import type { JobStatus, JobSummary, Metric, OptimizePlan, OptimizeStarted, Provenance, RunEnvelope, RunSummary } from '../results';
+import type { Selection, Settings, Side } from '../state/workspace';
 
 export type { Provenance } from '../results';
 
@@ -37,6 +37,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return (await response.json()) as T;
 }
+
+const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
 
 export interface Bar {
   time: number;
@@ -75,6 +77,15 @@ export interface IndicatorsResponse {
   data: Provenance;
 }
 
+/** POST /optimize and /optimize/plan body (OptimizeRequest in contracts.ts, selection as the data reference). */
+export interface OptimizeBody {
+  strategy: StrategySpec;
+  side: Side;
+  data: Selection;
+  settings: Settings;
+  objective: Metric;
+}
+
 export const api = {
   status: () => request<{ product: string; mode: string; status: string; exchange: string }>('/status'),
   defaultStrategy: () => request<StrategySpec>('/strategy/default'),
@@ -82,19 +93,13 @@ export const api = {
   bars: (s: Selection) =>
     request<BarsResponse>(`/data/bars?symbol=${encodeURIComponent(s.symbol)}&timeframe=${s.timeframe}&start=${s.start}&end=${s.end}`),
   indicators: (s: Selection, indicators: IndicatorSpec[]) =>
-    request<IndicatorsResponse>('/indicators', {
-      method: 'POST',
-      body: JSON.stringify({ symbol: s.symbol, timeframe: s.timeframe, start: s.start, end: s.end, indicators }),
-    }),
-  backtest: (body: { strategy: StrategySpec; data: Selection; settings: Settings }) =>
-    request<RunEnvelope>('/backtest', { method: 'POST', body: JSON.stringify(body) }),
+    request<IndicatorsResponse>('/indicators', post({ symbol: s.symbol, timeframe: s.timeframe, start: s.start, end: s.end, indicators })),
+  backtest: (body: { strategy: StrategySpec; data: Selection; settings: Settings }) => request<RunEnvelope>('/backtest', post(body)),
   runs: () => request<RunSummary[]>('/runs'),
   run: (id: string) => request<RunEnvelope>(`/runs/${encodeURIComponent(id)}`),
-  optimize: (body: { strategy: StrategySpec; side: Side; data: Selection; settings?: unknown; objective: string }) =>
-    request<{ job_id: string; total_cells: number; skipped_cells: number; estimated_seconds: number }>('/optimize', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  job: (id: string) => request<JobRecord>(`/optimize/${encodeURIComponent(id)}`),
+  optimizePlan: (body: OptimizeBody) => request<OptimizePlan>('/optimize/plan', post(body)),
+  optimize: (body: OptimizeBody) => request<OptimizeStarted>('/optimize', post(body)),
+  optimizations: () => request<JobSummary[]>('/optimize'),
+  job: (id: string) => request<JobStatus>(`/optimize/${encodeURIComponent(id)}`),
   cancel: (id: string) => request<{ cancelled: boolean }>(`/optimize/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
 };

@@ -112,3 +112,20 @@ th{font-size:10px;text-transform:uppercase;color:#607b90}th:first-child,td:first
 .chip{font:inherit;font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid #1e2f40;background:#0f1d2b;color:#9db1bf;cursor:pointer}
 .chip.active{background:#1a3350;color:#dfe9f2;border-color:#2da7ff}
 .breakdown th.group{text-align:center;border-bottom:none;color:#7f9fb2}
+
+/* Task 12: optimizer */
+.optimize-anchor{position:relative}
+.popover{position:absolute;top:36px;right:0;z-index:40;width:360px;background:#0d1a27;border:1px solid #1e2f40;border-radius:6px;padding:12px;box-shadow:0 10px 30px #000a;font-size:12px}
+.popover .row{margin:6px 0}
+.popover .plan{margin:8px 0 4px;color:#dfe9f2}
+.popover .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+.pill.btn{cursor:pointer;font:inherit}
+.progress{height:6px;background:#152536;border-radius:3px;overflow:hidden;margin:6px 0}
+.progress i{display:block;height:100%;background:#2da7ff;transition:width .3s}
+.job-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:6px 0}
+.heat-grid button.cell{font:inherit;border:0;cursor:pointer;width:100%}
+.cell.selected{outline:2px solid #f5bd51;outline-offset:-2px}
+tr.selectable{cursor:pointer}
+tr.selected td{background:#2a3a14}
+.range input[type=number]{width:62px}
+.range label{display:flex;align-items:center;gap:6px}

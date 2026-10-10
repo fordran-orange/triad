@@ -117,3 +117,76 @@ export interface RunSummary {
   data?: Provenance;
   strategy?: StrategySpec;
 }
+
+// --- optimizer (OptimizerRunner.status snapshots and the optimize routes) ---------------------
+
+export type JobState = 'queued' | 'running' | 'done' | 'cancelled' | 'failed' | 'lost';
+export const TERMINAL_JOB_STATES: ReadonlySet<JobState> = new Set<JobState>(['done', 'cancelled', 'failed', 'lost']);
+export type JobSide = 'long' | 'short';
+export type Metric = 'net_pnl' | 'mar' | 'max_drawdown' | 'trade_count';
+export const METRICS: Metric[] = ['net_pnl', 'mar', 'max_drawdown', 'trade_count'];
+export const METRIC_LABELS: Record<Metric, string> = { net_pnl: 'Net P&L', mar: 'MAR', max_drawdown: 'Max drawdown', trade_count: 'Trades' };
+
+export interface Cell {
+  params: Record<string, number>;
+  fast: number | null;
+  slow: number | null;
+  metrics: Metrics;
+}
+
+/** rows = fast values ascending, columns = slow values ascending; null = skipped or pending */
+export type Matrix = Array<Array<number | null>>;
+
+export interface JobStatus {
+  job_id: string;
+  status: JobState;
+  side: JobSide;
+  objective: Metric;
+  created_at: string;
+  progress: { done: number; total: number };
+  total_cells: number;
+  skipped_cells: number;
+  skipped: Record<string, number>[];
+  elapsed_ms: number;
+  estimated_seconds: number;
+  cells: Cell[];
+  matrices: Record<Metric, Partial<Record<JobSide, Matrix>>>;
+  fast_values: number[];
+  slow_values: number[];
+  fast_path: string;
+  slow_path: string;
+  bars: number;
+  cache_hits: number;
+  data: Provenance;
+  strategy: StrategySpec;
+  settings: { initial_capital: number; allocation_fraction: number };
+  error: string | null;
+}
+
+export interface JobSummary {
+  job_id: string;
+  status: JobState;
+  side?: JobSide;
+  objective?: Metric;
+  created_at?: string;
+  elapsed_ms?: number;
+  progress?: { done: number; total: number };
+  total_cells?: number;
+  skipped_cells?: number;
+  data?: Provenance;
+  strategy?: StrategySpec;
+}
+
+export interface OptimizePlan {
+  total_cells: number;
+  skipped_cells: number;
+  estimated_seconds: number;
+  bars: number;
+}
+
+export interface OptimizeStarted {
+  job_id: string;
+  total_cells: number;
+  skipped_cells: number;
+  estimated_seconds: number;
+}

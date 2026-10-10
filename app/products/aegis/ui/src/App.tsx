@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from './api/client';
 import { ChartPanel } from './components/ChartPanel';
+import { JobPoller } from './components/JobPoller';
 import { ResultsTabs } from './components/ResultsTabs';
 import { RunsDrawer } from './components/RunsDrawer';
 import { SideNav } from './components/SideNav';
@@ -41,6 +42,7 @@ export function App() {
         <ResultsTabs />
       </main>
       <RunsDrawer open={runsOpen} onClose={() => setRunsOpen(false)} />
+      <JobPoller />
       <StatusStrip apiState={apiState} />
     </div>
   );
