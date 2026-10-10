@@ -32,12 +32,26 @@ def main():
             )
             if result.returncode:
                 return result.returncode
-            product = subprocess.run(
-                [sys.executable, str(root / "tools/ensure_triad_worker.py")],
-                cwd=root, stdin=subprocess.DEVNULL, stdout=output, stderr=output,
-                creationflags=subprocess.CREATE_NO_WINDOW, check=False, timeout=100,
-            )
-            return product.returncode
+            # Both products are checked every pass; the first failure is the exit code.
+            code = 0
+            for product in ("triad", "aegis"):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(root / "tools/ensure_product_worker.py"),
+                        "--product",
+                        product,
+                    ],
+                    cwd=root,
+                    stdin=subprocess.DEVNULL,
+                    stdout=output,
+                    stderr=output,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    check=False,
+                    timeout=100,
+                )
+                code = code or result.returncode
+            return code
         except (OSError, subprocess.TimeoutExpired) as exc:
             output.write(("Supervisor could not start: " + type(exc).__name__ + "\n").encode())
             return 1

@@ -1,5 +1,7 @@
-"""Restore an absent Triad UI worker; never replay cycles or stop a listener."""
+"""Restore an absent product worker (Triad on 8101, Aegis on 8102); never replay cycles or stop
+a listener. One lease and one log per product; Core must be healthy first."""
 
+import argparse
 import json
 import socket
 import subprocess
@@ -12,6 +14,8 @@ from urllib.request import ProxyHandler, build_opener
 from trading_core.store import ConcurrentUpdate, Store
 
 ROOT = Path(__file__).resolve().parents[1]
+PORTS = {"triad": 8101, "aegis": 8102}
+CORE_PORT = 8000
 
 
 def healthy(port, product=None):
@@ -27,7 +31,7 @@ def healthy(port, product=None):
         return False
 
 
-def occupied(port=8101, timeout=10):
+def occupied(port, timeout=10):
     # A closed loopback port on this host is refused only after ~2 s; a shorter
     # probe times out first and the supervisor then never relaunches the worker.
     try:
@@ -38,50 +42,63 @@ def occupied(port=8101, timeout=10):
     # Timeouts and other network errors are uncertainty, not permission to start.
 
 
-def ensure(store=None):
-    if healthy(8101, "triad"):
+def ensure(product, store=None):
+    port = PORTS[product]
+    if healthy(port, product):
         return "HEALTHY"
-    if not healthy(8000):
+    if not healthy(CORE_PORT):
         raise RuntimeError("Core unavailable; product recovery deferred")
     try:
-        with (store or Store()).lease("triad-product-development"):
+        with (store or Store()).lease(f"{product}-product-development"):
             # Recheck after acquiring the same lease used by deployment.
-            if healthy(8101, "triad"):
+            if healthy(port, product):
                 return "HEALTHY"
-            if occupied():
-                raise RuntimeError("Triad port occupied but unhealthy; owner left untouched")
+            if occupied(port):
+                raise RuntimeError(f"{product} port occupied but unhealthy; owner left untouched")
             subprocess.run(
                 [
-                    "powershell.exe", "-NoProfile", "-NonInteractive",
-                    "-ExecutionPolicy", "Bypass", "-File",
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
                     str(ROOT / "tools/start_product.ps1"),
-                    "-Product", "triad", "-OnlyIfStopped",
+                    "-Product",
+                    product,
+                    "-OnlyIfStopped",
                 ],
-                cwd=ROOT, stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                cwd=ROOT,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                check=True, timeout=45,
+                check=True,
+                timeout=45,
             )
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline:
-                if healthy(8101, "triad"):
+                if healthy(port, product):
                     return "RECOVERED"
                 time.sleep(0.5)
-            raise RuntimeError("Triad launch did not become healthy")
+            raise RuntimeError(f"{product} launch did not become healthy")
     except ConcurrentUpdate:
         return "DEPLOYMENT_BUSY"
 
 
-def main():
-    event = {"timestamp": datetime.now(UTC).isoformat()}
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--product", choices=sorted(PORTS), required=True)
+    product = parser.parse_args(argv).product
+    event = {"timestamp": datetime.now(UTC).isoformat(), "product": product}
     code = 0
     try:
-        event["status"] = ensure()
+        event["status"] = ensure(product)
     except Exception as exc:  # noqa: BLE001 - preserve supervisor failure without secrets
         event.update(status="NEEDS_ATTENTION", error_class=type(exc).__name__)
         code = 1
     (ROOT / "logs").mkdir(exist_ok=True)
-    with (ROOT / "logs/triad-supervisor.log").open("a", encoding="utf-8") as output:
+    with (ROOT / f"logs/{product}-supervisor.log").open("a", encoding="utf-8") as output:
         output.write(json.dumps(event) + "\n")
     return code
 
