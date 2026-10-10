@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from trading_core.brain import Brain
 from trading_core.orchestrator import Orchestrator
+from trading_core.process_power import opt_out_of_power_throttling
 from trading_core.runtime import ProviderError
 from trading_core.status import system_status
 from trading_core.work import ElevationRequest, WorkItem
@@ -21,6 +22,7 @@ from trading_core.work import ElevationRequest, WorkItem
 
 @asynccontextmanager
 async def lifespan(app):
+    opt_out_of_power_throttling()  # windowless gateway must not run in efficiency mode
     stop = threading.Event()
 
     def provider_loop():

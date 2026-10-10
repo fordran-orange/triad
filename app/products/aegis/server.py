@@ -1,7 +1,6 @@
 """Aegis human-directed product host. Live exchange execution remains disabled."""
 
 import logging
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,61 +8,13 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from trading_core.api import local_headers
+from trading_core.process_power import opt_out_of_power_throttling
 from trading_core.store import Store
 
 from products.aegis import api
 from products.aegis.strategy import default_strategy
 
 log = logging.getLogger("aegis")
-
-
-def opt_out_of_power_throttling() -> bool:
-    """Ask Windows not to run this process in efficiency mode (EcoQoS).
-
-    The supervisor launches the worker without a window; Windows 11 then schedules it as
-    background work on this hybrid CPU and the same backtest takes about eight times longer
-    than in a foreground process (measured in Mission 3: 3.1–4.7 s vs 0.5 s). This is the
-    documented per-process opt-out; it touches nothing outside this process. Returns whether
-    the request was made.
-    """
-    if sys.platform != "win32":
-        return False
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        class State(ctypes.Structure):
-            _fields_ = [
-                ("Version", wintypes.ULONG),
-                ("ControlMask", wintypes.ULONG),
-                ("StateMask", wintypes.ULONG),
-            ]
-
-        version, execution_speed, process_power_throttling = 1, 0x1, 4
-        state = State(version, execution_speed, 0)  # control execution speed; 0 = never throttle
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
-        kernel32.SetProcessInformation.argtypes = [
-            wintypes.HANDLE,
-            ctypes.c_int,
-            ctypes.c_void_p,
-            wintypes.DWORD,
-        ]
-        kernel32.SetProcessInformation.restype = wintypes.BOOL
-        ok = kernel32.SetProcessInformation(
-            kernel32.GetCurrentProcess(),
-            process_power_throttling,
-            ctypes.byref(state),
-            ctypes.sizeof(state),
-        )
-        if not ok:
-            log.warning("power-throttling opt-out refused: error %s", ctypes.get_last_error())
-        else:
-            log.info("power-throttling opt-out applied (execution speed never throttled)")
-        return bool(ok)
-    except (OSError, AttributeError) as exc:
-        log.warning("power-throttling opt-out unavailable: %s", exc)
-        return False
 
 
 @asynccontextmanager

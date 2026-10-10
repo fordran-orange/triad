@@ -395,10 +395,3 @@ def test_warm_in_background_warms_every_discovered_symbol(client):
     thread = api.warm_in_background(Fake())
     thread.join(5)
     assert thread.daemon and Fake.warmed == ["QQQ", "SPY"]
-
-
-def test_power_throttling_opt_out_is_safe_to_call():
-    import sys
-
-    result = server.opt_out_of_power_throttling()
-    assert result is (sys.platform == "win32")  # applied on Windows, honestly declined elsewhere

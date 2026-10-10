@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from trading_core.api import denied_operation, invalid_operation, local_headers, not_found
+from trading_core.process_power import opt_out_of_power_throttling
 
 from products.triad.api import router
 from products.triad.daily_api import router as daily_router
@@ -16,6 +17,7 @@ from products.triad.development_api import router as development_router
 
 @asynccontextmanager
 async def lifespan(app):
+    opt_out_of_power_throttling()  # windowless worker must not run in efficiency mode
     stop = threading.Event()
 
     def loop():
