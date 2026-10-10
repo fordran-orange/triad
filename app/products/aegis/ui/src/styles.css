@@ -38,7 +38,8 @@ linear-gradient(#15233155 1px,transparent 1px),
 linear-gradient(90deg,#15233155 1px,transparent 1px),#08121c;
 background-size:100% 48px,74px 100%}
 .chart-mount{position:absolute;inset:0}
-.chart-header{position:absolute;z-index:3;left:14px;top:11px;pointer-events:none}
+.chart-header{position:absolute;z-index:3;right:72px;top:11px;text-align:right;pointer-events:none}
+.chart-header .legend{justify-content:flex-end}
 .instrument{font-size:14px;font-weight:700;color:var(--bright)}
 .ohlc{color:#7f9fb2;margin-top:3px}
 .legend{margin-top:6px;display:flex;gap:12px;color:#9db1bf}
