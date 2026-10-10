@@ -179,4 +179,14 @@ describe('workspace reducer', () => {
     const symbols = [{ symbol: 'QQQ', vintage: 'v1' }] as unknown as import('../api/client').SymbolInfo[];
     expect(reducer(state, { type: 'SET_SYMBOLS', symbols }).symbols).toEqual(symbols);
   });
+
+  it('WALKFORWARD_UPDATED and WALKFORWARD_LOST track a walk-forward per side', () => {
+    const job = { job_id: 'w1', kind: 'walkforward', status: 'running', side: 'long', progress: { done: 3, total: 65 }, windows: { done: 0, total: 13 } } as unknown as import('../results').WalkForwardStatus;
+    let state = reducer(initialState, { type: 'WALKFORWARD_UPDATED', side: 'long', job });
+    expect(state.walkforward.long?.windows.total).toBe(13);
+    expect(state.walkforward.short).toBeUndefined();
+    state = reducer(state, { type: 'WALKFORWARD_LOST', side: 'long', job_id: 'w1' });
+    expect(state.walkforward.long?.status).toBe('lost');
+    expect(reducer(state, { type: 'SET_RESULTS_TAB', tab: 'walkforward' }).resultsTab).toBe('walkforward');
+  });
 });

@@ -192,3 +192,96 @@ export interface OptimizeStarted {
   skipped_cells: number;
   estimated_seconds: number;
 }
+
+// --- walk-forward (WalkForwardJob snapshots and the walkforward routes) ----------------------
+
+export interface WindowRecord {
+  index: number;
+  status: 'pending' | 'done' | 'no_valid_cell';
+  is_start: string;
+  is_end: string;
+  oos_start: string;
+  oos_end: string;
+  is_bars: number;
+  oos_bars: number;
+  cells_evaluated: number;
+  best: { params: Record<string, number>; metrics: Partial<Metrics> } | null;
+  oos: { trades: Trade[]; equity: EquityPoint[]; metrics: Metrics } | null;
+  efficiency: number | null;
+}
+
+export interface Spread {
+  min: number | null;
+  max: number | null;
+  mean: number | null;
+  std: number | null;
+}
+
+export interface Stability {
+  parameters: Record<string, Spread>;
+  positive_oos_windows: number;
+  windows_evaluated: number;
+  mean_efficiency: number | null;
+}
+
+export interface WalkForwardStatus {
+  job_id: string;
+  kind: 'walkforward';
+  status: JobState;
+  side: JobSide;
+  objective: Metric;
+  created_at: string;
+  progress: { done: number; total: number };
+  windows: { done: number; total: number };
+  current_window: number;
+  in_sample_bars: number;
+  out_of_sample_bars: number;
+  cells_per_window: number;
+  unused_tail_bars: number;
+  window_records: WindowRecord[];
+  stitched: { trades: Trade[]; equity: EquityPoint[]; metrics: Metrics };
+  stability: Stability;
+  elapsed_ms: number;
+  estimated_seconds: number;
+  ms_per_bar: number | null;
+  bars: number;
+  cache_hits: number;
+  data: Provenance;
+  strategy: StrategySpec;
+  settings: { initial_capital: number; allocation_fraction: number; evaluate_from?: string | null };
+  result_hash: string | null;
+  error: string | null;
+}
+
+export interface WalkForwardSummary {
+  job_id: string;
+  kind?: 'walkforward';
+  status: JobState;
+  side?: JobSide;
+  objective?: Metric;
+  created_at?: string;
+  windows?: { done: number; total: number };
+  in_sample_bars?: number;
+  out_of_sample_bars?: number;
+  data?: Provenance;
+  strategy?: StrategySpec;
+  result_hash?: string | null;
+}
+
+export interface WalkForwardPlan {
+  windows: number;
+  cells_per_window: number;
+  total_units: number;
+  unused_tail_bars: number;
+  bars: number;
+  estimated_seconds: number;
+  ms_per_bar: number;
+}
+
+export interface WalkForwardStarted {
+  job_id: string;
+  windows: number;
+  cells_per_window: number;
+  total_units: number;
+  estimated_seconds: number;
+}

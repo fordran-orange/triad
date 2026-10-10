@@ -134,3 +134,7 @@ tr.selected td{background:#2a3a14}
 .run-context{margin:4px 0 8px}
 .run-context.notice{margin:4px 0 10px}
 .tab.muted{cursor:default}
+
+/* Mission 4: walk-forward */
+.popover .row input[type=number]{width:90px}
+tr.muted td{color:#4f6b80}

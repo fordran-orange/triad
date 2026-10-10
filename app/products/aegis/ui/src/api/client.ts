@@ -1,6 +1,19 @@
 // Thin typed fetch wrappers for the Aegis worker routes (spec §7). Same-origin under /aegis/api.
 import type { IndicatorSpec, StrategySpec } from '../contracts';
-import type { JobStatus, JobSummary, Metric, OptimizePlan, OptimizeStarted, Provenance, RunEnvelope, RunSummary } from '../results';
+import type {
+  JobStatus,
+  JobSummary,
+  Metric,
+  OptimizePlan,
+  OptimizeStarted,
+  Provenance,
+  RunEnvelope,
+  RunSummary,
+  WalkForwardPlan,
+  WalkForwardStarted,
+  WalkForwardStatus,
+  WalkForwardSummary,
+} from '../results';
 import type { Selection, Settings, Side } from '../state/workspace';
 
 export type { Provenance } from '../results';
@@ -89,6 +102,12 @@ export interface OptimizeBody {
   objective: Metric;
 }
 
+/** POST /walkforward and /walkforward/plan body (WalkForwardRequest in contracts.ts). */
+export interface WalkForwardBody extends OptimizeBody {
+  in_sample_bars: number;
+  out_of_sample_bars: number;
+}
+
 export const api = {
   status: () => request<{ product: string; mode: string; status: string; exchange: string }>('/status'),
   defaultStrategy: () => request<StrategySpec>('/strategy/default'),
@@ -105,4 +124,9 @@ export const api = {
   optimizations: () => request<JobSummary[]>('/optimize'),
   job: (id: string) => request<JobStatus>(`/optimize/${encodeURIComponent(id)}`),
   cancel: (id: string) => request<{ cancelled: boolean }>(`/optimize/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  walkforwardPlan: (body: WalkForwardBody) => request<WalkForwardPlan>('/walkforward/plan', post(body)),
+  walkforward: (body: WalkForwardBody) => request<WalkForwardStarted>('/walkforward', post(body)),
+  walkforwards: () => request<WalkForwardSummary[]>('/walkforward'),
+  walkforwardJob: (id: string) => request<WalkForwardStatus>(`/walkforward/${encodeURIComponent(id)}`),
+  cancelWalkforward: (id: string) => request<{ cancelled: boolean }>(`/walkforward/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
 };

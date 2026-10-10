@@ -3,13 +3,14 @@ import { EquityTab } from './EquityTab';
 import { OptimizationTab } from './OptimizationTab';
 import { SummaryTab } from './SummaryTab';
 import { TradesTab } from './TradesTab';
+import { WalkForwardTab } from './WalkForwardTab';
 
-const TABS: Array<{ id: ResultsTab | 'walkforward' | 'logs'; label: string; disabled?: boolean }> = [
+const TABS: Array<{ id: ResultsTab | 'logs'; label: string; disabled?: boolean }> = [
   { id: 'summary', label: 'Backtest Summary' },
   { id: 'trades', label: 'Trades' },
   { id: 'optimization', label: 'Optimization' },
   { id: 'equity', label: 'Equity Curve' },
-  { id: 'walkforward', label: 'Walk-Forward', disabled: true },
+  { id: 'walkforward', label: 'Walk-Forward' },
   { id: 'logs', label: 'Logs', disabled: true },
 ];
 
@@ -35,6 +36,7 @@ export function ResultsTabs() {
       {tab === 'summary' && <SummaryTab />}
       {tab === 'trades' && <TradesTab />}
       {tab === 'optimization' && <OptimizationTab />}
+      {tab === 'walkforward' && <WalkForwardTab />}
       {tab === 'equity' && <EquityTab />}
     </section>
   );

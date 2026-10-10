@@ -1,7 +1,7 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
 import type { SymbolInfo } from '../api/client';
 import type { StrategySpec, WindowMode } from '../contracts';
-import type { JobStatus, RunEnvelope } from '../results';
+import type { JobStatus, RunEnvelope, WalkForwardStatus } from '../results';
 
 export const TIMEFRAMES = ['1m', '15m', '30m', '1h', '1D'] as const;
 export type Timeframe = (typeof TIMEFRAMES)[number];
@@ -37,7 +37,7 @@ export interface ApiStatus {
 
 export type ExecutionField = 'commission_per_side' | 'slippage_bps';
 export type RangeField = 'start' | 'stop' | 'step' | 'enabled';
-export type ResultsTab = 'summary' | 'trades' | 'optimization' | 'equity';
+export type ResultsTab = 'summary' | 'trades' | 'optimization' | 'walkforward' | 'equity';
 export type SelectedConfigs = { long: Record<string, number> | null; short: Record<string, number> | null };
 
 export interface WorkspaceState {
@@ -53,6 +53,7 @@ export interface WorkspaceState {
   loadedBars: { count: number; vintage: string } | null;
   resultsTab: ResultsTab;
   optimization: { long?: JobStatus; short?: JobStatus };
+  walkforward: { long?: WalkForwardStatus; short?: WalkForwardStatus };
   selectedConfigs: SelectedConfigs;
 }
 
@@ -75,6 +76,8 @@ export type Action =
   | { type: 'LOAD_RUN'; run: RunRecord }
   | { type: 'JOB_UPDATED'; side: Side; job: JobStatus }
   | { type: 'JOB_LOST'; side: Side; job_id: string }
+  | { type: 'WALKFORWARD_UPDATED'; side: Side; job: WalkForwardStatus }
+  | { type: 'WALKFORWARD_LOST'; side: Side; job_id: string }
   | { type: 'SELECT_CONFIG'; side: Side; params: Record<string, number> | null };
 
 export const initialState: WorkspaceState = {
@@ -90,6 +93,7 @@ export const initialState: WorkspaceState = {
   loadedBars: null,
   resultsTab: 'summary',
   optimization: {},
+  walkforward: {},
   selectedConfigs: { long: null, short: null },
 };
 
@@ -244,6 +248,13 @@ export function reducer(state: WorkspaceState, action: Action): WorkspaceState {
       const job = state.optimization[action.side];
       if (!job || job.job_id !== action.job_id) return state;
       return { ...state, optimization: { ...state.optimization, [action.side]: { ...job, status: 'lost' } } };
+    }
+    case 'WALKFORWARD_UPDATED':
+      return { ...state, walkforward: { ...state.walkforward, [action.side]: action.job } };
+    case 'WALKFORWARD_LOST': {
+      const job = state.walkforward[action.side];
+      if (!job || job.job_id !== action.job_id) return state;
+      return { ...state, walkforward: { ...state.walkforward, [action.side]: { ...job, status: 'lost' } } };
     }
     case 'SELECT_CONFIG':
       return { ...state, selectedConfigs: { ...state.selectedConfigs, [action.side]: action.params } };

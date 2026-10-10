@@ -50,6 +50,20 @@ export function App() {
         }
       })
       .catch(() => undefined);
+    api
+      .walkforwards()
+      .then(async (jobs) => {
+        for (const summary of jobs) {
+          if (cancelled || TERMINAL_JOB_STATES.has(summary.status) || !summary.side) continue;
+          try {
+            const job = await api.walkforwardJob(summary.job_id);
+            if (!cancelled) dispatch({ type: 'WALKFORWARD_UPDATED', side: summary.side, job });
+          } catch {
+            /* vanished between list and fetch */
+          }
+        }
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
