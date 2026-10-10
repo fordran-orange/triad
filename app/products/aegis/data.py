@@ -25,7 +25,7 @@ BAR_CAP = 50_000
 RESAMPLING_POLICY = "rth-anchored-v1"
 TIMEZONE = "America/New_York"
 SESSION_OPEN = "09:30"
-_RULES = {"15m": "15min", "30m": "30min", "1h": "60min"}
+_MINUTES = {"15m": 15, "30m": 30, "1h": 60}
 _COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
 
 
@@ -156,15 +156,17 @@ def _resample(minutes: pd.DataFrame, timeframe: str) -> pd.DataFrame:
         )
         out = grouped.reset_index(drop=True).assign(timestamp=stamps.tz_convert("UTC"))
     else:
-        bucketed = local.resample(
-            _RULES[timeframe],
-            origin="start_day",
-            offset=pd.Timedelta(hours=9, minutes=30),
-            label="left",
-            closed="left",
-        ).agg(agg)
-        bucketed = bucketed.dropna(subset=["open"])
-        out = bucketed.reset_index().rename(columns={"index": "timestamp"})
+        # Explicit 09:30-anchored buckets (avoids pandas' resample offset path, which warns on
+        # NumPy 2 generic timedelta units): bucket = session open + floor(elapsed / rule) * rule.
+        # Integer-nanosecond arithmetic: this pandas/NumPy pairing warns on Timedelta objects.
+        index = pd.DatetimeIndex(local.index)
+        day_open = index.normalize() + pd.DateOffset(hours=9, minutes=30)
+        rule_ns = _MINUTES[timeframe] * 60 * 1_000_000_000
+        elapsed_ns = index.asi8 - day_open.asi8
+        bucket_ns = day_open.asi8 + (elapsed_ns // rule_ns) * rule_ns
+        bucket = pd.DatetimeIndex(bucket_ns, tz="UTC").tz_convert(TIMEZONE)
+        grouped = local.groupby(bucket).agg(agg).dropna(subset=["open"]).sort_index()
+        out = grouped.reset_index().rename(columns={"index": "timestamp"})
         out["timestamp"] = pd.DatetimeIndex(out["timestamp"]).tz_convert("UTC")
     out["volume"] = out["volume"].astype("int64")
     return out[_COLUMNS].reset_index(drop=True)
