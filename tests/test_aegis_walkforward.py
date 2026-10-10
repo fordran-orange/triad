@@ -2,14 +2,20 @@
 stability, payload identity. DB-free, synthetic inputs."""
 
 import json
+import threading
+import time
 
+import pandas as pd
 import pytest
 from products.aegis.backtest import DataReference
+from products.aegis.jobs import JobRunner
 from products.aegis.results import result_hash, walkforward_payload
-from products.aegis.strategy import OptimizationParameter, default_strategy
+from products.aegis.runs import JsonRunRepository
+from products.aegis.strategy import OptimizationParameter, apply_parameters, default_strategy
 from products.aegis.walkforward import (
     MAX_WINDOWS,
     MIN_OOS_BARS,
+    WalkForwardJob,
     WalkForwardRequest,
     Window,
     cut_windows,
@@ -22,6 +28,7 @@ from products.aegis.walkforward import (
     stability,
     stitch,
 )
+from test_aegis_backtest import bars
 
 DATA = DataReference(symbol="QQQ", timeframe="1h", start="2023-01-01", end="2024-12-31")
 PINNED = {"source": "raw_archive", "symbol": "QQQ", "vintage": "test", "research_eligible": False}
@@ -241,3 +248,134 @@ def test_walkforward_payload_hash_identity_and_sensitivity():
     assert result_hash(changed) != result_hash(first)
     text = json.dumps(first)
     assert all(key not in text for key in ("job_id", "created_at", "elapsed_ms", "evaluate_from"))
+
+
+# --- the job kind (spec §6.1–6.2) -------------------------------------------------------------
+
+
+def wait_for(predicate, timeout=30.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def job_request(objective="net_pnl"):
+    """90 synthetic bars; the long side shortened to EMA 5 / SMA 8 with a 2x2 grid (longest 9 →
+    floor 44): in-sample 44, out-of-sample 20 → windows [0,44)+[44,64) and [20,64)+[64,84),
+    tail 6, 5 units per window, 10 in all."""
+    strategy = default_strategy()
+    short_side = apply_parameters(
+        strategy.long_side, {"indicators.ema.length": 5, "indicators.sma.length": 8}
+    ).model_copy(update={"optimization": small_ranges(fast=(5, 6, 1), slow=(8, 9, 1))})
+    return WalkForwardRequest(
+        strategy=strategy.model_copy(update={"long_side": short_side}),
+        side="long",
+        data=DATA,
+        in_sample_bars=44,
+        out_of_sample_bars=20,
+        objective=objective,
+    )
+
+
+def start_job(runner, request=None):
+    return runner.start(WalkForwardJob(request or job_request(), pd.DataFrame(bars()), PINNED))
+
+
+def test_walkforward_job_completes_with_chained_capital_and_hash(tmp_path):
+    repository = JsonRunRepository(tmp_path)
+    runner = JobRunner(repository)
+    job_id = start_job(runner)
+    assert wait_for(lambda: runner.status(job_id)["status"] in ("done", "failed"))
+    status = runner.status(job_id)
+    assert status["status"] == "done", status["error"]
+    assert status["kind"] == "walkforward" and status["side"] == "long"
+    assert status["windows"] == {"done": 2, "total": 2} and status["progress"] == {
+        "done": 10,
+        "total": 10,
+    }
+    assert status["unused_tail_bars"] == 6 and status["cells_per_window"] == 4
+    first, second = status["window_records"]
+    assert first["status"] == "done" and first["cells_evaluated"] == 4 and first["best"]["params"]
+    assert first["oos"]["equity"][0]["timestamp"] == first["oos_start"]
+    assert second["oos"]["equity"][0]["equity"] == pytest.approx(
+        first["oos"]["equity"][-1]["equity"]
+    )
+    assert len(status["result_hash"]) == 64
+    assert status["stitched"]["metrics"]["trade_count"] == len(status["stitched"]["trades"])
+    assert set(status["stability"]["parameters"]) == {
+        "indicators.ema.length",
+        "indicators.sma.length",
+    }
+    assert status["stability"]["windows_evaluated"] == 2
+    assert repository.get_walkforward(job_id)["result_hash"] == status["result_hash"]
+
+
+def test_oos_trades_never_signal_before_window_start(tmp_path):
+    runner = JobRunner(JsonRunRepository(tmp_path))
+    job_id = start_job(runner, job_request(objective="trade_count"))  # the busiest cell
+    assert wait_for(lambda: runner.status(job_id)["status"] in ("done", "failed"))
+    status = runner.status(job_id)
+    assert status["status"] == "done", status["error"]
+    trades = [t for r in status["window_records"] for t in r["oos"]["trades"]]
+    assert trades, "the synthetic series should trade out-of-sample"
+    for record in status["window_records"]:
+        for trade in record["oos"]["trades"]:
+            assert trade["signal_time"] >= record["oos_start"], (
+                trade["signal_time"],
+                record["oos_start"],
+            )
+        assert record["oos"]["equity"][0]["timestamp"] == record["oos_start"]
+        assert len(record["oos"]["equity"]) == record["oos_bars"]
+
+
+def test_cancel_between_units_keeps_completed_windows_only(tmp_path):
+    gate = threading.Event()
+
+    def after_unit(done):
+        if done == 5:  # window 0 complete: 4 cells + its out-of-sample run
+            gate.wait(10)
+
+    runner = JobRunner(JsonRunRepository(tmp_path), after_unit=after_unit)
+    job_id = start_job(runner)
+    assert wait_for(lambda: runner.status(job_id)["progress"]["done"] == 5)
+    assert runner.cancel(job_id) is True
+    gate.set()
+    assert wait_for(lambda: runner.status(job_id)["status"] == "cancelled")
+    status = runner.status(job_id)
+    assert status["windows"] == {"done": 1, "total": 2}
+    assert [r["status"] for r in status["window_records"]] == ["done", "pending"]
+    assert status["stitched"]["equity"] == status["window_records"][0]["oos"]["equity"]
+    assert status["result_hash"] is None
+
+
+def test_walkforward_hash_is_identical_across_two_jobs_and_persisted(tmp_path):
+    repository = JsonRunRepository(tmp_path)
+    runner = JobRunner(repository)
+    ids = []
+    for _ in range(2):
+        job_id = start_job(runner)
+        assert wait_for(lambda j=job_id: runner.status(j)["status"] == "done")
+        ids.append(job_id)
+    first, second = (runner.status(i) for i in ids)
+    assert first["result_hash"] == second["result_hash"] and first["job_id"] != second["job_id"]
+    assert sorted(w["job_id"] for w in repository.list_walkforwards()) == sorted(ids)
+    assert repository.list_walkforwards()[0]["kind"] == "walkforward"
+    assert repository.get_walkforward(ids[0])["status"] == "done"
+
+
+def test_mark_lost_covers_walkforward_jobs(tmp_path):
+    gate = threading.Event()
+
+    def after_unit(done):
+        if done == 1:
+            gate.wait(10)
+
+    runner = JobRunner(JsonRunRepository(tmp_path), after_unit=after_unit)
+    job_id = start_job(runner)
+    assert wait_for(lambda: runner.status(job_id)["progress"]["done"] == 1)
+    assert JobRunner(JsonRunRepository(tmp_path)).mark_lost_on_startup() == [job_id]
+    gate.set()
+    assert wait_for(lambda: runner.status(job_id)["status"] == "done")

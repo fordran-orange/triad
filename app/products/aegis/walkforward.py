@@ -8,16 +8,27 @@ kind in `jobs.py` drives these functions and the engine.
 
 from __future__ import annotations
 
+import copy
 import math
 from dataclasses import dataclass
+from datetime import datetime
 from statistics import fmean, pstdev
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from products.aegis.backtest import MIN_BARS, BacktestSettings, DataReference, _metrics
-from products.aegis.optimize import GridPlan, expand_grid
-from products.aegis.strategy import StrategySide, StrategySpec
+from products.aegis.backtest import (
+    MIN_BARS,
+    BacktestRequest,
+    BacktestSettings,
+    DataReference,
+    _metrics,
+    run_backtest,
+)
+from products.aegis.indicators import IndicatorCache
+from products.aegis.optimize import GridPlan, engine_rows, expand_grid, provenance
+from products.aegis.results import result_hash, walkforward_payload
+from products.aegis.strategy import StrategySide, StrategySpec, apply_parameters
 
 MAX_WINDOWS = 50
 MIN_OOS_BARS = 20
@@ -228,10 +239,159 @@ def stability(records: list[dict], paths: list[str]) -> dict:
     }
 
 
+class WalkForwardJob:
+    """A walk-forward as a job kind (spec §6.1–6.2): unit u is cell (u mod (cells+1)) of window
+    (u div (cells+1)), the last unit of each window being its out-of-sample run."""
+
+    name = "walkforward"
+
+    def __init__(self, request: WalkForwardRequest, frame, pinned: Any):
+        self.request = request
+        self.side = request.side
+        self.rows = engine_rows(frame, request.data.symbol)
+        self.plan = plan(request, len(self.rows))
+        self.data = provenance(pinned)
+        self.timestamps = [row["timestamp"] for row in self.rows]
+        self.records = [pending_record(w, self.timestamps) for w in self.plan.windows]
+        self.cells: dict[int, list[dict]] = {w.index: [] for w in self.plan.windows}
+        self.bars_per_unit = request.in_sample_bars
+        self.total_units = self.plan.total_units
+        self.cache = IndicatorCache()
+        self.cache_hits = 0
+        self.result_hash: str | None = None
+        self._per_window = self.plan.cells_per_window + 1
+        self._side_key = SIDE_KEY[request.side]
+        self._other_key = SIDE_KEY["short" if request.side == "long" else "long"]
+        self._base_side: StrategySide = getattr(request.strategy, self._side_key)
+        self._other_side: StrategySide = getattr(request.strategy, self._other_key).model_copy(
+            update={"enabled": False}
+        )
+        self._chained_capital = request.settings.initial_capital
+
+    # -- units ----------------------------------------------------------------------------
+    def _locate(self, index: int) -> tuple[int, int]:
+        return index // self._per_window, index % self._per_window
+
+    def _strategy_with(self, side: StrategySide) -> StrategySpec:
+        return self.request.strategy.model_copy(
+            update={self._side_key: side, self._other_key: self._other_side}
+        )
+
+    def run_unit(self, index: int) -> dict:
+        window_index, unit = self._locate(index)
+        window = self.plan.windows[window_index]
+        if unit < self.plan.cells_per_window:
+            params = self.plan.grid.cells[unit]
+            result = run_backtest(
+                BacktestRequest(
+                    strategy=self._strategy_with(apply_parameters(self._base_side, params)),
+                    bars=self.rows[window.is_start : window.is_end],
+                    settings=self.request.settings,
+                ),
+                cache=self.cache,
+            )
+            return {
+                "unit": "cell",
+                "cell": {"index": unit, "params": params, "metrics": result[self.side]["metrics"]},
+            }
+        best = self.records[window_index]["best"]  # chosen at the last cell's commit
+        if best is None:
+            return {"unit": "oos", "oos": None}
+        chosen = apply_parameters(self._base_side, best["params"])
+        lead = lead_bars(max(spec.length for spec in chosen.indicators))
+        settings = self.request.settings.model_copy(
+            update={
+                "evaluate_from": datetime.fromisoformat(self.timestamps[window.oos_start]),
+                "initial_capital": self._chained_capital,
+            }
+        )
+        result = run_backtest(
+            BacktestRequest(
+                strategy=self._strategy_with(chosen),
+                bars=self.rows[window.oos_start - lead : window.oos_end],
+                settings=settings,
+            ),
+            cache=self.cache,
+        )
+        side = result[self.side]
+        return {
+            "unit": "oos",
+            "oos": {"trades": side["trades"], "equity": side["equity"], "metrics": side["metrics"]},
+        }
+
+    def commit(self, index: int, result: dict) -> None:
+        window_index, _ = self._locate(index)
+        record = self.records[window_index]
+        self.cache_hits = self.cache.hits
+        if result["unit"] == "cell":
+            self.cells[window_index].append(result["cell"])
+            record["cells_evaluated"] = len(self.cells[window_index])
+            if record["cells_evaluated"] == self.plan.cells_per_window:
+                best = select_best(self.cells[window_index], self.request.objective)
+                record["best"] = (
+                    {"params": best["params"], "metrics": best["metrics"]} if best else None
+                )
+                if best is None:
+                    record["status"] = "no_valid_cell"
+            return
+        oos = result["oos"]
+        if oos is None:
+            record["status"] = "no_valid_cell"
+            return
+        record["oos"] = oos
+        record["status"] = "done"
+        record["efficiency"] = efficiency(
+            record["best"]["metrics"], record["is_bars"], oos["metrics"], record["oos_bars"]
+        )
+        if oos["equity"]:
+            self._chained_capital = float(oos["equity"][-1]["equity"])
+
+    # -- documents ------------------------------------------------------------------------
+    def _paths(self) -> list[str]:
+        return [p.path for p in self._base_side.optimization if p.enabled]
+
+    def snapshot(self) -> dict:
+        records = copy.deepcopy(self.records)
+        finished = sum(1 for r in records if r["status"] in ("done", "no_valid_cell"))
+        return {
+            "objective": self.request.objective,
+            "in_sample_bars": self.request.in_sample_bars,
+            "out_of_sample_bars": self.request.out_of_sample_bars,
+            "windows": {"done": finished, "total": len(records)},
+            "current_window": min(finished, len(records) - 1),
+            "cells_per_window": self.plan.cells_per_window,
+            "unused_tail_bars": self.plan.unused_tail_bars,
+            "window_records": records,
+            "stitched": stitch(records, self.request.settings.initial_capital),
+            "stability": stability(records, self._paths()),
+            "cache_hits": self.cache_hits,
+            "data": self.data,
+            "strategy": self.request.strategy.model_dump(mode="json"),
+            "settings": self.request.settings.model_dump(mode="json"),
+            "result_hash": self.result_hash,
+        }
+
+    def finalize(self, status: str) -> dict:
+        if status != "done":
+            return {"result_hash": None}
+        records = copy.deepcopy(self.records)
+        payload = walkforward_payload(
+            records,
+            stitch(records, self.request.settings.initial_capital),
+            stability(records, self._paths()),
+            self.request,
+            self.data,
+            self.plan.unused_tail_bars,
+        )
+        self.result_hash = result_hash(payload)
+        return {"result_hash": self.result_hash}
+
+
 __all__ = [
     "MAX_WINDOWS",
     "MIN_OOS_BARS",
     "SIDE_KEY",
+    "WalkForwardJob",
     "WalkForwardRequest",
     "Window",
     "WindowPlan",

@@ -31,6 +31,11 @@ SUMMARY_KEYS = (
     "total_cells",
     "skipped_cells",
     "ms_per_bar",
+    "kind",
+    "windows",
+    "in_sample_bars",
+    "out_of_sample_bars",
+    "cells_per_window",
 )
 
 
@@ -41,6 +46,9 @@ class RunRepository(Protocol):
     def save_optimization(self, envelope: dict) -> str: ...
     def get_optimization(self, job_id: str) -> dict: ...
     def list_optimizations(self) -> list[dict]: ...
+    def save_walkforward(self, envelope: dict) -> str: ...
+    def get_walkforward(self, job_id: str) -> dict: ...
+    def list_walkforwards(self) -> list[dict]: ...
 
 
 def _check_id(identifier: str) -> str:
@@ -139,3 +147,12 @@ class JsonRunRepository:
 
     def list_optimizations(self) -> list[dict]:
         return self._list("optimizations")
+
+    def save_walkforward(self, envelope: dict) -> str:
+        return self._save("walkforward", "job_id", envelope)
+
+    def get_walkforward(self, job_id: str) -> dict:
+        return self._get("walkforward", job_id)
+
+    def list_walkforwards(self) -> list[dict]:
+        return self._list("walkforward")
