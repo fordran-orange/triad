@@ -13,7 +13,8 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from products.aegis.strategy import StrategySpec
+from products.aegis.indicators import IndicatorCache
+from products.aegis.strategy import RuleSpec, StrategySide, StrategySpec
 
 
 class EventPoint(BaseModel):
@@ -72,12 +73,32 @@ def _prepare_frame(rows: list[dict]) -> pd.DataFrame:
     return frame
 
 
-def _indicator_lengths(strategy: StrategySpec) -> tuple[int, int]:
-    ema = next((i for i in strategy.indicators if i.kind.upper() == "EMA"), None)
-    sma = next((i for i in strategy.indicators if i.kind.upper() == "SMA"), None)
-    if not ema or not sma:
-        raise ValueError("reference backtester requires one EMA and one SMA")
-    return ema.length, sma.length
+def _data_key(frame: pd.DataFrame) -> str:
+    """Content identity of the prepared bars, used to share indicator arrays across runs."""
+    columns = ["timestamp", "open", "high", "low", "close", "volume"]
+    return format(int(pd.util.hash_pandas_object(frame[columns], index=False).sum()), "x")
+
+
+def _signal(frame: pd.DataFrame, rule: RuleSpec) -> pd.Series:
+    left, right = frame[rule.left], frame[rule.right]
+    if rule.operator == "crosses_above":
+        return (left > right) & (left.shift(1) <= right.shift(1))
+    if rule.operator == "crosses_below":
+        return (left < right) & (left.shift(1) >= right.shift(1))
+    raise ValueError(f"unsupported rule operator {rule.operator!r}")
+
+
+def _side_frame(
+    frame: pd.DataFrame, side: StrategySide, cache: IndicatorCache, data_key: str
+) -> pd.DataFrame:
+    """Bars plus this side's own indicator columns and entry/exit signal columns."""
+    data = frame.copy()
+    for spec in side.indicators:
+        data[spec.id] = cache.get(data_key, spec, frame).to_numpy()
+    data["entry_signal"] = _signal(data, side.entry)
+    data["exit_signal"] = _signal(data, side.exit)
+    data["warm"] = data[[spec.id for spec in side.indicators]].notna().all(axis=1)
+    return data
 
 
 def _clock_tags(timestamp: pd.Timestamp, strategy: StrategySpec) -> list[str]:
@@ -110,16 +131,6 @@ def _event_tags(
     return tags
 
 
-def _crosses(frame: pd.DataFrame, strategy: StrategySpec) -> pd.DataFrame:
-    ema_length, sma_length = _indicator_lengths(strategy)
-    data = frame.copy()
-    data["ema"] = data.close.ewm(span=ema_length, adjust=False, min_periods=ema_length).mean()
-    data["sma"] = data.close.rolling(sma_length, min_periods=sma_length).mean()
-    data["cross_up"] = (data.ema > data.sma) & (data.ema.shift(1) <= data.sma.shift(1))
-    data["cross_down"] = (data.ema < data.sma) & (data.ema.shift(1) >= data.sma.shift(1))
-    return data
-
-
 def _side_sign(side: str) -> int:
     return 1 if side == "LONG" else -1
 
@@ -139,20 +150,36 @@ def _trade_tags(
     return tuple(sorted(set(_clock_tags(timestamp, strategy) + _event_tags(timestamp, strategy, events, symbol))))
 
 
+def _series(data: pd.DataFrame, side: StrategySide) -> dict[str, list[float | None]]:
+    """Indicator values the side traded on, aligned to bars; warm-up gaps are None."""
+    return {
+        spec.id: [None if pd.isna(v) else float(v) for v in data[spec.id].tolist()]
+        for spec in side.indicators
+    }
+
+
 def _simulate_side(
-    data: pd.DataFrame,
+    frame: pd.DataFrame,
     strategy: StrategySpec,
     side: str,
     events: list[EventPoint],
     settings: BacktestSettings,
     symbol: str | None,
+    cache: IndicatorCache,
+    data_key: str,
 ) -> dict:
-    enabled = strategy.long_side.enabled if side == "LONG" else strategy.short_side.enabled
-    if not enabled:
-        return {"trades": [], "equity": [], "metrics": _metrics([], [], settings.initial_capital)}
-
-    entry_signal = "cross_up" if side == "LONG" else "cross_down"
-    exit_signal = "cross_down" if side == "LONG" else "cross_up"
+    spec = strategy.long_side if side == "LONG" else strategy.short_side
+    if not spec.enabled:
+        return {
+            "enabled": False,
+            "series": {},
+            "trades": [],
+            "equity": [],
+            "metrics": _metrics([], [], settings.initial_capital),
+        }
+    data = _side_frame(frame, spec, cache, data_key)
+    entry_signal = "entry_signal"
+    exit_signal = "exit_signal"
     cash = settings.initial_capital
     position = None
     pending = None
@@ -227,7 +254,7 @@ def _simulate_side(
             }
         )
 
-        if i >= len(data) - 1 or pd.isna(row.ema) or pd.isna(row.sma):
+        if i >= len(data) - 1 or not bool(row.warm):
             continue
 
         tags = _trade_tags(timestamp, strategy, events, symbol)
@@ -274,7 +301,13 @@ def _simulate_side(
         cash = capital + net
         curve[-1]["equity"] = float(cash)
 
-    return {"trades": trades, "equity": curve, "metrics": _metrics(trades, curve, settings.initial_capital)}
+    return {
+        "enabled": True,
+        "series": _series(data, spec),
+        "trades": trades,
+        "equity": curve,
+        "metrics": _metrics(trades, curve, settings.initial_capital),
+    }
 
 
 def _metrics(trades: list[dict], curve: list[dict], initial_capital: float) -> dict:
@@ -342,15 +375,17 @@ def _temporal_breakdown(trades: list[dict]) -> dict[str, dict]:
     return output
 
 
-def run_backtest(request: BacktestRequest) -> dict:
-    frame = _crosses(_prepare_frame(request.bars), request.strategy)
+def run_backtest(request: BacktestRequest, cache: IndicatorCache | None = None) -> dict:
+    cache = cache if cache is not None else IndicatorCache()
+    frame = _prepare_frame(request.bars)
+    data_key = _data_key(frame)
     symbol = str(frame.iloc[0].get("symbol")) if "symbol" in frame.columns else None
 
     long_result = _simulate_side(
-        frame, request.strategy, "LONG", request.events, request.settings, symbol
+        frame, request.strategy, "LONG", request.events, request.settings, symbol, cache, data_key
     )
     short_result = _simulate_side(
-        frame, request.strategy, "SHORT", request.events, request.settings, symbol
+        frame, request.strategy, "SHORT", request.events, request.settings, symbol, cache, data_key
     )
     combined = _combine(long_result, short_result, request.settings.initial_capital)
 

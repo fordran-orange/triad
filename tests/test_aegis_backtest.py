@@ -1,7 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
 from products.aegis.backtest import BacktestRequest, run_backtest
-from products.aegis.strategy import default_strategy
+from products.aegis.indicators import IndicatorCache
+from products.aegis.strategy import apply_parameters, default_strategy
 
 
 def bars():
@@ -40,6 +41,7 @@ def test_reference_backtest_returns_directional_and_combined_results():
     assert result["combined"]["metrics"]["trade_count"] == (
         result["long"]["metrics"]["trade_count"] + result["short"]["metrics"]["trade_count"]
     )
+    assert result["long"]["enabled"] is True and result["short"]["enabled"] is True
 
 
 def test_entry_fill_occurs_after_signal_bar():
@@ -60,6 +62,7 @@ def test_long_and_short_can_be_disabled_independently():
 
     assert result["long"]["metrics"]["trade_count"] >= 1
     assert result["short"]["metrics"]["trade_count"] == 0
+    assert result["short"]["enabled"] is False and result["short"]["series"] == {}
 
 
 def test_opening_window_is_preserved_in_temporal_breakdown():
@@ -69,6 +72,27 @@ def test_opening_window_is_preserved_in_temporal_breakdown():
     assert "ALL" in result["temporal"]["combined"]
     # Window keys appear only when a trade actually intersects the configured window.
     assert all(
-        key == "ALL" or key.startswith(("CLOCK:", "EVENT:"))
+        key == "ALL" or key.startswith(("CLOCK:", "EVENT:", "CROSSOVER:"))
         for key in result["temporal"]["combined"]
     )
+
+
+def test_sides_simulate_from_their_own_indicator_lengths():
+    s = default_strategy()
+    s.short_side = apply_parameters(
+        s.short_side, {"indicators.ema.length": 6, "indicators.sma.length": 20}
+    )
+    r = run_backtest(BacktestRequest(strategy=s, bars=bars()))
+    assert r["long"]["series"].keys() == {"ema", "sma"}
+    assert len(r["long"]["series"]["ema"]) == r["bars"]
+    assert r["long"]["series"]["ema"] != r["short"]["series"]["ema"]
+    assert r["long"]["series"]["ema"][:8] == [None] * 8  # warm-up gaps are null, not NaN
+    assert r["short"]["series"]["ema"][5] is not None
+
+
+def test_shared_indicator_cache_is_reused_across_runs():
+    cache = IndicatorCache()
+    request = BacktestRequest(strategy=default_strategy(), bars=bars())
+    run_backtest(request, cache=cache)
+    run_backtest(request, cache=cache)
+    assert cache.hits >= 2
