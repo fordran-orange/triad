@@ -50,6 +50,38 @@ def canonical_payload(result: dict, strategy: StrategySpec, data_identity: dict)
     )
 
 
+def walkforward_payload(
+    records: list[dict],
+    stitched: dict,
+    stability: dict,
+    request,
+    data_identity: dict,
+    unused_tail_bars: int,
+) -> dict:
+    """The hash-bearing part of a walk-forward (spec §5.6): the request's computational inputs,
+    the pinned data, every window's choice and out-of-sample results, the stitched series and the
+    stability figures. Envelope fields (job id, timestamps, elapsed) never enter it."""
+    return _clean(
+        {
+            "kind": "walkforward",
+            "strategy": request.strategy.model_dump(mode="json"),
+            "data": data_identity,
+            "side": request.side,
+            "settings": {
+                "initial_capital": request.settings.initial_capital,
+                "allocation_fraction": request.settings.allocation_fraction,
+            },
+            "objective": request.objective,
+            "in_sample_bars": request.in_sample_bars,
+            "out_of_sample_bars": request.out_of_sample_bars,
+            "windows": records,
+            "unused_tail_bars": unused_tail_bars,
+            "stitched": stitched,
+            "stability": stability,
+        }
+    )
+
+
 def canonical_json(payload: dict) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
