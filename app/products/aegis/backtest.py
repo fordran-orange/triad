@@ -147,6 +147,7 @@ def _simulate_side(
             "trades": [],
             "equity": [],
             "metrics": _metrics([], [], settings.initial_capital),
+            "_in_position": [],
         }
     data = _side_frame(frame, spec, cache, data_key)
     entry_signal = "entry_signal"
@@ -156,6 +157,7 @@ def _simulate_side(
     pending = None
     trades = []
     curve = []
+    in_position = []
     peak = settings.initial_capital
     commission = strategy.execution.commission_per_side
     slippage = strategy.execution.slippage_bps
@@ -216,6 +218,7 @@ def _simulate_side(
         else:
             marked = cash
 
+        in_position.append(position is not None)
         peak = max(peak, marked)
         curve.append(
             {
@@ -281,11 +284,18 @@ def _simulate_side(
         "series": _series(data, spec),
         "trades": trades,
         "equity": curve,
-        "metrics": _metrics(trades, curve, settings.initial_capital),
+        "metrics": _metrics(trades, curve, settings.initial_capital, _fraction(in_position)),
+        "_in_position": in_position,
     }
 
 
-def _metrics(trades: list[dict], curve: list[dict], initial_capital: float) -> dict:
+def _fraction(flags: list[bool]) -> float:
+    return sum(1 for f in flags if f) / len(flags) if flags else 0.0
+
+
+def _metrics(
+    trades: list[dict], curve: list[dict], initial_capital: float, exposure: float = 0.0
+) -> dict:
     ending = curve[-1]["equity"] if curve else initial_capital
     profits = [float(t["net_pnl"]) for t in trades]
     wins = [p for p in profits if p > 0]
@@ -312,6 +322,7 @@ def _metrics(trades: list[dict], curve: list[dict], initial_capital: float) -> d
         "expectancy": sum(profits) / len(profits) if profits else None,
         "profit_factor": sum(wins) / abs(sum(losses)) if losses else None,
         "trade_count": len(trades),
+        "exposure": exposure,
     }
 
 
@@ -350,6 +361,22 @@ def _temporal_breakdown(trades: list[dict]) -> dict[str, dict]:
     return output
 
 
+def markers(result: dict) -> list[dict]:
+    """Chart markers derived from trades: one entry and one exit per trade, epoch ms."""
+    points = []
+    for side in ("long", "short"):
+        for trade in result[side]["trades"]:
+            for kind, time_key, price_key in (
+                ("entry", "entry_time", "entry_price"),
+                ("exit", "exit_time", "exit_price"),
+            ):
+                millis = int(pd.Timestamp(trade[time_key]).value // 1_000_000)
+                points.append(
+                    {"time": millis, "price": float(trade[price_key]), "side": side.upper(), "kind": kind}
+                )
+    return sorted(points, key=lambda p: (p["time"], p["side"], p["kind"]))
+
+
 def run_backtest(request: BacktestRequest, cache: IndicatorCache | None = None) -> dict:
     validate(request.strategy.temporal)
     cache = cache if cache is not None else IndicatorCache()
@@ -364,6 +391,15 @@ def run_backtest(request: BacktestRequest, cache: IndicatorCache | None = None) 
         frame, request.strategy, "SHORT", request.events, request.settings, symbol, cache, data_key
     )
     combined = _combine(long_result, short_result, request.settings.initial_capital)
+    long_flags = long_result.pop("_in_position")
+    short_flags = short_result.pop("_in_position")
+    length = max(len(long_flags), len(short_flags))
+    union = [
+        (long_flags[i] if i < len(long_flags) else False)
+        or (short_flags[i] if i < len(short_flags) else False)
+        for i in range(length)
+    ]
+    combined["metrics"]["exposure"] = _fraction(union)
 
     return {
         "strategy_id": request.strategy.id,
