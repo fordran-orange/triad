@@ -1,0 +1,50 @@
+import json
+
+import pytest
+from products.aegis.runs import JsonRunRepository
+
+
+def envelope(run_id, created_at, **extra):
+    return {
+        "run_id": run_id,
+        "created_at": created_at,
+        "elapsed_ms": 1,
+        "result_hash": "h-" + run_id,
+        "data": {"symbol": "QQQ", "timeframe": "1h"},
+        "strategy": {"name": "9 EMA / 30 SMA Cross"},
+        "result": {"combined": {"metrics": {"net_pnl": 1.0}}},
+        **extra,
+    }
+
+
+def test_json_repository_round_trips_run_and_lists_newest_first(tmp_path):
+    repo = JsonRunRepository(tmp_path / "aegis")
+    assert repo.list_runs() == []
+    older = envelope("r-old", "2026-10-09T01:00:00+00:00")
+    newer = envelope("r-new", "2026-10-09T02:00:00+00:00")
+    assert repo.save_run(older) == "r-old"
+    assert repo.save_run(newer) == "r-new"
+    assert repo.get_run("r-old") == older
+    listed = repo.list_runs()
+    assert [r["run_id"] for r in listed] == ["r-new", "r-old"]
+    assert set(listed[0]) >= {"run_id", "created_at", "result_hash", "data", "strategy"}
+    assert "result" not in listed[0]  # summaries stay small
+    stored = json.loads((tmp_path / "aegis" / "runs" / "r-new.json").read_text(encoding="utf-8"))
+    assert stored == newer
+
+
+def test_unknown_run_raises_key_error(tmp_path):
+    repo = JsonRunRepository(tmp_path / "aegis")
+    with pytest.raises(KeyError):
+        repo.get_run("nope")
+    with pytest.raises(ValueError):
+        repo.get_run("../escape")
+
+
+def test_optimizations_round_trip_separately(tmp_path):
+    repo = JsonRunRepository(tmp_path / "aegis")
+    job = {"job_id": "j1", "created_at": "2026-10-09T03:00:00+00:00", "status": "done", "cells": []}
+    assert repo.save_optimization(job) == "j1"
+    assert repo.get_optimization("j1") == job
+    assert [j["job_id"] for j in repo.list_optimizations()] == ["j1"]
+    assert repo.list_runs() == []

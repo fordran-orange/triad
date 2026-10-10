@@ -7,10 +7,10 @@ and combined results are simulated independently so directional edge is never hi
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import date, datetime
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from products.aegis.indicators import IndicatorCache
 from products.aegis.strategy import RuleSpec, StrategySide, StrategySpec
@@ -40,12 +40,29 @@ class BacktestSettings(BaseModel):
     allocation_fraction: float = Field(default=1.0, gt=0, le=1)
 
 
+class DataReference(BaseModel):
+    """A pinned-archive selection resolved by the worker (symbol, timeframe, inclusive dates)."""
+
+    model_config = ConfigDict(extra="forbid")
+    symbol: str
+    timeframe: str
+    start: date
+    end: date
+
+
 class BacktestRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     strategy: StrategySpec
-    bars: list[dict]
-    events: list[EventPoint] = Field(default_factory=list)
+    data: DataReference | None = None
+    bars: list[dict] = Field(default_factory=list, max_length=200_000)
+    events: list[EventPoint] = Field(default_factory=list, max_length=10_000)
     settings: BacktestSettings = Field(default_factory=BacktestSettings)
+
+    @model_validator(mode="after")
+    def exactly_one_source(self):
+        if (self.data is None) == (not self.bars):
+            raise ValueError("provide exactly one of data (archive reference) or bars")
+        return self
 
 
 

@@ -13,6 +13,13 @@ export interface ClockWindow {
   mode?: WindowMode;
 }
 
+export interface DataReference {
+  symbol: string;
+  timeframe: string;
+  start: string;
+  end: string;
+}
+
 export type Direction = 'long' | 'short';
 
 export interface EventPoint {
@@ -113,7 +120,8 @@ export interface StrategySpec {
 
 export interface BacktestRequest {
   strategy: StrategySpec;
-  bars: Record<string, unknown>[];
+  data?: DataReference | null;
+  bars?: Record<string, unknown>[];
   events?: EventPoint[];
   settings?: BacktestSettings;
 }

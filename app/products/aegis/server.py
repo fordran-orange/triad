@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from trading_core.api import local_headers
 from trading_core.store import Store
 
-from products.aegis.backtest import BacktestRequest, run_backtest
+from products.aegis import api
 from products.aegis.strategy import default_strategy
 
 app = FastAPI(title="Aegis human-directed product")
@@ -54,10 +54,9 @@ def strategy_default():
     return default_strategy().model_dump(mode="json")
 
 
-@app.post("/aegis/api/backtest")
-def backtest(request: BacktestRequest):
-    return run_backtest(request)
 
+
+app.include_router(api.router)
 
 # Static mount last so /aegis/api/* routes above win; html=True serves index.html at /aegis/.
 if UI_DIST.is_dir():
