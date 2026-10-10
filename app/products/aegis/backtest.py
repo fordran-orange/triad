@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from products.aegis.indicators import IndicatorCache
 from products.aegis.strategy import RuleSpec, StrategySide, StrategySpec
+from products.aegis.temporal import entry_permitted, validate
+from products.aegis.temporal import tags as temporal_tags
 
 
 class EventPoint(BaseModel):
@@ -101,36 +102,6 @@ def _side_frame(
     return data
 
 
-def _clock_tags(timestamp: pd.Timestamp, strategy: StrategySpec) -> list[str]:
-    local = timestamp.tz_convert(ZoneInfo(strategy.temporal.timezone))
-    hhmm = local.strftime("%H:%M")
-    tags = []
-    for window in strategy.temporal.clock_windows:
-        if window.start <= hhmm < window.end:
-            tags.append(f"CLOCK:{window.id}")
-    return tags
-
-
-def _event_tags(
-    timestamp: pd.Timestamp, strategy: StrategySpec, events: list[EventPoint], symbol: str | None
-) -> list[str]:
-    tags = []
-    instant = timestamp.to_pydatetime()
-    for config in strategy.temporal.event_windows:
-        if not config.enabled:
-            continue
-        for event in events:
-            if event.event_type != config.event_type:
-                continue
-            if event.symbol and symbol and event.symbol != symbol:
-                continue
-            delta_minutes = (instant - event.timestamp).total_seconds() / 60
-            if -config.minutes_before <= delta_minutes <= config.minutes_after:
-                tags.append(f"EVENT:{config.event_type}")
-                break
-    return tags
-
-
 def _side_sign(side: str) -> int:
     return 1 if side == "LONG" else -1
 
@@ -147,7 +118,7 @@ def _trade_tags(
     events: list[EventPoint],
     symbol: str | None,
 ) -> tuple[str, ...]:
-    return tuple(sorted(set(_clock_tags(timestamp, strategy) + _event_tags(timestamp, strategy, events, symbol))))
+    return temporal_tags(timestamp, strategy.temporal, events, symbol)
 
 
 def _series(data: pd.DataFrame, side: StrategySide) -> dict[str, list[float | None]]:
@@ -258,7 +229,11 @@ def _simulate_side(
             continue
 
         tags = _trade_tags(timestamp, strategy, events, symbol)
-        if position is None and bool(row[entry_signal]):
+        if (
+            position is None
+            and bool(row[entry_signal])
+            and entry_permitted(timestamp, strategy.temporal)
+        ):
             pending = {
                 "action": "ENTER",
                 "signal_index": i,
@@ -376,6 +351,7 @@ def _temporal_breakdown(trades: list[dict]) -> dict[str, dict]:
 
 
 def run_backtest(request: BacktestRequest, cache: IndicatorCache | None = None) -> dict:
+    validate(request.strategy.temporal)
     cache = cache if cache is not None else IndicatorCache()
     frame = _prepare_frame(request.bars)
     data_key = _data_key(frame)
