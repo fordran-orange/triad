@@ -20,8 +20,9 @@ def models():
     from products.aegis.backtest import BacktestRequest
     from products.aegis.optimize import OptimizeRequest
     from products.aegis.strategy import StrategySpec
+    from products.aegis.walkforward import WalkForwardRequest
 
-    return [StrategySpec, BacktestRequest, OptimizeRequest]
+    return [StrategySpec, BacktestRequest, OptimizeRequest, WalkForwardRequest]
 
 
 def _ts_type(schema: dict, defs: dict) -> str:

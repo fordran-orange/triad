@@ -9,12 +9,15 @@ from fastapi.testclient import TestClient
 from products.aegis import api, server
 from products.aegis.backtest import BacktestRequest
 from products.aegis.data import ArchiveStore
+from products.aegis.indicators import IndicatorCache
+from products.aegis.jobs import JobRunner
 from products.aegis.optimize import OptimizerRunner
 from products.aegis.runs import JsonRunRepository
-from products.aegis.strategy import default_strategy
+from products.aegis.strategy import apply_parameters, default_strategy
 from pydantic import ValidationError
 from test_aegis_data import write_archive
 from test_aegis_optimize import small_strategy
+from test_aegis_walkforward import small_ranges
 
 RANGE = {"start": "2026-10-30", "end": "2026-11-02"}
 
@@ -26,6 +29,8 @@ def client(tmp_path, monkeypatch):
     repository = JsonRunRepository(tmp_path / "aegis")
     server.app.dependency_overrides[api.get_store] = lambda: store
     server.app.dependency_overrides[api.get_repository] = lambda: repository
+    cache = IndicatorCache()
+    server.app.dependency_overrides[api.get_cache] = lambda: cache
     monkeypatch.setattr(server, "Store", lambda **_: SimpleNamespace(list_work=list))
     yield TestClient(server.app, raise_server_exceptions=False), store, repository
     server.app.dependency_overrides.clear()
@@ -397,3 +402,172 @@ def test_warm_in_background_warms_every_discovered_symbol(client):
     thread = api.warm_in_background(Fake())
     thread.join(5)
     assert thread.daemon and Fake.warmed == ["QQQ", "SPY"]
+
+
+# --- walk-forward routes, cross-kind 409, cancel 404, backtest cache (Task 6) --------------
+
+
+def _runner(repository, after_unit=None):
+    """One JobRunner instance for every request of a test (a new one per request would not
+    know its own jobs in memory)."""
+    runner = JobRunner(repository, after_unit=after_unit)
+    server.app.dependency_overrides[api.get_runner] = lambda: runner
+    return runner
+
+
+def _wf_strategy():
+    strategy = default_strategy()
+    side = apply_parameters(
+        strategy.long_side, {"indicators.ema.length": 5, "indicators.sma.length": 8}
+    ).model_copy(update={"optimization": small_ranges(fast=(5, 6, 1), slow=(8, 9, 1))})
+    return strategy.model_copy(update={"long_side": side}).model_dump(mode="json")
+
+
+def _walkforward_payload(side="long", in_sample=100, out_of_sample=50):
+    """780 one-minute bars in the fixture archive: in-sample 100 / out-of-sample 50 → 13 windows,
+    30 unused tail bars, 4 cells per window, 65 units."""
+    return {
+        "strategy": _wf_strategy(),
+        "side": side,
+        "data": {"symbol": "QQQ", "timeframe": "1m", **RANGE},
+        "objective": "net_pnl",
+        "in_sample_bars": in_sample,
+        "out_of_sample_bars": out_of_sample,
+    }
+
+
+def _wait_wf(c, job_id, status, timeout=60.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        body = c.get(f"/aegis/api/walkforward/{job_id}").json()
+        if body["status"] == status:
+            return body
+        time.sleep(0.02)
+    raise AssertionError(f"walk-forward {job_id} never reached {status}")
+
+
+def test_walkforward_plan_and_start_return_the_window_plan(client):
+    c, _, repository = client
+    _runner(repository)
+    plan = c.post("/aegis/api/walkforward/plan", json=_walkforward_payload())
+    assert plan.status_code == 200, plan.text
+    body = plan.json()
+    assert {
+        k: body[k]
+        for k in ("windows", "cells_per_window", "total_units", "unused_tail_bars", "bars")
+    } == {
+        "windows": 13,
+        "cells_per_window": 4,
+        "total_units": 65,
+        "unused_tail_bars": 30,
+        "bars": 780,
+    }
+    assert body["estimated_seconds"] > 0 and body["ms_per_bar"] > 0
+    started = c.post("/aegis/api/walkforward", json=_walkforward_payload())
+    assert started.status_code == 202, started.text
+    assert set(started.json()) == {
+        "job_id",
+        "windows",
+        "cells_per_window",
+        "total_units",
+        "estimated_seconds",
+    }
+    job_id = started.json()["job_id"]
+    done = _wait_wf(c, job_id, "done")
+    assert done["kind"] == "walkforward" and done["windows"] == {"done": 13, "total": 13}
+    assert len(done["result_hash"]) == 64 and done["data"]["research_eligible"] is False
+    assert [j["job_id"] for j in c.get("/aegis/api/walkforward").json()] == [job_id]
+    assert c.get("/aegis/api/walkforward/does-not-exist").status_code == 404
+
+
+def test_walkforward_status_progresses_and_cancel_keeps_completed_windows(client):
+    c, _, repository = client
+    gate = threading.Event()
+
+    def after_unit(done):
+        if done == 5:  # window 0 complete
+            gate.wait(10)
+
+    _runner(repository, after_unit=after_unit)
+    job_id = c.post("/aegis/api/walkforward", json=_walkforward_payload()).json()["job_id"]
+    deadline = time.monotonic() + 30
+    mid = c.get(f"/aegis/api/walkforward/{job_id}").json()
+    while mid["progress"]["done"] < 5 and time.monotonic() < deadline:
+        mid = c.get(f"/aegis/api/walkforward/{job_id}").json()
+    assert mid["status"] == "running" and mid["windows"] == {"done": 1, "total": 13}
+    assert [r["status"] for r in mid["window_records"][:2]] == ["done", "pending"]
+    assert mid["stitched"]["metrics"]["trade_count"] == len(
+        mid["window_records"][0]["oos"]["trades"]
+    )
+    assert c.post(f"/aegis/api/walkforward/{job_id}/cancel").json() == {"cancelled": True}
+    gate.set()
+    cancelled = _wait_wf(c, job_id, "cancelled")
+    assert cancelled["windows"]["done"] == 1 and cancelled["result_hash"] is None
+    assert c.post(f"/aegis/api/walkforward/{job_id}/cancel").json() == {"cancelled": False}
+
+
+def test_cross_kind_busy_is_409_and_first_continues(client):
+    c, _, repository = client
+    gate = threading.Event()
+
+    def after_unit(done):
+        if done == 1:
+            gate.wait(10)
+
+    _runner(repository, after_unit=after_unit)
+    first = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    _wait(c, first, "running")
+    blocked = c.post("/aegis/api/walkforward", json=_walkforward_payload())
+    assert blocked.status_code == 409 and blocked.json() == {
+        "detail": "an optimization is already running"
+    }
+    gate.set()
+    assert _wait(c, first, "done")["progress"] == {"done": 9, "total": 9}
+    gate.clear()
+    second = c.post("/aegis/api/walkforward", json=_walkforward_payload()).json()["job_id"]
+    _wait_wf(c, second, "running")
+    blocked = c.post("/aegis/api/optimize", json=_optimize_payload())
+    assert blocked.status_code == 409
+    gate.set()
+    assert _wait_wf(c, second, "done")["windows"] == {"done": 13, "total": 13}
+
+
+def test_walkforward_too_short_range_is_422_with_bar_counts(client):
+    c, _, repository = client
+    _runner(repository)
+    short = _walkforward_payload(in_sample=700, out_of_sample=100)  # 780 - 700 < 100
+    plan = c.post("/aegis/api/walkforward/plan", json=short)
+    assert plan.status_code == 422 and "range too short: 780 bars" in plan.json()["detail"]
+    assert c.post("/aegis/api/walkforward", json=short).status_code == 422
+    assert (
+        c.post(
+            "/aegis/api/walkforward/plan", json={**_walkforward_payload(), "out_of_sample_bars": 10}
+        ).status_code
+        == 422
+    )
+    assert (
+        c.post(
+            "/aegis/api/walkforward/plan",
+            json={**_walkforward_payload(), "data": {"symbol": "ZZZ", "timeframe": "1m", **RANGE}},
+        ).status_code
+        == 404
+    )
+
+
+def test_cancel_unknown_job_is_404_for_both_kinds(client):
+    c, _, repository = client
+    _runner(repository)
+    assert c.post("/aegis/api/optimize/does-not-exist/cancel").status_code == 404
+    assert c.post("/aegis/api/walkforward/does-not-exist/cancel").status_code == 404
+
+
+def test_backtest_reuses_the_store_cache_across_requests(client):
+    c, _, _ = client
+    strategy = default_strategy().model_dump(mode="json")
+    data = {"symbol": "QQQ", "timeframe": "15m", **RANGE}
+    first = c.post("/aegis/api/backtest", json={"strategy": strategy, "data": data}).json()
+    second = c.post("/aegis/api/backtest", json={"strategy": strategy, "data": data}).json()
+    # One run already reuses the long side's series for the short side (2 hits); a repeat on the
+    # same bars reuses every series (4 hits) because the store cache kept them.
+    assert first["cache_hits"] == 2 and second["cache_hits"] == 4
+    assert first["result_hash"] == second["result_hash"]

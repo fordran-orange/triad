@@ -1,6 +1,7 @@
 import pytest
 from products.aegis.strategy import (
     Direction,
+    OptimizationParameter,
     RuleSpec,
     StrategySide,
     WindowMode,
@@ -87,3 +88,13 @@ def test_reference_strategy_uses_next_bar_open_execution():
     strategy = default_strategy()
     assert strategy.execution.signal_timing == "bar_close"
     assert strategy.execution.fill_timing == "next_bar_open"
+
+
+def test_optimization_parameter_rejects_reversed_and_fractional_length_ranges():
+    with pytest.raises(ValidationError, match="start 20.0 above stop 5.0"):
+        OptimizationParameter(path="indicators.ema.length", start=20, stop=5, step=1)
+    with pytest.raises(ValidationError, match="integer"):
+        OptimizationParameter(path="indicators.ema.length", start=5, stop=10, step=0.5)
+    with pytest.raises(ValidationError, match="integer"):
+        OptimizationParameter(path="indicators.ema.length", start=5.5, stop=10, step=1)
+    assert OptimizationParameter(path="indicators.ema.length", start=5, stop=10, step=1).stop == 10

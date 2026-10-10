@@ -38,3 +38,17 @@ def test_cache_returns_same_object_for_same_key_and_spec():
     other = cache.get("data-1", IndicatorSpec(id="s2", kind="SMA", length=3), f)
     assert other is not first and cache.hits == 1
     assert cache.get("data-2", spec, f) is not first and cache.hits == 1
+
+
+def test_cache_evicts_oldest_data_key_beyond_the_bound():
+    cache = IndicatorCache(max_data_keys=2)
+    f = frame([1.0, 2.0, 3.0, 4.0])
+    spec = IndicatorSpec(id="s", kind="SMA", length=2)
+    cache.get("k1", spec, f)
+    cache.get("k2", spec, f)
+    cache.get("k3", spec, f)
+    assert cache.data_keys == ["k2", "k3"]
+    cache.get("k1", spec, f)  # evicted: recomputed, not a hit
+    assert cache.hits == 0 and cache.data_keys == ["k3", "k1"]
+    cache.get("k3", spec, f)
+    assert cache.hits == 1

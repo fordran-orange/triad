@@ -52,6 +52,16 @@ class OptimizationParameter(BaseModel):
     stop: float
     step: float = Field(gt=0)
 
+    @model_validator(mode="after")
+    def ordered_and_integral(self):
+        if self.start > self.stop:
+            raise ValueError(f"{self.path}: start {self.start} above stop {self.stop}")
+        if self.path.endswith(".length") and not all(
+            float(v).is_integer() for v in (self.start, self.stop, self.step)
+        ):
+            raise ValueError(f"{self.path}: length ranges need integer start, stop and step")
+        return self
+
 
 class StrategySide(BaseModel):
     """One direction's complete logic: its own indicators, rules, switch and ranges."""

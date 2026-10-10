@@ -134,3 +134,13 @@ export interface OptimizeRequest {
   settings?: BacktestSettings;
   objective?: 'net_pnl' | 'mar' | 'max_drawdown' | 'trade_count';
 }
+
+export interface WalkForwardRequest {
+  strategy: StrategySpec;
+  side: 'long' | 'short';
+  data: DataReference;
+  settings?: BacktestSettings;
+  objective?: 'net_pnl' | 'mar' | 'max_drawdown' | 'trade_count';
+  in_sample_bars: number;
+  out_of_sample_bars: number;
+}

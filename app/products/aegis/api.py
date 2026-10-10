@@ -28,12 +28,14 @@ from products.aegis.data import (
     SourceUnavailable,
     to_records,
 )
-from products.aegis.indicators import compute
+from products.aegis.indicators import IndicatorCache, compute
 from products.aegis.jobs import JobBusy, JobRunner, estimate_seconds
 from products.aegis.optimize import OptimizeRequest, OptimizerJob, engine_rows, expand_grid
 from products.aegis.results import canonical_payload, result_hash
 from products.aegis.runs import JsonRunRepository, RunRepository
 from products.aegis.strategy import IndicatorSpec
+from products.aegis.walkforward import WalkForwardJob, WalkForwardRequest
+from products.aegis.walkforward import plan as walkforward_plan
 
 log = logging.getLogger("aegis")
 router = APIRouter(prefix="/aegis/api")
@@ -54,9 +56,17 @@ def get_runner() -> JobRunner:
     return JobRunner(get_repository())
 
 
+@lru_cache(maxsize=1)
+def get_cache() -> IndicatorCache:
+    """Indicator series shared by plain backtests on this worker, keyed by the bars' content
+    identity and bounded to the most recent eight selections (spec §6.4)."""
+    return IndicatorCache(max_data_keys=8)
+
+
 STORE = Depends(get_store)
 REPOSITORY = Depends(get_repository)
 RUNNER = Depends(get_runner)
+CACHE = Depends(get_cache)
 
 
 def warm_in_background(store) -> threading.Thread:
@@ -147,8 +157,9 @@ def indicators(request: IndicatorsRequest, store: ArchiveStore = STORE):
     }
 
 
-def _envelope(request: BacktestRequest, store: ArchiveStore) -> dict:
+def _envelope(request: BacktestRequest, store: ArchiveStore, cache: IndicatorCache) -> dict:
     started = time.perf_counter()
+    hits_before = cache.hits
     if request.data is not None:
         frame, pinned = _select(
             store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
@@ -161,7 +172,7 @@ def _envelope(request: BacktestRequest, store: ArchiveStore) -> dict:
         engine_request = request
         identity = {"source": "supplied_bars", "bar_count": len(request.bars)}
     try:
-        result = run_backtest(engine_request)
+        result = run_backtest(engine_request, cache=cache)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     payload = canonical_payload(result, request.strategy, identity)
@@ -176,6 +187,7 @@ def _envelope(request: BacktestRequest, store: ArchiveStore) -> dict:
         "result": payload,
         "series": {"long": result["long"]["series"], "short": result["short"]["series"]},
         "markers": markers(result),
+        "cache_hits": cache.hits - hits_before,
         "state": "ok",
     }
 
@@ -185,8 +197,9 @@ def backtest(
     request: BacktestRequest,
     store: ArchiveStore = STORE,
     repository: RunRepository = REPOSITORY,
+    cache: IndicatorCache = CACHE,
 ):
-    envelope = _envelope(request, store)
+    envelope = _envelope(request, store, cache)
     repository.save_run(envelope)
     return envelope
 
@@ -283,11 +296,94 @@ def optimization(job_id: str, runner: JobRunner = RUNNER):
 
 @router.post("/optimize/{job_id}/cancel")
 def cancel_optimization(job_id: str, runner: JobRunner = RUNNER):
+    return _cancel(runner, job_id)
+
+
+def _cancel(runner: JobRunner, job_id: str) -> dict:
+    if not runner.known(job_id):
+        raise HTTPException(404, f"unknown job {job_id!r}")
     return {"cancelled": runner.cancel(job_id)}
+
+
+# --- walk-forward (spec §6.3) ---------------------------------------------------------------
+
+
+def _walkforward_frame(request: WalkForwardRequest, store: ArchiveStore):
+    return _select(
+        store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
+    )
+
+
+@router.post("/walkforward/plan")
+def walkforward_plan_route(
+    request: WalkForwardRequest,
+    store: ArchiveStore = STORE,
+    runner: JobRunner = RUNNER,
+):
+    """What a start would do: windows, cells per window, units, unused tail, bars, estimate."""
+    frame, _ = _walkforward_frame(request, store)
+    try:
+        layout = walkforward_plan(request, len(frame))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {
+        "windows": len(layout.windows),
+        "cells_per_window": layout.cells_per_window,
+        "total_units": layout.total_units,
+        "unused_tail_bars": layout.unused_tail_bars,
+        "bars": len(frame),
+        "estimated_seconds": round(
+            estimate_seconds(layout.total_units, request.in_sample_bars, runner.ms_per_bar), 3
+        ),
+        "ms_per_bar": runner.ms_per_bar,
+    }
+
+
+@router.post("/walkforward", status_code=202)
+def walkforward(
+    request: WalkForwardRequest,
+    store: ArchiveStore = STORE,
+    runner: JobRunner = RUNNER,
+):
+    frame, pinned = _walkforward_frame(request, store)
+    try:
+        job = WalkForwardJob(request, frame, pinned)
+        job_id = runner.start(job)
+    except JobBusy as exc:
+        raise HTTPException(409, "an optimization is already running") from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    status = runner.status(job_id)
+    return {
+        "job_id": job_id,
+        "windows": status["windows"]["total"],
+        "cells_per_window": status["cells_per_window"],
+        "total_units": status["progress"]["total"],
+        "estimated_seconds": status["estimated_seconds"],
+    }
+
+
+@router.get("/walkforward")
+def walkforwards(runner: JobRunner = RUNNER):
+    return runner.list_jobs("walkforward")
+
+
+@router.get("/walkforward/{job_id}")
+def walkforward_status(job_id: str, runner: JobRunner = RUNNER):
+    try:
+        return runner.status(job_id)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(404, f"unknown walk-forward {job_id!r}") from exc
+
+
+@router.post("/walkforward/{job_id}/cancel")
+def cancel_walkforward(job_id: str, runner: JobRunner = RUNNER):
+    return _cancel(runner, job_id)
 
 
 __all__ = [
     "DataReference",
+    "get_cache",
     "get_repository",
     "get_runner",
     "get_store",
