@@ -108,3 +108,35 @@ def test_insufficient_bars_for_indicator_warmup_is_rejected():
     )
     with pytest.raises(ValueError, match="warm-up"):
         run_backtest(request)  # 91 bars cannot warm a 100-period indicator
+
+
+def test_evaluate_from_blocks_entries_and_withholds_equity_before_it():
+    from datetime import UTC, datetime
+
+    from products.aegis.backtest import BacktestSettings
+
+    rows = bars()
+    boundary = datetime(2026, 1, 6, 14, 30, tzinfo=UTC)  # bar index 48 of the 90 synthetic bars
+    settings = BacktestSettings(evaluate_from=boundary)
+    result = run_backtest(
+        BacktestRequest(strategy=default_strategy(), bars=rows, settings=settings)
+    )
+    for side in ("long", "short"):
+        assert all(t["signal_time"] >= boundary.isoformat() for t in result[side]["trades"])
+        assert result[side]["equity"][0]["timestamp"] == boundary.isoformat()
+        assert len(result[side]["equity"]) == len(rows) - 48
+    full = run_backtest(BacktestRequest(strategy=default_strategy(), bars=rows))
+    assert (
+        full["long"]["series"]["ema"][48] == result["long"]["series"]["ema"][48]
+    )  # indicators warm
+
+
+def test_evaluate_from_must_be_timezone_aware():
+    from datetime import datetime
+
+    import pytest
+    from products.aegis.backtest import BacktestSettings
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="timezone-aware"):
+        BacktestSettings(evaluate_from=datetime(2026, 1, 6, 14, 30))  # noqa: DTZ001 - naive on purpose

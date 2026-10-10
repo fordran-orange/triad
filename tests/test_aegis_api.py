@@ -371,7 +371,9 @@ def test_backtest_envelope_carries_its_settings(client):
     strategy = default_strategy().model_dump(mode="json")
     data = {"symbol": "QQQ", "timeframe": "15m", **RANGE}
     default = c.post("/aegis/api/backtest", json={"strategy": strategy, "data": data}).json()
-    assert default["settings"] == {"initial_capital": 100000.0, "allocation_fraction": 1.0}
+    assert default["settings"]["initial_capital"] == 100000.0
+    assert default["settings"]["allocation_fraction"] == 1.0
+    assert default["settings"]["evaluate_from"] is None  # no warm-up boundary on a plain run
     custom = c.post(
         "/aegis/api/backtest",
         json={"strategy": strategy, "data": data, "settings": {"initial_capital": 50000}},

@@ -3,6 +3,7 @@
 export interface BacktestSettings {
   initial_capital?: number;
   allocation_fraction?: number;
+  evaluate_from?: string | null;
 }
 
 export interface ClockWindow {

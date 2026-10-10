@@ -38,6 +38,16 @@ class BacktestSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     initial_capital: float = Field(default=100_000, gt=0)
     allocation_fraction: float = Field(default=1.0, gt=0, le=1)
+    # Warm-up boundary (walk-forward): before it no entry is permitted and no equity point is
+    # reported, while indicators and warm-up proceed normally. Timezone-aware when set.
+    evaluate_from: datetime | None = None
+
+    @field_validator("evaluate_from")
+    @classmethod
+    def aware(cls, value):
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("evaluate_from must be timezone-aware")
+        return value
 
 
 class DataReference(BaseModel):
@@ -244,6 +254,10 @@ def _simulate_side(
                 position = None
             pending = None
 
+        evaluating = settings.evaluate_from is None or timestamp >= settings.evaluate_from
+        if not evaluating:
+            continue  # warm-up lead: indicators accumulate, nothing is counted or permitted
+
         if position is not None:
             sign = _side_sign(side)
             marked = (
@@ -315,7 +329,8 @@ def _simulate_side(
             }
         )
         cash = capital + net
-        curve[-1]["equity"] = float(cash)
+        if curve:
+            curve[-1]["equity"] = float(cash)
 
     return {
         "enabled": True,
