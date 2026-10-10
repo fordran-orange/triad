@@ -29,3 +29,5 @@ research/generated/
 research/experiments/
 
 backups/
+app/products/aegis/ui/node_modules/
+app/products/aegis/ui/dist/

@@ -3,7 +3,8 @@
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from trading_core.api import local_headers
 from trading_core.store import Store
 
@@ -14,9 +15,21 @@ app = FastAPI(title="Aegis human-directed product")
 app.middleware("http")(local_headers)
 
 
+UI_DIST = Path(__file__).parent / "ui" / "dist"
+UI_NOT_BUILT = (
+    "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+    "<title>Aegis</title></head><body style=\"background:#071018;color:#d8e5ef;"
+    "font:14px system-ui;padding:24px\"><p>Aegis workstation UI not built; run "
+    "<code>tools/build_aegis_ui.ps1</code> and reload.</p></body></html>"
+)
+
+
 @app.get("/aegis")
 def shell():
-    return FileResponse(Path(__file__).parent / "static/index.html")
+    index = UI_DIST / "index.html"
+    if index.is_file():
+        return FileResponse(index, media_type="text/html; charset=utf-8")
+    return HTMLResponse(UI_NOT_BUILT, media_type="text/html; charset=utf-8")
 
 
 @app.get("/health/live")
@@ -44,3 +57,8 @@ def strategy_default():
 @app.post("/aegis/api/backtest")
 def backtest(request: BacktestRequest):
     return run_backtest(request)
+
+
+# Static mount last so /aegis/api/* routes above win; html=True serves index.html at /aegis/.
+if UI_DIST.is_dir():
+    app.mount("/aegis", StaticFiles(directory=UI_DIST, html=True), name="aegis-ui")
