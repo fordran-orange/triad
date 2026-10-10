@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from './api/client';
 import { ChartPanel } from './components/ChartPanel';
 import { ResultsTabs } from './components/ResultsTabs';
+import { RunsDrawer } from './components/RunsDrawer';
 import { SideNav } from './components/SideNav';
 import { StatusStrip } from './components/StatusStrip';
 import { StrategyPanel } from './components/StrategyPanel';
@@ -11,6 +12,7 @@ import { useDispatch } from './state/workspace';
 export function App() {
   const dispatch = useDispatch();
   const [apiState, setApiState] = useState<string>('loading strategy contract…');
+  const [runsOpen, setRunsOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,7 +31,7 @@ export function App() {
 
   return (
     <div className="app">
-      <TopBar />
+      <TopBar runsOpen={runsOpen} onToggleRuns={() => setRunsOpen((v) => !v)} />
       <SideNav />
       <main className="main">
         <section className="workspace">
@@ -38,6 +40,7 @@ export function App() {
         </section>
         <ResultsTabs />
       </main>
+      <RunsDrawer open={runsOpen} onClose={() => setRunsOpen(false)} />
       <StatusStrip apiState={apiState} />
     </div>
   );

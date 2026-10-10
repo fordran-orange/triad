@@ -1,18 +1,13 @@
+import { Fragment } from 'react';
 import { DASH, money, num, pct } from '../format';
+import type { Breakdown, Metrics, ResultSide } from '../results';
 import { useWorkspace } from '../state/workspace';
 
-interface Metrics {
-  net_pnl?: number | null;
-  net_return?: number | null;
-  cagr?: number | null;
-  max_drawdown?: number | null;
-  mar?: number | null;
-  win_rate?: number | null;
-  expectancy?: number | null;
-  profit_factor?: number | null;
-  trade_count?: number | null;
-  exposure?: number | null;
-}
+const SIDES: Array<[ResultSide, string]> = [
+  ['long', 'Long'],
+  ['short', 'Short'],
+  ['combined', 'Combined'],
+];
 
 const ROWS: Array<[keyof Metrics, string, (v: number | null | undefined) => string]> = [
   ['net_pnl', 'Net P&L', money],
@@ -27,29 +22,44 @@ const ROWS: Array<[keyof Metrics, string, (v: number | null | undefined) => stri
   ['exposure', 'Exposure', pct],
 ];
 
-/** Pulls per-side metrics out of a run envelope; absent until the backtest phase connects. */
-function metricsOf(run: unknown, side: 'long' | 'short' | 'combined'): Metrics | null {
-  const r = run as { result?: Record<string, { metrics?: Metrics }> } | null;
-  return r?.result?.[side]?.metrics ?? null;
+export interface BreakdownRow {
+  tag: string;
+  long?: Breakdown;
+  short?: Breakdown;
+  combined?: Breakdown;
+}
+
+/** One row per temporal tag any side produced: ALL first, then the tags in sorted order. */
+export function breakdownRows(temporal: Record<ResultSide, Record<string, Breakdown>>): BreakdownRow[] {
+  const tags = new Set<string>();
+  for (const side of SIDES) for (const tag of Object.keys(temporal[side[0]] ?? {})) tags.add(tag);
+  const ordered = [...tags].filter((t) => t !== 'ALL').sort();
+  if (tags.has('ALL')) ordered.unshift('ALL');
+  return ordered.map((tag) => ({
+    tag,
+    long: temporal.long?.[tag],
+    short: temporal.short?.[tag],
+    combined: temporal.combined?.[tag],
+  }));
 }
 
 export function SummaryTab() {
   const { lastRun } = useWorkspace();
-  const sides: Array<['long' | 'short' | 'combined', string]> = [
-    ['long', 'Long'],
-    ['short', 'Short'],
-    ['combined', 'Combined'],
-  ];
+  const result = lastRun?.result ?? null;
+  const rows = result ? breakdownRows(result.temporal) : [];
   return (
     <div className="result-body single">
       <div className="results-table">
-        {!lastRun && <div className="empty-state">No backtest run yet — run one from the top bar once the backtest service is connected.</div>}
-        <table>
+        {!result && <div className="empty-state">No backtest run yet — press Run Backtest in the top bar.</div>}
+        <table id="summary-metrics">
           <thead>
             <tr>
               <th>Metric</th>
-              {sides.map(([, label]) => (
-                <th key={label}>{label}</th>
+              {SIDES.map(([side, label]) => (
+                <th key={side}>
+                  {label}
+                  {result && side !== 'combined' && !result[side].enabled && <span className="muted"> (disabled)</span>}
+                </th>
               ))}
             </tr>
           </thead>
@@ -57,14 +67,69 @@ export function SummaryTab() {
             {ROWS.map(([key, label, format]) => (
               <tr key={key}>
                 <td>{label}</td>
-                {sides.map(([side]) => {
-                  const m = metricsOf(lastRun, side);
+                {SIDES.map(([side]) => {
+                  const m = result?.[side].metrics;
                   return <td key={side}>{m ? format(m[key]) : DASH}</td>;
                 })}
               </tr>
             ))}
           </tbody>
         </table>
+        {result && (
+          <>
+            <div className="section-label" style={{ marginTop: 14 }}>
+              Temporal breakdown <span className="muted">(ANALYZE tags on trades; a trade counts under every tag it carries)</span>
+            </div>
+            <table id="temporal-breakdown" className="breakdown small">
+              <thead>
+                <tr>
+                  <th />
+                  {SIDES.map(([side, label]) => (
+                    <th key={side} className="group" colSpan={4}>
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+                <tr>
+                  <th>Tag</th>
+                  {SIDES.map(([side]) => (
+                    <Fragment key={side}>
+                      <th>Trades</th>
+                      <th>Net P&L</th>
+                      <th>Win rate</th>
+                      <th>Expectancy</th>
+                    </Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={13} className="muted">
+                      No trades, so no breakdown.
+                    </td>
+                  </tr>
+                )}
+                {rows.map((row) => (
+                  <tr key={row.tag}>
+                    <td className="mono">{row.tag}</td>
+                    {SIDES.map(([side]) => {
+                      const b = row[side];
+                      return (
+                        <Fragment key={side}>
+                          <td>{b ? num(b.trades, 0) : DASH}</td>
+                          <td className={b ? (b.net_pnl >= 0 ? 'green' : 'red') : ''}>{b ? money(b.net_pnl) : DASH}</td>
+                          <td>{b ? pct(b.win_rate) : DASH}</td>
+                          <td>{b ? money(b.expectancy) : DASH}</td>
+                        </Fragment>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
       </div>
     </div>
   );

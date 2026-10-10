@@ -98,3 +98,17 @@ th{font-size:10px;text-transform:uppercase;color:#607b90}th:first-child,td:first
 .small{font-size:10px}.accent{color:var(--blue)}.green{color:var(--green)}.red{color:var(--red)}.muted{color:var(--muted)}
 .mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 .error{color:var(--red);font-size:11px;padding:4px 0}
+
+/* Task 10: run flow, saved runs drawer, result chips */
+.btn.active{outline:1px solid #2da7ff}
+.badge.error{background:#3a1416;color:#ff8a90;border:1px solid #6b1f24}
+.error{color:#ff8a90}
+.notice{padding:8px 10px;border-radius:4px;margin:8px 0;font-size:12px}
+.notice.warn{background:#3a2a12;color:#f5bd51;border:1px solid #6b4d17}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:420px;max-width:90vw;background:#0d1a27;border-left:1px solid #1e2f40;z-index:30;overflow:auto;padding:12px 14px;box-shadow:-8px 0 24px #0008}
+.drawer-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;font-size:14px}
+.run-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 6px;border-bottom:1px solid #152536;font-size:12px}
+.run-row.current{background:#12243a}
+.chip{font:inherit;font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid #1e2f40;background:#0f1d2b;color:#9db1bf;cursor:pointer}
+.chip.active{background:#1a3350;color:#dfe9f2;border-color:#2da7ff}
+.breakdown th.group{text-align:center;border-bottom:none;color:#7f9fb2}

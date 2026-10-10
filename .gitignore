@@ -31,3 +31,6 @@ research/experiments/
 backups/
 app/products/aegis/ui/node_modules/
 app/products/aegis/ui/dist/
+
+# Aegis persisted runs and optimizations (JsonRunRepository)
+data/aegis/

@@ -2,14 +2,9 @@ import { CHART_LIBRARY, VELA_NOTICE } from '../about';
 import { DASH, money, num, pct, shortHash } from '../format';
 import { useWorkspace } from '../state/workspace';
 
-function combinedMetrics(run: unknown) {
-  const r = run as { result?: { combined?: { metrics?: Record<string, number | null> } } } | null;
-  return r?.result?.combined?.metrics ?? null;
-}
-
 export function StatusStrip({ apiState }: { apiState: string }) {
-  const { selection, strategy, lastRun } = useWorkspace();
-  const m = combinedMetrics(lastRun);
+  const { selection, strategy, lastRun, running, runError } = useWorkspace();
+  const m = lastRun?.result.combined.metrics ?? null;
   return (
     <div className="status-strip">
       <span>
@@ -34,7 +29,23 @@ export function StatusStrip({ apiState }: { apiState: string }) {
         Exposure <b>{m ? pct(m.exposure) : DASH}</b>
       </span>
       <span className="mono" title="SHA-256 of the canonical result payload">
-        hash <b>{shortHash(lastRun?.result_hash)}</b>
+        hash <b id="result-hash">{shortHash(lastRun?.result_hash)}</b>
+      </span>
+      <span id="run-state">
+        {running && <span className="badge">running backtest…</span>}
+        {!running && runError && (
+          <span className="badge error" title={runError}>
+            run failed: {runError}
+          </span>
+        )}
+        {!running && !runError && lastRun?.state === 'source_unavailable' && (
+          <span className="badge raw" title={lastRun.state_detail ?? 'pinned archive unavailable'}>
+            SOURCE UNAVAILABLE
+          </span>
+        )}
+        {!running && !runError && lastRun?.state === 'ok' && (
+          <span className="muted">run {lastRun.run_id.slice(0, 8)} · {lastRun.elapsed_ms} ms</span>
+        )}
       </span>
       <span className="about">
         <span id="api-state">{apiState}</span>

@@ -70,4 +70,42 @@ describe('workspace reducer', () => {
     expect(next.selection.timeframe).toBe('1m');
     expect(next.selection.symbol).toBe('QQQ');
   });
+
+  it('SET_WINDOW_MODE changes one clock window and refuses modify_risk', () => {
+    const base = strategy();
+    const windows = [
+      { id: 'open', label: 'Opening', start: '09:30', end: '10:00', mode: 'analyze' as const },
+      { id: 'close', label: 'Closing', start: '15:30', end: '16:00', mode: 'analyze' as const },
+    ];
+    let state = reducer(initialState, { type: 'SET_STRATEGY', strategy: { ...base, temporal: { ...base.temporal, clock_windows: windows } } });
+    state = reducer(state, { type: 'SET_WINDOW_MODE', id: 'open', mode: 'block' });
+    expect(state.strategy!.temporal.clock_windows.map((w) => w.mode)).toEqual(['block', 'analyze']);
+    state = reducer(state, { type: 'SET_WINDOW_MODE', id: 'open', mode: 'modify_risk' });
+    expect(state.strategy!.temporal.clock_windows[0].mode).toBe('block');
+  });
+
+  it('SET_EXECUTION and SET_SETTINGS update the numbers a run posts', () => {
+    let state = reducer(withStrategy(), { type: 'SET_EXECUTION', field: 'commission_per_side', value: 1.5 });
+    expect(state.strategy!.execution.commission_per_side).toBe(1.5);
+    state = reducer(state, { type: 'SET_SETTINGS', settings: { initial_capital: 50_000 } });
+    expect(state.settings).toEqual({ initial_capital: 50_000, allocation_fraction: 1 });
+  });
+
+  it('LOAD_RUN restores selection, strategy and the run, keeping its state', () => {
+    const loaded = strategy();
+    const run = {
+      run_id: 'r2',
+      result_hash: 'def',
+      state: 'source_unavailable',
+      state_detail: 'pinned archive sha256 mismatch',
+      strategy: loaded,
+      data: { symbol: 'SPY', timeframe: '15m', start: '2024-01-02', end: '2024-03-01' },
+    } as unknown as RunRecord;
+    const state = reducer(reducer(initialState, { type: 'RUN_STARTED' }), { type: 'LOAD_RUN', run });
+    expect(state.selection).toEqual({ symbol: 'SPY', timeframe: '15m', start: '2024-01-02', end: '2024-03-01' });
+    expect(state.strategy).toBe(loaded);
+    expect(state.lastRun?.state).toBe('source_unavailable');
+    expect(state.running).toBe(false);
+    expect(state.runError).toBeNull();
+  });
 });

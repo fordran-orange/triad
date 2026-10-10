@@ -1,30 +1,32 @@
-import { money, num, timeLabel } from '../format';
+import { useState } from 'react';
+import { DASH, money, num, timeLabel } from '../format';
+import type { ResultSide, Trade } from '../results';
 import { useWorkspace } from '../state/workspace';
 
-interface Trade {
-  side: string;
-  signal_time: string;
-  entry_time: string;
-  entry_price: number;
-  exit_time: string;
-  exit_price: number;
-  quantity: number;
-  net_pnl: number;
-  temporal_tags?: string[];
-}
-
-function tradesOf(run: unknown): Trade[] {
-  const r = run as { result?: { combined?: { trades?: Trade[] } } } | null;
-  return r?.result?.combined?.trades ?? [];
-}
+const FILTERS: Array<[ResultSide, string]> = [
+  ['combined', 'All'],
+  ['long', 'Long'],
+  ['short', 'Short'],
+];
 
 export function TradesTab() {
   const { lastRun } = useWorkspace();
-  const trades = tradesOf(lastRun);
+  const [filter, setFilter] = useState<ResultSide>('combined');
+  const result = lastRun?.result;
+  const trades: Trade[] = result ? result[filter].trades : [];
   return (
     <div className="result-body single">
       <div className="results-table">
-        {trades.length === 0 && <div className="empty-state">{lastRun ? 'The last run produced no trades.' : 'No trades — no backtest has been run.'}</div>}
+        {result && (
+          <div className="legend">
+            {FILTERS.map(([side, label]) => (
+              <button key={side} type="button" className={'chip' + (filter === side ? ' active' : '')} onClick={() => setFilter(side)}>
+                {label} ({result[side].trades.length})
+              </button>
+            ))}
+          </div>
+        )}
+        {trades.length === 0 && <div className="empty-state">{result ? 'No trades on this side for the last run.' : 'No trades — no backtest has been run.'}</div>}
         {trades.length > 0 && (
           <table>
             <thead>
@@ -37,12 +39,13 @@ export function TradesTab() {
                 <th>Exit px</th>
                 <th>Qty</th>
                 <th>Net P&L</th>
+                <th>Return</th>
                 <th>Tags</th>
               </tr>
             </thead>
             <tbody>
-              {trades.map((t, i) => (
-                <tr key={i}>
+              {trades.map((t) => (
+                <tr key={`${t.side}-${t.entry_time}-${t.exit_time}`}>
                   <td className={t.side === 'LONG' ? 'green' : 'red'}>{t.side}</td>
                   <td>{timeLabel(t.signal_time)}</td>
                   <td>{timeLabel(t.entry_time)}</td>
@@ -51,7 +54,8 @@ export function TradesTab() {
                   <td>{num(t.exit_price)}</td>
                   <td>{num(t.quantity, 0)}</td>
                   <td className={t.net_pnl >= 0 ? 'green' : 'red'}>{money(t.net_pnl)}</td>
-                  <td className="small">{(t.temporal_tags ?? []).join(' ') || '—'}</td>
+                  <td>{(t.return * 100).toFixed(2)}%</td>
+                  <td className="small">{t.temporal_tags.join(' ') || DASH}</td>
                 </tr>
               ))}
             </tbody>

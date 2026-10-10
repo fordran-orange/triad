@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, api, type Provenance } from '../api/client';
+import { api, errorMessage } from '../api/client';
 import { createChartAdapter, type ChartAdapter, type CrosshairPoint, type Marker } from '../chart/adapter';
 import { syncChart } from '../chart/sync';
 import { num } from '../format';
+import type { Provenance } from '../results';
 import { useDispatch, useWorkspace } from '../state/workspace';
 import { sideIndicators } from './StrategyPanel';
 
@@ -27,7 +28,8 @@ export function ChartPanel() {
 
   const indicators = strategy ? sideIndicators(strategy, 'long_side') : [];
   const indicatorKey = indicators.map((i) => `${i.id}:${i.kind}:${i.length}:${i.source ?? 'close'}`).join('|');
-  const markers = ((lastRun as { markers?: Marker[] } | null)?.markers ?? []) as Marker[];
+  const markers: Marker[] = lastRun?.markers ?? [];
+  const pinnedVintage = lastRun?.data.vintage;
 
   // Mount the chart backend once; the adapter owns the library from here on.
   useEffect(() => {
@@ -75,7 +77,7 @@ export function ChartPanel() {
         if (cancelled) return;
         adapter.clear(); // never leave a previous selection's candles under a header that names the new one
         setLoaded(null);
-        setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+        setError(errorMessage(e));
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {
@@ -116,6 +118,11 @@ export function ChartPanel() {
           <div className="instrument">
             {selection.symbol} · {selection.timeframe} <span className="badge raw">RAW ARCHIVE · NOT RESEARCH-ELIGIBLE</span>
             {loaded && <span className="badge" title={`archive ${loaded.data.vintage}`}>vintage {loaded.data.vintage}</span>}
+            {loaded && pinnedVintage && pinnedVintage !== loaded.data.vintage && (
+              <span className="badge raw" title={lastRun?.state_detail ?? `the last run is pinned to vintage ${pinnedVintage}`}>
+                RUN PINNED TO VINTAGE {pinnedVintage} · CHART SHOWS CURRENT ARCHIVE
+              </span>
+            )}
           </div>
           <div className="ohlc">
             {cursor?.price != null ? (

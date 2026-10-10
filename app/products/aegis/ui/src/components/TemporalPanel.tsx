@@ -1,10 +1,11 @@
 import type { WindowMode } from '../contracts';
-import { useWorkspace } from '../state/workspace';
+import { useDispatch, useWorkspace } from '../state/workspace';
 
 const MODES: WindowMode[] = ['analyze', 'allow', 'block'];
 
 export function TemporalPanel() {
   const { strategy } = useWorkspace();
+  const dispatch = useDispatch();
   const t = strategy?.temporal;
   return (
     <div className="panel-section">
@@ -16,7 +17,12 @@ export function TemporalPanel() {
           <span className="badge">
             {w.start}–{w.end}
           </span>
-          <select value={w.mode ?? 'analyze'} disabled title="Window mode editing connects in the backtest phase" aria-label={`${w.label} mode`}>
+          <select
+            value={w.mode ?? 'analyze'}
+            aria-label={`${w.label} mode`}
+            title="BLOCK wins over ALLOW; ANALYZE only tags trades"
+            onChange={(e) => dispatch({ type: 'SET_WINDOW_MODE', id: w.id, mode: e.target.value as WindowMode })}
+          >
             {MODES.map((m) => (
               <option key={m} value={m}>
                 {m.toUpperCase()}
@@ -31,8 +37,12 @@ export function TemporalPanel() {
       {t?.market_crossovers.map((c) => (
         <div className="window" key={c.id}>
           <span>{c.label}</span>
-          <span className="badge">session</span>
-          <span className="badge">{c.enabled ? 'ANALYZE' : 'OFF'}</span>
+          <span className="badge">
+            {c.start}–{c.end}
+          </span>
+          <span className="badge" title="Clock-derived session overlap; tags trades, never gates them">
+            {c.enabled ? (c.mode ?? 'analyze').toUpperCase() : 'OFF'}
+          </span>
         </div>
       ))}
       {t?.event_windows.map((e) => (

@@ -1,6 +1,9 @@
 // Thin typed fetch wrappers for the Aegis worker routes (spec §7). Same-origin under /aegis/api.
-import type { BacktestRequest, StrategySpec } from '../contracts';
-import type { JobRecord, RunRecord, Selection, Side } from '../state/workspace';
+import type { IndicatorSpec, StrategySpec } from '../contracts';
+import type { Provenance, RunEnvelope, RunSummary } from '../results';
+import type { JobRecord, Selection, Settings, Side } from '../state/workspace';
+
+export type { Provenance } from '../results';
 
 const BASE = '/aegis/api';
 
@@ -8,6 +11,12 @@ export class ApiError extends Error {
   constructor(public status: number, public detail: string) {
     super(detail);
   }
+}
+
+/** One line for the UI: the HTTP status and the worker's detail, or the transport error. */
+export function errorMessage(error: unknown): string {
+  if (error instanceof ApiError) return `${error.status}: ${error.detail}`;
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -38,14 +47,6 @@ export interface Bar {
   volume: number;
 }
 
-export interface Provenance {
-  source: 'raw_archive';
-  symbol: string;
-  vintage: string;
-  research_eligible: false;
-  [key: string]: unknown;
-}
-
 export interface SymbolInfo {
   symbol: string;
   vintage: string;
@@ -68,25 +69,27 @@ export interface BarsResponse {
   data: Provenance;
 }
 
-export interface IndicatorSeries {
-  [indicatorId: string]: Array<number | null>;
+export interface IndicatorsResponse {
+  times: number[];
+  series: Record<string, Array<number | null>>;
+  data: Provenance;
 }
 
 export const api = {
   status: () => request<{ product: string; mode: string; status: string; exchange: string }>('/status'),
   defaultStrategy: () => request<StrategySpec>('/strategy/default'),
-  symbols: () => request<SymbolInfo[]>('/data/symbols'),
+  symbols: () => request<{ timeframes: string[]; symbols: SymbolInfo[] }>('/data/symbols'),
   bars: (s: Selection) =>
     request<BarsResponse>(`/data/bars?symbol=${encodeURIComponent(s.symbol)}&timeframe=${s.timeframe}&start=${s.start}&end=${s.end}`),
-  indicators: (s: Selection, indicators: unknown[]) =>
-    request<{ series: IndicatorSeries; times: number[] }>('/indicators', {
+  indicators: (s: Selection, indicators: IndicatorSpec[]) =>
+    request<IndicatorsResponse>('/indicators', {
       method: 'POST',
       body: JSON.stringify({ symbol: s.symbol, timeframe: s.timeframe, start: s.start, end: s.end, indicators }),
     }),
-  backtest: (body: Partial<BacktestRequest> & { data?: Selection }) =>
-    request<RunRecord>('/backtest', { method: 'POST', body: JSON.stringify(body) }),
-  runs: () => request<RunRecord[]>('/runs'),
-  run: (id: string) => request<RunRecord>(`/runs/${encodeURIComponent(id)}`),
+  backtest: (body: { strategy: StrategySpec; data: Selection; settings: Settings }) =>
+    request<RunEnvelope>('/backtest', { method: 'POST', body: JSON.stringify(body) }),
+  runs: () => request<RunSummary[]>('/runs'),
+  run: (id: string) => request<RunEnvelope>(`/runs/${encodeURIComponent(id)}`),
   optimize: (body: { strategy: StrategySpec; side: Side; data: Selection; settings?: unknown; objective: string }) =>
     request<{ job_id: string; total_cells: number; skipped_cells: number; estimated_seconds: number }>('/optimize', {
       method: 'POST',

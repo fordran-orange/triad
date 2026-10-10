@@ -180,3 +180,38 @@ def test_runs_list_and_get(client):
     fetched = c.get(f"/aegis/api/runs/{run['run_id']}").json()
     assert fetched["state"] == "ok" and fetched["result"] == run["result"]
     assert c.get("/aegis/api/runs/does-not-exist").status_code == 404
+
+
+def test_reload_with_changed_file_hash_is_source_unavailable(client, tmp_path):
+    c, _, _ = client
+    strategy = default_strategy().model_dump(mode="json")
+    run = c.post(
+        "/aegis/api/backtest",
+        json={"strategy": strategy, "data": {"symbol": "QQQ", "timeframe": "15m", **RANGE}},
+    ).json()
+    assert run["state"] == "ok"
+    # Same vintage, same path, different bytes: the pinned sha256 no longer matches.
+    write_archive(tmp_path, "20260301T000000000000Z", "QQQ", price=101.0)
+    reloaded = c.get(f"/aegis/api/runs/{run['run_id']}")
+    assert reloaded.status_code == 200
+    body = reloaded.json()
+    assert body["state"] == "source_unavailable"
+    assert "sha256 mismatch" in body["state_detail"]
+    # The envelope is still returned in full; nothing falls forward to the new bytes.
+    assert body["result_hash"] == run["result_hash"] and body["result"] == run["result"]
+    assert body["data"]["sha256"] == run["data"]["sha256"]
+
+
+def test_backtest_hash_stable_across_two_requests(client, tmp_path):
+    c, _, _ = client
+    strategy = default_strategy().model_dump(mode="json")
+    payload = {"strategy": strategy, "data": {"symbol": "QQQ", "timeframe": "15m", **RANGE}}
+    first = c.post("/aegis/api/backtest", json=payload).json()
+    # A cold store (fresh discovery, empty frame cache) must reproduce the same canonical result.
+    server.app.dependency_overrides[api.get_store] = lambda: ArchiveStore(tmp_path)
+    second = c.post("/aegis/api/backtest", json=payload).json()
+    assert first["result_hash"] == second["result_hash"]
+    assert first["result"] == second["result"]
+    assert first["run_id"] != second["run_id"]
+    assert first["data"]["sha256"] == second["data"]["sha256"]
+    assert first["data"]["data_hash"] == second["data"]["data_hash"]
