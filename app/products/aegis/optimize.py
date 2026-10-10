@@ -1,25 +1,16 @@
-"""Per-side grid optimizer (spec §2b.9, §7).
+"""Per-side grid optimizer (spec §2b.9, §7): grid expansion, heatmap, and the optimizer job kind.
 
 One side at a time: the grid is the cartesian product of that side's enabled optimization
 parameters; cells whose entry-rule fast length is not below the slow length are skipped and
-reported. Cells run on a single dedicated worker thread (one job at a time), results are
-appended progressively under a lock, cancel is cooperative between cells, and every job is
-persisted through the RunRepository from the moment it starts (queued → running after each
-cell → done / cancelled / failed), so a worker restart can mark what it interrupted as `lost`.
-The per-bar cell cost is learned from completed jobs, never asserted. No process pools, no
-vectorized rewrite.
+reported. Cells run as units of a `JobRunner` job (`jobs.py`): one worker thread, progressive
+results, cooperative cancel, persistence from start, `lost` on restart, learned per-bar cost.
+No process pools, no vectorized rewrite.
 """
 
 from __future__ import annotations
 
-import logging
 import math
-import threading
-import time
-import uuid
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import pandas as pd
@@ -27,24 +18,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from products.aegis.backtest import BacktestRequest, BacktestSettings, DataReference, run_backtest
 from products.aegis.indicators import IndicatorCache
+from products.aegis.jobs import MS_PER_BAR, UNFINISHED, JobBusy, JobRunner, estimate_seconds
 from products.aegis.runs import RunRepository
 from products.aegis.strategy import StrategySide, StrategySpec, apply_parameters
 
 MAX_CELLS = 400
 OBJECTIVES = ("net_pnl", "mar", "max_drawdown", "trade_count")
-# Starting guess for the per-bar cell cost until a job has been observed on this host; the
-# runner replaces it with the measured figure of the last completed job (persisted with it).
-MS_PER_BAR = 0.7
-UNFINISHED = ("queued", "running")
-log = logging.getLogger("aegis")
 
 Side = Literal["long", "short"]
 Objective = Literal["net_pnl", "mar", "max_drawdown", "trade_count"]
 SIDE_KEY = {"long": "long_side", "short": "short_side"}
-
-
-class JobBusy(RuntimeError):
-    """Another optimization is still queued or running; one job at a time (spec §7)."""
 
 
 class OptimizeRequest(BaseModel):
@@ -108,10 +91,6 @@ def expand_grid(side: StrategySide) -> GridPlan:
     )
 
 
-def estimate_seconds(cells: int, bars: int, ms_per_bar: float = MS_PER_BAR) -> float:
-    return cells * bars * ms_per_bar / 1000.0
-
-
 def heatmap(
     cells: list[dict], fast_values: list[float], slow_values: list[float], metric: str
 ) -> list[list[float | None]]:
@@ -143,234 +122,108 @@ def engine_rows(frame: pd.DataFrame, symbol: str) -> list[dict]:
     return rows
 
 
-@dataclass
-class _Job:
-    job_id: str
-    request: OptimizeRequest
-    plan: GridPlan
-    rows: list[dict]
-    data: dict
-    created_at: str
-    status: str = "queued"
-    cells: list[dict] = field(default_factory=list)
-    started: float | None = None
-    elapsed_ms: int = 0
-    cache_hits: int = 0
-    ms_per_bar: float | None = None
-    error: str | None = None
-    cancel: threading.Event = field(default_factory=threading.Event)
+def provenance(pinned: Any) -> dict:
+    return pinned.model_dump(mode="json") if hasattr(pinned, "model_dump") else dict(pinned)
 
 
-class OptimizerRunner:
-    """Runs one optimization at a time on a dedicated thread and answers progress snapshots."""
+class OptimizerJob:
+    """One grid optimization as a job kind: a unit is one cell; the other side is disabled."""
 
-    def __init__(self, repository: RunRepository, max_workers: int = 1, after_cell=None):
-        self._repository = repository
-        self._executor = ThreadPoolExecutor(
-            max_workers=max_workers, thread_name_prefix="aegis-optimizer"
-        )
-        self._lock = threading.Lock()
-        self._jobs: dict[str, _Job] = {}
-        self._after_cell = after_cell  # test hook: called with the completed-cell count
-        self.ms_per_bar = self._learned_ms_per_bar()
+    name = "optimization"
 
-    def _learned_ms_per_bar(self) -> float:
-        """The last completed job's measured cost on this host, or the starting guess."""
-        try:
-            for summary in self._repository.list_optimizations():  # newest first
-                value = summary.get("ms_per_bar")
-                if isinstance(value, int | float) and value > 0:
-                    return float(value)
-        except Exception as exc:  # noqa: BLE001 - a broken history must not stop the worker from starting
-            log.warning("optimizer history unreadable, using the default cost: %s", exc)
-        return MS_PER_BAR
-
-    def start(self, request: OptimizeRequest, frame: pd.DataFrame, pinned: Any) -> str:
-        side_spec: StrategySide = getattr(request.strategy, SIDE_KEY[request.side])
-        plan = expand_grid(side_spec)
-        data = pinned.model_dump(mode="json") if hasattr(pinned, "model_dump") else dict(pinned)
-        job = _Job(
-            job_id=str(uuid.uuid4()),
-            request=request,
-            plan=plan,
-            rows=engine_rows(frame, request.data.symbol),
-            data=data,
-            created_at=datetime.now(UTC).isoformat(),
-        )
-        with self._lock:
-            running = [j for j in self._jobs.values() if j.status in UNFINISHED]
-            if running:
-                raise JobBusy(running[0].job_id)
-            self._jobs[job.job_id] = job
-            envelope = self._snapshot(job)
-        try:
-            self._repository.save_optimization(envelope)  # queued: visible and markable as lost
-        except Exception:
-            with self._lock:
-                self._jobs.pop(job.job_id, None)
-            raise
-        self._executor.submit(self._run, job)
-        return job.job_id
-
-    def _run(self, job: _Job) -> None:
-        request = job.request
-        side_key, other_key = (
-            SIDE_KEY[request.side],
-            SIDE_KEY["short" if request.side == "long" else "long"],
-        )
-        base_side: StrategySide = getattr(request.strategy, side_key)
-        other_side: StrategySide = getattr(request.strategy, other_key).model_copy(
+    def __init__(self, request: OptimizeRequest, frame: pd.DataFrame, pinned: Any):
+        self.request = request
+        self.side = request.side
+        self.plan = expand_grid(getattr(request.strategy, SIDE_KEY[request.side]))
+        self.rows = engine_rows(frame, request.data.symbol)
+        self.data = provenance(pinned)
+        self.bars_per_unit = len(self.rows)
+        self.total_units = len(self.plan.cells)
+        self.cells: list[dict] = []
+        self.cache = IndicatorCache()
+        self.cache_hits = 0
+        self._side_key = SIDE_KEY[request.side]
+        self._other_key = SIDE_KEY["short" if request.side == "long" else "long"]
+        self._base_side: StrategySide = getattr(request.strategy, self._side_key)
+        self._other_side: StrategySide = getattr(request.strategy, self._other_key).model_copy(
             update={"enabled": False}
         )
-        cache = IndicatorCache()
-        with self._lock:
-            job.status = "running"
-            job.started = time.perf_counter()
-        final, error = "done", None
-        try:
-            for params in job.plan.cells:
-                if job.cancel.is_set():
-                    break
-                strategy = request.strategy.model_copy(
-                    update={side_key: apply_parameters(base_side, params), other_key: other_side}
-                )
-                result = run_backtest(
-                    BacktestRequest(strategy=strategy, bars=job.rows, settings=request.settings),
-                    cache=cache,
-                )
-                cell = {
-                    "params": params,
-                    "fast": params.get(job.plan.fast_path),
-                    "slow": params.get(job.plan.slow_path),
-                    "metrics": result[request.side]["metrics"],
-                }
-                with self._lock:
-                    job.cells.append(cell)
-                    job.cache_hits = cache.hits
-                    job.elapsed_ms = int((time.perf_counter() - job.started) * 1000)
-                    job.ms_per_bar = self._observed_ms_per_bar(job)
-                    envelope = self._snapshot(job)
-                self._repository.save_optimization(envelope)  # progress survives a worker death
-                if self._after_cell is not None:
-                    self._after_cell(len(job.cells))
-            if job.cancel.is_set():
-                final = "cancelled"
-        except Exception as exc:  # noqa: BLE001 - a failing cell or save must fail the job visibly, never kill the thread
-            final, error = "failed", f"{type(exc).__name__}: {exc}"
-        # Persist first, then publish the terminal status: a client that sees `done` can reload it.
-        try:
-            with self._lock:
-                job.elapsed_ms = int((time.perf_counter() - job.started) * 1000)
-                job.ms_per_bar = self._observed_ms_per_bar(job)
-                if error:
-                    job.error = error
-                envelope = {**self._snapshot(job), "status": final, "elapsed_ms": job.elapsed_ms}
-            self._repository.save_optimization(envelope)
-            if final == "done" and job.ms_per_bar:
-                self.ms_per_bar = job.ms_per_bar
-        except Exception as exc:  # noqa: BLE001 - same reason: the runner must come back free
-            final = "failed"
-            with self._lock:
-                job.error = job.error or f"{type(exc).__name__}: {exc}"
-        finally:
-            with self._lock:
-                job.status = final
 
-    @staticmethod
-    def _observed_ms_per_bar(job: _Job) -> float | None:
-        """Caller holds the lock."""
-        done = len(job.cells)
-        if done == 0 or job.started is None or not job.rows:
-            return None
-        elapsed_ms = (time.perf_counter() - job.started) * 1000
-        return round(elapsed_ms / (done * len(job.rows)), 4)
-
-    def _snapshot(self, job: _Job) -> dict:
-        """Caller holds the lock. Lists are copied so the caller can release it immediately."""
-        plan, request = job.plan, job.request
-        cells = list(job.cells)
-        done, total = len(cells), len(plan.cells)
-        if job.status == "running" and job.started is not None:
-            elapsed_ms = int((time.perf_counter() - job.started) * 1000)
-        else:
-            elapsed_ms = job.elapsed_ms
-        remaining = total - done
-        if done > 0 and elapsed_ms > 0:
-            estimated = remaining * (elapsed_ms / done) / 1000.0
-        else:
-            estimated = estimate_seconds(remaining, len(job.rows), self.ms_per_bar)
-        side = request.side
+    def run_unit(self, index: int) -> dict:
+        params = self.plan.cells[index]
+        strategy = self.request.strategy.model_copy(
+            update={
+                self._side_key: apply_parameters(self._base_side, params),
+                self._other_key: self._other_side,
+            }
+        )
+        result = run_backtest(
+            BacktestRequest(strategy=strategy, bars=self.rows, settings=self.request.settings),
+            cache=self.cache,
+        )
         return {
-            "job_id": job.job_id,
-            "status": job.status,
-            "side": side,
-            "objective": request.objective,
-            "created_at": job.created_at,
-            "progress": {"done": done, "total": total},
-            "total_cells": total,
+            "params": params,
+            "fast": params.get(self.plan.fast_path),
+            "slow": params.get(self.plan.slow_path),
+            "metrics": result[self.side]["metrics"],
+        }
+
+    def commit(self, index: int, cell: dict) -> None:
+        self.cells.append(cell)
+        self.cache_hits = self.cache.hits
+
+    def snapshot(self) -> dict:
+        plan, cells = self.plan, list(self.cells)
+        return {
+            "objective": self.request.objective,
+            "total_cells": len(plan.cells),
             "skipped_cells": len(plan.skipped),
             "skipped": list(plan.skipped),
-            "elapsed_ms": elapsed_ms,
-            "estimated_seconds": round(estimated, 3),
-            "ms_per_bar": job.ms_per_bar,
             "cells": cells,
             "matrices": {
-                metric: {side: heatmap(cells, plan.fast_values, plan.slow_values, metric)}
+                metric: {self.side: heatmap(cells, plan.fast_values, plan.slow_values, metric)}
                 for metric in OBJECTIVES
             },
             "fast_values": list(plan.fast_values),
             "slow_values": list(plan.slow_values),
             "fast_path": plan.fast_path,
             "slow_path": plan.slow_path,
-            "bars": len(job.rows),
-            "cache_hits": job.cache_hits,
-            "data": job.data,
-            "strategy": request.strategy.model_dump(mode="json"),
-            "settings": request.settings.model_dump(mode="json"),
-            "error": job.error,
+            "cache_hits": self.cache_hits,
+            "data": self.data,
+            "strategy": self.request.strategy.model_dump(mode="json"),
+            "settings": self.request.settings.model_dump(mode="json"),
         }
 
-    def status(self, job_id: str) -> dict:
-        with self._lock:
-            job = self._jobs.get(job_id)
-            if job is not None:
-                return self._snapshot(job)
-        return self._repository.get_optimization(job_id)  # KeyError for unknown ids
+    def finalize(self, status: str) -> dict:
+        return {}
 
-    def cancel(self, job_id: str) -> bool:
-        with self._lock:
-            job = self._jobs.get(job_id)
-            if job is None or job.status not in UNFINISHED or job.cancel.is_set():
-                return False
-            job.cancel.set()
-            return True
 
-    def mark_lost_on_startup(self) -> list[str]:
-        """Persisted jobs still queued/running belong to a dead worker: mark them lost."""
-        lost = []
-        for summary in self._repository.list_optimizations():
-            if summary.get("status") in UNFINISHED:
-                envelope = self._repository.get_optimization(summary["job_id"])
-                envelope["status"] = "lost"
-                self._repository.save_optimization(envelope)
-                lost.append(summary["job_id"])
-        return lost
+class OptimizerRunner(JobRunner):
+    """The Mission 3 entry point, kept for the optimizer tests and the API dependency override:
+    `start()` accepts either an optimizer request triple or any job kind."""
 
-    def list_jobs(self) -> list[dict]:
-        """Every persisted job, unfinished ones included (they are persisted from start)."""
-        return self._repository.list_optimizations()
+    def __init__(self, repository: RunRepository, max_workers: int = 1, after_cell=None):
+        super().__init__(repository, max_workers=max_workers, after_unit=after_cell)
+
+    def start(self, kind_or_request, frame: pd.DataFrame | None = None, pinned: Any = None) -> str:
+        if isinstance(kind_or_request, OptimizeRequest):
+            return super().start(OptimizerJob(kind_or_request, frame, pinned))
+        return super().start(kind_or_request)
 
 
 __all__ = [
     "MAX_CELLS",
     "MS_PER_BAR",
     "OBJECTIVES",
+    "UNFINISHED",
     "GridPlan",
     "JobBusy",
     "OptimizeRequest",
+    "OptimizerJob",
     "OptimizerRunner",
     "engine_rows",
     "estimate_seconds",
     "expand_grid",
     "heatmap",
+    "provenance",
 ]

@@ -29,14 +29,8 @@ from products.aegis.data import (
     to_records,
 )
 from products.aegis.indicators import compute
-from products.aegis.optimize import (
-    JobBusy,
-    OptimizeRequest,
-    OptimizerRunner,
-    engine_rows,
-    estimate_seconds,
-    expand_grid,
-)
+from products.aegis.jobs import JobBusy, JobRunner, estimate_seconds
+from products.aegis.optimize import OptimizeRequest, OptimizerJob, engine_rows, expand_grid
 from products.aegis.results import canonical_payload, result_hash
 from products.aegis.runs import JsonRunRepository, RunRepository
 from products.aegis.strategy import IndicatorSpec
@@ -56,8 +50,8 @@ def get_repository() -> RunRepository:
 
 
 @lru_cache(maxsize=1)
-def get_runner() -> OptimizerRunner:
-    return OptimizerRunner(get_repository())
+def get_runner() -> JobRunner:
+    return JobRunner(get_repository())
 
 
 STORE = Depends(get_store)
@@ -231,7 +225,7 @@ def _side_spec(request: OptimizeRequest):
 def optimize_plan(
     request: OptimizeRequest,
     store: ArchiveStore = STORE,
-    runner: OptimizerRunner = RUNNER,
+    runner: JobRunner = RUNNER,
 ):
     """What a start would do: valid cells, skipped cells, bars and the runtime estimate, priced
     at the per-bar cost the runner last observed on this host."""
@@ -257,13 +251,13 @@ def optimize_plan(
 def optimize(
     request: OptimizeRequest,
     store: ArchiveStore = STORE,
-    runner: OptimizerRunner = RUNNER,
+    runner: JobRunner = RUNNER,
 ):
     frame, pinned = _select(
         store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
     )
     try:
-        job_id = runner.start(request, frame, pinned)
+        job_id = runner.start(OptimizerJob(request, frame, pinned))
     except JobBusy as exc:
         raise HTTPException(409, "an optimization is already running") from exc
     except ValueError as exc:
@@ -275,12 +269,12 @@ def optimize(
 
 
 @router.get("/optimize")
-def optimizations(runner: OptimizerRunner = RUNNER):
-    return runner.list_jobs()
+def optimizations(runner: JobRunner = RUNNER):
+    return runner.list_jobs("optimization")
 
 
 @router.get("/optimize/{job_id}")
-def optimization(job_id: str, runner: OptimizerRunner = RUNNER):
+def optimization(job_id: str, runner: JobRunner = RUNNER):
     try:
         return runner.status(job_id)
     except (KeyError, ValueError) as exc:
@@ -288,7 +282,7 @@ def optimization(job_id: str, runner: OptimizerRunner = RUNNER):
 
 
 @router.post("/optimize/{job_id}/cancel")
-def cancel_optimization(job_id: str, runner: OptimizerRunner = RUNNER):
+def cancel_optimization(job_id: str, runner: JobRunner = RUNNER):
     return {"cancelled": runner.cancel(job_id)}
 
 
