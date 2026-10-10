@@ -1,9 +1,9 @@
-"""Aegis workstation acceptance: walks the 22 definition-of-done items (spec §1) in Chromium
+"""Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items and the 14 Mission 4 items (both specs §1) in Chromium
 against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per
 item, timings (indicator ms, backtest ms, optimizer cell ms) and both result_hash values.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
-Exit code 0 only when all 22 items PASS with no page errors.
+Exit code 0 only when all 36 items PASS with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
 
@@ -44,7 +44,24 @@ ITEMS = [
     "inspect progressively completed parameter cells",
     "view the final heatmap and table",
     "rerun an identical computational request and obtain the same result_hash",
+    # Mission 4 (spec §1 items 1–14)
+    "workers opt out of power throttling; gateway and Core latencies recorded",
+    "open the Optimize popover in walk-forward mode and see the plan",
+    "start a LONG walk-forward on QQQ 1D 2023–2024 and land on the Walk-Forward tab",
+    "watch progress advance by window and cell while the status route stays responsive",
+    "cancel between cells; completed windows stay and the job is cancelled",
+    "start again and let it complete",
+    "inspect every window: ranges, chosen configuration, in-sample objective, out-of-sample results, efficiency",
+    "inspect the stitched out-of-sample equity with window boundaries",
+    "inspect stability: parameter spread, positive out-of-sample windows, mean efficiency",
+    "apply the final window's configuration and rerun the combined backtest",
+    "reload the finished walk-forward from the persisted list and see the same numbers",
+    "rerun an identical walk-forward request and obtain the same result_hash",
+    "a walk-forward on a range too short for one window is refused with the bar counts",
+    "after the restarts the governance contract and the disabled schedule record are unchanged",
 ]
+WF_HEAD = "document.querySelector('.job-head')?.innerText ?? ''"
+WF_ROWS = "document.querySelectorAll('#walkforward-windows-long tbody tr')"
 PROGRESS = "document.querySelector('.results .chip.active').innerText.match(/(\\d+)\\/(\\d+)/)"
 
 
@@ -138,6 +155,72 @@ class Acceptance:
 
     def job_head(self) -> str:
         return self.js("document.querySelector('.job-head')?.innerText ?? ''")
+
+    # -- walk-forward plumbing ----------------------------------------------------------------
+    def open_walkforward(self, in_sample: int, out_of_sample: int) -> str:
+        page = self.page
+        if not self.js(
+            "!!document.querySelector('.popover')"
+        ):  # the button toggles; never close by accident
+            page.locator("#optimize").click()
+        page.locator("#walkforward-mode").click()
+        page.locator("#in-sample-bars").fill(str(in_sample))
+        page.locator("#out-of-sample-bars").fill(str(out_of_sample))
+        page.wait_for_function(
+            f"(t => /{in_sample}/.test(document.getElementById('in-sample-bars')?.value ?? '') && /\\d+ windows/.test(t))"
+            "(document.getElementById('walkforward-plan')?.innerText ?? '')",
+            timeout=90_000,
+        )
+        return self.js("document.getElementById('walkforward-plan').innerText")
+
+    def start_walkforward(self) -> None:
+        self.page.locator("#start-walkforward").click()
+        self.page.wait_for_function(
+            "document.querySelector('.result-tabs button.active')?.innerText === 'Walk-Forward'",
+            timeout=30_000,
+        )
+        self.page.wait_for_selector(".job-head", timeout=30_000)
+
+    def wf_cells(self) -> tuple[int, int]:
+        done, total = self.js(f"({WF_HEAD}).match(/cell (\\d+) of (\\d+)/).slice(1).map(Number)")
+        return int(done), int(total)
+
+    def wf_cells_per_window(self) -> int:
+        return int(re.search(r"(\d+) cells each", self.timings["walkforward_plan"]).group(1))
+
+    def wf_done_rows(self) -> int:
+        return self.js(
+            f"[...{WF_ROWS}].filter(r => r.lastElementChild.innerText === 'done').length"
+        )
+
+    def latest_walkforward(self) -> dict:
+        jobs = self.api("walkforward")
+        assert jobs, "no persisted walk-forward"
+        return self.api(f"walkforward/{jobs[0]['job_id']}")
+
+    def walkforward_body(self, in_sample: int, out_of_sample: int) -> dict:
+        strategy = self.api("strategy/default")
+        return {
+            "strategy": strategy,
+            "side": "long",
+            "data": {
+                "symbol": "QQQ",
+                "timeframe": "1D",
+                "start": "2023-01-01",
+                "end": "2024-12-31",
+            },
+            "settings": {"initial_capital": 100000, "allocation_fraction": 1},
+            "objective": "net_pnl",
+            "in_sample_bars": in_sample,
+            "out_of_sample_bars": out_of_sample,
+        }
+
+    def post(self, path: str, body: dict):
+        return self.page.request.post(
+            self.base + "api/" + path,
+            data=json.dumps(body),
+            headers={"content-type": "application/json"},
+        )
 
     def screenshot_path(self, label: str) -> Path:
         return ROOT / "logs" / f"aegis-acceptance-{self.stamp}-{label}.png"
@@ -490,6 +573,240 @@ class Acceptance:
 
         self.item(22, item22)
 
+        # -- Mission 4: walk-forward -------------------------------------------------------------
+        def item23():
+            import statistics
+
+            def sample(url, n=10):
+                ms = []
+                for _ in range(n):
+                    started = time.perf_counter()
+                    assert page.request.get(url).ok, url
+                    ms.append((time.perf_counter() - started) * 1000)
+                return round(statistics.median(ms)), round(max(ms))
+
+            gateway = sample("http://127.0.0.1:8000/aegis/api/status")
+            core = sample("http://127.0.0.1:8000/health/live")
+            worker = sample(self.base + "api/status")
+            self.timings["latency_ms_median_max"] = {
+                "gateway_aegis_status": gateway,
+                "core_health": core,
+                "aegis_worker_status": worker,
+            }
+            return f"gateway /aegis/api/status {gateway[0]} ms median ({gateway[1]} max); Core /health/live {core[0]} ms; worker direct {worker[0]} ms"
+
+        self.item(23, item23)
+
+        def item24():
+            self.select("Timeframe", "1D")
+            page.wait_for_function(
+                "(document.querySelector('.chart-header')?.innerText ?? '').startsWith('QQQ \u00b7 1D')"
+            )
+            self.wait_bars()
+            plan = self.open_walkforward(200, 50)
+            # The grid size depends on the ranges item 21 left behind; the window layout does not.
+            match = re.match(
+                r"(\d+) windows · (\d+) cells each · (\d+) units · (\d+) unused tail bars · (\S+) bars",
+                plan,
+            )
+            assert match, plan
+            windows, cells, units, tail, bars = match.groups()
+            assert (windows, tail, bars) == ("6", "2", "502"), plan
+            assert int(units) == 6 * (int(cells) + 1), plan
+            self.timings["walkforward_plan"] = plan
+            page.locator(".popover .btn", has_text="Close").click()
+            return f"plan '{plan}'"
+
+        self.item(24, item24)
+
+        def item25():
+            self.open_walkforward(200, 50)
+            self.start_walkforward()
+            head = self.job_head().split("\n")[0:2]
+            assert "window 1 of 6" in head[1] or "window" in head[1], head
+            return f"started: '{' | '.join(head)}'"
+
+        self.item(25, item25)
+
+        def item26():
+            first, total = self.wf_cells()
+            page.wait_for_function(
+                f"+({WF_HEAD}).match(/cell (\\d+) of/)[1] > {first}", timeout=60_000
+            )
+            second, _ = self.wf_cells()
+            job = self.latest_walkforward()
+            started = time.perf_counter()
+            assert page.request.get(self.base + f"api/walkforward/{job['job_id']}").ok
+            latency = int((time.perf_counter() - started) * 1000)
+            assert latency < 500, latency
+            assert second > first, (first, second)
+            assert total == 6 * (self.wf_cells_per_window() + 1), total
+            return (
+                f"cells {first} \u2192 {second} of {total}; status route {latency} ms while running"
+            )
+
+        self.item(26, item26)
+
+        def item27():
+            page.wait_for_function(
+                f"[...{WF_ROWS}].some(r => r.lastElementChild.innerText === 'done')",
+                timeout=300_000,
+            )
+            done_before = self.wf_done_rows()
+            page.locator("#cancel-walkforward").click()
+            page.wait_for_function(f"({WF_HEAD}).startsWith('CANCELLED')", timeout=60_000)
+            status = self.latest_walkforward()
+            assert (
+                status["status"] == "cancelled"
+                and 0 < status["windows"]["done"] < status["windows"]["total"]
+            )
+            assert self.wf_done_rows() == status["windows"]["done"] >= done_before
+            assert status["result_hash"] is None
+            self.timings["walkforward_cancelled_at"] = status["progress"]
+            return f"cancelled at window {status['windows']['done']} of {status['windows']['total']} (cell {status['progress']['done']} of {status['progress']['total']}); {self.wf_done_rows()} done window(s) still shown"
+
+        self.item(27, item27)
+
+        def item28():
+            self.open_walkforward(200, 50)
+            started = time.perf_counter()
+            self.start_walkforward()
+            page.wait_for_function(f"({WF_HEAD}).startsWith('DONE')", timeout=900_000)
+            seconds = round(time.perf_counter() - started, 1)
+            status = self.latest_walkforward()
+            assert status["status"] == "done" and status["windows"] == {"done": 6, "total": 6}
+            self.wf_status = status
+            self.timings["walkforward_seconds"] = seconds
+            self.timings["walkforward_cell_ms"] = round(
+                1000 * seconds / status["progress"]["total"], 1
+            )
+            return f"6/6 windows, {status['progress']['total']} units in {seconds} s ({self.timings['walkforward_cell_ms']} ms per unit); hash {status['result_hash'][:12]}"
+
+        self.item(28, item28)
+
+        def item29():
+            rows = self.js(f"[...{WF_ROWS}].map(r => [...r.cells].map(c => c.innerText))")
+            assert len(rows) == 6, len(rows)
+            for i, row in enumerate(rows):
+                assert row[0] == str(i + 1) and row[-1] == "done", row
+                assert "\u2192" in row[1] and "\u2192" in row[2], row
+                assert row[3].startswith("EMA ") and "SMA" in row[3], row
+                assert row[4] != DASH and row[5] != DASH and row[7] != DASH, row
+            api_rows = self.wf_status["window_records"]
+            assert all(r["status"] == "done" for r in api_rows)
+            chosen = [r["best"]["params"] for r in api_rows]
+            return f"6 windows; chosen {[f'{int(c["indicators.ema.length"])}/{int(c["indicators.sma.length"])}' for c in chosen]}; efficiencies {[None if r['efficiency'] is None else round(r['efficiency'], 2) for r in api_rows]}"
+
+        self.item(29, item29)
+
+        def item30():
+            paths = self.js(
+                "document.querySelectorAll('svg[aria-label=\"stitched out-of-sample equity\"] path').length"
+            )
+            lines = self.js(
+                "document.querySelectorAll('svg[aria-label=\"stitched out-of-sample equity\"] line').length"
+            )
+            assert paths == 1 and lines == 5, (paths, lines)
+            stitched = self.wf_status["stitched"]
+            assert len(stitched["equity"]) == 6 * 50 and stitched["metrics"]["trade_count"] == len(
+                stitched["trades"]
+            )
+            shown = self.js("document.getElementById('walkforward-stitched-long').innerText")
+            return f"one curve, 5 window boundaries, {len(stitched['equity'])} points; '{shown.replace(chr(10), ' ')}'"
+
+        self.item(30, item30)
+
+        def item31():
+            text = self.js("document.getElementById('walkforward-stability-long').innerText")
+            assert (
+                "EMA" in text
+                and "SMA" in text
+                and "Positive OOS windows" in text
+                and "Mean efficiency" in text
+            ), text
+            stability = self.wf_status["stability"]
+            assert (
+                stability["windows_evaluated"] == 6 and 0 <= stability["positive_oos_windows"] <= 6
+            )
+            spread = stability["parameters"]["indicators.ema.length"]
+            assert spread["min"] <= spread["mean"] <= spread["max"]
+            return f"EMA {spread['min']:.0f}–{spread['max']:.0f} (mean {spread['mean']:.1f}, std {spread['std']:.2f}); positive OOS windows {stability['positive_oos_windows']} of 6; mean efficiency {stability['mean_efficiency']}"
+
+        self.item(31, item31)
+
+        def item32():
+            choice = self.wf_status["window_records"][-1]["best"]["params"]
+            previous = self.run_state()
+            page.locator("#apply-walkforward").click()
+            page.wait_for_function(
+                "document.querySelector('.result-tabs button.active')?.innerText === 'Backtest Summary'"
+            )
+            page.wait_for_function(
+                "(s => s.startsWith('run ') && s !== "
+                + json.dumps(previous)
+                + ")(document.getElementById('run-state')?.innerText ?? '')",
+                timeout=120_000,
+            )
+            card = self.js(
+                "document.querySelector('.side-card.long .logic').innerText.split('\\n')[0]"
+            )
+            ema, sma = int(choice["indicators.ema.length"]), int(choice["indicators.sma.length"])
+            assert f"EMA({ema})" in card and f"SMA({sma})" in card, (card, choice)
+            trades = self.summary_cell("Trades", "combined")
+            return f"applied EMA {ema} / SMA {sma} \u2192 '{card}'; combined rerun with {trades} trades"
+
+        self.item(32, item32)
+
+        def item33():
+            listed = self.api("walkforward")
+            summary = next(j for j in listed if j["job_id"] == self.wf_status["job_id"])
+            assert summary["status"] == "done" and summary["windows"] == {"done": 6, "total": 6}
+            again = self.api(f"walkforward/{summary['job_id']}")
+            assert again["result_hash"] == self.wf_status["result_hash"]
+            assert again["stitched"]["metrics"] == self.wf_status["stitched"]["metrics"]
+            return f"persisted job {summary['job_id'][:8]} reloaded: hash {again['result_hash'][:12]}, stitched net P&L {again['stitched']['metrics']['net_pnl']:.2f}"
+
+        self.item(33, item33)
+
+        def item34():
+            body = self.walkforward_body(200, 50)
+            hashes = []
+            for _ in range(2):
+                started = self.post("walkforward", body)
+                assert started.status == 202, started.text()
+                job_id = started.json()["job_id"]
+                deadline = time.monotonic() + 900
+                while time.monotonic() < deadline:
+                    status = self.api(f"walkforward/{job_id}")
+                    if status["status"] in ("done", "failed", "cancelled"):
+                        break
+                    time.sleep(1)
+                assert status["status"] == "done", status.get("error")
+                hashes.append(status["result_hash"])
+            assert hashes[0] == hashes[1], hashes
+            self.timings["identical_walkforward_hashes"] = hashes
+            return f"two identical requests \u2192 the same hash {hashes[0]}"
+
+        self.item(34, item34)
+
+        def item35():
+            response = self.post("walkforward/plan", self.walkforward_body(500, 100))
+            assert response.status == 422, response.text()
+            detail = response.json()["detail"]
+            assert "range too short: 502 bars" in detail, detail
+            return f"422: {detail}"
+
+        self.item(35, item35)
+
+        def item36():
+            status = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
+            schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
+            assert status["mode"] == "human_directed" and status["exchange"] == "CLOSED", status
+            assert schedule["enabled"] is False and schedule["id"].startswith("c99fa831"), schedule
+            return f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} enabled={schedule['enabled']}"
+
+        self.item(36, item36)
+
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -525,9 +842,9 @@ def main(argv=None) -> int:
     out = ROOT / "logs" / f"aegis-acceptance-{stamp}.json"
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(
-        f"\n{report['passed']}/22 PASS, {report['failed']} FAIL, page errors {len(acceptance.errors)} -> {out}"
+        f"\n{report['passed']}/{len(ITEMS)} PASS, {report['failed']} FAIL, page errors {len(acceptance.errors)} -> {out}"
     )
-    ok = report["failed"] == 0 and len(acceptance.results) == 22 and not acceptance.errors
+    ok = report["failed"] == 0 and len(acceptance.results) == len(ITEMS) and not acceptance.errors
     return 0 if ok else 1
 
 
