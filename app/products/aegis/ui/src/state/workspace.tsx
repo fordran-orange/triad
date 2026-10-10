@@ -1,4 +1,5 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
+import type { SymbolInfo } from '../api/client';
 import type { StrategySpec, WindowMode } from '../contracts';
 import type { JobStatus, RunEnvelope } from '../results';
 
@@ -26,6 +27,14 @@ export const DEFAULT_SETTINGS: Settings = { initial_capital: 100_000, allocation
 /** A persisted backtest envelope as POST /aegis/api/backtest and GET /aegis/api/runs/{id} return it. */
 export type RunRecord = RunEnvelope;
 
+/** GET /aegis/api/status: the governance line the shell shows comes from here, never from copy. */
+export interface ApiStatus {
+  product: string;
+  mode: string;
+  status: string;
+  exchange: string;
+}
+
 export type ExecutionField = 'commission_per_side' | 'slippage_bps';
 export type RangeField = 'start' | 'stop' | 'step' | 'enabled';
 export type ResultsTab = 'summary' | 'trades' | 'optimization' | 'equity';
@@ -35,6 +44,8 @@ export interface WorkspaceState {
   strategy: StrategySpec | null;
   selection: Selection;
   settings: Settings;
+  symbols: SymbolInfo[] | null; // what /data/symbols found on disk; null until loaded
+  status: ApiStatus | null;
   linkSides: boolean;
   running: boolean;
   runError: string | null;
@@ -48,6 +59,8 @@ export interface WorkspaceState {
 export type Action =
   | { type: 'SET_STRATEGY'; strategy: StrategySpec }
   | { type: 'SET_SELECTION'; selection: Partial<Selection> }
+  | { type: 'SET_SYMBOLS'; symbols: SymbolInfo[] | null }
+  | { type: 'SET_STATUS'; status: ApiStatus | null }
   | { type: 'SET_LINK_SIDES'; linked: boolean }
   | { type: 'SET_SIDE_PARAM'; side: Side; path: string; value: number | string | boolean }
   | { type: 'SET_WINDOW_MODE'; id: string; mode: WindowMode }
@@ -61,12 +74,15 @@ export type Action =
   | { type: 'RUN_FAILED'; error: string }
   | { type: 'LOAD_RUN'; run: RunRecord }
   | { type: 'JOB_UPDATED'; side: Side; job: JobStatus }
+  | { type: 'JOB_LOST'; side: Side; job_id: string }
   | { type: 'SELECT_CONFIG'; side: Side; params: Record<string, number> | null };
 
 export const initialState: WorkspaceState = {
   strategy: null,
   selection: { symbol: 'QQQ', timeframe: '1h', start: '2023-01-01', end: '2024-12-31' },
   settings: DEFAULT_SETTINGS,
+  symbols: null,
+  status: null,
   linkSides: true,
   running: false,
   runError: null,
@@ -124,12 +140,53 @@ export function selectionOf(run: RunRecord, fallback: Selection): Selection {
   return { symbol: d.symbol, timeframe: d.timeframe, start: d.start, end: d.end };
 }
 
+/** JSON with object keys sorted at every level, so two documents compare by content, not key order. */
+export function canonical(value: unknown): string {
+  const sort = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(sort);
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(
+        Object.keys(v as Record<string, unknown>)
+          .sort()
+          .map((k) => [k, sort((v as Record<string, unknown>)[k])]),
+      );
+    }
+    return v;
+  };
+  return JSON.stringify(sort(value));
+}
+
+export interface Staleness {
+  selection: boolean;
+  strategy: boolean;
+  settings: boolean;
+  any: boolean;
+}
+
+/** What has changed since the last run was computed; results are only current when nothing has. */
+export function runStaleness(state: WorkspaceState): Staleness {
+  const run = state.lastRun;
+  if (!run) return { selection: false, strategy: false, settings: false, any: false };
+  const d = run.data ?? {};
+  const s = state.selection;
+  const selection = d.symbol !== s.symbol || d.timeframe !== s.timeframe || d.start !== s.start || d.end !== s.end;
+  const strategy = state.strategy !== null && run.strategy !== undefined && canonical(run.strategy) !== canonical(state.strategy);
+  const settings =
+    run.settings !== undefined &&
+    (run.settings.initial_capital !== state.settings.initial_capital || run.settings.allocation_fraction !== state.settings.allocation_fraction);
+  return { selection, strategy, settings, any: selection || strategy || settings };
+}
+
 export function reducer(state: WorkspaceState, action: Action): WorkspaceState {
   switch (action.type) {
     case 'SET_STRATEGY':
       return { ...state, strategy: action.strategy };
     case 'SET_SELECTION':
       return { ...state, selection: { ...state.selection, ...action.selection } };
+    case 'SET_SYMBOLS':
+      return { ...state, symbols: action.symbols };
+    case 'SET_STATUS':
+      return { ...state, status: action.status };
     case 'SET_LINK_SIDES':
       return { ...state, linkSides: action.linked };
     case 'SET_SIDE_PARAM': {
@@ -178,10 +235,16 @@ export function reducer(state: WorkspaceState, action: Action): WorkspaceState {
         runError: null,
         lastRun: action.run,
         strategy: action.run.strategy ?? state.strategy,
+        settings: action.run.settings ?? state.settings,
         selection: selectionOf(action.run, state.selection),
       };
     case 'JOB_UPDATED':
       return { ...state, optimization: { ...state.optimization, [action.side]: action.job } };
+    case 'JOB_LOST': {
+      const job = state.optimization[action.side];
+      if (!job || job.job_id !== action.job_id) return state;
+      return { ...state, optimization: { ...state.optimization, [action.side]: { ...job, status: 'lost' } } };
+    }
     case 'SELECT_CONFIG':
       return { ...state, selectedConfigs: { ...state.selectedConfigs, [action.side]: action.params } };
     default:

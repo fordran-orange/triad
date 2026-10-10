@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import { DASH, money, num, pct } from '../format';
 import type { Breakdown, Metrics, ResultSide } from '../results';
 import { useWorkspace } from '../state/workspace';
+import { StaleNotice } from './RunContext';
 
 const SIDES: Array<[ResultSide, string]> = [
   ['long', 'Long'],
@@ -51,6 +52,7 @@ export function SummaryTab() {
     <div className="result-body single">
       <div className="results-table">
         {!result && <div className="empty-state">No backtest run yet — press Run Backtest in the top bar.</div>}
+        <StaleNotice />
         <table id="summary-metrics">
           <thead>
             <tr>

@@ -326,3 +326,79 @@ def test_second_job_while_running_is_409_and_first_continues_api(client):
     assert second.json() == {"detail": "an optimization is already running"}
     gate.set()
     assert _wait(c, first, "done")["progress"] == {"done": 9, "total": 9}
+
+
+# --- fix pass after the whole-branch review ---------------------------------------------------
+
+
+def test_optimize_single_enabled_range_is_served_not_500(client):
+    c, _, repository = client
+    server.app.dependency_overrides[api.get_runner] = lambda: OptimizerRunner(repository)
+    payload = _optimize_payload()
+    payload["strategy"]["long_side"]["optimization"][1]["enabled"] = False
+    plan = c.post("/aegis/api/optimize/plan", json=payload)
+    assert plan.status_code == 200 and plan.json()["total_cells"] == 3
+    response = c.post("/aegis/api/optimize", json=payload)
+    assert response.status_code == 202, response.text
+    done = _wait(c, response.json()["job_id"], "done")
+    assert done["progress"] == {"done": 3, "total": 3} and done["slow_values"] == []
+    assert c.get("/aegis/api/optimize").status_code == 200
+
+
+def test_unfinished_job_is_listed_while_running(client):
+    c, _, repository = client
+    _, gate = _held_runner(repository)
+    job_id = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    _wait(c, job_id, "running")
+    listed = {j["job_id"]: j for j in c.get("/aegis/api/optimize").json()}
+    assert listed[job_id]["status"] in ("queued", "running")
+    gate.set()
+    _wait(c, job_id, "done")
+
+
+def test_optimize_plan_estimate_follows_the_runner_cost(client):
+    c, _, repository = client
+    runner = OptimizerRunner(repository)
+    runner.ms_per_bar = 2.0
+    server.app.dependency_overrides[api.get_runner] = lambda: runner
+    plan = c.post("/aegis/api/optimize/plan", json=_optimize_payload()).json()
+    assert plan["estimated_seconds"] == pytest.approx(9 * 52 * 2.0 / 1000)
+    assert plan["ms_per_bar"] == 2.0
+
+
+def test_backtest_envelope_carries_its_settings(client):
+    c, _, _ = client
+    strategy = default_strategy().model_dump(mode="json")
+    data = {"symbol": "QQQ", "timeframe": "15m", **RANGE}
+    default = c.post("/aegis/api/backtest", json={"strategy": strategy, "data": data}).json()
+    assert default["settings"] == {"initial_capital": 100000.0, "allocation_fraction": 1.0}
+    custom = c.post(
+        "/aegis/api/backtest",
+        json={"strategy": strategy, "data": data, "settings": {"initial_capital": 50000}},
+    ).json()
+    assert custom["settings"]["initial_capital"] == 50000.0
+    assert custom["result_hash"] != default["result_hash"]
+    reloaded = c.get(f"/aegis/api/runs/{custom['run_id']}").json()
+    assert reloaded["settings"]["initial_capital"] == 50000.0
+
+
+def test_warm_in_background_warms_every_discovered_symbol(client):
+    class Fake:
+        warmed = None
+
+        def symbols(self):
+            return [SimpleNamespace(symbol="QQQ"), SimpleNamespace(symbol="SPY")]
+
+        def warm(self, symbols):
+            Fake.warmed = list(symbols)
+
+    thread = api.warm_in_background(Fake())
+    thread.join(5)
+    assert thread.daemon and Fake.warmed == ["QQQ", "SPY"]
+
+
+def test_power_throttling_opt_out_is_safe_to_call():
+    import sys
+
+    result = server.opt_out_of_power_throttling()
+    assert result is (sys.platform == "win32")  # applied on Windows, honestly declined elsewhere

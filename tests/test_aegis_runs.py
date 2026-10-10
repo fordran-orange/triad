@@ -48,3 +48,24 @@ def test_optimizations_round_trip_separately(tmp_path):
     assert repo.get_optimization("j1") == job
     assert [j["job_id"] for j in repo.list_optimizations()] == ["j1"]
     assert repo.list_runs() == []
+
+
+def test_list_runs_reads_sidecar_summaries_and_tolerates_legacy_files(tmp_path):
+    import json
+
+    repository = JsonRunRepository(tmp_path)
+    repository.save_run(
+        {
+            "run_id": "a",
+            "created_at": "2026-01-02T00:00:00+00:00",
+            "result_hash": "h1",
+            "result": {"big": [0] * 1000},
+        }
+    )
+    assert (tmp_path / "runs" / "a.summary.json").is_file()
+    (tmp_path / "runs" / "a.json").unlink()  # listing must not need the full envelope
+    assert [r["run_id"] for r in repository.list_runs()] == ["a"]
+    legacy = {"run_id": "b", "created_at": "2026-01-01T00:00:00+00:00", "result_hash": "h2"}
+    (tmp_path / "runs" / "b.json").write_text(json.dumps(legacy), encoding="utf-8")
+    assert [r["run_id"] for r in repository.list_runs()] == ["a", "b"]
+    assert "result" not in repository.list_runs()[0]

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Protocol
 
@@ -29,6 +30,7 @@ SUMMARY_KEYS = (
     "progress",
     "total_cells",
     "skipped_cells",
+    "ms_per_bar",
 )
 
 
@@ -51,6 +53,18 @@ def _summary(envelope: dict) -> dict:
     return {key: envelope[key] for key in SUMMARY_KEYS if key in envelope}
 
 
+def _retry(action, attempts: int = 50, delay: float = 0.01):
+    """Run a file operation that Windows may refuse while another handle is open on the file."""
+    for attempt in range(attempts):
+        try:
+            return action()
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+    return None  # unreachable; keeps type checkers calm
+
+
 class JsonRunRepository:
     """One JSON file per run (`runs/<run_id>.json`) and per optimization (`optimizations/`)."""
 
@@ -64,26 +78,49 @@ class JsonRunRepository:
 
     def _save(self, kind: str, key: str, envelope: dict) -> str:
         identifier = _check_id(envelope[key])
-        path = self._folder(kind) / f"{identifier}.json"
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(envelope, sort_keys=True, allow_nan=False), encoding="utf-8")
-        tmp.replace(path)
+        folder = self._folder(kind)
+        self._write(folder / f"{identifier}.json", envelope)
+        # Sidecar summary: listing never has to parse full envelopes (series, equity, cells).
+        self._write(folder / f"{identifier}.summary.json", _summary(envelope))
         return identifier
+
+    @staticmethod
+    def _write(path: Path, payload: dict) -> None:
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(payload, sort_keys=True, allow_nan=False), encoding="utf-8")
+        _retry(lambda: tmp.replace(path))  # Windows refuses the swap while a reader holds the file
+
+    @staticmethod
+    def _read(path: Path) -> dict:
+        return _retry(lambda: json.loads(path.read_text(encoding="utf-8")))
 
     def _get(self, kind: str, identifier: str) -> dict:
         path = self._folder(kind) / f"{_check_id(identifier)}.json"
         if not path.is_file():
             raise KeyError(identifier)
-        return json.loads(path.read_text(encoding="utf-8"))
+        return self._read(path)
 
     def _list(self, kind: str) -> list[dict]:
-        items = []
-        for path in self._folder(kind).glob("*.json"):
+        folder = self._folder(kind)
+        items: dict[str, dict] = {}
+        for path in folder.glob("*.summary.json"):
             try:
-                items.append(_summary(json.loads(path.read_text(encoding="utf-8"))))
+                items[path.name[: -len(".summary.json")]] = self._read(path)
             except (OSError, ValueError):
                 continue  # a torn write never hides the rest of the history
-        return sorted(items, key=lambda item: item.get("created_at", ""), reverse=True)
+        for path in folder.glob("*.json"):
+            if path.name.endswith(".summary.json") or path.stem in items:
+                continue
+            try:  # legacy envelope without a sidecar: summarize once and keep the sidecar
+                summary = _summary(self._read(path))
+            except (OSError, ValueError):
+                continue
+            items[path.stem] = summary
+            try:
+                self._write(folder / f"{path.stem}.summary.json", summary)
+            except OSError:
+                pass
+        return sorted(items.values(), key=lambda item: item.get("created_at", ""), reverse=True)
 
     def save_run(self, envelope: dict) -> str:
         return self._save("runs", "run_id", envelope)

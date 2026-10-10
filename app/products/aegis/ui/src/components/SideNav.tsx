@@ -1,3 +1,5 @@
+import { useWorkspace } from '../state/workspace';
+
 const ITEMS: Array<{ label: string; active?: boolean; disabled?: boolean }> = [
   { label: 'Dashboard', disabled: true },
   { label: 'Charts', active: true },
@@ -10,6 +12,7 @@ const ITEMS: Array<{ label: string; active?: boolean; disabled?: boolean }> = [
 ];
 
 export function SideNav() {
+  const { status } = useWorkspace();
   return (
     <aside className="sidebar">
       {ITEMS.map((item) => (
@@ -25,10 +28,16 @@ export function SideNav() {
       ))}
       <div className="sidebar-bottom">
         <div className="green">● PRODUCT BUILD MODE</div>
-        <div style={{ marginTop: 5 }}>
-          Human-directed
-          <br />
-          Exchange CLOSED
+        <div style={{ marginTop: 5 }} id="governance-line" title="From GET /aegis/api/status">
+          {status ? (
+            <>
+              {status.mode.replace('_', '-')}
+              <br />
+              Exchange {status.exchange}
+            </>
+          ) : (
+            <>status not loaded</>
+          )}
         </div>
       </div>
     </aside>

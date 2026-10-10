@@ -65,6 +65,25 @@ class BacktestRequest(BaseModel):
         return self
 
 
+MIN_BARS = 35
+
+
+def _check_warmup(frame: pd.DataFrame, strategy: StrategySpec) -> None:
+    """Every enabled side must have more bars than its longest indicator, or no signal could
+    ever fire and a confident zero result would be a lie."""
+    lengths = [
+        spec.length
+        for side in (strategy.long_side, strategy.short_side)
+        if side.enabled
+        for spec in side.indicators
+    ]
+    longest = max(lengths, default=0)
+    if longest and len(frame) <= longest:
+        raise ValueError(
+            f"insufficient bars: {len(frame)} bars cannot complete the warm-up of a "
+            f"{longest}-period indicator; widen the range or shorten the length"
+        )
+
 
 def _prepare_frame(rows: list[dict]) -> pd.DataFrame:
     frame = pd.DataFrame(rows).copy()
@@ -72,8 +91,8 @@ def _prepare_frame(rows: list[dict]) -> pd.DataFrame:
     missing = required - set(frame.columns)
     if missing:
         raise ValueError(f"bars missing required fields: {sorted(missing)}")
-    if len(frame) < 35:
-        raise ValueError("at least 35 bars are required for the 30-period reference strategy")
+    if len(frame) < MIN_BARS:
+        raise ValueError(f"at least {MIN_BARS} bars are required to simulate")
 
     frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
     frame = frame.sort_values("timestamp").reset_index(drop=True)
@@ -269,7 +288,6 @@ def _simulate_side(
                 "tags": tags,
             }
 
-
     if position is not None:
         row = data.iloc[-1]
         fill = _fill_price(float(row.close), side, False, slippage)
@@ -290,7 +308,10 @@ def _simulate_side(
                 "gross_pnl": gross,
                 "net_pnl": net,
                 "return": net / capital,
-                "temporal_tags": sorted(set(position["entry_tags"]) | set(_trade_tags(row.timestamp, strategy, events, symbol))),
+                "temporal_tags": sorted(
+                    set(position["entry_tags"])
+                    | set(_trade_tags(row.timestamp, strategy, events, symbol))
+                ),
             }
         )
         cash = capital + net
@@ -324,11 +345,7 @@ def _metrics(
         days = max((end - start).total_seconds() / 86400, 0)
     else:
         days = 0
-    cagr = (
-        (ending / initial_capital) ** (365.25 / days) - 1
-        if days >= 365 and ending > 0
-        else None
-    )
+    cagr = (ending / initial_capital) ** (365.25 / days) - 1 if days >= 365 and ending > 0 else None
     return {
         "net_pnl": ending - initial_capital,
         "net_return": ending / initial_capital - 1,
@@ -389,7 +406,12 @@ def markers(result: dict) -> list[dict]:
             ):
                 millis = int(pd.Timestamp(trade[time_key]).value // 1_000_000)
                 points.append(
-                    {"time": millis, "price": float(trade[price_key]), "side": side.upper(), "kind": kind}
+                    {
+                        "time": millis,
+                        "price": float(trade[price_key]),
+                        "side": side.upper(),
+                        "kind": kind,
+                    }
                 )
     return sorted(points, key=lambda p: (p["time"], p["side"], p["kind"]))
 
@@ -398,6 +420,7 @@ def run_backtest(request: BacktestRequest, cache: IndicatorCache | None = None) 
     validate(request.strategy.temporal)
     cache = cache if cache is not None else IndicatorCache()
     frame = _prepare_frame(request.bars)
+    _check_warmup(frame, request.strategy)
     data_key = _data_key(frame)
     symbol = str(frame.iloc[0].get("symbol")) if "symbol" in frame.columns else None
 

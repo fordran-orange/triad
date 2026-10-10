@@ -1,6 +1,7 @@
 import { timeLabel } from '../format';
 import type { EquityPoint } from '../results';
 import { useWorkspace } from '../state/workspace';
+import { StaleNotice } from './RunContext';
 
 /** Plain SVG polylines; no chart library involved (spec §4.2). */
 export function EquityTab() {
@@ -33,6 +34,7 @@ export function EquityTab() {
   return (
     <div className="result-body single">
       <div className="results-table">
+        <StaleNotice />
         <div className="legend">
           {drawn.map(([name, color, points]) => (
             <b key={name} style={{ color }}>

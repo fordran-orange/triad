@@ -4,10 +4,9 @@ import { createChartAdapter, type ChartAdapter, type CrosshairPoint, type Marker
 import { syncChart } from '../chart/sync';
 import { num } from '../format';
 import type { Provenance } from '../results';
-import { useDispatch, useWorkspace } from '../state/workspace';
+import { runStaleness, useDispatch, useWorkspace } from '../state/workspace';
 import { sideIndicators } from './StrategyPanel';
 
-const TABS = ['QQQ', 'SPY', 'ITOT'];
 const COLORS: Record<string, string> = { ema: '#2da7ff', sma: '#39d98a' };
 
 interface Loaded {
@@ -16,7 +15,8 @@ interface Loaded {
 }
 
 export function ChartPanel() {
-  const { selection, strategy, lastRun } = useWorkspace();
+  const state = useWorkspace();
+  const { selection, strategy, lastRun, symbols } = state;
   const dispatch = useDispatch();
   const mountRef = useRef<HTMLDivElement>(null);
   const adapterRef = useRef<ChartAdapter | null>(null);
@@ -28,8 +28,12 @@ export function ChartPanel() {
 
   const indicators = strategy ? sideIndicators(strategy, 'long_side') : [];
   const indicatorKey = indicators.map((i) => `${i.id}:${i.kind}:${i.length}:${i.source ?? 'close'}`).join('|');
-  const markers: Marker[] = lastRun?.markers ?? [];
   const pinnedVintage = lastRun?.data.vintage;
+  const stale = runStaleness(state);
+  // Markers belong to the run's selection and archive; on any other chart they would be a lie.
+  const vintageDrift = loaded !== null && pinnedVintage !== undefined && pinnedVintage !== loaded.data.vintage;
+  const markers: Marker[] = !stale.selection && !vintageDrift ? (lastRun?.markers ?? []) : [];
+  const markerKey = `${lastRun?.run_id ?? ''}:${markers.length}`;
 
   // Mount the chart backend once; the adapter owns the library from here on.
   useEffect(() => {
@@ -89,11 +93,11 @@ export function ChartPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adapterReady, selection.symbol, selection.timeframe, selection.start, selection.end, indicatorKey]);
 
-  // A new run only changes the markers; bars and overlays stay as fetched.
+  // A new run (or a selection that no longer matches it) only changes the markers; bars and overlays stay as fetched.
   useEffect(() => {
     adapterRef.current?.setMarkers(markers);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastRun]);
+  }, [markerKey]);
 
   const fast = indicators.find((i) => i.kind.toUpperCase() === 'EMA');
   const slow = indicators.find((i) => i.kind.toUpperCase() === 'SMA');
@@ -101,16 +105,19 @@ export function ChartPanel() {
   return (
     <div className="chart-panel">
       <div className="tabs">
-        {TABS.map((symbol) => (
+        {(symbols ?? []).map((info) => (
           <button
-            key={symbol}
-            className={'tab' + (symbol === selection.symbol ? ' active' : '')}
+            key={info.symbol}
+            className={'tab' + (info.symbol === selection.symbol ? ' active' : '')}
             type="button"
-            onClick={() => dispatch({ type: 'SET_SELECTION', selection: { symbol } })}
+            title={`vintage ${info.vintage} · ${String(info.first_bar).slice(0, 10)} → ${String(info.last_bar).slice(0, 10)} · ${info.row_count.toLocaleString()} 1m rows · coverage ${info.coverage_pct == null ? '—' : info.coverage_pct.toFixed(1) + '%'} · sources ${(info.vendor_sources ?? []).join(', ') || '—'}`}
+            onClick={() => dispatch({ type: 'SET_SELECTION', selection: { symbol: info.symbol } })}
           >
-            {symbol}
+            {info.symbol}
           </button>
         ))}
+        {symbols !== null && symbols.length === 0 && <span className="tab muted">no raw archives on disk</span>}
+        {symbols === null && <span className="tab muted">{selection.symbol}</span>}
         <button className="tab" type="button" disabled title="Not yet built">
           ＋
         </button>
@@ -146,6 +153,11 @@ export function ChartPanel() {
             <b className="green">SMA {slow?.length ?? '—'}</b>
             <span>Volume</span>
             {markers.length > 0 && <span className="muted">{markers.length} markers</span>}
+            {lastRun && markers.length === 0 && (lastRun.markers?.length ?? 0) > 0 && (
+              <span className="muted" title="The last run was made on another selection or archive; its markers are not drawn here">
+                markers hidden (run is for {lastRun.data.symbol} · {lastRun.data.timeframe})
+              </span>
+            )}
           </div>
         </div>
         <div className="chart-mount" ref={mountRef} id="chart-mount" />

@@ -104,6 +104,7 @@ export interface RunEnvelope {
   result: ResultPayload;
   series: Record<'long' | 'short', Record<string, Array<number | null>>>;
   markers: TradeMarker[];
+  settings?: { initial_capital: number; allocation_fraction: number }; // absent on runs persisted before the fix pass
   state: RunState;
   state_detail?: string;
 }
@@ -181,6 +182,7 @@ export interface OptimizePlan {
   total_cells: number;
   skipped_cells: number;
   estimated_seconds: number;
+  ms_per_bar: number; // the runner's last observed cell cost on this host
   bars: number;
 }
 

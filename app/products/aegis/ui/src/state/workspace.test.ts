@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StrategySpec } from '../contracts';
-import { applyConfigs, initialState, reducer, type RunRecord, type WorkspaceState } from './workspace';
+import { applyConfigs, initialState, reducer, runStaleness, type RunRecord, type WorkspaceState } from './workspace';
 
 // Side-owned indicator parameters (the shape Task 3 makes canonical); typed loosely until then.
 function strategy(): StrategySpec {
@@ -132,5 +132,51 @@ describe('workspace reducer', () => {
     expect(state.loadedBars).toEqual({ count: 3493, vintage: 'v1' });
     state = reducer(state, { type: 'SET_RESULTS_TAB', tab: 'optimization' });
     expect(state.resultsTab).toBe('optimization');
+  });
+
+  it('runStaleness is clean right after a run and names what changed afterwards', () => {
+    const spec = strategy();
+    let state = reducer(initialState, { type: 'SET_STRATEGY', strategy: spec });
+    const run = {
+      run_id: 'r3',
+      result_hash: 'ghi',
+      state: 'ok',
+      strategy: spec,
+      settings: { initial_capital: 100_000, allocation_fraction: 1 },
+      data: { symbol: 'QQQ', timeframe: '1h', start: '2023-01-01', end: '2024-12-31', vintage: 'v1' },
+    } as unknown as RunRecord;
+    state = reducer(state, { type: 'RUN_COMPLETED', run });
+    expect(runStaleness(state)).toEqual({ selection: false, strategy: false, settings: false, any: false });
+    const moved = reducer(state, { type: 'SET_SELECTION', selection: { symbol: 'SPY' } });
+    expect(runStaleness(moved)).toMatchObject({ selection: true, strategy: false, any: true });
+    const edited = reducer(state, { type: 'SET_SIDE_PARAM', side: 'long', path: 'indicators.ema.length', value: 12 });
+    expect(runStaleness(edited)).toMatchObject({ selection: false, strategy: true, any: true });
+    const funded = reducer(state, { type: 'SET_SETTINGS', settings: { initial_capital: 50_000 } });
+    expect(runStaleness(funded)).toMatchObject({ settings: true, any: true });
+    expect(runStaleness(initialState).any).toBe(false); // no run: nothing can be stale
+  });
+
+  it('LOAD_RUN restores the settings the run was computed with', () => {
+    const run = {
+      run_id: 'r4',
+      result_hash: 'jkl',
+      state: 'ok',
+      strategy: strategy(),
+      settings: { initial_capital: 50_000, allocation_fraction: 0.5 },
+      data: { symbol: 'QQQ', timeframe: '1h', start: '2023-01-01', end: '2024-12-31' },
+    } as unknown as RunRecord;
+    const state = reducer(initialState, { type: 'LOAD_RUN', run });
+    expect(state.settings).toEqual({ initial_capital: 50_000, allocation_fraction: 0.5 });
+    expect(runStaleness(state).any).toBe(false);
+  });
+
+  it('JOB_LOST marks a polled job lost and SET_SYMBOLS stores the archive menu', () => {
+    const job = { job_id: 'j1', status: 'running', side: 'long', progress: { done: 3, total: 9 } } as unknown as import('../results').JobStatus;
+    let state = reducer(initialState, { type: 'JOB_UPDATED', side: 'long', job });
+    state = reducer(state, { type: 'JOB_LOST', side: 'long', job_id: 'j1' });
+    expect(state.optimization.long?.status).toBe('lost');
+    expect(reducer(state, { type: 'JOB_LOST', side: 'long', job_id: 'other' }).optimization.long?.status).toBe('lost');
+    const symbols = [{ symbol: 'QQQ', vintage: 'v1' }] as unknown as import('../api/client').SymbolInfo[];
+    expect(reducer(state, { type: 'SET_SYMBOLS', symbols }).symbols).toEqual(symbols);
   });
 });

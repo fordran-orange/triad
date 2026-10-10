@@ -1,13 +1,16 @@
 """Aegis worker routes (spec §7): pinned raw data, indicators, backtests and persisted runs.
 
 Loopback-only like every route on this product host; nothing here touches money, credentials
-or Core state. Exceptions map to: BarsTooLarge → 422 with the range hint, SourceUnavailable →
-409, unknown symbol/run → 404.
+or Core state. Exceptions map to: BarsTooLarge → 422 with the range hint, a pinned archive that
+drifted → `state: source_unavailable` on the reloaded run (200), JobBusy → 409, unknown
+symbol/run/job → 404.
 """
 
 from __future__ import annotations
 
+import logging
 import math
+import threading
 import time
 import uuid
 from datetime import UTC, datetime
@@ -38,6 +41,7 @@ from products.aegis.results import canonical_payload, result_hash
 from products.aegis.runs import JsonRunRepository, RunRepository
 from products.aegis.strategy import IndicatorSpec
 
+log = logging.getLogger("aegis")
 router = APIRouter(prefix="/aegis/api")
 
 
@@ -59,6 +63,20 @@ def get_runner() -> OptimizerRunner:
 STORE = Depends(get_store)
 REPOSITORY = Depends(get_repository)
 RUNNER = Depends(get_runner)
+
+
+def warm_in_background(store) -> threading.Thread:
+    """Spec §6: resample every discovered symbol once at startup so first touches are warm."""
+
+    def warm():
+        try:
+            store.warm([source.symbol for source in store.symbols()])
+        except Exception as exc:  # noqa: BLE001 - warm-up is a convenience; a failure must not matter
+            log.warning("archive warm-up skipped: %s: %s", type(exc).__name__, exc)
+
+    thread = threading.Thread(target=warm, name="aegis-warmup", daemon=True)
+    thread.start()
+    return thread
 
 
 def _timeframe(value: str) -> str:
@@ -160,6 +178,7 @@ def _envelope(request: BacktestRequest, store: ArchiveStore) -> dict:
         "result_hash": result_hash(payload),
         "data": identity,
         "strategy": request.strategy.model_dump(mode="json"),
+        "settings": request.settings.model_dump(mode="json"),
         "result": payload,
         "series": {"long": result["long"]["series"], "short": result["short"]["series"]},
         "markers": markers(result),
@@ -209,8 +228,13 @@ def _side_spec(request: OptimizeRequest):
 
 
 @router.post("/optimize/plan")
-def optimize_plan(request: OptimizeRequest, store: ArchiveStore = STORE):
-    """What a start would do: valid cells, skipped cells, bars and the runtime estimate."""
+def optimize_plan(
+    request: OptimizeRequest,
+    store: ArchiveStore = STORE,
+    runner: OptimizerRunner = RUNNER,
+):
+    """What a start would do: valid cells, skipped cells, bars and the runtime estimate, priced
+    at the per-bar cost the runner last observed on this host."""
     frame, _ = _select(
         store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
     )
@@ -221,7 +245,10 @@ def optimize_plan(request: OptimizeRequest, store: ArchiveStore = STORE):
     return {
         "total_cells": len(plan.cells),
         "skipped_cells": len(plan.skipped),
-        "estimated_seconds": round(estimate_seconds(len(plan.cells), len(frame)), 3),
+        "estimated_seconds": round(
+            estimate_seconds(len(plan.cells), len(frame), runner.ms_per_bar), 3
+        ),
+        "ms_per_bar": runner.ms_per_bar,
         "bars": len(frame),
     }
 
@@ -265,4 +292,11 @@ def cancel_optimization(job_id: str, runner: OptimizerRunner = RUNNER):
     return {"cancelled": runner.cancel(job_id)}
 
 
-__all__ = ["DataReference", "get_repository", "get_runner", "get_store", "router"]
+__all__ = [
+    "DataReference",
+    "get_repository",
+    "get_runner",
+    "get_store",
+    "router",
+    "warm_in_background",
+]

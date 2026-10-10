@@ -11,6 +11,7 @@ import pytest
 from products.aegis.backtest import DataReference
 from products.aegis.optimize import (
     MAX_CELLS,
+    MS_PER_BAR,
     GridPlan,
     JobBusy,
     OptimizeRequest,
@@ -199,3 +200,87 @@ def test_mark_lost_on_startup_marks_unfinished_persisted_jobs(tmp_path):
     assert runner.mark_lost_on_startup() == ["stale-1"]
     assert repository.get_optimization("stale-1")["status"] == "lost"
     assert repository.get_optimization("fine-1")["status"] == "done"
+
+
+# --- fix pass after the whole-branch review (one-axis grids, persistence, learned cost) --------
+
+
+def one_axis_strategy():
+    strategy = small_strategy(fast=(5, 7, 1), slow=(8, 10, 1))
+    side = strategy.long_side
+    ranges = [side.optimization[0], side.optimization[1].model_copy(update={"enabled": False})]
+    return strategy.model_copy(
+        update={"long_side": side.model_copy(update={"optimization": ranges})}
+    )
+
+
+def test_heatmap_ignores_cells_without_both_axes():
+    cells = [{"fast": 5.0, "slow": None, "metrics": {"net_pnl": 1.0}}]
+    assert heatmap(cells, [5.0], [], "net_pnl") == [[]]
+    assert heatmap(cells, [5.0], [8.0], "net_pnl") == [[None]]
+
+
+def test_single_enabled_range_runs_and_reports_a_one_axis_grid(tmp_path):
+    runner = OptimizerRunner(JsonRunRepository(tmp_path))
+    job_id = runner.start(request(one_axis_strategy()), pd.DataFrame(bars()), PINNED)
+    assert wait_for(lambda: runner.status(job_id)["status"] in ("done", "failed"))
+    status = runner.status(job_id)  # must never raise, whatever the grid shape
+    assert status["status"] == "done" and status["error"] is None
+    assert status["progress"] == {"done": 3, "total": 3} and status["slow_values"] == []
+    assert status["matrices"]["net_pnl"]["long"] == [[], [], []]
+    assert all(cell["slow"] is None and cell["fast"] is not None for cell in status["cells"])
+
+
+def test_failing_persistence_marks_the_job_failed_and_frees_the_runner(tmp_path):
+    class Broken(JsonRunRepository):
+        saves = 0
+
+        def save_optimization(self, envelope):
+            Broken.saves += 1
+            if Broken.saves > 1:  # the start persists fine; everything after fails
+                raise OSError("disk full")
+            return super().save_optimization(envelope)
+
+    runner = OptimizerRunner(Broken(tmp_path))
+    job_id = runner.start(request(), pd.DataFrame(bars()), PINNED)
+    assert wait_for(lambda: runner.status(job_id)["status"] == "failed")
+    assert "OSError" in runner.status(job_id)["error"]
+    # The runner is free again: the next start is refused by the broken disk, not by JobBusy,
+    # and a start that cannot persist its queued envelope registers nothing.
+    with pytest.raises(OSError, match="disk full"):
+        runner.start(request(), pd.DataFrame(bars()), PINNED)
+    assert [j for j in runner._jobs.values() if j.status in ("queued", "running")] == []
+
+
+def test_job_is_persisted_on_start_and_per_cell_so_a_restart_can_mark_it_lost(tmp_path):
+    gate = threading.Event()
+
+    def after_cell(done):
+        if done == 1:
+            gate.wait(10)
+
+    repository = JsonRunRepository(tmp_path)
+    runner = OptimizerRunner(repository, after_cell=after_cell)
+    job_id = runner.start(request(), pd.DataFrame(bars()), PINNED)
+    persisted = repository.get_optimization(job_id)
+    assert persisted["status"] in ("queued", "running") and persisted["progress"]["total"] == 9
+    assert [j["job_id"] for j in runner.list_jobs()] == [job_id]
+    assert wait_for(lambda: repository.get_optimization(job_id)["progress"]["done"] == 1)
+    assert repository.get_optimization(job_id)["status"] == "running"
+    assert OptimizerRunner(JsonRunRepository(tmp_path)).mark_lost_on_startup() == [job_id]
+    assert repository.get_optimization(job_id)["status"] == "lost"
+    gate.set()
+    assert wait_for(lambda: runner.status(job_id)["status"] == "done")
+    assert repository.get_optimization(job_id)["status"] == "done"
+
+
+def test_runner_learns_ms_per_bar_from_completed_jobs_and_persists_it(tmp_path):
+    repository = JsonRunRepository(tmp_path)
+    runner = OptimizerRunner(repository)
+    assert runner.ms_per_bar == MS_PER_BAR
+    job_id = runner.start(request(), pd.DataFrame(bars()), PINNED)
+    assert wait_for(lambda: runner.status(job_id)["status"] == "done")
+    assert 0 < runner.ms_per_bar != MS_PER_BAR
+    assert repository.get_optimization(job_id)["ms_per_bar"] == pytest.approx(runner.ms_per_bar)
+    fresh = OptimizerRunner(JsonRunRepository(tmp_path))
+    assert fresh.ms_per_bar == pytest.approx(runner.ms_per_bar)

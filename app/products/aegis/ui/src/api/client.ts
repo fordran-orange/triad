@@ -49,17 +49,20 @@ export interface Bar {
   volume: number;
 }
 
+/** One discovered raw archive (ArchiveSource in data.py) as GET /data/symbols lists it. */
 export interface SymbolInfo {
   symbol: string;
   vintage: string;
+  relative_path: string;
+  sha256: string;
   first_bar: string;
   last_bar: string;
   row_count: number;
-  timeframes: string[];
-  coverage_pct: number | null;
-  vendor_sources: string[];
+  coverage_pct?: number | null;
+  vendor_sources?: string[];
   source: 'raw_archive';
   research_eligible: false;
+  [key: string]: unknown;
 }
 
 export interface BarsResponse {

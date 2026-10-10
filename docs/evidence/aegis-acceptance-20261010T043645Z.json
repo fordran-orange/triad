@@ -1,0 +1,196 @@
+{
+  "stamp": "20261010T043645Z",
+  "base": "http://127.0.0.1:8102/aegis/",
+  "total_ms": 16001,
+  "passed": 22,
+  "failed": 0,
+  "items": [
+    {
+      "item": 1,
+      "title": "select QQQ",
+      "status": "PASS",
+      "detail": "chart header QQQ \u00b7 1h RAW ARCHIVE \u00b7 NOT RESEARCH-ELIGIBLE",
+      "ms": 51
+    },
+    {
+      "item": 2,
+      "title": "select 1m, 15m, 30m, 1h or 1D",
+      "status": "PASS",
+      "detail": "bars per timeframe {'1m': 1827, '15m': 12974, '30m': 6488, '1h': 3493, '1D': 502}",
+      "ms": 3437
+    },
+    {
+      "item": 3,
+      "title": "choose a date range",
+      "status": "PASS",
+      "detail": "QQQ 1h 2023-01-01\u21922024-12-31: 3493 bars; indicators response in 129 ms",
+      "ms": 308
+    },
+    {
+      "item": 4,
+      "title": "see real candles from the pinned raw archive",
+      "status": "PASS",
+      "detail": "3493 bars, vintage 20260919T233952760505Z, file sha256 ad3cdc78a91c\u2026, 7 canvas layers",
+      "ms": 145
+    },
+    {
+      "item": 5,
+      "title": "see the permanent RAW ARCHIVE / NOT RESEARCH ELIGIBLE indicator",
+      "status": "PASS",
+      "detail": "RAW ARCHIVE \u00b7 NOT RESEARCH-ELIGIBLE",
+      "ms": 19
+    },
+    {
+      "item": 6,
+      "title": "see the 9 EMA and 30 SMA",
+      "status": "PASS",
+      "detail": "legend 'EMA 9 / SMA 30 / Volume'; ema 3485 values, sma 3464 values (warm-up gaps null)",
+      "ms": 11
+    },
+    {
+      "item": 7,
+      "title": "run a backtest",
+      "status": "PASS",
+      "detail": "run 4f5af205 in 840 ms server / 1269 ms wall, hash c9b6f8f821c0",
+      "ms": 1272
+    },
+    {
+      "item": 8,
+      "title": "inspect real entries and exits",
+      "status": "PASS",
+      "detail": "250 markers for 125 trades; first entry 2023-01-19T14:30 after signal 2023-01-18T20:30",
+      "ms": 2
+    },
+    {
+      "item": 9,
+      "title": "inspect LONG results independently",
+      "status": "PASS",
+      "detail": "long: 62 trades, net P&L $51,462, exposure 57.40%",
+      "ms": 58
+    },
+    {
+      "item": 10,
+      "title": "inspect SHORT results independently",
+      "status": "PASS",
+      "detail": "short: 63 trades, net P&L -$20,438, exposure 40.40%",
+      "ms": 77
+    },
+    {
+      "item": 11,
+      "title": "inspect COMBINED results",
+      "status": "PASS",
+      "detail": "combined: 125 trades, net P&L $31,024, exposure 97.80%",
+      "ms": 68
+    },
+    {
+      "item": 12,
+      "title": "inspect temporal performance",
+      "status": "PASS",
+      "detail": "tags ['ALL', 'CLOCK:close', 'CLOCK:open', 'CROSSOVER:cash_open', 'CROSSOVER:london_new_york']",
+      "ms": 7
+    },
+    {
+      "item": 13,
+      "title": "inspect trades",
+      "status": "PASS",
+      "detail": "125 trades listed, 62 long; first row tags 'CLOCK:close'",
+      "ms": 210
+    },
+    {
+      "item": 14,
+      "title": "inspect equity",
+      "status": "PASS",
+      "detail": "3 curves; legend 'combined (125) / long (3493) / short (3493) / min 76265 \u00b7 max 158567'",
+      "ms": 77
+    },
+    {
+      "item": 15,
+      "title": "see real KPIs",
+      "status": "PASS",
+      "detail": "strip shows net P&L $31,024 (API 31024.18), hash c9b6f8f821c0",
+      "ms": 6
+    },
+    {
+      "item": 16,
+      "title": "reload the saved experiment",
+      "status": "PASS",
+      "detail": "run 4f5af205 reloaded from the drawer, state ok, hash unchanged",
+      "ms": 975
+    },
+    {
+      "item": 17,
+      "title": "launch an optimization",
+      "status": "PASS",
+      "detail": "plan '271 valid cells \u00b7 1 skipped (fast \u2265 slow) \u00b7 502 bars \u00b7 \u2248 1 min 29 s estimated'; LONG job started",
+      "ms": 564
+    },
+    {
+      "item": 18,
+      "title": "watch progress",
+      "status": "PASS",
+      "detail": "progress advanced 1 \u2192 19 of 271; 'RUNNING | 19 / 271 cells \u00b7 1 skipped \u00b7 502 bars \u00b7 objective Net P&L | 1.1 s elapsed \u00b7 \u2248 15 s remaining \u00b7 cache hits 19'",
+      "ms": 976
+    },
+    {
+      "item": 19,
+      "title": "cancel it",
+      "status": "PASS",
+      "detail": "cancelled at 21/271 cells after 1.3 s (61.9 ms per cell)",
+      "ms": 1021
+    },
+    {
+      "item": 20,
+      "title": "inspect progressively completed parameter cells",
+      "status": "PASS",
+      "detail": "21 completed cells visible in the table and heatmap (272 grid cells); best so far 'EMA 5 / SMA 45 | $47,485 | 12.46% | 1.73 | 57.14% | 7 | 72.91%'",
+      "ms": 25
+    },
+    {
+      "item": 21,
+      "title": "view the final heatmap and table",
+      "status": "PASS",
+      "detail": "40/40 cells in 2.0 s (50.0 ms per cell); applied the best cell \u2192 long side now 'ENTRY: EMA(12) crosses ABOVE SMA(40)'",
+      "ms": 2896
+    },
+    {
+      "item": 22,
+      "title": "rerun an identical computational request and obtain the same result_hash",
+      "status": "PASS",
+      "detail": "two identical requests: runs 9898873b and a967e1dd both hash cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360",
+      "ms": 2446
+    }
+  ],
+  "timings": {
+    "bars_per_timeframe": {
+      "1m": 1827,
+      "15m": 12974,
+      "30m": 6488,
+      "1h": 3493,
+      "1D": 502
+    },
+    "indicator_ms": 129,
+    "backtest_wall_ms": [
+      1269,
+      1023,
+      1120
+    ],
+    "backtest_server_ms": [
+      840,
+      648,
+      783
+    ],
+    "optimize_plan": "271 valid cells \u00b7 1 skipped (fast \u2265 slow) \u00b7 502 bars \u00b7 \u2248 1 min 29 s estimated",
+    "optimizer_cell_ms_cancelled_job": 61.9,
+    "optimizer_cell_ms_completed_job": 50.0,
+    "identical_request_hashes": [
+      "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360",
+      "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
+    ]
+  },
+  "result_hashes": [
+    "c9b6f8f821c0ce8d7b67732430b4ef358b41af1c53e228d5d68a382925cc24a6",
+    "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360",
+    "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
+  ],
+  "page_errors": []
+}

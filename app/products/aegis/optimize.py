@@ -3,13 +3,16 @@
 One side at a time: the grid is the cartesian product of that side's enabled optimization
 parameters; cells whose entry-rule fast length is not below the slow length are skipped and
 reported. Cells run on a single dedicated worker thread (one job at a time), results are
-appended progressively under a lock, cancel is cooperative between cells, and finished or
-cancelled jobs are persisted through the RunRepository. Unfinished persisted jobs are marked
-`lost` on startup. No process pools, no vectorized rewrite: cell cost is measured and estimated.
+appended progressively under a lock, cancel is cooperative between cells, and every job is
+persisted through the RunRepository from the moment it starts (queued → running after each
+cell → done / cancelled / failed), so a worker restart can mark what it interrupted as `lost`.
+The per-bar cell cost is learned from completed jobs, never asserted. No process pools, no
+vectorized rewrite.
 """
 
 from __future__ import annotations
 
+import logging
 import math
 import threading
 import time
@@ -29,10 +32,11 @@ from products.aegis.strategy import StrategySide, StrategySpec, apply_parameters
 
 MAX_CELLS = 400
 OBJECTIVES = ("net_pnl", "mar", "max_drawdown", "trade_count")
-# Measured in Task 10 on this host: 4.7 s for 3,493 bars with both sides simulated, i.e. about
-# 0.7 ms per bar per side with the current per-row engine loop. An optimizer cell runs one side.
+# Starting guess for the per-bar cell cost until a job has been observed on this host; the
+# runner replaces it with the measured figure of the last completed job (persisted with it).
 MS_PER_BAR = 0.7
 UNFINISHED = ("queued", "running")
+log = logging.getLogger("aegis")
 
 Side = Literal["long", "short"]
 Objective = Literal["net_pnl", "mar", "max_drawdown", "trade_count"]
@@ -72,6 +76,7 @@ def expand_grid(side: StrategySide) -> GridPlan:
 
     The entry rule's left indicator is the fast axis and its right indicator the slow axis;
     a cell with fast length >= slow length is skipped. More than MAX_CELLS total is rejected.
+    A grid with only one enabled axis is valid; its heatmap has no columns.
     """
     parameters = [p for p in side.optimization if p.enabled]
     if not parameters:
@@ -110,9 +115,14 @@ def estimate_seconds(cells: int, bars: int, ms_per_bar: float = MS_PER_BAR) -> f
 def heatmap(
     cells: list[dict], fast_values: list[float], slow_values: list[float], metric: str
 ) -> list[list[float | None]]:
-    """Rows fast ascending, columns slow ascending; None where skipped, pending or undefined."""
+    """Rows fast ascending, columns slow ascending; None where skipped, pending or undefined.
+
+    Cells without both axis values (a one-axis grid) have no place in a matrix and are ignored.
+    """
     lookup: dict[tuple[float, float], float | None] = {}
     for cell in cells:
+        if cell.get("fast") is None or cell.get("slow") is None:
+            continue
         value = cell.get("metrics", {}).get(metric)
         lookup[(float(cell["fast"]), float(cell["slow"]))] = (
             None
@@ -146,6 +156,7 @@ class _Job:
     started: float | None = None
     elapsed_ms: int = 0
     cache_hits: int = 0
+    ms_per_bar: float | None = None
     error: str | None = None
     cancel: threading.Event = field(default_factory=threading.Event)
 
@@ -161,6 +172,18 @@ class OptimizerRunner:
         self._lock = threading.Lock()
         self._jobs: dict[str, _Job] = {}
         self._after_cell = after_cell  # test hook: called with the completed-cell count
+        self.ms_per_bar = self._learned_ms_per_bar()
+
+    def _learned_ms_per_bar(self) -> float:
+        """The last completed job's measured cost on this host, or the starting guess."""
+        try:
+            for summary in self._repository.list_optimizations():  # newest first
+                value = summary.get("ms_per_bar")
+                if isinstance(value, int | float) and value > 0:
+                    return float(value)
+        except Exception as exc:  # noqa: BLE001 - a broken history must not stop the worker from starting
+            log.warning("optimizer history unreadable, using the default cost: %s", exc)
+        return MS_PER_BAR
 
     def start(self, request: OptimizeRequest, frame: pd.DataFrame, pinned: Any) -> str:
         side_spec: StrategySide = getattr(request.strategy, SIDE_KEY[request.side])
@@ -179,6 +202,13 @@ class OptimizerRunner:
             if running:
                 raise JobBusy(running[0].job_id)
             self._jobs[job.job_id] = job
+            envelope = self._snapshot(job)
+        try:
+            self._repository.save_optimization(envelope)  # queued: visible and markable as lost
+        except Exception:
+            with self._lock:
+                self._jobs.pop(job.job_id, None)
+            raise
         self._executor.submit(self._run, job)
         return job.job_id
 
@@ -196,6 +226,7 @@ class OptimizerRunner:
         with self._lock:
             job.status = "running"
             job.started = time.perf_counter()
+        final, error = "done", None
         try:
             for params in job.plan.cells:
                 if job.cancel.is_set():
@@ -217,20 +248,42 @@ class OptimizerRunner:
                     job.cells.append(cell)
                     job.cache_hits = cache.hits
                     job.elapsed_ms = int((time.perf_counter() - job.started) * 1000)
+                    job.ms_per_bar = self._observed_ms_per_bar(job)
+                    envelope = self._snapshot(job)
+                self._repository.save_optimization(envelope)  # progress survives a worker death
                 if self._after_cell is not None:
                     self._after_cell(len(job.cells))
-            final = "cancelled" if job.cancel.is_set() else "done"
-        except Exception as exc:  # noqa: BLE001 - a failing cell must fail the job visibly, not kill the worker thread
+            if job.cancel.is_set():
+                final = "cancelled"
+        except Exception as exc:  # noqa: BLE001 - a failing cell or save must fail the job visibly, never kill the thread
+            final, error = "failed", f"{type(exc).__name__}: {exc}"
+        # Persist first, then publish the terminal status: a client that sees `done` can reload it.
+        try:
+            with self._lock:
+                job.elapsed_ms = int((time.perf_counter() - job.started) * 1000)
+                job.ms_per_bar = self._observed_ms_per_bar(job)
+                if error:
+                    job.error = error
+                envelope = {**self._snapshot(job), "status": final, "elapsed_ms": job.elapsed_ms}
+            self._repository.save_optimization(envelope)
+            if final == "done" and job.ms_per_bar:
+                self.ms_per_bar = job.ms_per_bar
+        except Exception as exc:  # noqa: BLE001 - same reason: the runner must come back free
             final = "failed"
             with self._lock:
-                job.error = f"{type(exc).__name__}: {exc}"
-        # Persist first, then publish the terminal status: a client that sees `done` can reload it.
-        with self._lock:
-            job.elapsed_ms = int((time.perf_counter() - job.started) * 1000)
-            envelope = {**self._snapshot(job), "status": final, "elapsed_ms": job.elapsed_ms}
-        self._repository.save_optimization(envelope)
-        with self._lock:
-            job.status = final
+                job.error = job.error or f"{type(exc).__name__}: {exc}"
+        finally:
+            with self._lock:
+                job.status = final
+
+    @staticmethod
+    def _observed_ms_per_bar(job: _Job) -> float | None:
+        """Caller holds the lock."""
+        done = len(job.cells)
+        if done == 0 or job.started is None or not job.rows:
+            return None
+        elapsed_ms = (time.perf_counter() - job.started) * 1000
+        return round(elapsed_ms / (done * len(job.rows)), 4)
 
     def _snapshot(self, job: _Job) -> dict:
         """Caller holds the lock. Lists are copied so the caller can release it immediately."""
@@ -245,7 +298,7 @@ class OptimizerRunner:
         if done > 0 and elapsed_ms > 0:
             estimated = remaining * (elapsed_ms / done) / 1000.0
         else:
-            estimated = estimate_seconds(remaining, len(job.rows))
+            estimated = estimate_seconds(remaining, len(job.rows), self.ms_per_bar)
         side = request.side
         return {
             "job_id": job.job_id,
@@ -259,6 +312,7 @@ class OptimizerRunner:
             "skipped": list(plan.skipped),
             "elapsed_ms": elapsed_ms,
             "estimated_seconds": round(estimated, 3),
+            "ms_per_bar": job.ms_per_bar,
             "cells": cells,
             "matrices": {
                 metric: {side: heatmap(cells, plan.fast_values, plan.slow_values, metric)}
@@ -303,11 +357,13 @@ class OptimizerRunner:
         return lost
 
     def list_jobs(self) -> list[dict]:
+        """Every persisted job, unfinished ones included (they are persisted from start)."""
         return self._repository.list_optimizations()
 
 
 __all__ = [
     "MAX_CELLS",
+    "MS_PER_BAR",
     "OBJECTIVES",
     "GridPlan",
     "JobBusy",

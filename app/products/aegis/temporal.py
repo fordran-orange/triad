@@ -17,11 +17,25 @@ from products.aegis.strategy import TemporalContext, WindowMode
 
 
 def validate(temporal: TemporalContext) -> None:
-    """Reject modes this slice does not implement, before any simulation runs."""
+    """Reject modes this slice does not implement, before any simulation runs.
+
+    Clock windows may ALLOW, BLOCK or ANALYZE. Market crossovers and event windows only tag
+    (ANALYZE) in this slice; accepting a gating mode on them would silently do nothing.
+    """
     windows = [*temporal.clock_windows, *temporal.event_windows, *temporal.market_crossovers]
     for window in windows:
         if window.mode is WindowMode.MODIFY_RISK:
             raise ValueError("unsupported window mode: MODIFY_RISK")
+    for name, group in (
+        ("market_crossovers", temporal.market_crossovers),
+        ("event_windows", temporal.event_windows),
+    ):
+        for window in group:
+            if window.mode is not WindowMode.ANALYZE:
+                raise ValueError(
+                    f"unsupported window mode: {window.mode.value.upper()} on {name} "
+                    "(ANALYZE-only in this slice)"
+                )
 
 
 def _local_hhmm(timestamp: pd.Timestamp, temporal: TemporalContext) -> str:

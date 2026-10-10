@@ -96,3 +96,15 @@ def test_shared_indicator_cache_is_reused_across_runs():
     run_backtest(request, cache=cache)
     run_backtest(request, cache=cache)
     assert cache.hits >= 2
+
+
+def test_insufficient_bars_for_indicator_warmup_is_rejected():
+    import pytest
+
+    strategy = default_strategy()
+    long_side = apply_parameters(strategy.long_side, {"indicators.sma.length": 100})
+    request = BacktestRequest(
+        strategy=strategy.model_copy(update={"long_side": long_side}), bars=bars()
+    )
+    with pytest.raises(ValueError, match="warm-up"):
+        run_backtest(request)  # 91 bars cannot warm a 100-period indicator

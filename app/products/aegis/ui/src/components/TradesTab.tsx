@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { DASH, money, num, timeLabel } from '../format';
 import type { ResultSide, Trade } from '../results';
 import { useWorkspace } from '../state/workspace';
+import { StaleNotice } from './RunContext';
 
 const FILTERS: Array<[ResultSide, string]> = [
   ['combined', 'All'],
@@ -17,6 +18,7 @@ export function TradesTab() {
   return (
     <div className="result-body single">
       <div className="results-table">
+        <StaleNotice />
         {result && (
           <div className="legend">
             {FILTERS.map(([side, label]) => (

@@ -1,14 +1,16 @@
 import { CHART_LIBRARY, VELA_NOTICE } from '../about';
 import { DASH, money, num, pct, shortHash } from '../format';
-import { useWorkspace } from '../state/workspace';
+import { runStaleness, useWorkspace } from '../state/workspace';
 
 export function StatusStrip({ apiState }: { apiState: string }) {
-  const { selection, strategy, lastRun, running, runError } = useWorkspace();
+  const state = useWorkspace();
+  const { selection, strategy, lastRun, running, runError } = state;
   const m = lastRun?.result.combined.metrics ?? null;
+  const stale = runStaleness(state);
   return (
     <div className="status-strip">
-      <span>
-        <b>{selection.symbol}</b> · {strategy?.name ?? DASH}
+      <span title={lastRun ? 'The symbol the shown KPIs were computed on' : 'Current selection'}>
+        <b>{lastRun ? (lastRun.data.symbol ?? selection.symbol) : selection.symbol}</b> · {strategy?.name ?? DASH}
       </span>
       <span>
         CAGR <b>{m ? pct(m.cagr) : DASH}</b>
@@ -45,6 +47,11 @@ export function StatusStrip({ apiState }: { apiState: string }) {
         )}
         {!running && !runError && lastRun?.state === 'ok' && (
           <span className="muted">run {lastRun.run_id.slice(0, 8)} · {lastRun.elapsed_ms} ms</span>
+        )}
+        {!running && stale.any && (
+          <span className="badge raw" id="stale-badge" title="The selection, strategy or settings changed since this run; the KPIs describe the run, not the screen">
+            STALE
+          </span>
         )}
       </span>
       <span className="about">

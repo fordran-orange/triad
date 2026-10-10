@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { api } from '../api/client';
+import { ApiError, api } from '../api/client';
 import { TERMINAL_JOB_STATES } from '../results';
 import { SIDES, useDispatch, useWorkspace, type Side } from '../state/workspace';
 
@@ -20,8 +20,10 @@ export function JobPoller() {
         try {
           const job = await api.job(id);
           if (!stopped) dispatch({ type: 'JOB_UPDATED', side, job });
-        } catch {
-          /* a transient poll failure must not stop progress tracking; the next tick retries */
+        } catch (error) {
+          // The worker no longer knows the job (restarted before it finished): it is lost, stop polling.
+          if (error instanceof ApiError && error.status === 404 && !stopped) dispatch({ type: 'JOB_LOST', side, job_id: id });
+          // Any other failure is transient; the next tick retries.
         }
       }
     };

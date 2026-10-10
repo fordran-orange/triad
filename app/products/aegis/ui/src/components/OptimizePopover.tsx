@@ -84,7 +84,9 @@ export function OptimizePopover({ onClose }: { onClose: () => void }) {
           'Planning…'
         )}
       </div>
-      <div className="small muted">Estimate from the measured 0.7 ms per bar per cell on this host; the running job refines it.</div>
+      <div className="small muted">
+        {plan ? `Priced at the last observed cell cost on this host (${plan.ms_per_bar} ms per bar); the running job refines it.` : 'The estimate uses the cell cost last observed on this host.'}
+      </div>
       {busy && <div className="notice warn">An optimization is already running; wait for it or cancel it in the Optimization tab.</div>}
       <div className="actions">
         <button type="button" className="btn" onClick={onClose}>

@@ -123,3 +123,16 @@ def test_rumor_news_window_without_events_tags_nothing():
     event = EventPoint(event_type="RUMOR_NEWS", timestamp=datetime(2026, 1, 5, 15, 0, tzinfo=UTC))
     assert tags(et(10), temporal, [event], "QQQ") == ("EVENT:RUMOR_NEWS",)
     assert tags(et(12), temporal, [event], "QQQ") == ()
+
+
+def test_gating_modes_on_crossovers_and_events_are_rejected():
+    from products.aegis.strategy import WindowMode, default_strategy
+    from products.aegis.temporal import validate
+
+    temporal = default_strategy().temporal
+    validate(temporal)  # ANALYZE everywhere is the supported shape
+    for field in ("market_crossovers", "event_windows"):
+        for mode in (WindowMode.BLOCK, WindowMode.ALLOW):
+            windows = [w.model_copy(update={"mode": mode}) for w in getattr(temporal, field)]
+            with pytest.raises(ValueError, match="ANALYZE-only"):
+                validate(temporal.model_copy(update={field: windows}))

@@ -3,14 +3,15 @@ import { useRunBacktest } from '../state/run';
 import { TIMEFRAMES, useDispatch, useWorkspace, type Timeframe } from '../state/workspace';
 import { OptimizePopover } from './OptimizePopover';
 
-const SYMBOLS = ['QQQ', 'SPY', 'ITOT'];
-
 export function TopBar({ runsOpen, onToggleRuns }: { runsOpen: boolean; onToggleRuns: () => void }) {
-  const { selection, strategy, running } = useWorkspace();
+  const { selection, strategy, symbols, running } = useWorkspace();
   const dispatch = useDispatch();
   const runBacktest = useRunBacktest();
   const [optimizeOpen, setOptimizeOpen] = useState(false);
   const set = (patch: Partial<typeof selection>) => dispatch({ type: 'SET_SELECTION', selection: patch });
+  // The menu is what /data/symbols found on disk; until it answers, only the current selection is offered.
+  const names = symbols ? symbols.map((s) => s.symbol) : [selection.symbol];
+  const options = names.includes(selection.symbol) ? names : [selection.symbol, ...names];
 
   return (
     <header className="topbar">
@@ -20,8 +21,14 @@ export function TopBar({ runsOpen, onToggleRuns }: { runsOpen: boolean; onToggle
       </div>
       <div className="search">Search assets, indicators, strategies, or type a command… <span style={{ marginLeft: 'auto' }}>Ctrl K</span></div>
       <div className="top-controls">
-        <select className="control" value={selection.symbol} onChange={(e) => set({ symbol: e.target.value })} aria-label="Symbol">
-          {SYMBOLS.map((s) => (
+        <select
+          className="control"
+          value={selection.symbol}
+          onChange={(e) => set({ symbol: e.target.value })}
+          aria-label="Symbol"
+          title={symbols === null ? 'Archive list not loaded yet' : symbols.length === 0 ? 'No raw archives found on disk' : `${symbols.length} raw archive(s) on disk`}
+        >
+          {options.map((s) => (
             <option key={s}>{s}</option>
           ))}
         </select>
