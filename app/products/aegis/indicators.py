@@ -3,6 +3,7 @@ them. The registry is keyed by `IndicatorSpec.kind`; add a kind by adding a func
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 
 import pandas as pd
@@ -41,6 +42,7 @@ class IndicatorCache:
         self._data_keys: list[str] = []  # insertion order; the oldest is evicted first
         self.max_data_keys = max_data_keys
         self.hits = 0
+        self._lock = threading.Lock()  # the worker-wide backtest cache is shared across requests
 
     @property
     def data_keys(self) -> list[str]:
@@ -57,14 +59,15 @@ class IndicatorCache:
 
     def get(self, data_key: str, spec: IndicatorSpec, frame: pd.DataFrame) -> pd.Series:
         key = (data_key, spec.kind.upper(), spec.source, spec.length)
-        series = self._series.get(key)
-        if series is None:
-            self._admit(data_key)
-            series = compute(spec, frame)
-            self._series[key] = series
-        else:
-            self.hits += 1
-        return series
+        with self._lock:
+            series = self._series.get(key)
+            if series is None:
+                self._admit(data_key)
+                series = compute(spec, frame)
+                self._series[key] = series
+            else:
+                self.hits += 1
+            return series
 
     def __len__(self) -> int:
         return len(self._series)

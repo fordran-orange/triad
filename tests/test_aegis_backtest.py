@@ -140,3 +140,41 @@ def test_evaluate_from_must_be_timezone_aware():
 
     with pytest.raises(ValidationError, match="timezone-aware"):
         BacktestSettings(evaluate_from=datetime(2026, 1, 6, 14, 30))  # noqa: DTZ001 - naive on purpose
+
+
+def test_block_window_straddling_evaluate_from_counts_nothing_before_it():
+    from datetime import UTC, datetime
+
+    from products.aegis.backtest import BacktestSettings
+    from products.aegis.strategy import ClockWindow, WindowMode
+
+    strategy = default_strategy()
+    blocked = strategy.temporal.model_copy(
+        update={
+            "clock_windows": [
+                ClockWindow(
+                    id="straddle",
+                    label="Straddle",
+                    start="09:00",
+                    end="10:00",
+                    mode=WindowMode.BLOCK,
+                )
+            ]
+        }
+    )
+    boundary = datetime(2026, 1, 6, 14, 30, tzinfo=UTC)  # 09:30 New York: inside the BLOCK window
+    result = run_backtest(
+        BacktestRequest(
+            strategy=strategy.model_copy(update={"temporal": blocked}),
+            bars=bars(),
+            settings=BacktestSettings(evaluate_from=boundary),
+        )
+    )
+    for side in ("long", "short"):
+        assert result[side]["equity"][0]["timestamp"] == boundary.isoformat()
+        for trade in result[side]["trades"]:
+            assert trade["signal_time"] >= boundary.isoformat()
+            local = datetime.fromisoformat(trade["signal_time"]).astimezone(
+                __import__("zoneinfo").ZoneInfo("America/New_York")
+            )
+            assert not ("09:00" <= local.strftime("%H:%M") < "10:00"), trade["signal_time"]

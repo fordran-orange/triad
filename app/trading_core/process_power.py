@@ -58,7 +58,7 @@ def opt_out_of_power_throttling() -> bool:
 
         # Control execution speed; a state mask of 0 means "never throttle".
         ok, error = _set_process_information(State(_VERSION, _EXECUTION_SPEED, 0))
-    except (OSError, AttributeError, ValueError) as exc:
+    except Exception as exc:  # noqa: BLE001 - a worker must start whatever the host does here
         log.warning("power-throttling opt-out unavailable: %s", exc)
         return False
     if not ok:

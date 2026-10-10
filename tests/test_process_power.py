@@ -28,3 +28,12 @@ def test_every_worker_lifespan_opts_out():
     for module in (core, triad, aegis):
         source = inspect.getsource(module.lifespan)
         assert "opt_out_of_power_throttling()" in source.split("yield")[0], module.__name__
+
+
+def test_opt_out_returns_false_when_the_call_itself_blows_up(monkeypatch):
+    def explode(state):
+        raise TypeError("bad argument")
+
+    monkeypatch.setattr(process_power, "_set_process_information", explode)
+    monkeypatch.setattr(process_power.sys, "platform", "win32")
+    assert process_power.opt_out_of_power_throttling() is False

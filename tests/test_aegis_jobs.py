@@ -76,3 +76,46 @@ def test_runner_refuses_a_second_kind_while_one_runs_and_cancels_between_units(t
     assert runner.status(first)["final"] == "cancelled"
     second = runner.start(Counting())  # free again
     assert wait_for(lambda: runner.status(second)["status"] == "done")
+
+
+def test_status_and_known_respect_the_kind(tmp_path):
+    runner = JobRunner(JsonRunRepository(tmp_path))
+    job_id = runner.start(Counting())
+    assert wait_for(lambda: runner.status(job_id)["status"] == "done")
+    assert runner.status(job_id, kind="optimization")["status"] == "done"
+    assert runner.known(job_id, kind="optimization") and not runner.known(
+        job_id, kind="walkforward"
+    )
+    import pytest
+
+    with pytest.raises(KeyError):
+        runner.status(job_id, kind="walkforward")
+
+
+def test_cancel_after_the_last_unit_still_completes(tmp_path):
+    runner = JobRunner(JsonRunRepository(tmp_path))
+    kind = Counting()
+
+    def after_unit(done):
+        if done == kind.total_units:
+            runner.cancel(job_id)  # lands after the last commit, before the terminal publish
+
+    runner._after_unit = after_unit
+    job_id = runner.start(kind)
+    assert wait_for(lambda: runner.status(job_id)["status"] in ("done", "cancelled"))
+    status = runner.status(job_id)
+    assert status["status"] == "done" and status["final"] == "done"
+
+
+def test_release_is_called_once_the_terminal_status_is_persisted(tmp_path):
+    class Releasing(Counting):
+        released = False
+
+        def release(self):
+            self.released = True
+
+    runner = JobRunner(JsonRunRepository(tmp_path))
+    kind = Releasing()
+    job_id = runner.start(kind)
+    assert wait_for(lambda: runner.status(job_id)["status"] == "done")
+    assert kind.released and runner.status(job_id)["seen"] == [0, 1, 2]

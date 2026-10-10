@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WindowRecord } from '../results';
-import { defaultWindowBars, finalChoice, stitchedPoints } from './WalkForwardTab';
+import { defaultWindowBars, finalChoice, progressLabel, stitchedPoints } from './WalkForwardTab';
 
 const record = (index: number, status: WindowRecord['status'], equities: number[], params: Record<string, number> | null): WindowRecord =>
   ({
@@ -37,5 +37,13 @@ describe('walk-forward helpers', () => {
     const records = [record(0, 'done', [1], { a: 1 }), record(1, 'done', [1], { a: 7 }), record(2, 'pending', [1], null)];
     expect(finalChoice(records)).toEqual({ a: 7 });
     expect(finalChoice([record(0, 'no_valid_cell', [], null)])).toBeNull();
+  });
+
+  it('progressLabel counts cells within the current window and units overall', () => {
+    const job = (done: number, windowsDone: number) =>
+      ({ progress: { done, total: 10 }, windows: { done: windowsDone, total: 2 }, cells_per_window: 4 }) as unknown as import('../results').WalkForwardStatus;
+    expect(progressLabel(job(0, 0))).toBe('window 1 of 2 · cell 0 of 4 · unit 0 of 10');
+    expect(progressLabel(job(7, 1))).toBe('window 2 of 2 · cell 2 of 4 · unit 7 of 10');
+    expect(progressLabel(job(10, 2))).toBe('window 2 of 2 · cell 4 of 4 · unit 10 of 10');
   });
 });

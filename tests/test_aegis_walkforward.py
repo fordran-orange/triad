@@ -20,6 +20,7 @@ from products.aegis.walkforward import (
     Window,
     cut_windows,
     efficiency,
+    flag_edge_exits,
     lead_bars,
     longest_length,
     pending_record,
@@ -379,3 +380,108 @@ def test_mark_lost_covers_walkforward_jobs(tmp_path):
     assert JobRunner(JsonRunRepository(tmp_path)).mark_lost_on_startup() == [job_id]
     gate.set()
     assert wait_for(lambda: runner.status(job_id)["status"] == "done")
+
+
+# --- fix pass after the whole-branch review and QA ---------------------------------------------
+
+
+def test_stitch_measures_drawdown_across_window_joins():
+    first = done_record(
+        0,
+        [trade(20_000.0)],
+        [
+            point("2023-01-03T15:30:00+00:00", 100_000.0),
+            point("2023-01-04T15:30:00+00:00", 120_000.0),
+        ],
+        1.0,
+    )
+    second = done_record(
+        1,
+        [trade(-10_000.0)],
+        [
+            point("2023-01-05T15:30:00+00:00", 110_000.0),
+            point("2023-01-06T15:30:00+00:00", 100_000.0),
+        ],
+        1.0,
+    )
+    second["oos"]["equity"][1]["drawdown"] = (
+        -1 / 11
+    )  # the window's own peak (110,000), not the curve's
+    stitched = stitch([first, second], 100_000.0)
+    assert stitched["metrics"]["max_drawdown"] == pytest.approx(1 - 100_000 / 120_000)
+    assert [round(p["drawdown"], 4) for p in stitched["equity"]] == [
+        0.0,
+        0.0,
+        round(-1 / 12, 4),
+        round(-1 / 6, 4),
+    ]
+    assert second["oos"]["equity"][1]["drawdown"] == -1 / 11  # the window record is untouched
+
+
+def test_flag_edge_exits_marks_forced_closes_only():
+    trades = [
+        {"exit_signal_time": "2023-01-03T15:30:00+00:00", "exit_time": "2023-01-03T16:30:00+00:00"},
+        {"exit_signal_time": "2023-01-04T15:30:00+00:00", "exit_time": "2023-01-04T15:30:00+00:00"},
+    ]
+    assert [t["window_edge_exit"] for t in flag_edge_exits(trades)] == [False, True]
+
+
+def daily(n, start="2023-01-02"):
+    from datetime import UTC, datetime, timedelta
+
+    first = datetime.fromisoformat(start).replace(tzinfo=UTC)
+    return [(first + timedelta(days=i)).isoformat() for i in range(n)]
+
+
+def test_plan_refuses_mar_under_a_year_and_grids_without_a_valid_cell():
+    short = make_request(in_sample_bars=200, out_of_sample_bars=50, objective="mar")
+    with pytest.raises(
+        ValueError,
+        match="objective mar needs an in-sample span of at least 365 days; window 0 spans 199 days",
+    ):
+        plan(short, 500, timestamps=daily(500))
+    long_enough = make_request(in_sample_bars=400, out_of_sample_bars=50, objective="mar")
+    assert len(plan(long_enough, 500, timestamps=daily(500)).windows) == 2  # 399 days: fine
+    assert len(plan(short, 500).windows) == 6  # without timestamps the span cannot be checked
+    empty = make_request(
+        in_sample_bars=200,
+        out_of_sample_bars=50,
+        ranges=small_ranges(fast=(30, 32, 1), slow=(8, 9, 1)),
+    )
+    with pytest.raises(ValueError, match="grid has no valid cell"):
+        plan(empty, 500)
+
+
+def test_walkforward_request_rejects_a_warmup_boundary_of_its_own():
+    from datetime import UTC, datetime
+
+    from products.aegis.backtest import BacktestSettings
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="evaluate_from"):
+        WalkForwardRequest(
+            strategy=default_strategy(),
+            side="long",
+            data=DATA,
+            in_sample_bars=200,
+            out_of_sample_bars=50,
+            settings=BacktestSettings(evaluate_from=datetime(2024, 1, 2, 14, 30, tzinfo=UTC)),
+        )
+
+
+def test_oos_trades_at_window_edges_are_flagged_in_records_and_stitched(tmp_path):
+    runner = JobRunner(JsonRunRepository(tmp_path))
+    job_id = start_job(runner, job_request(objective="trade_count"))
+    assert wait_for(lambda: runner.status(job_id)["status"] == "done")
+    status = runner.status(job_id)
+    trades = [t for r in status["window_records"] for t in r["oos"]["trades"]]
+    assert trades and all("window_edge_exit" in t for t in trades)
+    for t in trades:
+        assert t["window_edge_exit"] is (t["exit_signal_time"] == t["exit_time"])
+    assert [t["window_edge_exit"] for t in status["stitched"]["trades"]] == [
+        t["window_edge_exit"] for t in trades
+    ]
+    assert (
+        status["stitched"]["metrics"]["max_drawdown"]
+        >= max(r["oos"]["metrics"]["max_drawdown"] for r in status["window_records"]) - 1e-12
+    )

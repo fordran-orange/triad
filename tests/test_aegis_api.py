@@ -571,3 +571,16 @@ def test_backtest_reuses_the_store_cache_across_requests(client):
     # same bars reuses every series (4 hits) because the store cache kept them.
     assert first["cache_hits"] == 2 and second["cache_hits"] == 4
     assert first["result_hash"] == second["result_hash"]
+
+
+def test_status_routes_refuse_the_other_kind(client):
+    c, _, repository = client
+    _runner(repository)
+    optimization = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    _wait(c, optimization, "done")
+    walk = c.post("/aegis/api/walkforward", json=_walkforward_payload()).json()["job_id"]
+    _wait_wf(c, walk, "done")
+    assert c.get(f"/aegis/api/walkforward/{optimization}").status_code == 404
+    assert c.get(f"/aegis/api/optimize/{walk}").status_code == 404
+    assert c.post(f"/aegis/api/walkforward/{optimization}/cancel").status_code == 404
+    assert c.get(f"/aegis/api/optimize/{optimization}").status_code == 200

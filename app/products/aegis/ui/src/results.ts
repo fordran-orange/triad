@@ -28,6 +28,7 @@ export interface Trade {
   net_pnl: number;
   return: number;
   temporal_tags: string[];
+  window_edge_exit?: boolean; // walk-forward only: closed by the engine at a window's last bar
 }
 
 export interface EquityPoint {

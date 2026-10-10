@@ -289,18 +289,18 @@ def optimizations(runner: JobRunner = RUNNER):
 @router.get("/optimize/{job_id}")
 def optimization(job_id: str, runner: JobRunner = RUNNER):
     try:
-        return runner.status(job_id)
+        return runner.status(job_id, kind="optimization")
     except (KeyError, ValueError) as exc:
         raise HTTPException(404, f"unknown optimization {job_id!r}") from exc
 
 
 @router.post("/optimize/{job_id}/cancel")
 def cancel_optimization(job_id: str, runner: JobRunner = RUNNER):
-    return _cancel(runner, job_id)
+    return _cancel(runner, job_id, "optimization")
 
 
-def _cancel(runner: JobRunner, job_id: str) -> dict:
-    if not runner.known(job_id):
+def _cancel(runner: JobRunner, job_id: str, kind: str) -> dict:
+    if not runner.known(job_id, kind):
         raise HTTPException(404, f"unknown job {job_id!r}")
     return {"cancelled": runner.cancel(job_id)}
 
@@ -323,7 +323,9 @@ def walkforward_plan_route(
     """What a start would do: windows, cells per window, units, unused tail, bars, estimate."""
     frame, _ = _walkforward_frame(request, store)
     try:
-        layout = walkforward_plan(request, len(frame))
+        layout = walkforward_plan(
+            request, len(frame), [stamp.isoformat() for stamp in frame["timestamp"]]
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return {
@@ -371,14 +373,14 @@ def walkforwards(runner: JobRunner = RUNNER):
 @router.get("/walkforward/{job_id}")
 def walkforward_status(job_id: str, runner: JobRunner = RUNNER):
     try:
-        return runner.status(job_id)
+        return runner.status(job_id, kind="walkforward")
     except (KeyError, ValueError) as exc:
         raise HTTPException(404, f"unknown walk-forward {job_id!r}") from exc
 
 
 @router.post("/walkforward/{job_id}/cancel")
 def cancel_walkforward(job_id: str, runner: JobRunner = RUNNER):
-    return _cancel(runner, job_id)
+    return _cancel(runner, job_id, "walkforward")
 
 
 __all__ = [

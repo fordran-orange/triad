@@ -182,7 +182,7 @@ class Acceptance:
         self.page.wait_for_selector(".job-head", timeout=30_000)
 
     def wf_cells(self) -> tuple[int, int]:
-        done, total = self.js(f"({WF_HEAD}).match(/cell (\\d+) of (\\d+)/).slice(1).map(Number)")
+        done, total = self.js(f"({WF_HEAD}).match(/unit (\\d+) of (\\d+)/).slice(1).map(Number)")
         return int(done), int(total)
 
     def wf_cells_per_window(self) -> int:
@@ -623,7 +623,7 @@ class Acceptance:
             self.open_walkforward(200, 50)
             self.start_walkforward()
             head = self.job_head().split("\n")[0:2]
-            assert "window 1 of 6" in head[1] or "window" in head[1], head
+            assert re.search(r"window 1 of 6 · cell \d+ of \d+ · unit \d+ of \d+", head[1]), head
             return f"started: '{' | '.join(head)}'"
 
         self.item(25, item25)
@@ -631,7 +631,7 @@ class Acceptance:
         def item26():
             first, total = self.wf_cells()
             page.wait_for_function(
-                f"+({WF_HEAD}).match(/cell (\\d+) of/)[1] > {first}", timeout=60_000
+                f"+({WF_HEAD}).match(/unit (\\d+) of/)[1] > {first}", timeout=60_000
             )
             second, _ = self.wf_cells()
             job = self.latest_walkforward()

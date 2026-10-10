@@ -52,3 +52,26 @@ def test_cache_evicts_oldest_data_key_beyond_the_bound():
     assert cache.hits == 0 and cache.data_keys == ["k3", "k1"]
     cache.get("k3", spec, f)
     assert cache.hits == 1
+
+
+def test_cache_survives_concurrent_gets_with_eviction():
+    import threading
+
+    cache = IndicatorCache(max_data_keys=2)
+    f = frame([float(i) for i in range(1, 40)])
+    spec = IndicatorSpec(id="s", kind="SMA", length=3)
+    errors = []
+
+    def hammer(prefix):
+        try:
+            for i in range(300):
+                cache.get(f"{prefix}-{i % 5}", spec, f)
+        except Exception as exc:  # noqa: BLE001 - the test records any failure
+            errors.append(exc)
+
+    threads = [threading.Thread(target=hammer, args=(p,)) for p in ("a", "b", "c", "d")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [] and len(cache.data_keys) <= 2

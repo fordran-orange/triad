@@ -40,6 +40,15 @@ export function stitchedPoints(records: WindowRecord[]): { points: EquityPoint[]
   return { points, boundaries };
 }
 
+/** "window w of W · cell c of C · unit u of U": the cell count is within the current window. */
+export function progressLabel(job: Pick<WalkForwardStatus, 'progress' | 'windows' | 'cells_per_window'>): string {
+  const perWindow = job.cells_per_window + 1;
+  const allDone = job.windows.done >= job.windows.total;
+  const window = Math.min(job.windows.done + 1, job.windows.total);
+  const cell = allDone ? job.cells_per_window : Math.max(0, Math.min(job.progress.done - job.windows.done * perWindow, job.cells_per_window));
+  return `window ${window} of ${job.windows.total} · cell ${cell} of ${job.cells_per_window} · unit ${job.progress.done} of ${job.progress.total}`;
+}
+
 /** The last done window's chosen configuration, which "Apply" writes into the strategy. */
 export function finalChoice(records: WindowRecord[]): Record<string, number> | null {
   const done = records.filter((r) => r.status === 'done' && r.best).sort((a, b) => a.index - b.index);
@@ -96,6 +105,7 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
   const planned = job.strategy[SIDE_KEY[side]];
   const choice = finalChoice(job.window_records);
   const stitched = job.stitched.metrics;
+  const edgeExits = job.stitched.trades.filter((t) => t.window_edge_exit).length;
   const pctDone = job.progress.total ? (100 * job.progress.done) / job.progress.total : 0;
   const d = job.data;
   const s = state.selection;
@@ -124,7 +134,7 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
       <div className="job-head">
         <span className={'badge' + (job.status === 'failed' || job.status === 'lost' ? ' error' : '')}>{job.status.toUpperCase()}</span>
         <span>
-          window {Math.min(job.windows.done + 1, job.windows.total)} of {job.windows.total} · cell {job.progress.done} of {job.progress.total} · in-sample {job.in_sample_bars} / out-of-sample {job.out_of_sample_bars} bars · objective {METRIC_LABELS[job.objective]}
+          {progressLabel(job)} · in-sample {job.in_sample_bars} / out-of-sample {job.out_of_sample_bars} bars · objective {METRIC_LABELS[job.objective]}
         </span>
         <span className="muted">
           {(job.elapsed_ms / 1000).toFixed(1)} s elapsed{live ? ` · ≈ ${formatSeconds(job.estimated_seconds)} remaining` : ''} · cache hits {job.cache_hits}
@@ -159,7 +169,15 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
           <span>Max DD <b>{pct(stitched.max_drawdown)}</b></span>
           <span>MAR <b>{num(stitched.mar, 2)}</b></span>
           <span>Win rate <b>{pct(stitched.win_rate)}</b></span>
-          <span>Trades <b>{num(stitched.trade_count, 0)}</b></span>
+          <span>
+            Trades <b>{num(stitched.trade_count, 0)}</b>
+            {edgeExits > 0 && (
+              <span className="muted" title="Closed by the engine at a window's last bar, not by the strategy's exit rule; positions do not carry into the next window">
+                {' '}
+                ({edgeExits} closed at a window edge)
+              </span>
+            )}
+          </span>
           <span>Exposure <b>{pct(stitched.exposure)}</b></span>
         </div>
       </div>
@@ -199,7 +217,10 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
                     <td>{isValue === undefined || isValue === null ? DASH : job.objective === 'net_pnl' ? money(isValue) : job.objective === 'max_drawdown' ? pct(isValue) : num(isValue, 2)}</td>
                     <td className={r.oos ? ((r.oos.metrics.net_pnl ?? 0) >= 0 ? 'green' : 'red') : ''}>{r.oos ? money(r.oos.metrics.net_pnl) : DASH}</td>
                     <td>{r.oos ? pct(r.oos.metrics.max_drawdown) : DASH}</td>
-                    <td>{r.oos ? num(r.oos.metrics.trade_count, 0) : DASH}</td>
+                    <td title={r.oos ? `${r.oos.trades.filter((x) => x.window_edge_exit).length} closed at the window edge` : undefined}>
+                      {r.oos ? num(r.oos.metrics.trade_count, 0) : DASH}
+                      {r.oos && r.oos.trades.some((x) => x.window_edge_exit) ? <span className="muted"> ({r.oos.trades.filter((x) => x.window_edge_exit).length} edge)</span> : null}
+                    </td>
                     <td>{r.efficiency === null ? DASH : num(r.efficiency, 2)}</td>
                     <td>{r.status === 'no_valid_cell' ? 'no valid cell' : r.status}</td>
                   </tr>

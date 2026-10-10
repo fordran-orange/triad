@@ -197,6 +197,11 @@ class OptimizerJob:
     def finalize(self, status: str) -> dict:
         return {}
 
+    def release(self) -> None:
+        """Drop the bar rows and the cache once terminal and persisted; cells and matrices stay."""
+        self.rows = []
+        self.cache = IndicatorCache()
+
 
 class OptimizerRunner(JobRunner):
     """The Mission 3 entry point, kept for the optimizer tests and the API dependency override:

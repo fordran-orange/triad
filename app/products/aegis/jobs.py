@@ -133,8 +133,8 @@ class JobRunner:
                 self._save(kind.name, envelope)  # progress survives a worker death
                 if self._after_unit is not None:
                     self._after_unit(job.done)
-            if job.cancel.is_set():
-                final = "cancelled"
+            if job.cancel.is_set() and job.done < kind.total_units:
+                final = "cancelled"  # a cancel after the last unit changes nothing: the job is done
         except Exception as exc:  # noqa: BLE001 - a failing unit or save must fail the job visibly, never kill the thread
             final, error = "failed", f"{type(exc).__name__}: {exc}"
         # Persist first, then publish the terminal status: a client that sees `done` can reload it.
@@ -149,6 +149,9 @@ class JobRunner:
             self._save(kind.name, envelope)
             if final == "done" and job.ms_per_bar:
                 self.ms_per_bar = job.ms_per_bar
+            release = getattr(kind, "release", None)
+            if release is not None:
+                release()  # the kind may drop its bar rows and cache; its documents stay
         except Exception as exc:  # noqa: BLE001 - same reason: the runner must come back free
             final = "failed"
             with self._lock:
@@ -196,15 +199,19 @@ class JobRunner:
         }
 
     # -- queries ------------------------------------------------------------------------------
-    def status(self, job_id: str) -> dict:
+    def status(self, job_id: str, kind: str | None = None) -> dict:
+        """The job's document; `kind` restricts the lookup so one kind's route never answers for
+        another's id. KeyError when no (matching) kind knows the id."""
         with self._lock:
             job = self._jobs.get(job_id)
             if job is not None:
+                if kind is not None and job.kind.name != kind:
+                    raise KeyError(job_id)
                 return self._snapshot(job)
-        for name in KINDS:  # persisted jobs after a restart; KeyError if no kind knows the id
+        for name in (kind,) if kind else KINDS:  # persisted jobs after a restart
             try:
                 return self._get(name, job_id)
-            except (KeyError, AttributeError):
+            except (KeyError, ValueError, AttributeError):
                 continue
         raise KeyError(job_id)
 
@@ -216,12 +223,14 @@ class JobRunner:
             job.cancel.set()
             return True
 
-    def known(self, job_id: str) -> bool:
-        """Whether any kind, in memory or persisted, knows this id (cancel answers 404 otherwise)."""
+    def known(self, job_id: str, kind: str | None = None) -> bool:
+        """Whether a (matching) kind, in memory or persisted, knows this id (cancel answers 404
+        otherwise)."""
         with self._lock:
-            if job_id in self._jobs:
-                return True
-        for name in KINDS:
+            job = self._jobs.get(job_id)
+            if job is not None:
+                return kind is None or job.kind.name == kind
+        for name in (kind,) if kind else KINDS:
             try:
                 self._get(name, job_id)
                 return True

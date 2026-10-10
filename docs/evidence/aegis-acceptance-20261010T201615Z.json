@@ -1,0 +1,319 @@
+{
+  "stamp": "20261010T201615Z",
+  "base": "http://127.0.0.1:8102/aegis/",
+  "total_ms": 138205,
+  "passed": 36,
+  "failed": 0,
+  "items": [
+    {
+      "item": 1,
+      "title": "select QQQ",
+      "status": "PASS",
+      "detail": "chart header QQQ \u00b7 1h RAW ARCHIVE \u00b7 NOT RESEARCH-ELIGIBLE",
+      "ms": 77
+    },
+    {
+      "item": 2,
+      "title": "select 1m, 15m, 30m, 1h or 1D",
+      "status": "PASS",
+      "detail": "bars per timeframe {'1m': 1827, '15m': 12974, '30m': 6488, '1h': 3493, '1D': 502}",
+      "ms": 3664
+    },
+    {
+      "item": 3,
+      "title": "choose a date range",
+      "status": "PASS",
+      "detail": "QQQ 1h 2023-01-01\u21922024-12-31: 3493 bars; indicators response in 162 ms",
+      "ms": 382
+    },
+    {
+      "item": 4,
+      "title": "see real candles from the pinned raw archive",
+      "status": "PASS",
+      "detail": "3493 bars, vintage 20260919T233952760505Z, file sha256 ad3cdc78a91c\u2026, 7 canvas layers",
+      "ms": 162
+    },
+    {
+      "item": 5,
+      "title": "see the permanent RAW ARCHIVE / NOT RESEARCH ELIGIBLE indicator",
+      "status": "PASS",
+      "detail": "RAW ARCHIVE \u00b7 NOT RESEARCH-ELIGIBLE",
+      "ms": 16
+    },
+    {
+      "item": 6,
+      "title": "see the 9 EMA and 30 SMA",
+      "status": "PASS",
+      "detail": "legend 'EMA 9 / SMA 30 / Volume'; ema 3485 values, sma 3464 values (warm-up gaps null)",
+      "ms": 3
+    },
+    {
+      "item": 7,
+      "title": "run a backtest",
+      "status": "PASS",
+      "detail": "run de1537fc in 815 ms server / 1198 ms wall, hash c9b6f8f821c0",
+      "ms": 1207
+    },
+    {
+      "item": 8,
+      "title": "inspect real entries and exits",
+      "status": "PASS",
+      "detail": "250 markers for 125 trades; first entry 2023-01-19T14:30 after signal 2023-01-18T20:30",
+      "ms": 1
+    },
+    {
+      "item": 9,
+      "title": "inspect LONG results independently",
+      "status": "PASS",
+      "detail": "long: 62 trades, net P&L $51,462, exposure 57.40%",
+      "ms": 76
+    },
+    {
+      "item": 10,
+      "title": "inspect SHORT results independently",
+      "status": "PASS",
+      "detail": "short: 63 trades, net P&L -$20,438, exposure 40.40%",
+      "ms": 57
+    },
+    {
+      "item": 11,
+      "title": "inspect COMBINED results",
+      "status": "PASS",
+      "detail": "combined: 125 trades, net P&L $31,024, exposure 97.80%",
+      "ms": 76
+    },
+    {
+      "item": 12,
+      "title": "inspect temporal performance",
+      "status": "PASS",
+      "detail": "tags ['ALL', 'CLOCK:close', 'CLOCK:open', 'CROSSOVER:cash_open', 'CROSSOVER:london_new_york']",
+      "ms": 4
+    },
+    {
+      "item": 13,
+      "title": "inspect trades",
+      "status": "PASS",
+      "detail": "125 trades listed, 62 long; first row tags 'CLOCK:close'",
+      "ms": 196
+    },
+    {
+      "item": 14,
+      "title": "inspect equity",
+      "status": "PASS",
+      "detail": "3 curves; legend 'combined (125) / long (3493) / short (3493) / min 76265 \u00b7 max 158567'",
+      "ms": 114
+    },
+    {
+      "item": 15,
+      "title": "see real KPIs",
+      "status": "PASS",
+      "detail": "strip shows net P&L $31,024 (API 31024.18), hash c9b6f8f821c0",
+      "ms": 5
+    },
+    {
+      "item": 16,
+      "title": "reload the saved experiment",
+      "status": "PASS",
+      "detail": "run de1537fc reloaded from the drawer, state ok, hash unchanged",
+      "ms": 964
+    },
+    {
+      "item": 17,
+      "title": "launch an optimization",
+      "status": "PASS",
+      "detail": "plan '271 valid cells \u00b7 1 skipped (fast \u2265 slow) \u00b7 502 bars \u00b7 \u2248 20 s estimated'; LONG job started",
+      "ms": 487
+    },
+    {
+      "item": 18,
+      "title": "watch progress",
+      "status": "PASS",
+      "detail": "progress advanced 0 \u2192 20 of 271; 'RUNNING | 20 / 271 cells \u00b7 1 skipped \u00b7 502 bars \u00b7 objective Net P&L | 1.1 s elapsed \u00b7 \u2248 14 s remaining \u00b7 cache hits 21'",
+      "ms": 1019
+    },
+    {
+      "item": 19,
+      "title": "cancel it",
+      "status": "PASS",
+      "detail": "cancelled at 22/271 cells after 1.2 s (54.5 ms per cell)",
+      "ms": 1015
+    },
+    {
+      "item": 20,
+      "title": "inspect progressively completed parameter cells",
+      "status": "PASS",
+      "detail": "22 completed cells visible in the table and heatmap (272 grid cells); best so far 'EMA 5 / SMA 45 | $47,485 | 12.46% | 1.73 | 57.14% | 7 | 72.91%'",
+      "ms": 14
+    },
+    {
+      "item": 21,
+      "title": "view the final heatmap and table",
+      "status": "PASS",
+      "detail": "40/40 cells in 1.9 s (47.5 ms per cell); applied the best cell \u2192 long side now 'ENTRY: EMA(12) crosses ABOVE SMA(40)'",
+      "ms": 3006
+    },
+    {
+      "item": 22,
+      "title": "rerun an identical computational request and obtain the same result_hash",
+      "status": "PASS",
+      "detail": "two identical requests: runs bf391eab and 9e1b92f4 both hash cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360",
+      "ms": 2399
+    },
+    {
+      "item": 23,
+      "title": "workers opt out of power throttling; gateway and Core latencies recorded",
+      "status": "PASS",
+      "detail": "gateway /aegis/api/status 317 ms median (369 max); Core /health/live 8 ms; worker direct 68 ms",
+      "ms": 3898
+    },
+    {
+      "item": 24,
+      "title": "open the Optimize popover in walk-forward mode and see the plan",
+      "status": "PASS",
+      "detail": "plan '6 windows \u00b7 40 cells each \u00b7 246 units \u00b7 2 unused tail bars \u00b7 502 bars \u00b7 \u2248 4.5 s estimated'",
+      "ms": 479
+    },
+    {
+      "item": 25,
+      "title": "start a LONG walk-forward on QQQ 1D 2023\u20132024 and land on the Walk-Forward tab",
+      "status": "PASS",
+      "detail": "started: 'RUNNING | window 1 of 6 \u00b7 cell 2 of 40 \u00b7 unit 2 of 246 \u00b7 in-sample 200 / out-of-sample 50 bars \u00b7 objective Net P&L'",
+      "ms": 447
+    },
+    {
+      "item": 26,
+      "title": "watch progress advance by window and cell while the status route stays responsive",
+      "status": "PASS",
+      "detail": "cells 2 \u2192 29 of 246; status route 36 ms while running",
+      "ms": 1152
+    },
+    {
+      "item": 27,
+      "title": "cancel between cells; completed windows stay and the job is cancelled",
+      "status": "PASS",
+      "detail": "cancelled at window 1 of 6 (cell 64 of 246); 1 done window(s) still shown",
+      "ms": 1919
+    },
+    {
+      "item": 28,
+      "title": "start again and let it complete",
+      "status": "PASS",
+      "detail": "6/6 windows, 246 units in 8.1 s (32.9 ms per unit); hash 4f540c989d80",
+      "ms": 8433
+    },
+    {
+      "item": 29,
+      "title": "inspect every window: ranges, chosen configuration, in-sample objective, out-of-sample results, efficiency",
+      "status": "PASS",
+      "detail": "6 windows; chosen ['11/40', '5/20', '11/35', '5/30', '11/20', '6/20']; efficiencies [2.47, 1.31, 0.62, 0.0, -0.26, 1.12]",
+      "ms": 8
+    },
+    {
+      "item": 30,
+      "title": "inspect the stitched out-of-sample equity with window boundaries",
+      "status": "PASS",
+      "detail": "one curve, 5 window boundaries, 300 points; 'Net P&L $22,899 Return 22.90% CAGR 18.90% Max DD 5.08% MAR 3.72 Win rate 83.33% Trades 6 (5 closed at a window edge) Exposure 51.67%'",
+      "ms": 6
+    },
+    {
+      "item": 31,
+      "title": "inspect stability: parameter spread, positive out-of-sample windows, mean efficiency",
+      "status": "PASS",
+      "detail": "EMA 5\u201311 (mean 8.2, std 2.85); positive OOS windows 4 of 6; mean efficiency 0.8748048355896912",
+      "ms": 2
+    },
+    {
+      "item": 32,
+      "title": "apply the final window's configuration and rerun the combined backtest",
+      "status": "PASS",
+      "detail": "applied EMA 6 / SMA 20 \u2192 'ENTRY: EMA(6) crosses ABOVE SMA(20)'; combined rerun with 19 trades",
+      "ms": 399
+    },
+    {
+      "item": 33,
+      "title": "reload the finished walk-forward from the persisted list and see the same numbers",
+      "status": "PASS",
+      "detail": "persisted job 054b0f8d reloaded: hash 4f540c989d80, stitched net P&L 22899.43",
+      "ms": 55
+    },
+    {
+      "item": 34,
+      "title": "rerun an identical walk-forward request and obtain the same result_hash",
+      "status": "PASS",
+      "detail": "two identical requests \u2192 the same hash 1044cddec07f6bf36ca2440b6f5934b79d14c363401b6603517ec75c76734451",
+      "ms": 98690
+    },
+    {
+      "item": 35,
+      "title": "a walk-forward on a range too short for one window is refused with the bar counts",
+      "status": "PASS",
+      "detail": "422: range too short: 502 bars; one window needs 500 + 100 bars",
+      "ms": 20
+    },
+    {
+      "item": 36,
+      "title": "after the restarts the governance contract and the disabled schedule record are unchanged",
+      "status": "PASS",
+      "detail": "aegis human_directed / CLOSED; DailySchedule c99fa831 enabled=False",
+      "ms": 658
+    }
+  ],
+  "timings": {
+    "bars_per_timeframe": {
+      "1m": 1827,
+      "15m": 12974,
+      "30m": 6488,
+      "1h": 3493,
+      "1D": 502
+    },
+    "indicator_ms": 162,
+    "backtest_wall_ms": [
+      1198,
+      1089,
+      967
+    ],
+    "backtest_server_ms": [
+      815,
+      713,
+      634
+    ],
+    "optimize_plan": "271 valid cells \u00b7 1 skipped (fast \u2265 slow) \u00b7 502 bars \u00b7 \u2248 20 s estimated",
+    "optimizer_cell_ms_cancelled_job": 54.5,
+    "optimizer_cell_ms_completed_job": 47.5,
+    "identical_request_hashes": [
+      "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360",
+      "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
+    ],
+    "latency_ms_median_max": {
+      "gateway_aegis_status": [
+        317,
+        369
+      ],
+      "core_health": [
+        8,
+        10
+      ],
+      "aegis_worker_status": [
+        68,
+        81
+      ]
+    },
+    "walkforward_plan": "6 windows \u00b7 40 cells each \u00b7 246 units \u00b7 2 unused tail bars \u00b7 502 bars \u00b7 \u2248 4.5 s estimated",
+    "walkforward_cancelled_at": {
+      "done": 64,
+      "total": 246
+    },
+    "walkforward_seconds": 8.1,
+    "walkforward_cell_ms": 32.9,
+    "identical_walkforward_hashes": [
+      "1044cddec07f6bf36ca2440b6f5934b79d14c363401b6603517ec75c76734451",
+      "1044cddec07f6bf36ca2440b6f5934b79d14c363401b6603517ec75c76734451"
+    ]
+  },
+  "result_hashes": [
+    "c9b6f8f821c0ce8d7b67732430b4ef358b41af1c53e228d5d68a382925cc24a6",
+    "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360",
+    "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
+  ],
+  "page_errors": []
+}

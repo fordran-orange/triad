@@ -61,6 +61,15 @@ class WalkForwardRequest(BaseModel):
             raise ValueError(f"out_of_sample_bars {value} below {MIN_OOS_BARS}")
         return value
 
+    @field_validator("settings")
+    @classmethod
+    def no_boundary_of_its_own(cls, value):
+        if value.evaluate_from is not None:
+            raise ValueError(
+                "settings.evaluate_from is set by the walk-forward itself; leave it unset"
+            )
+        return value
+
     @property
     def side_spec(self) -> StrategySide:
         return getattr(self.strategy, SIDE_KEY[self.side])
@@ -116,8 +125,15 @@ def longest_length(side: StrategySide) -> int:
     return max(lengths, default=0)
 
 
-def plan(request: WalkForwardRequest, n_bars: int) -> WindowPlan:
-    """Validate every bound of spec §5.2 and lay out the windows and units."""
+def plan(
+    request: WalkForwardRequest, n_bars: int, timestamps: list[str] | None = None
+) -> WindowPlan:
+    """Validate every bound of spec §5.2 and lay out the windows and units.
+
+    Dead ends knowable now are refused now: a grid with no valid cell, and the `mar` objective
+    on in-sample windows shorter than a year (the engine reports CAGR and MAR only from 365 days,
+    so every cell would be null and every window `no_valid_cell`).
+    """
     side = request.side_spec
     floor = MIN_BARS + longest_length(side)
     if request.in_sample_bars < floor:
@@ -126,11 +142,24 @@ def plan(request: WalkForwardRequest, n_bars: int) -> WindowPlan:
             f"(35 bars plus the longest indicator length the grid can visit)"
         )
     grid = expand_grid(side)  # raises "grid too large" over 400 cells
+    if not grid.cells:
+        raise ValueError("grid has no valid cell: every cell has fast >= slow; widen the ranges")
     windows, tail = cut_windows(n_bars, request.in_sample_bars, request.out_of_sample_bars)
     if len(windows) > MAX_WINDOWS:
         raise ValueError(
             f"windows {len(windows)} over cap {MAX_WINDOWS}; lengthen the windows or narrow the range"
         )
+    if request.objective == "mar" and timestamps:
+        first = windows[0]
+        span = (
+            datetime.fromisoformat(timestamps[first.is_end - 1])
+            - datetime.fromisoformat(timestamps[first.is_start])
+        ).days
+        if span < 365:
+            raise ValueError(
+                f"objective mar needs an in-sample span of at least 365 days; "
+                f"window 0 spans {span} days; lengthen in_sample_bars or choose another objective"
+            )
     cells = len(grid.cells)
     return WindowPlan(
         windows=windows,
@@ -191,6 +220,14 @@ def pending_record(window: Window, timestamps: list[str]) -> dict:
     }
 
 
+def flag_edge_exits(trades: list[dict]) -> list[dict]:
+    """Mark trades the engine closed at a window's last bar (its end-of-data close fills on the
+    signal bar itself, so `exit_signal_time == exit_time` identifies them). Copies, never mutates."""
+    return [
+        {**t, "window_edge_exit": t.get("exit_signal_time") == t.get("exit_time")} for t in trades
+    ]
+
+
 def _done(records: list[dict]) -> list[dict]:
     return sorted(
         (r for r in records if r.get("status") == "done" and r.get("oos")), key=lambda r: r["index"]
@@ -202,7 +239,15 @@ def stitch(records: list[dict], initial_capital: float) -> dict:
     exposure is the bar-weighted mean of the windows' exposures."""
     done = _done(records)
     trades = [t for r in done for t in r["oos"]["trades"]]
-    curve = [p for r in done for p in r["oos"]["equity"]]
+    # Drawdown over the whole stitched curve with one running peak (each window's own points
+    # measure from that window's starting capital, which hides a drawdown spanning a join).
+    curve: list[dict] = []
+    peak = float(initial_capital)
+    for record in done:
+        for point in record["oos"]["equity"]:
+            equity = float(point["equity"])
+            peak = max(peak, equity)
+            curve.append({**point, "drawdown": equity / peak - 1 if peak else 0.0})
     bars = sum(r["oos_bars"] for r in done)
     exposure = (
         sum(float(r["oos"]["metrics"].get("exposure") or 0.0) * r["oos_bars"] for r in done) / bars
@@ -249,9 +294,9 @@ class WalkForwardJob:
         self.request = request
         self.side = request.side
         self.rows = engine_rows(frame, request.data.symbol)
-        self.plan = plan(request, len(self.rows))
-        self.data = provenance(pinned)
         self.timestamps = [row["timestamp"] for row in self.rows]
+        self.plan = plan(request, len(self.rows), self.timestamps)
+        self.data = provenance(pinned)
         self.records = [pending_record(w, self.timestamps) for w in self.plan.windows]
         self.cells: dict[int, list[dict]] = {w.index: [] for w in self.plan.windows}
         self.bars_per_unit = request.in_sample_bars
@@ -316,7 +361,11 @@ class WalkForwardJob:
         side = result[self.side]
         return {
             "unit": "oos",
-            "oos": {"trades": side["trades"], "equity": side["equity"], "metrics": side["metrics"]},
+            "oos": {
+                "trades": flag_edge_exits(side["trades"]),
+                "equity": side["equity"],
+                "metrics": side["metrics"],
+            },
         }
 
     def commit(self, index: int, result: dict) -> None:
@@ -345,6 +394,12 @@ class WalkForwardJob:
         )
         if oos["equity"]:
             self._chained_capital = float(oos["equity"][-1]["equity"])
+
+    def release(self) -> None:
+        """Drop the bar rows and the indicator cache once the job is terminal and persisted;
+        the records, stitched series and stability stay for status reads."""
+        self.rows = []
+        self.cache = IndicatorCache()
 
     # -- documents ------------------------------------------------------------------------
     def _paths(self) -> list[str]:
@@ -397,6 +452,7 @@ __all__ = [
     "WindowPlan",
     "cut_windows",
     "efficiency",
+    "flag_edge_exits",
     "lead_bars",
     "longest_length",
     "pending_record",
