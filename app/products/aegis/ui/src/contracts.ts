@@ -50,6 +50,8 @@ export interface MarketCrossover {
   id: string;
   label: string;
   enabled?: boolean;
+  start: string;
+  end: string;
   mode?: WindowMode;
 }
 
@@ -71,8 +73,10 @@ export interface RuleSpec {
 export interface StrategySide {
   direction: Direction;
   enabled?: boolean;
+  indicators?: IndicatorSpec[];
   entry: RuleSpec;
   exit: RuleSpec;
+  optimization?: OptimizationParameter[];
 }
 
 export interface StrategySpec {
@@ -80,12 +84,10 @@ export interface StrategySpec {
   name: string;
   version?: number;
   description: string;
-  indicators: IndicatorSpec[];
   long_side: StrategySide;
   short_side: StrategySide;
   temporal: TemporalContext;
   execution: ExecutionSpec;
-  optimization: OptimizationParameter[];
 }
 
 export interface TemporalContext {
@@ -103,12 +105,10 @@ export interface StrategySpec {
   name: string;
   version?: number;
   description: string;
-  indicators: IndicatorSpec[];
   long_side: StrategySide;
   short_side: StrategySide;
   temporal: TemporalContext;
   execution: ExecutionSpec;
-  optimization: OptimizationParameter[];
 }
 
 export interface BacktestRequest {
