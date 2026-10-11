@@ -2,9 +2,10 @@ import type { OptimizationParameter, StrategySide } from '../contracts';
 import { SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
 
 function label(range: OptimizationParameter, side: StrategySide): string {
-  const [, id, field] = range.path.split('.');
+  const [, id, ...rest] = range.path.split('.');
+  const field = rest[0] === 'params' ? rest.slice(1).join('.') : rest.join('.');
   const indicator = side.indicators?.find((i) => i.id === id);
-  return `${indicator ? indicator.kind.toUpperCase() : id} ${field}`;
+  return `${indicator ? `${indicator.kind.toUpperCase()} ${id}` : id} ${field}`;
 }
 
 /** Per-side ranges the optimizer expands (spec §2b.1); edits go straight into the strategy document. */
@@ -42,7 +43,7 @@ export function OptimizationRanges() {
             </label>
             <input type="number" value={r.start} aria-label={`${side} ${r.path} start`} onChange={(e) => setNumber(side, r.path, 'start', e.target.value)} />
             <input type="number" value={r.stop} aria-label={`${side} ${r.path} stop`} onChange={(e) => setNumber(side, r.path, 'stop', e.target.value)} />
-            <input type="number" value={r.step} min={1} aria-label={`${side} ${r.path} step`} onChange={(e) => setNumber(side, r.path, 'step', e.target.value)} />
+            <input type="number" value={r.step} min={0} aria-label={`${side} ${r.path} step`} onChange={(e) => setNumber(side, r.path, 'step', e.target.value)} />
           </div>
         )),
       )}

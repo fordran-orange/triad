@@ -1,4 +1,5 @@
 import { describeRule } from '../rules';
+import { RuleEditor } from './RuleEditor';
 import { useDispatch, useWorkspace, type Side } from '../state/workspace';
 import { sideIndicators } from './StrategyPanel';
 
@@ -27,6 +28,8 @@ export function SideCard({ side }: { side: Side }) {
         <br />
         EXIT: {describeRule(spec.exit, indicators)}
       </div>
+      <RuleEditor side={side} which="entry" spec={spec} />
+      <RuleEditor side={side} which="exit" spec={spec} />
     </div>
   );
 }

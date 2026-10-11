@@ -1,6 +1,8 @@
 import type { IndicatorSpec, StrategySpec } from '../contracts';
 import { useDispatch, useWorkspace, type Side } from '../state/workspace';
 import { ExecutionPanel } from './ExecutionPanel';
+import { IndicatorInputs } from './IndicatorInputs';
+import { IndicatorsTab } from './IndicatorsTab';
 import { OptimizationRanges } from './OptimizationRanges';
 import { SideCard } from './SideCard';
 import { TemporalPanel } from './TemporalPanel';
@@ -12,42 +14,50 @@ export function sideIndicators(strategy: StrategySpec, side: 'long_side' | 'shor
   return strategy[side].indicators ?? [];
 }
 
-function LengthInputs({ side, prefix }: { side: Side; prefix: string }) {
+/** Every indicator of a side, generic per kind (`#<id>-length` for long or linked, `#short-<id>-length`). */
+function SideInputs({ side, prefix }: { side: Side; prefix: string }) {
   const { strategy } = useWorkspace();
-  const dispatch = useDispatch();
   const list = strategy ? sideIndicators(strategy, KEY[side]) : [];
-  const fast = list.find((i) => i.kind.toUpperCase() === 'EMA');
-  const slow = list.find((i) => i.kind.toUpperCase() === 'SMA');
   const idPrefix = side === 'long' ? '' : 'short-';
-  const setLength = (id: string | undefined, value: number) => {
-    if (id && Number.isFinite(value) && value > 0) dispatch({ type: 'SET_SIDE_PARAM', side, path: `indicators.${id}.length`, value });
-  };
+  if (list.length === 0) return <div className="empty-state">No indicators on the {side} side</div>;
   return (
     <>
-      <div className="row">
-        <label htmlFor={`${idPrefix}ema-length`}>{prefix}Fast EMA</label>
-        <input id={`${idPrefix}ema-length`} type="number" min={1} value={fast?.length ?? ''} disabled={!fast} onChange={(e) => setLength(fast?.id, Number(e.target.value))} />
-      </div>
-      <div className="row">
-        <label htmlFor={`${idPrefix}sma-length`}>{prefix}Slow SMA</label>
-        <input id={`${idPrefix}sma-length`} type="number" min={1} value={slow?.length ?? ''} disabled={!slow} onChange={(e) => setLength(slow?.id, Number(e.target.value))} />
-      </div>
+      {list.map((spec) => (
+        <IndicatorInputs key={spec.id} side={side} spec={spec} idPrefix={idPrefix} label={prefix} />
+      ))}
     </>
   );
 }
 
 export function StrategyPanel() {
-  const { strategy, linkSides } = useWorkspace();
+  const { rightTab } = useWorkspace();
   const dispatch = useDispatch();
-  const source = strategy ? sideIndicators(strategy, 'long_side')[0]?.source ?? 'close' : 'close';
 
   return (
     <aside className="right-panel">
       <div className="right-tabs">
-        <span className="active">Strategy</span>
-        <span className="disabled" title="Not yet built">Indicators</span>
+        <button type="button" id="right-tab-strategy" className={rightTab === 'strategy' ? 'active' : ''} onClick={() => dispatch({ type: 'SET_RIGHT_TAB', tab: 'strategy' })}>
+          Strategy
+        </button>
+        <button type="button" id="right-tab-indicators" className={rightTab === 'indicators' ? 'active' : ''} onClick={() => dispatch({ type: 'SET_RIGHT_TAB', tab: 'indicators' })}>
+          Indicators
+        </button>
         <span className="disabled" title="Not yet built">Objects</span>
       </div>
+      {rightTab === 'indicators' ? (
+        <IndicatorsTab />
+      ) : (
+        <StrategyTab />
+      )}
+    </aside>
+  );
+}
+
+function StrategyTab() {
+  const { strategy, linkSides } = useWorkspace();
+  const dispatch = useDispatch();
+  return (
+    <>
       <div className="panel-section">
         <div className="panel-title">
           <span id="strategy-name">{strategy?.name ?? '—'}</span>
@@ -67,19 +77,13 @@ export function StrategyPanel() {
           </button>
         </div>
         {linkSides ? (
-          <LengthInputs side="long" prefix="" />
+          <SideInputs side="long" prefix="" />
         ) : (
           <>
-            <LengthInputs side="long" prefix="Long · " />
-            <LengthInputs side="short" prefix="Short · " />
+            <SideInputs side="long" prefix="Long · " />
+            <SideInputs side="short" prefix="Short · " />
           </>
         )}
-        <div className="row">
-          <label>Price source</label>
-          <select value={source} disabled title="Only close is supported in this slice">
-            <option value="close">Close</option>
-          </select>
-        </div>
         <div className="section-label">Asymmetric strategy sides</div>
         {strategy ? (
           <>
@@ -93,6 +97,6 @@ export function StrategyPanel() {
       <TemporalPanel />
       <ExecutionPanel />
       <OptimizationRanges />
-    </aside>
+    </>
   );
 }

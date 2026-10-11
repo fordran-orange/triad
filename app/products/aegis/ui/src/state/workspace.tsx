@@ -1,6 +1,7 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
 import type { SymbolInfo } from '../api/client';
-import type { StrategySpec, WindowMode } from '../contracts';
+import { INDICATOR_KINDS, type IndicatorSpec, type OptimizationParameter, type StrategySpec, type WindowMode } from '../contracts';
+import { ruleReferences, type Rule } from '../rules';
 import type { JobStatus, RunEnvelope, WalkForwardStatus } from '../results';
 
 export const TIMEFRAMES = ['1m', '15m', '30m', '1h', '1D'] as const;
@@ -56,6 +57,7 @@ export interface WorkspaceState {
   walkforward: { long?: WalkForwardStatus; short?: WalkForwardStatus };
   selectedConfigs: SelectedConfigs;
   focusSide: Side; // the side the chart and the Indicators tab show (plan ruling P9)
+  rightTab: 'strategy' | 'indicators';
   latest: Record<string, number | null>; // last value per drawn series, from the chart's fetch
 }
 
@@ -82,7 +84,11 @@ export type Action =
   | { type: 'WALKFORWARD_LOST'; side: Side; job_id: string }
   | { type: 'SELECT_CONFIG'; side: Side; params: Record<string, number> | null }
   | { type: 'SET_FOCUS_SIDE'; side: Side }
-  | { type: 'SET_LATEST'; values: Record<string, number | null> };
+  | { type: 'SET_LATEST'; values: Record<string, number | null> }
+  | { type: 'SET_RIGHT_TAB'; tab: 'strategy' | 'indicators' }
+  | { type: 'ADD_INDICATOR'; side: Side; kind: string }
+  | { type: 'REMOVE_INDICATOR'; side: Side; id: string }
+  | { type: 'SET_RULE'; side: Side; which: 'entry' | 'exit'; rule: Rule };
 
 export const initialState: WorkspaceState = {
   strategy: null,
@@ -100,8 +106,38 @@ export const initialState: WorkspaceState = {
   walkforward: {},
   selectedConfigs: { long: null, short: null },
   focusSide: 'long',
+  rightTab: 'strategy',
   latest: {},
 };
+
+/** A new indicator of `kind` with an id unique on the side, its default length, no parameters. */
+export function newIndicator(kind: string, taken: string[]): IndicatorSpec {
+  const name = kind.toUpperCase();
+  const base = kind.toLowerCase();
+  let id = base;
+  for (let n = 2; taken.includes(id); n++) id = `${base}_${n}`;
+  return { id, kind: name, length: INDICATOR_KINDS[name]?.default_length ?? 14, source: 'close', overlay: true };
+}
+
+/** Plan ruling P14: disabled ranges for a new indicator's length and parameters. */
+export function defaultRanges(spec: IndicatorSpec): OptimizationParameter[] {
+  const info = INDICATOR_KINDS[spec.kind.toUpperCase()];
+  const L = spec.length;
+  const ranges: OptimizationParameter[] = [
+    { path: `indicators.${spec.id}.length`, enabled: false, start: Math.max(2, Math.floor(L / 2)), stop: 2 * L, step: Math.max(1, Math.round(L / 10)) },
+  ];
+  for (const [name, value] of Object.entries(info?.params ?? {})) {
+    const whole = info.integer_params.includes(name);
+    ranges.push({
+      path: `indicators.${spec.id}.params.${name}`,
+      enabled: false,
+      start: whole ? Math.round(value / 2) : value / 2,
+      stop: whole ? Math.round(value * 2) : value * 2,
+      step: whole ? Math.max(1, Math.round(value / 4)) : value / 4,
+    });
+  }
+  return ranges;
+}
 
 /**
  * Set a side-relative path such as `indicators.ema.length`: the second segment of an
@@ -110,7 +146,7 @@ export const initialState: WorkspaceState = {
 export function setPath<T>(target: T, path: string, value: unknown): T {
   const [head, ...rest] = path.split('.');
   if (head === undefined) return target;
-  const source = target as unknown as Record<string, unknown>;
+  const source = (target ?? {}) as unknown as Record<string, unknown>; // e.g. params not set yet
   if (Array.isArray(source[head]) && rest.length > 0) {
     const list = source[head] as Record<string, unknown>[];
     const [id, ...tail] = rest;
@@ -266,6 +302,34 @@ export function reducer(state: WorkspaceState, action: Action): WorkspaceState {
       return { ...state, selectedConfigs: { ...state.selectedConfigs, [action.side]: action.params } };
     case 'SET_FOCUS_SIDE':
       return { ...state, focusSide: action.side };
+    case 'SET_RIGHT_TAB':
+      return { ...state, rightTab: action.tab };
+    case 'ADD_INDICATOR': {
+      if (!state.strategy) return state;
+      const key = SIDE_KEY[action.side];
+      const side = state.strategy[key];
+      const spec = newIndicator(action.kind, (side.indicators ?? []).map((i) => i.id));
+      const next = { ...side, indicators: [...(side.indicators ?? []), spec], optimization: [...(side.optimization ?? []), ...defaultRanges(spec)] };
+      return { ...state, strategy: { ...state.strategy, [key]: next } };
+    }
+    case 'REMOVE_INDICATOR': {
+      if (!state.strategy) return state;
+      const key = SIDE_KEY[action.side];
+      const side = state.strategy[key];
+      if (ruleReferences(side, action.id).length > 0) return state; // the panel names the rule
+      const prefix = `indicators.${action.id}.`;
+      const next = {
+        ...side,
+        indicators: (side.indicators ?? []).filter((i) => i.id !== action.id),
+        optimization: (side.optimization ?? []).filter((r) => !r.path.startsWith(prefix)),
+      };
+      return { ...state, strategy: { ...state.strategy, [key]: next } };
+    }
+    case 'SET_RULE': {
+      if (!state.strategy) return state;
+      const key = SIDE_KEY[action.side];
+      return { ...state, strategy: { ...state.strategy, [key]: { ...state.strategy[key], [action.which]: action.rule } } };
+    }
     case 'SET_LATEST':
       return { ...state, latest: action.values };
     default:

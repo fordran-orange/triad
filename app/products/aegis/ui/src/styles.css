@@ -48,6 +48,7 @@ background-size:100% 48px,74px 100%}
 .right-panel{min-width:0;background:#0a141e;overflow:auto}
 .right-tabs{height:38px;border-bottom:1px solid var(--line);display:flex}
 .right-tabs span{padding:11px 13px;color:#728b9c}
+.right-tabs button{padding:11px 13px;color:#728b9c;background:none;border:none;border-bottom:2px solid transparent;font:inherit;cursor:pointer}
 .right-tabs .active{color:white;border-bottom:2px solid var(--blue)}
 .right-tabs .disabled{color:#4b6274}
 .panel-section{padding:13px;border-bottom:1px solid var(--line)}
@@ -138,3 +139,9 @@ tr.selected td{background:#2a3a14}
 /* Mission 4: walk-forward */
 .popover .row input[type=number]{width:90px}
 tr.muted td{color:#4f6b80}
+.indicator-card{border:1px solid var(--line);border-radius:4px;padding:8px;margin-top:8px}
+.indicator-card .side-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.rule-editor{margin-top:6px}
+.rule-editor .rule-row{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.rule-editor select,.rule-editor input{max-width:120px}
+.latest b{color:var(--bright)}

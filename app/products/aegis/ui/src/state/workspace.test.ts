@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StrategySpec } from '../contracts';
-import { applyConfigs, initialState, reducer, runStaleness, type RunRecord, type WorkspaceState } from './workspace';
+import { ruleReferences } from '../rules';
+import { applyConfigs, canonical, initialState, reducer, runStaleness, type RunRecord, type WorkspaceState } from './workspace';
 
 // Side-owned indicator parameters (the shape Task 3 makes canonical); typed loosely until then.
 function strategy(): StrategySpec {
@@ -199,5 +200,63 @@ describe('chart focus and latest values', () => {
     expect(state.focusSide).toBe('short');
     state = reducer(state, { type: 'SET_LATEST', values: { rsi: 41.5, 'donchian.upper': null } });
     expect(state.latest).toEqual({ rsi: 41.5, 'donchian.upper': null });
+  });
+});
+
+describe('indicator and rule editing', () => {
+  const long = (state: WorkspaceState) => state.strategy!.long_side;
+  const short = (state: WorkspaceState) => state.strategy!.short_side;
+
+  it('adds an indicator with a unique id, its default length and disabled ranges', () => {
+    let state = withStrategy();
+    state = reducer(state, { type: 'ADD_INDICATOR', side: 'long', kind: 'RSI' });
+    state = reducer(state, { type: 'ADD_INDICATOR', side: 'long', kind: 'RSI' });
+    expect(long(state).indicators!.map((i) => i.id)).toEqual(['ema', 'sma', 'rsi', 'rsi_2']);
+    expect(long(state).indicators![2]).toMatchObject({ kind: 'RSI', length: 14, source: 'close' });
+    expect(long(state).optimization).toEqual([
+      { path: 'indicators.rsi.length', enabled: false, start: 7, stop: 28, step: 1 },
+      { path: 'indicators.rsi_2.length', enabled: false, start: 7, stop: 28, step: 1 },
+    ]);
+    expect(short(state).indicators!.map((i) => i.id)).toEqual(['ema', 'sma']); // P11: the focused side only
+    state = reducer(state, { type: 'ADD_INDICATOR', side: 'long', kind: 'MACD' });
+    expect(long(state).optimization!.slice(2).map((r) => [r.path, r.start, r.stop, r.step])).toEqual([
+      ['indicators.macd.length', 6, 24, 1],
+      ['indicators.macd.params.slow', 13, 52, 7],
+      ['indicators.macd.params.signal', 5, 18, 2],
+    ]);
+  });
+
+  it('refuses to remove an indicator a rule reads and drops an unreferenced one with its ranges', () => {
+    let state = reducer(withStrategy(), { type: 'ADD_INDICATOR', side: 'long', kind: 'BB' });
+    const refused = reducer(state, { type: 'REMOVE_INDICATOR', side: 'long', id: 'ema' });
+    expect(refused).toBe(state);
+    expect(ruleReferences(long(state), 'ema')).toEqual(['entry rule', 'exit rule']);
+    state = reducer(state, { type: 'REMOVE_INDICATOR', side: 'long', id: 'bb' });
+    expect(long(state).indicators!.map((i) => i.id)).toEqual(['ema', 'sma']);
+    expect(long(state).optimization).toEqual([]);
+  });
+
+  it('mirrors a linked parameter edit only where the other side has that indicator', () => {
+    let state = reducer(withStrategy(), { type: 'SET_LINK_SIDES', linked: true });
+    state = reducer(state, { type: 'ADD_INDICATOR', side: 'long', kind: 'RSI' });
+    state = reducer(state, { type: 'SET_SIDE_PARAM', side: 'long', path: 'indicators.rsi.length', value: 21 });
+    expect(long(state).indicators![2].length).toBe(21);
+    expect(short(state).indicators!.map((i) => i.id)).toEqual(['ema', 'sma']);
+    state = reducer(state, { type: 'ADD_INDICATOR', side: 'long', kind: 'BB' });
+    state = reducer(state, { type: 'SET_SIDE_PARAM', side: 'long', path: 'indicators.bb.params.multiplier', value: 2.5 });
+    expect(long(state).indicators![3].params).toEqual({ multiplier: 2.5 });
+  });
+
+  it('sets a rule or a two-condition group on one side', () => {
+    const group = {
+      all_of: [
+        { left: 'price.close', operator: 'crosses_above', right: 'donchian.upper', timing: 'bar_close' },
+        { left: 'rsi', operator: 'less_than', right: '70', timing: 'bar_close' },
+      ],
+    };
+    const state = reducer(withStrategy(), { type: 'SET_RULE', side: 'long', which: 'entry', rule: group });
+    expect(canonical(long(state).entry)).toBe(canonical(group));
+    expect(short(state).entry).toEqual(withStrategy().strategy!.short_side.entry);
+    expect(reducer(state, { type: 'SET_RIGHT_TAB', tab: 'indicators' }).rightTab).toBe('indicators');
   });
 });
