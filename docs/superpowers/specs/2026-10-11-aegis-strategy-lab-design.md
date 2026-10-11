@@ -26,14 +26,20 @@ Definition of done (the acceptance script walks these in order):
 2. Use it in the workspace on QQQ 1h 2023-01-01 → 2024-12-31: see Donchian's three outputs on
    the price pane and RSI in its own pane, both in the legend; the crosshair reads the RSI pane.
 3. Run the backtest: real trades, markers, long/short/combined metrics, a `result_hash`.
-4. Optimize the long side over Donchian 10–40 step 5 × RSI 7–21 step 7 and apply the best cell.
-5. Walk the long side forward (in-sample 500 / out-of-sample 125 bars): a trade entered in one
-   window and closed in the next is shown as carried, the stitched equity is continuous across
-   the join, and only the final window may show an edge close.
+4. Optimize the long side over Donchian 10–40 step 10 × RSI 7–21 step 7 (12 cells) and apply the
+   best cell.
+5. Walk the long side forward (in-sample 1000 / out-of-sample 250 bars): no trade in a non-final
+   window is closed at the window edge; every window that ends holding a position is marked open
+   at end, the next window is marked carried in, and the closing trade names its origin window;
+   the stitched equity is continuous across every join; only the final window may show an edge
+   close.
 6. Duplicate the document, rename the copy, delete the copy; deleting the original is refused
    while the run from item 3 references it, with the reason shown.
-7. Reload the built-in 9 EMA / 30 SMA strategy and rerun QQQ 1h 2023–2024: the Mission 3 hash
-   `c9b6f8f821c0…` is returned unchanged.
+7. The Mission 3 and 4 walks run first and unchanged; their identical-request item still produces
+   the recorded hash `cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360` (QQQ 1h
+   2023–2024, the built-in strategy with the long side set to EMA 12 / SMA 40 by the earlier
+   apply), now asserted against the recorded value and not only against its own rerun, which
+   proves the contract growth changed no backtest hash.
 8. Rerun the new strategy's backtest with nothing changed: the same `result_hash`.
 9. The Indicators tab lists the side's indicators with kind, parameters, source, pane and the
    latest value per output; removing an indicator a rule references is refused with the rule
@@ -83,8 +89,9 @@ Core is imported only for `local_headers`, `Store` and `process_power`
 `capital_at_entry: float`, `entry_tags: list[str]`, `origin_window: int | None`.
 
 `BacktestSettings` gains `initial_position: OpenPosition | None = None` and
-`close_at_end: bool = True`. Serialization keeps both out of the dump when at their defaults so
-the backtest envelope, canonical payload and hashes of plain runs are unchanged.
+`close_at_end: bool = True`. Neither field is part of `SIDE_KEYS`, so `results.canonical_payload`
+and every backtest and optimizer hash are unchanged; the envelope's `settings` dump simply gains
+the two fields at their defaults.
 
 `_simulate_side` starts holding `initial_position` when its `side` matches the simulated side
 (a mismatch raises `ValueError("initial_position side LONG does not match the short side")`);
@@ -150,7 +157,9 @@ the walk-forward floor and the lead.
 directly), `params: dict[str, float]` (keys must be the kind's parameters; missing keys take the
 defaults; `params` is omitted from dumps when empty, which keeps the default strategy's JSON and
 every existing hash byte-identical; a test pins the default strategy's canonical JSON),
-`overlay: bool` (kept for compatibility, derived from the kind's pane on validation).
+`overlay: bool` (kept so existing documents parse; the chart places series by the kind's pane and
+ignores it). `id` must match `^[a-z][a-z0-9_]*$` so an operand is never ambiguous between an id
+and a constant (the built-in ids `ema` and `sma` already comply).
 
 Optimizer paths: `indicators.<id>.length` and `indicators.<id>.params.<name>`; `_resolve_path`
 and `apply_parameters` accept both; the range validator requires integer start/stop/step for
@@ -199,7 +208,9 @@ and `apply_parameters` accept both; the range validator requires integer start/s
   parameter fields, id derived from the kind and made unique), remove (refused when a rule
   references the indicator, naming the rule), edit lengths and parameters; the link toggle
   mirrors indicator edits across sides as today. The Strategy tab's inputs become generic per
-  indicator; nothing is hard-coded to the crossover.
+  indicator; nothing is hard-coded to the crossover. The window-size proposal in the optimize
+  popover (`longestLength` today) becomes a `warmupBars` helper mirroring §5.1's warm-up table,
+  pinned by a vitest test to the same values.
 
 ## 8. Strategy Lab and documents
 
@@ -239,7 +250,7 @@ and `apply_parameters` accept both; the range validator requires integer start/s
 - Milestone QA: an independent agent at the exact commit reruns the suite and the acceptance,
   re-derives one indicator (RSI 14) by hand against the series route, checks the carry-over
   arithmetic across a window join to the cent, probes every validation refusal over HTTP,
-  confirms the default strategy's Mission 3 hash and that no file under `app/trading_core/`,
+  confirms the recorded identical-request hash `cdbc9abd…` and that no file under `app/trading_core/`,
   `app/platform_host/` or `app/products/triad/` changed, and reads the lab's honesty rules.
   Whole-branch review by a fresh reviewer, then one fix pass with every fix test-first.
 - Record: `docs/MISSION5_STRATEGY_LAB.md`; merge and push on the operator's call.
@@ -269,7 +280,7 @@ lack `strategy_id`).
 
 | Risk | Mitigation |
 |---|---|
-| Contract growth changes the default strategy's JSON | `params` omitted when empty; a test pins the canonical JSON and the Mission 3 hash |
+| Contract growth changes the default strategy's JSON | `params` omitted when empty; a test pins the canonical JSON; the acceptance asserts the recorded `cdbc9abd…` hash |
 | Carry-over changes out-of-sample semantics in a way that surprises | operator-approved; every carried trade and open-at-end window is labelled; the final window's edge close stays labelled |
 | Pane support in the chart adapter | the spike already proved native indicators and Vela documents `paneHint: 'new'`; the mock adapter keeps panels library-free |
 | Rule validation gaps let a bad rule reach the engine | validation at the side level with named messages, tested per case; the engine still raises on anything unexpected |
