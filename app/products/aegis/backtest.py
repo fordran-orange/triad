@@ -14,6 +14,7 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from products.aegis.indicators import IndicatorCache, named, references
+from products.aegis.kinds import warmup
 from products.aegis.strategy import RuleSpec, StrategySide, StrategySpec
 from products.aegis.temporal import entry_permitted, validate
 from products.aegis.temporal import tags as temporal_tags
@@ -104,20 +105,19 @@ MIN_BARS = 35
 
 
 def _check_warmup(frame: pd.DataFrame, strategy: StrategySpec) -> None:
-    """Every enabled side must have more bars than its longest indicator, or no signal could
+    """Every enabled side must have more bars than each indicator's warm-up, or no signal could
     ever fire and a confident zero result would be a lie."""
-    lengths = [
-        spec.length
-        for side in (strategy.long_side, strategy.short_side)
-        if side.enabled
-        for spec in side.indicators
-    ]
-    longest = max(lengths, default=0)
-    if longest and len(frame) <= longest:
-        raise ValueError(
-            f"insufficient bars: {len(frame)} bars cannot complete the warm-up of a "
-            f"{longest}-period indicator; widen the range or shorten the length"
-        )
+    for side in (strategy.long_side, strategy.short_side):
+        if not side.enabled:
+            continue
+        for spec in side.indicators:
+            needed = warmup(spec.kind, spec.length, spec.effective_params())
+            if len(frame) <= needed:
+                raise ValueError(
+                    f"insufficient bars: {len(frame)} bars cannot complete the warm-up of "
+                    f"{spec.kind.upper()}({spec.length}) ({needed} bars); widen the range or "
+                    "shorten the length"
+                )
 
 
 def _check_initial_position(request: BacktestRequest) -> None:

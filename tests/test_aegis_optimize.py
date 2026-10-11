@@ -284,3 +284,58 @@ def test_runner_learns_ms_per_bar_from_completed_jobs_and_persists_it(tmp_path):
     assert repository.get_optimization(job_id)["ms_per_bar"] == pytest.approx(runner.ms_per_bar)
     fresh = OptimizerRunner(JsonRunRepository(tmp_path))
     assert fresh.ms_per_bar == pytest.approx(runner.ms_per_bar)
+
+
+def _ranged_side(indicators, ranges, entry=None):
+    from products.aegis.strategy import RuleSpec
+
+    side = default_strategy().long_side
+    update = {
+        "indicators": [*side.indicators, *indicators],
+        "optimization": [
+            OptimizationParameter(path=path, start=start, stop=stop, step=step)
+            for path, start, stop, step in ranges
+        ],
+    }
+    if entry is not None:
+        update["entry"] = RuleSpec(**entry)
+    return type(side).model_validate(side.model_copy(update=update).model_dump(mode="json"))
+
+
+def test_grid_axes_for_a_non_crossover_rule_are_the_first_two_paths():
+    from products.aegis.strategy import IndicatorSpec
+
+    side = _ranged_side(
+        [
+            IndicatorSpec(id="donchian", kind="DONCHIAN", length=20),
+            IndicatorSpec(id="rsi", kind="RSI", length=14),
+        ],
+        [("indicators.donchian.length", 10, 40, 10), ("indicators.rsi.length", 7, 21, 7)],
+        entry={"left": "rsi", "operator": "crosses_above", "right": "sma"},
+    )
+    plan = expand_grid(side)
+    assert len(plan.cells) == 12 and plan.skipped == []
+    assert plan.fast_path == "indicators.donchian.length"
+    assert plan.slow_path == "indicators.rsi.length"
+    assert plan.fast_values == [10.0, 20.0, 30.0, 40.0] and plan.slow_values == [7.0, 14.0, 21.0]
+    assert plan.skip_reason is None
+
+
+def test_grid_skips_invalid_macd_cells():
+    from products.aegis.strategy import IndicatorSpec
+
+    side = _ranged_side(
+        [IndicatorSpec(id="macd", kind="MACD", length=12)],
+        [("indicators.macd.length", 10, 30, 10), ("indicators.macd.params.slow", 20, 30, 10)],
+    )
+    plan = expand_grid(side)
+    assert len(plan.cells) == 3 and len(plan.skipped) == 3
+    assert all(c["indicators.macd.length"] < c["indicators.macd.params.slow"] for c in plan.cells)
+    assert plan.skip_reason == "invalid parameter combinations"
+
+
+def test_reference_grid_is_unchanged():
+    plan = expand_grid(default_strategy().long_side)
+    assert (len(plan.cells), len(plan.skipped)) == (271, 1)
+    assert plan.fast_path == "indicators.ema.length" and plan.slow_path == "indicators.sma.length"
+    assert plan.skip_reason == "fast ≥ slow"

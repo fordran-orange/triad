@@ -267,6 +267,7 @@ def test_optimize_returns_202_with_plan(client):
     plan = c.post("/aegis/api/optimize/plan", json=_optimize_payload())
     assert plan.status_code == 200, plan.text
     assert plan.json()["total_cells"] == 9 and plan.json()["skipped_cells"] == 0
+    assert plan.json()["skip_reason"] is None
     assert plan.json()["bars"] == 52 and plan.json()["estimated_seconds"] > 0
     response = c.post("/aegis/api/optimize", json=_optimize_payload())
     assert response.status_code == 202, response.text

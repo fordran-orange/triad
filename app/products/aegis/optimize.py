@@ -19,8 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from products.aegis.backtest import BacktestRequest, BacktestSettings, DataReference, run_backtest
 from products.aegis.indicators import IndicatorCache
 from products.aegis.jobs import MS_PER_BAR, UNFINISHED, JobBusy, JobRunner, estimate_seconds
+from products.aegis.kinds import kind_info
 from products.aegis.runs import RunRepository
-from products.aegis.strategy import StrategySide, StrategySpec, apply_parameters
+from products.aegis.strategy import RuleSpec, StrategySide, StrategySpec, apply_parameters
 
 MAX_CELLS = 400
 OBJECTIVES = ("net_pnl", "mar", "max_drawdown", "trade_count")
@@ -45,8 +46,9 @@ class GridPlan:
     skipped: list[dict[str, float]]
     fast_values: list[float]
     slow_values: list[float]
-    fast_path: str = ""
-    slow_path: str = ""
+    fast_path: str = ""  # the heatmap's row axis
+    slow_path: str = ""  # the heatmap's column axis
+    skip_reason: str | None = None
 
 
 def _values(start: float, stop: float, step: float) -> list[float]:
@@ -57,9 +59,12 @@ def _values(start: float, stop: float, step: float) -> list[float]:
 def expand_grid(side: StrategySide) -> GridPlan:
     """Cartesian product of the side's enabled parameters, split into cells and skipped cells.
 
-    The entry rule's left indicator is the fast axis and its right indicator the slow axis;
-    a cell with fast length >= slow length is skipped. More than MAX_CELLS total is rejected.
-    A grid with only one enabled axis is valid; its heatmap has no columns.
+    Axes (plan ruling P6): a single crossover entry rule between two single-series indicators
+    whose lengths are both in the grid keeps the fast (left) / slow (right) axes, and cells with
+    fast length >= slow length are skipped; otherwise the axes are the first two enabled paths.
+    Cells whose parameters make the side invalid (MACD fast >= slow) are skipped too. More than
+    MAX_CELLS total is rejected. A grid with only one enabled axis is valid; its heatmap has no
+    columns.
     """
     parameters = [p for p in side.optimization if p.enabled]
     if not parameters:
@@ -68,27 +73,52 @@ def expand_grid(side: StrategySide) -> GridPlan:
     total = math.prod(len(values) for _, values in axes)
     if total > MAX_CELLS:
         raise ValueError(f"grid too large: {total} cells over cap {MAX_CELLS}; narrow the ranges")
-    fast_path = f"indicators.{side.entry.left}.length"
-    slow_path = f"indicators.{side.entry.right}.length"
     by_path = dict(axes)
+    crossover = _crossover_axes(side, by_path)
+    if crossover is not None:
+        rows, columns = crossover
+    else:
+        rows = axes[0][0]
+        columns = axes[1][0] if len(axes) > 1 else ""
     cells: list[dict[str, float]] = [{}]
     for path, values in axes:
         cells = [{**cell, path: value} for cell in cells for value in values]
-    kept, skipped = [], []
+    kept, skipped, reasons = [], [], []
     for cell in cells:
-        fast, slow = cell.get(fast_path), cell.get(slow_path)
-        if fast is not None and slow is not None and round(fast) >= round(slow):
+        if crossover is not None and round(cell[rows]) >= round(cell[columns]):
             skipped.append(cell)
-        else:
-            kept.append(cell)
+            reasons.append("fast ≥ slow")
+            continue
+        try:
+            apply_parameters(side, cell)
+        except ValueError:
+            skipped.append(cell)
+            reasons.append("invalid parameter combinations")
+            continue
+        kept.append(cell)
     return GridPlan(
         cells=kept,
         skipped=skipped,
-        fast_values=by_path.get(fast_path, []),
-        slow_values=by_path.get(slow_path, []),
-        fast_path=fast_path if fast_path in by_path else "",
-        slow_path=slow_path if slow_path in by_path else "",
+        fast_values=by_path.get(rows, []),
+        slow_values=by_path.get(columns, []),
+        fast_path=rows,
+        slow_path=columns,
+        skip_reason="; ".join(dict.fromkeys(reasons)) or None,
     )
+
+
+def _crossover_axes(side: StrategySide, by_path: dict) -> tuple[str, str] | None:
+    """(fast path, slow path) when the entry rule is the classic crossover of two single-series
+    indicators whose lengths are both in the grid; otherwise None."""
+    rule = side.entry
+    if not isinstance(rule, RuleSpec) or rule.operator not in ("crosses_above", "crosses_below"):
+        return None
+    ids = {spec.id: spec for spec in side.indicators}
+    for operand in (rule.left, rule.right):
+        if operand not in ids or kind_info(ids[operand].kind).outputs:
+            return None
+    fast, slow = f"indicators.{rule.left}.length", f"indicators.{rule.right}.length"
+    return (fast, slow) if fast in by_path and slow in by_path else None
 
 
 def heatmap(

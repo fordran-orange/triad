@@ -289,3 +289,13 @@ def test_plain_run_result_is_unchanged():
     result = run_backtest(BacktestRequest(strategy=strategy, bars=bars()))
     identity = {"source": "supplied_bars", "bar_count": len(bars())}
     assert result_hash(canonical_payload(result, strategy, identity)) == PLAIN_FIXTURE_HASH
+
+
+def test_warmup_check_uses_the_kind():
+    from products.aegis.strategy import IndicatorSpec
+
+    strategy = _long_only()
+    strategy.long_side.indicators.append(IndicatorSpec(id="rsi", kind="RSI", length=40))
+    with pytest.raises(ValueError, match=r"warm-up of RSI\(40\) \(41 bars\)"):
+        run_backtest(BacktestRequest(strategy=strategy, bars=bars()[:41]))
+    run_backtest(BacktestRequest(strategy=strategy, bars=bars()[:42]))

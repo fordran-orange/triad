@@ -159,3 +159,61 @@ def test_params_appear_in_dumps_only_when_set():
     assert bb.effective_params() == {"multiplier": 2.5}
     macd = IndicatorSpec(id="m", kind="macd", length=12)
     assert macd.effective_params() == {"slow": 26.0, "signal": 9.0}
+
+
+def _side_with(*extra, optimization=()):
+    from products.aegis.strategy import default_strategy
+
+    side = default_strategy().long_side
+    data = side.model_dump(mode="json")
+    data["indicators"] += [spec.model_dump(mode="json") for spec in extra]
+    data["optimization"] = [p.model_dump(mode="json") for p in optimization]
+    return StrategySide.model_validate(data)
+
+
+def test_params_path_round_trips():
+    from products.aegis.strategy import IndicatorSpec, apply_parameters
+
+    side = _side_with(
+        IndicatorSpec(id="bb", kind="BB", length=20),
+        IndicatorSpec(id="macd", kind="MACD", length=12),
+    )
+    applied = apply_parameters(
+        side,
+        {
+            "indicators.bb.params.multiplier": 2.5,
+            "indicators.macd.params.slow": 30.0,
+            "indicators.bb.length": 21.0,
+        },
+    )
+    bb, macd = applied.indicator("bb"), applied.indicator("macd")
+    assert bb.params == {"multiplier": 2.5} and bb.length == 21
+    assert macd.params == {"slow": 30.0}
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["indicators.rsi.params.slow", "indicators.rsi.params", "indicators.nope.length", "rsi.length"],
+)
+def test_unknown_params_path_is_refused(path):
+    from products.aegis.strategy import IndicatorSpec, OptimizationParameter
+
+    with pytest.raises(ValueError, match="unknown parameter path"):
+        _side_with(
+            IndicatorSpec(id="rsi", kind="RSI", length=14),
+            optimization=[OptimizationParameter(path=path, start=1, stop=2, step=1)],
+        )
+
+
+def test_integer_parameter_ranges_need_whole_numbers():
+    from products.aegis.strategy import IndicatorSpec, OptimizationParameter
+
+    with pytest.raises(ValueError, match="whole-number"):
+        _side_with(
+            IndicatorSpec(id="macd", kind="MACD", length=12),
+            optimization=[
+                OptimizationParameter(
+                    path="indicators.macd.params.slow", start=20, stop=30, step=2.5
+                )
+            ],
+        )

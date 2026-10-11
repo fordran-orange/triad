@@ -19,7 +19,7 @@ from pydantic import (
     model_validator,
 )
 
-from products.aegis.kinds import kind_info
+from products.aegis.kinds import kind_info, warmup
 
 TIME_PATTERN = r"^(?:[01]\d|2[0-3]):[0-5]\d$"
 ID_PATTERN = r"^[a-z][a-z0-9_]*$"  # never ambiguous with a numeric constant operand
@@ -130,7 +130,17 @@ class StrategySide(BaseModel):
                 if operand not in ids:
                     raise ValueError(f"{rule_name} rule references unknown indicator {operand!r}")
         for parameter in self.optimization:
-            _resolve_path(self, parameter.path)
+            identifier, field = _resolve_path(self, parameter.path)
+            whole = field == "length" or (
+                field.split(".", 1)[1] in kind_info(self.indicator(identifier).kind).integer_params
+            )
+            if whole and not all(
+                float(v).is_integer() for v in (parameter.start, parameter.stop, parameter.step)
+            ):
+                raise ValueError(
+                    f"{parameter.path}: ranges of whole-number parameters need integer start, "
+                    "stop and step"
+                )
         return self
 
     def indicator(self, identifier: str) -> IndicatorSpec:
@@ -141,24 +151,60 @@ class StrategySide(BaseModel):
 
 
 def _resolve_path(side: StrategySide, path: str) -> tuple[str, str]:
-    """Validate a side-relative path `indicators.<id>.<field>`; return (id, field)."""
+    """Validate a side-relative path, `indicators.<id>.length` or
+    `indicators.<id>.params.<name>`; return (id, "length") or (id, "params.<name>")."""
     parts = path.split(".")
-    if len(parts) != 3 or parts[0] != "indicators" or parts[2] not in {"length"}:
+    if len(parts) == 3 and parts[0] == "indicators" and parts[2] == "length":
+        field = "length"
+    elif len(parts) == 4 and parts[0] == "indicators" and parts[2] == "params":
+        field = f"params.{parts[3]}"
+    else:
         raise ValueError(f"unknown parameter path {path!r}")
-    if parts[1] not in {i.id for i in side.indicators}:
+    spec = next((i for i in side.indicators if i.id == parts[1]), None)
+    if spec is None or (field != "length" and parts[3] not in kind_info(spec.kind).params):
         raise ValueError(f"unknown parameter path {path!r}")
-    return parts[1], parts[2]
+    return parts[1], field
 
 
 def apply_parameters(side: StrategySide, values: dict[str, float]) -> StrategySide:
-    """Return a new side with the given side-relative parameter paths set. Never mutates."""
+    """Return a new side with the given side-relative parameter paths set. Never mutates.
+    Lengths and whole-number parameters are rounded; other parameters are kept as given."""
     data = side.model_dump(mode="json")
     for path, value in values.items():
         identifier, field = _resolve_path(side, path)
         for spec in data["indicators"]:
-            if spec["id"] == identifier:
-                spec[field] = round(float(value))
+            if spec["id"] != identifier:
+                continue
+            if field == "length":
+                spec["length"] = round(float(value))
+            else:
+                name = field.split(".", 1)[1]
+                whole = name in kind_info(spec["kind"]).integer_params
+                spec.setdefault("params", {})[name] = (
+                    float(round(float(value))) if whole else float(value)
+                )
     return StrategySide.model_validate(data)
+
+
+def side_warmup(side: StrategySide, ranges: bool = True) -> int:
+    """Bars after which every indicator of the side has a value; with `ranges`, at the far end
+    of every enabled optimization range (warm-up never shrinks as a length or parameter grows)."""
+    longest = 0
+    for spec in side.indicators:
+        length, params = spec.length, spec.effective_params()
+        for parameter in side.optimization if ranges else ():
+            if not parameter.enabled:
+                continue
+            identifier, field = _resolve_path(side, parameter.path)
+            if identifier != spec.id:
+                continue
+            if field == "length":
+                length = max(length, math.ceil(parameter.stop))
+            else:
+                name = field.split(".", 1)[1]
+                params[name] = max(params[name], float(parameter.stop))
+        longest = max(longest, warmup(spec.kind, length, params))
+    return longest
 
 
 class ClockWindow(BaseModel):

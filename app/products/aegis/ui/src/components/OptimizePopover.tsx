@@ -133,7 +133,7 @@ export function OptimizePopover({ onClose }: { onClose: () => void }) {
       <div className="plan" id={mode === 'grid' ? 'optimize-plan' : 'walkforward-plan'}>
         {mode === 'grid' && plan && (
           <>
-            {plan.total_cells} valid cells · {plan.skipped_cells} skipped (fast ≥ slow) · {plan.bars.toLocaleString()} bars · ≈ {formatSeconds(plan.estimated_seconds)} estimated
+            {plan.total_cells} valid cells · {plan.skipped_cells} skipped{plan.skip_reason ? ` (${plan.skip_reason})` : ''} · {plan.bars.toLocaleString()} bars · ≈ {formatSeconds(plan.estimated_seconds)} estimated
           </>
         )}
         {mode === 'walkforward' && wfPlan && (

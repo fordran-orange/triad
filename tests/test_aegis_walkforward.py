@@ -23,10 +23,10 @@ from products.aegis.walkforward import (
     efficiency,
     flag_edge_exits,
     lead_bars,
-    longest_length,
     pending_record,
     plan,
     select_best,
+    side_warmup,
     stability,
     stitch,
 )
@@ -74,10 +74,10 @@ def test_cut_windows_rolls_by_out_of_sample_and_reports_the_tail():
         cut_windows(100, 80, 30)
 
 
-def test_longest_length_covers_the_ranges_the_grid_will_visit():
+def test_side_warmup_covers_the_ranges_the_grid_will_visit():
     side = default_strategy().long_side  # EMA 9 / SMA 30 now; ranges reach SMA 100
-    assert longest_length(side) == 100
-    assert longest_length(side.model_copy(update={"optimization": small_ranges()})) == 30
+    assert side_warmup(side) == 100
+    assert side_warmup(side.model_copy(update={"optimization": small_ranges()})) == 30
 
 
 def test_plan_rejects_in_sample_shorter_than_warmup():
@@ -582,3 +582,21 @@ def test_no_valid_cell_after_a_carry_inherits_the_previous_configuration(monkeyp
     assert inherited["best"] is None and inherited["efficiency"] is None
     assert inherited["carried_in"] is True
     assert records[-1]["open_at_end"] is False
+
+
+def test_side_warmup_counts_parameter_ranges():
+    from products.aegis.strategy import IndicatorSpec
+
+    side = default_strategy().long_side.model_copy(
+        update={
+            "indicators": [
+                *default_strategy().long_side.indicators,
+                IndicatorSpec(id="macd", kind="MACD", length=12),
+            ],
+            "optimization": [
+                OptimizationParameter(path="indicators.macd.params.slow", start=20, stop=40, step=5)
+            ],
+        }
+    )
+    assert side_warmup(side) == 40 + 9 - 1
+    assert side_warmup(side, ranges=False) == 26 + 9 - 1

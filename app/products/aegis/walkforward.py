@@ -29,7 +29,7 @@ from products.aegis.backtest import (
 from products.aegis.indicators import IndicatorCache
 from products.aegis.optimize import GridPlan, engine_rows, expand_grid, provenance
 from products.aegis.results import result_hash, walkforward_payload
-from products.aegis.strategy import StrategySide, StrategySpec, apply_parameters
+from products.aegis.strategy import StrategySide, StrategySpec, apply_parameters, side_warmup
 
 MAX_WINDOWS = 50
 MIN_OOS_BARS = 20
@@ -116,16 +116,6 @@ def cut_windows(n_bars: int, in_sample: int, out_of_sample: int) -> tuple[list[W
     return windows, n_bars - in_sample - count * out_of_sample
 
 
-def longest_length(side: StrategySide) -> int:
-    """The longest indicator length any grid cell of this side can carry: current lengths and the
-    upper ends of its enabled length ranges."""
-    lengths = [spec.length for spec in side.indicators]
-    lengths += [
-        math.ceil(p.stop) for p in side.optimization if p.enabled and p.path.endswith(".length")
-    ]
-    return max(lengths, default=0)
-
-
 def plan(
     request: WalkForwardRequest, n_bars: int, timestamps: list[str] | None = None
 ) -> WindowPlan:
@@ -136,11 +126,11 @@ def plan(
     so every cell would be null and every window `no_valid_cell`).
     """
     side = request.side_spec
-    floor = MIN_BARS + longest_length(side)
+    floor = MIN_BARS + side_warmup(side)
     if request.in_sample_bars < floor:
         raise ValueError(
             f"in_sample_bars {request.in_sample_bars} below {floor} "
-            f"(35 bars plus the longest indicator length the grid can visit)"
+            f"(35 bars plus the longest warm-up the grid can visit)"
         )
     grid = expand_grid(side)  # raises "grid too large" over 400 cells
     if not grid.cells:
@@ -375,7 +365,7 @@ class WalkForwardJob:
         if best is None:
             return {"unit": "oos", "oos": None}
         chosen = apply_parameters(self._base_side, best["params"])
-        lead = lead_bars(max(spec.length for spec in chosen.indicators))
+        lead = lead_bars(side_warmup(chosen, ranges=False))
         last = window_index == len(self.plan.windows) - 1
         settings = self.request.settings.model_copy(
             update={
@@ -510,11 +500,11 @@ __all__ = [
     "efficiency",
     "flag_edge_exits",
     "lead_bars",
-    "longest_length",
     "pending_record",
     "plan",
     "rebase",
     "select_best",
+    "side_warmup",
     "stability",
     "stitch",
 ]

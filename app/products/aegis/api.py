@@ -255,6 +255,7 @@ def optimize_plan(
     return {
         "total_cells": len(plan.cells),
         "skipped_cells": len(plan.skipped),
+        "skip_reason": plan.skip_reason,
         "estimated_seconds": round(
             estimate_seconds(len(plan.cells), len(frame), runner.ms_per_bar), 3
         ),

@@ -183,6 +183,7 @@ export interface JobSummary {
 export interface OptimizePlan {
   total_cells: number;
   skipped_cells: number;
+  skip_reason: string | null; // why cells were skipped: 'fast ≥ slow', 'invalid parameter combinations'
   estimated_seconds: number;
   ms_per_bar: number; // the runner's last observed cell cost on this host
   bars: number;
