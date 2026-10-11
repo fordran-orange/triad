@@ -8,11 +8,21 @@ and market crossovers are data carried by the strategy, not UI-only filters.
 
 from __future__ import annotations
 
+import math
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_serializer,
+    model_validator,
+)
+
+from products.aegis.kinds import kind_info
 
 TIME_PATTERN = r"^(?:[01]\d|2[0-3]):[0-5]\d$"
+ID_PATTERN = r"^[a-z][a-z0-9_]*$"  # never ambiguous with a numeric constant operand
 
 
 class Direction(StrEnum):
@@ -28,12 +38,48 @@ class WindowMode(StrEnum):
 
 
 class IndicatorSpec(BaseModel):
+    """One indicator a side computes. `kind` names an entry of `kinds.KINDS`; `params` holds
+    that kind's extra parameters (missing ones take the defaults) and is left out of dumps when
+    empty, so every strategy written before Mission 5 serializes byte-identically. `overlay` is
+    kept so older documents parse; the chart places series by the kind's pane."""
+
     model_config = ConfigDict(extra="forbid")
-    id: str
+    id: str = Field(pattern=ID_PATTERN)
     kind: str
     length: int = Field(gt=0)
     source: str = "close"
     overlay: bool = True
+    params: dict[str, float] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def known_kind_and_parameters(self):
+        info = kind_info(self.kind)
+        name = self.kind.upper()
+        for key, value in self.params.items():
+            if key not in info.params:
+                raise ValueError(f"{name} has no parameter {key!r}")
+            if not math.isfinite(value):
+                raise ValueError(f"{name} parameter {key} must be finite, got {value}")
+            if value <= 0:
+                raise ValueError(f"{name} parameter {key} must be positive, got {value}")
+            if key in info.integer_params and not float(value).is_integer():
+                raise ValueError(f"{name} parameter {key} must be a whole number, got {value}")
+        if name == "MACD":
+            slow = self.effective_params()["slow"]
+            if self.length >= slow:
+                raise ValueError(f"MACD fast length {self.length} must be below slow {slow:g}")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_params(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and not data.get("params"):
+            data.pop("params", None)
+        return data
+
+    def effective_params(self) -> dict[str, float]:
+        """The kind's defaults overlaid with this spec's own parameters."""
+        return {**kind_info(self.kind).params, **self.params}
 
 
 class RuleSpec(BaseModel):

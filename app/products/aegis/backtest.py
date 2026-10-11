@@ -13,7 +13,7 @@ from typing import Literal
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from products.aegis.indicators import IndicatorCache
+from products.aegis.indicators import IndicatorCache, named, references
 from products.aegis.strategy import RuleSpec, StrategySide, StrategySpec
 from products.aegis.temporal import entry_permitted, validate
 from products.aegis.temporal import tags as temporal_tags
@@ -182,11 +182,15 @@ def _side_frame(
 ) -> pd.DataFrame:
     """Bars plus this side's own indicator columns and entry/exit signal columns."""
     data = frame.copy()
+    columns: list[str] = []
     for spec in side.indicators:
-        data[spec.id] = cache.get(data_key, spec, frame).to_numpy()
+        produced = named(spec, cache.get(data_key, spec, frame))
+        for column in produced.columns:
+            data[column] = produced[column].to_numpy()
+            columns.append(column)
     data["entry_signal"] = _signal(data, side.entry)
     data["exit_signal"] = _signal(data, side.exit)
-    data["warm"] = data[[spec.id for spec in side.indicators]].notna().all(axis=1)
+    data["warm"] = data[columns].notna().all(axis=1) if columns else True
     return data
 
 
@@ -212,8 +216,9 @@ def _trade_tags(
 def _series(data: pd.DataFrame, side: StrategySide) -> dict[str, list[float | None]]:
     """Indicator values the side traded on, aligned to bars; warm-up gaps are None."""
     return {
-        spec.id: [None if pd.isna(v) else float(v) for v in data[spec.id].tolist()]
+        column: [None if pd.isna(v) else float(v) for v in data[column].tolist()]
         for spec in side.indicators
+        for column in references(spec)
     }
 
 

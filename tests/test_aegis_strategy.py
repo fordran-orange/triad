@@ -98,3 +98,64 @@ def test_optimization_parameter_rejects_reversed_and_fractional_length_ranges():
     with pytest.raises(ValidationError, match="integer"):
         OptimizationParameter(path="indicators.ema.length", start=5.5, stop=10, step=1)
     assert OptimizationParameter(path="indicators.ema.length", start=5, stop=10, step=1).stop == 10
+
+
+# --- Mission 5: indicator parameters on the contract ----------------------------------------
+
+DEFAULT_STRATEGY_JSON_SHA256 = "c3ac85379716483e4554e6936f3f4bf970036cff966d9d313fc9dd353252dd30"
+
+
+def test_default_strategy_json_is_byte_identical():
+    import hashlib
+    import json
+
+    from products.aegis.strategy import default_strategy
+
+    dumped = json.dumps(default_strategy().model_dump(mode="json"), sort_keys=True)
+    assert hashlib.sha256(dumped.encode()).hexdigest() == DEFAULT_STRATEGY_JSON_SHA256
+    assert "params" not in dumped
+
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        ({"kind": "XYZ", "length": 5}, "unknown indicator kind 'XYZ'"),
+        ({"kind": "RSI", "length": 5, "params": {"x": 1}}, "RSI has no parameter 'x'"),
+        ({"kind": "MACD", "length": 5, "params": {"slow": 0}}, "slow must be positive"),
+        (
+            {"kind": "MACD", "length": 5, "params": {"slow": 26.5}},
+            "slow must be a whole number, got 26.5",
+        ),
+        ({"kind": "MACD", "length": 26}, "MACD fast length 26 must be below slow 26"),
+        (
+            {"kind": "BB", "length": 5, "params": {"multiplier": float("inf")}},
+            "multiplier must be finite",
+        ),
+    ],
+)
+def test_indicator_contract_refuses_named_problems(fields, message):
+    from products.aegis.strategy import IndicatorSpec
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match=message):
+        IndicatorSpec(id="x", **fields)
+
+
+@pytest.mark.parametrize("identifier", ["EMA", "1x", "my-ema", ""])
+def test_indicator_ids_are_lowercase_names(identifier):
+    from products.aegis.strategy import IndicatorSpec
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="id"):
+        IndicatorSpec(id=identifier, kind="EMA", length=5)
+
+
+def test_params_appear_in_dumps_only_when_set():
+    from products.aegis.strategy import IndicatorSpec
+
+    assert "params" not in IndicatorSpec(id="e", kind="EMA", length=5).model_dump(mode="json")
+    bb = IndicatorSpec(id="bb", kind="BB", length=20, params={"multiplier": 2.5})
+    assert bb.model_dump(mode="json")["params"] == {"multiplier": 2.5}
+    assert bb.effective_params() == {"multiplier": 2.5}
+    macd = IndicatorSpec(id="m", kind="macd", length=12)
+    assert macd.effective_params() == {"slow": 26.0, "signal": 9.0}

@@ -54,6 +54,7 @@ export interface IndicatorSpec {
   length: number;
   source?: string;
   overlay?: boolean;
+  params?: Record<string, unknown>;
 }
 
 export interface MarketCrossover {

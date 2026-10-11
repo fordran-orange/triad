@@ -146,10 +146,13 @@ def indicators(request: IndicatorsRequest, store: ArchiveStore = STORE):
     series = {}
     for spec in request.indicators:
         try:
-            values = compute(spec, frame)
+            produced = compute(spec, frame)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
-        series[spec.id] = [None if math.isnan(v) else float(v) for v in values.tolist()]
+        for column in produced.columns:
+            series[column] = [
+                None if math.isnan(v) else float(v) for v in produced[column].tolist()
+            ]
     return {
         "times": [record["time"] for record in to_records(frame)],
         "series": series,
