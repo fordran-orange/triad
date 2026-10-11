@@ -59,8 +59,7 @@ export function LabPage() {
     const { id, mode, name } = editing;
     if (mode === 'rename')
       void act(async () => {
-        const saved = await api.updateStrategy(id, { name });
-        if (document?.id === id) dispatch({ type: 'ADOPT_DOCUMENT', document: saved });
+        dispatch({ type: 'DOCUMENT_RENAMED', document: await api.updateStrategy(id, { name }) });
       });
     else if (mode === 'duplicate') void act(() => api.duplicateStrategy(id, name));
     else

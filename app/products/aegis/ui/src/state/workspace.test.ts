@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StrategySpec } from '../contracts';
 import { ruleReferences } from '../rules';
-import { applyConfigs, canonical, initialState, reducer, runStaleness, unsavedEdits, type RunRecord, type WorkspaceState } from './workspace';
+import { applyConfigs, canonical, chartKey, currentLatest, initialState, reducer, runStaleness, unsavedEdits, type RunRecord, type WorkspaceState } from './workspace';
 
 // Side-owned indicator parameters (the shape Task 3 makes canonical); typed loosely until then.
 function strategy(): StrategySpec {
@@ -195,11 +195,11 @@ describe('workspace reducer', () => {
 describe('chart focus and latest values', () => {
   it('starts on the long side with no values and follows the focus and fetched values', () => {
     expect(initialState.focusSide).toBe('long');
-    expect(initialState.latest).toEqual({});
+    expect(initialState.latest).toEqual({ key: '', values: {} });
     let state = reducer(initialState, { type: 'SET_FOCUS_SIDE', side: 'short' });
     expect(state.focusSide).toBe('short');
-    state = reducer(state, { type: 'SET_LATEST', values: { rsi: 41.5, 'donchian.upper': null } });
-    expect(state.latest).toEqual({ rsi: 41.5, 'donchian.upper': null });
+    state = reducer(state, { type: 'SET_LATEST', key: 'k', values: { rsi: 41.5, 'donchian.upper': null } });
+    expect(state.latest).toEqual({ key: 'k', values: { rsi: 41.5, 'donchian.upper': null } });
   });
 });
 
@@ -283,5 +283,41 @@ describe('strategy documents in the workspace', () => {
     expect(state.page).toBe('lab');
     expect(state.strategy).toEqual(withStrategy().strategy);
     expect(initialState.page).toBe('charts');
+  });
+});
+
+describe('honest document and indicator state (review findings #5, #6)', () => {
+  const doc = (spec: StrategySpec, name = spec.name) =>
+    ({ id: spec.id, name, spec: { ...spec, name }, created_at: null, updated_at: null, strategy_hash: 'h', parent: null, builtin: false }) as const;
+
+  it('renaming the loaded document does not invent unsaved edits and keeps real ones', () => {
+    let state = reducer(initialState, { type: 'SET_DOCUMENT', document: doc(strategy()) });
+    state = reducer(state, { type: 'DOCUMENT_RENAMED', document: doc(strategy(), 'Renamed') });
+    expect(state.strategy!.name).toBe('Renamed');
+    expect(unsavedEdits(state)).toBe(false);
+    state = reducer(state, { type: 'SET_SIDE_PARAM', side: 'long', path: 'indicators.ema.length', value: 12 });
+    state = reducer(state, { type: 'DOCUMENT_RENAMED', document: doc(strategy(), 'Again') });
+    expect(state.strategy!.name).toBe('Again');
+    expect(unsavedEdits(state)).toBe(true);
+    expect(state.strategy!.long_side.indicators![0].length).toBe(12);
+  });
+
+  it('renaming another document leaves the workspace alone', () => {
+    const other = { ...strategy(), id: 'other' } as StrategySpec;
+    let state = reducer(initialState, { type: 'SET_DOCUMENT', document: doc(strategy()) });
+    state = reducer(state, { type: 'DOCUMENT_RENAMED', document: doc(other, 'Other renamed') });
+    expect(state.document!.id).toBe(strategy().id);
+    expect(state.strategy!.name).toBe(strategy().name);
+  });
+
+  it('shows latest values only for the selection and indicators they were fetched for', () => {
+    let state = withStrategy();
+    const key = chartKey(state);
+    state = reducer(state, { type: 'SET_LATEST', key, values: { ema: 510.15, sma: 517.2 } });
+    expect(currentLatest(state)).toEqual({ ema: 510.15, sma: 517.2 });
+    const edited = reducer(state, { type: 'SET_SIDE_PARAM', side: 'long', path: 'indicators.ema.length', value: 21 });
+    expect(currentLatest(edited)).toEqual({});
+    const moved = reducer(state, { type: 'SET_SELECTION', selection: { timeframe: '1D' } });
+    expect(currentLatest(moved)).toEqual({});
   });
 });

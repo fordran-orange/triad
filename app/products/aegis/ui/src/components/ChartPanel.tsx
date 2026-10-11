@@ -4,7 +4,7 @@ import { createChartAdapter, type ChartAdapter, type CrosshairPoint, type Marker
 import { chartMeta, syncChart, type OverlayMeta } from '../chart/sync';
 import { num } from '../format';
 import type { Provenance } from '../results';
-import { runStaleness, SIDE_KEY, useDispatch, useWorkspace } from '../state/workspace';
+import { chartKey, runStaleness, SIDE_KEY, useDispatch, useWorkspace } from '../state/workspace';
 
 interface Loaded {
   count: number;
@@ -59,6 +59,7 @@ export function ChartPanel() {
     const adapter = adapterRef.current;
     if (!adapter || !adapterReady || !strategy) return;
     let cancelled = false;
+    const key = chartKey(state); // what this fetch is for
     setLoading(true);
     setError(null);
     setLoaded(null); // the header must not pair the new selection with the previous fetch's count
@@ -75,7 +76,7 @@ export function ChartPanel() {
           const last = [...values].reverse().find((v) => v !== null && v !== undefined);
           latest[key] = last ?? null;
         }
-        dispatch({ type: 'SET_LATEST', values: latest });
+        dispatch({ type: 'SET_LATEST', key, values: latest });
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -83,7 +84,7 @@ export function ChartPanel() {
         setLoaded(null);
         setMeta({});
         dispatch({ type: 'BARS_LOADED', bars: null });
-        dispatch({ type: 'SET_LATEST', values: {} });
+        dispatch({ type: 'SET_LATEST', key: '', values: {} });
         setError(errorMessage(e));
       })
       .finally(() => !cancelled && setLoading(false));

@@ -22,7 +22,6 @@ from products.aegis.walkforward import (
     cut_windows,
     efficiency,
     flag_edge_exits,
-    lead_bars,
     pending_record,
     plan,
     select_best,
@@ -122,11 +121,6 @@ def test_efficiency_is_per_bar_ratio_or_null():
     assert efficiency({"net_return": 0.0}, 200, {"net_return": 0.10}, 50) is None
     assert efficiency({"net_return": -0.1}, 200, {"net_return": 0.10}, 50) is None
     assert efficiency(None, 200, {"net_return": 0.10}, 50) is None
-
-
-def test_lead_bars_warm_the_chosen_configuration_and_satisfy_the_engine_floor():
-    assert lead_bars(30) == 35  # engine floor of 35 bars wins over 31
-    assert lead_bars(60) == 61
 
 
 def point(ts, equity):
@@ -600,3 +594,53 @@ def test_side_warmup_counts_parameter_ranges():
     )
     assert side_warmup(side) == 40 + 9 - 1
     assert side_warmup(side, ranges=False) == 26 + 9 - 1
+
+
+def rsi_walkforward_request():
+    """RSI 21/28 crossing 55: a recursive indicator whose cold start would move the signals."""
+    from products.aegis.strategy import StrategySide
+
+    strategy = default_strategy()
+    data = strategy.long_side.model_dump(mode="json")
+    data["indicators"] = [{"id": "rsi", "kind": "RSI", "length": 21}]
+    data["entry"] = {"left": "rsi", "operator": "crosses_above", "right": "55"}
+    data["exit"] = {"left": "rsi", "operator": "crosses_below", "right": "55"}
+    data["optimization"] = [{"path": "indicators.rsi.length", "start": 21, "stop": 28, "step": 7}]
+    strategy = strategy.model_copy(update={"long_side": StrategySide.model_validate(data)})
+    return WalkForwardRequest(
+        strategy=strategy, side="long", data=DATA, in_sample_bars=80, out_of_sample_bars=60
+    )
+
+
+def test_out_of_sample_runs_on_the_full_history():
+    """Review finding #2: an out-of-sample window's indicators must equal a continuous run's, so
+    its trades equal a continuous backtest of the chosen configuration counted from the window."""
+    from datetime import datetime
+
+    from products.aegis.backtest import BacktestRequest, BacktestSettings, run_backtest
+
+    rows = wave_bars(n=400, period=29.0, amplitude=6.0)
+    job = WalkForwardJob(rsi_walkforward_request(), pd.DataFrame(rows), PINNED)
+    for unit in range(job.total_units):
+        job.commit(unit, job.run_unit(unit))
+    last = len(job.plan.windows) - 1
+    compared = 0
+    for record, window in zip(job.records, job.plan.windows, strict=True):
+        if record["carried_in"] or record["best"] is None:
+            continue
+        side = apply_parameters(job._base_side, record["best"]["params"])
+        continuous = run_backtest(
+            BacktestRequest(
+                strategy=job._strategy_with(side),
+                bars=job.rows[: window.oos_end],
+                settings=BacktestSettings(
+                    evaluate_from=datetime.fromisoformat(job.timestamps[window.oos_start]),
+                    close_at_end=window.index == last,
+                ),
+            )
+        )["long"]
+        assert [(t["entry_time"], t["exit_time"]) for t in record["oos"]["trades"]] == [
+            (t["entry_time"], t["exit_time"]) for t in continuous["trades"]
+        ], window.index
+        compared += 1
+    assert compared >= 3

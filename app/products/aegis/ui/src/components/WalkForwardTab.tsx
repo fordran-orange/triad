@@ -41,6 +41,15 @@ export function carryLabel(r: Pick<WindowRecord, 'carried_in' | 'open_at_end'>):
   return DASH;
 }
 
+/** The configuration a window traded out-of-sample: its own choice, or the earlier window's it
+ *  inherited when it had no valid in-sample cell and a position was carried in (P12). */
+export function chosenFor(r: WindowRecord, records: WindowRecord[]): { params: Record<string, number>; from: number | null } | null {
+  if (r.best) return { params: r.best.params, from: null };
+  if (r.inherited_from === null || r.inherited_from === undefined) return null;
+  const source = records.find((x) => x.index === r.inherited_from);
+  return source?.best ? { params: source.best.params, from: r.inherited_from } : null;
+}
+
 /** Trades closed after crossing at least one window join. */
 export function carriedCount(trades: Trade[]): number {
   return trades.filter((t) => t.carried_from_window !== undefined).length;
@@ -226,7 +235,18 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
                     <td>
                       {timeLabel(r.oos_start)} → {timeLabel(r.oos_end)} <span className="muted">({r.oos_bars})</span>
                     </td>
-                    <td>{describe(r.best?.params, planned)}</td>
+                    <td>
+                      {(() => {
+                        const chosen = chosenFor(r, job.window_records);
+                        if (!chosen) return describe(undefined, planned);
+                        return (
+                          <>
+                            {describe(chosen.params, planned)}
+                            {chosen.from !== null && <span className="muted"> (window {chosen.from + 1}'s)</span>}
+                          </>
+                        );
+                      })()}
+                    </td>
                     <td>{isValue === undefined || isValue === null ? DASH : job.objective === 'net_pnl' ? money(isValue) : job.objective === 'max_drawdown' ? pct(isValue) : num(isValue, 2)}</td>
                     <td className={r.oos ? ((r.oos.metrics.net_pnl ?? 0) >= 0 ? 'green' : 'red') : ''}>{r.oos ? money(r.oos.metrics.net_pnl) : DASH}</td>
                     <td>{r.oos ? pct(r.oos.metrics.max_drawdown) : DASH}</td>
@@ -236,7 +256,7 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
                     </td>
                     <td>{r.efficiency === null ? DASH : num(r.efficiency, 2)}</td>
                     <td>{carryLabel(r)}</td>
-                    <td title={r.inherited_from !== null && r.inherited_from !== undefined ? `no valid in-sample cell; managed the carried position with window ${r.inherited_from + 1}'s choice` : undefined}>
+                    <td title={r.inherited_from !== null && r.inherited_from !== undefined ? `no valid in-sample cell; traded out-of-sample, carried position included, with window ${r.inherited_from + 1}'s choice` : undefined}>
                       {r.status === 'no_valid_cell' ? 'no valid cell' : r.inherited_from !== null && r.inherited_from !== undefined ? `done (window ${r.inherited_from + 1}'s choice)` : r.status}
                     </td>
                   </tr>

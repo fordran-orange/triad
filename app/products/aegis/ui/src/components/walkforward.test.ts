@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WindowRecord } from '../results';
-import { carriedCount, carryLabel, defaultWindowBars, finalChoice, progressLabel, stitchedPoints } from './WalkForwardTab';
+import { carriedCount, carryLabel, chosenFor, defaultWindowBars, finalChoice, progressLabel, stitchedPoints } from './WalkForwardTab';
 
 const record = (index: number, status: WindowRecord['status'], equities: number[], params: Record<string, number> | null): WindowRecord =>
   ({
@@ -59,5 +59,15 @@ describe('walk-forward helpers', () => {
     const t = (carried?: number | null) => ({ net_pnl: 1, ...(carried === undefined ? {} : { carried_from_window: carried }) }) as unknown as import('../results').Trade;
     expect(carriedCount([t(), t(0), t(3), t()])).toBe(2);
     expect(carriedCount([])).toBe(0);
+  });
+
+  it('chosenFor names the configuration a window actually traded, inherited ones included (QA observation 1)', () => {
+    const own = { ...record(0, 'done', [1], { a: 3 }), inherited_from: null } as WindowRecord;
+    const inherited = { ...record(1, 'done', [1], null), inherited_from: 0 } as WindowRecord;
+    const nothing = { ...record(2, 'no_valid_cell', [], null), inherited_from: null } as WindowRecord;
+    const records = [own, inherited, nothing];
+    expect(chosenFor(own, records)).toEqual({ params: { a: 3 }, from: null });
+    expect(chosenFor(inherited, records)).toEqual({ params: { a: 3 }, from: 0 });
+    expect(chosenFor(nothing, records)).toBeNull();
   });
 });

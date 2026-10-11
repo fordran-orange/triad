@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { INDICATOR_KINDS } from '../contracts';
 import { DASH, num } from '../format';
 import { referencesOf, ruleReferences } from '../rules';
-import { SIDES, SIDE_KEY, useDispatch, useWorkspace } from '../state/workspace';
+import { currentLatest, SIDES, SIDE_KEY, useDispatch, useWorkspace } from '../state/workspace';
 import { IndicatorInputs } from './IndicatorInputs';
 
 /** The focused side's indicators: kind, parameters, source, pane and latest value; add and remove. */
 export function IndicatorsTab() {
-  const { strategy, focusSide, linkSides, latest } = useWorkspace();
+  const state = useWorkspace();
+  const { strategy, focusSide, linkSides } = state;
+  const latest = currentLatest(state);
   const dispatch = useDispatch();
   const [kind, setKind] = useState('RSI');
   const [error, setError] = useState<string | null>(null);

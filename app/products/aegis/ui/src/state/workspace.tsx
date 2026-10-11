@@ -60,7 +60,7 @@ export interface WorkspaceState {
   rightTab: 'strategy' | 'indicators';
   page: 'charts' | 'lab';
   document: StrategyDocument | null; // the saved document the workspace strategy came from
-  latest: Record<string, number | null>; // last value per drawn series, from the chart's fetch
+  latest: { key: string; values: Record<string, number | null> }; // last value per drawn series, for the chartKey it was fetched under
 }
 
 export type Action =
@@ -86,14 +86,15 @@ export type Action =
   | { type: 'WALKFORWARD_LOST'; side: Side; job_id: string }
   | { type: 'SELECT_CONFIG'; side: Side; params: Record<string, number> | null }
   | { type: 'SET_FOCUS_SIDE'; side: Side }
-  | { type: 'SET_LATEST'; values: Record<string, number | null> }
+  | { type: 'SET_LATEST'; key: string; values: Record<string, number | null> }
   | { type: 'SET_RIGHT_TAB'; tab: 'strategy' | 'indicators' }
   | { type: 'ADD_INDICATOR'; side: Side; kind: string }
   | { type: 'REMOVE_INDICATOR'; side: Side; id: string }
   | { type: 'SET_RULE'; side: Side; which: 'entry' | 'exit'; rule: Rule }
   | { type: 'SET_PAGE'; page: 'charts' | 'lab' }
   | { type: 'SET_DOCUMENT'; document: StrategyDocument }
-  | { type: 'ADOPT_DOCUMENT'; document: StrategyDocument | null };
+  | { type: 'ADOPT_DOCUMENT'; document: StrategyDocument | null }
+  | { type: 'DOCUMENT_RENAMED'; document: StrategyDocument };
 
 export const initialState: WorkspaceState = {
   strategy: null,
@@ -114,8 +115,20 @@ export const initialState: WorkspaceState = {
   rightTab: 'strategy',
   page: 'charts',
   document: null,
-  latest: {},
+  latest: { key: '', values: {} },
 };
+
+/** What the chart fetched for: the selection and the focused side's indicators. */
+export function chartKey(state: Pick<WorkspaceState, 'selection' | 'strategy' | 'focusSide'>): string {
+  const s = state.selection;
+  const indicators = state.strategy ? (state.strategy[SIDE_KEY[state.focusSide]].indicators ?? []) : [];
+  return JSON.stringify([s.symbol, s.timeframe, s.start, s.end, indicators.map((i) => [i.id, i.kind, i.length, i.source ?? 'close', i.params ?? {}])]);
+}
+
+/** Latest values only while they describe what is selected and configured now (review finding #6). */
+export function currentLatest(state: Pick<WorkspaceState, 'selection' | 'strategy' | 'focusSide' | 'latest'>): Record<string, number | null> {
+  return state.latest.key === chartKey(state) ? state.latest.values : {};
+}
 
 /** The workspace strategy differs from the loaded document's saved spec (plan ruling P2). */
 export function unsavedEdits(state: Pick<WorkspaceState, 'document' | 'strategy'>): boolean {
@@ -322,6 +335,16 @@ export function reducer(state: WorkspaceState, action: Action): WorkspaceState {
       return { ...state, document: action.document, strategy: action.document.spec };
     case 'ADOPT_DOCUMENT':
       return { ...state, document: action.document };
+    case 'DOCUMENT_RENAMED': {
+      // A rename changes the spec's name too; carry it into the workspace strategy so the header
+      // does not report edits nobody made (review finding #5). Other edits stay as they are.
+      const renamed = action.document;
+      return {
+        ...state,
+        document: state.document?.id === renamed.id ? renamed : state.document,
+        strategy: state.strategy && state.strategy.id === renamed.id ? { ...state.strategy, name: renamed.spec.name } : state.strategy,
+      };
+    }
     case 'ADD_INDICATOR': {
       if (!state.strategy) return state;
       const key = SIDE_KEY[action.side];
@@ -349,7 +372,7 @@ export function reducer(state: WorkspaceState, action: Action): WorkspaceState {
       return { ...state, strategy: { ...state.strategy, [key]: { ...state.strategy[key], [action.which]: action.rule } } };
     }
     case 'SET_LATEST':
-      return { ...state, latest: action.values };
+      return { ...state, latest: { key: action.key, values: action.values } };
     default:
       return state;
   }

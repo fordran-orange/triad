@@ -1,8 +1,9 @@
 """Rolling walk-forward validation, per side (Mission 4 spec §5): pure functions only.
 
 Windows are cut in bars; each window is optimized in-sample on the side's grid and the chosen
-configuration is evaluated out-of-sample behind a warm-up lead (`BacktestSettings.evaluate_from`),
-with capital chained from window to window. Nothing here runs threads or touches disk; the job
+configuration is evaluated out-of-sample on the full history before the window, counted from its
+first bar (`BacktestSettings.evaluate_from`), so its indicators equal a continuous run's; capital
+and any open position chain from window to window. Nothing here runs threads or touches disk; the job
 kind in `jobs.py` drives these functions and the engine.
 """
 
@@ -187,12 +188,6 @@ def efficiency(is_metrics: dict | None, is_bars: int, oos_metrics: dict | None, 
     return (oos_return / oos_bars) / (is_return / is_bars)
 
 
-def lead_bars(chosen_longest: int) -> int:
-    """Warm-up lead before an out-of-sample window: the chosen configuration's longest length plus
-    one, but never below the engine's bar floor."""
-    return max(chosen_longest + 1, MIN_BARS)
-
-
 def pending_record(window: Window, timestamps: list[str]) -> dict:
     """The window record of spec §5.3 before any work: bar ranges by timestamp, everything else null."""
     return {
@@ -365,7 +360,6 @@ class WalkForwardJob:
         if best is None:
             return {"unit": "oos", "oos": None}
         chosen = apply_parameters(self._base_side, best["params"])
-        lead = lead_bars(side_warmup(chosen, ranges=False))
         last = window_index == len(self.plan.windows) - 1
         settings = self.request.settings.model_copy(
             update={
@@ -378,7 +372,10 @@ class WalkForwardJob:
         result = run_backtest(
             BacktestRequest(
                 strategy=self._strategy_with(chosen),
-                bars=self.rows[window.oos_start - lead : window.oos_end],
+                # The whole history before the window (review finding #2): recursive
+                # indicators (EMA, RSI, ATR, MACD) then hold the values a continuous run holds;
+                # a short lead would cold-start them and move the window's signals.
+                bars=self.rows[: window.oos_end],
                 settings=settings,
             ),
             cache=self.cache,
@@ -501,7 +498,6 @@ __all__ = [
     "cut_windows",
     "efficiency",
     "flag_edge_exits",
-    "lead_bars",
     "pending_record",
     "plan",
     "rebase",
