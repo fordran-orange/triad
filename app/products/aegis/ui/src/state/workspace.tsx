@@ -55,6 +55,8 @@ export interface WorkspaceState {
   optimization: { long?: JobStatus; short?: JobStatus };
   walkforward: { long?: WalkForwardStatus; short?: WalkForwardStatus };
   selectedConfigs: SelectedConfigs;
+  focusSide: Side; // the side the chart and the Indicators tab show (plan ruling P9)
+  latest: Record<string, number | null>; // last value per drawn series, from the chart's fetch
 }
 
 export type Action =
@@ -78,7 +80,9 @@ export type Action =
   | { type: 'JOB_LOST'; side: Side; job_id: string }
   | { type: 'WALKFORWARD_UPDATED'; side: Side; job: WalkForwardStatus }
   | { type: 'WALKFORWARD_LOST'; side: Side; job_id: string }
-  | { type: 'SELECT_CONFIG'; side: Side; params: Record<string, number> | null };
+  | { type: 'SELECT_CONFIG'; side: Side; params: Record<string, number> | null }
+  | { type: 'SET_FOCUS_SIDE'; side: Side }
+  | { type: 'SET_LATEST'; values: Record<string, number | null> };
 
 export const initialState: WorkspaceState = {
   strategy: null,
@@ -95,6 +99,8 @@ export const initialState: WorkspaceState = {
   optimization: {},
   walkforward: {},
   selectedConfigs: { long: null, short: null },
+  focusSide: 'long',
+  latest: {},
 };
 
 /**
@@ -258,6 +264,10 @@ export function reducer(state: WorkspaceState, action: Action): WorkspaceState {
     }
     case 'SELECT_CONFIG':
       return { ...state, selectedConfigs: { ...state.selectedConfigs, [action.side]: action.params } };
+    case 'SET_FOCUS_SIDE':
+      return { ...state, focusSide: action.side };
+    case 'SET_LATEST':
+      return { ...state, latest: action.values };
     default:
       return state;
   }

@@ -9,8 +9,24 @@ const TIMEFRAME_TO_VELA: Record<Timeframe, string> = { '1m': '1', '15m': '15', '
 
 // Module-level registries read by the native indicator instances (one chart per page in Aegis).
 const overlayRegistry = new Map<string, Overlay>();
+const groupRegistry = new Map<string, Overlay[]>(); // own-pane series by indicator id
+const seriesToOverlay = new Map<string, string>(); // emitted series id → overlay id (crosshair values)
 let markerRegistry: Marker[] = [];
 let registered = false;
+
+const lineSeries = (ctxId: string, overlay: Overlay, overlay_: boolean) => {
+  const id = ctxId + ':' + overlay.id;
+  seriesToOverlay.set(id, overlay.id);
+  return {
+    id,
+    title: overlay.title,
+    paneId: '',
+    kind: overlay.style === 'columns' ? 'columns' : 'line',
+    overlay: overlay_,
+    points: overlay.points.map((p) => ({ time: p.time, value: p.value })),
+    style: { color: overlay.color, width: overlay.style === 'columns' ? 1 : 2, lineStyle: 'solid', ...(overlay.style === 'columns' ? { base: 0 } : {}) },
+  };
+};
 
 type Emitter = { emit(out: unknown): void; id: string };
 
@@ -33,19 +49,43 @@ function registerNatives() {
         if (!ctx) return;
         const overlay = overlayRegistry.get(String(inputs.series));
         if (!overlay) return;
-        ctx.emit({
-          series: [
-            {
-              id: ctx.id + ':' + overlay.id,
-              title: overlay.title,
-              paneId: '',
-              kind: 'line',
-              overlay: true,
-              points: overlay.points.map((p) => ({ time: p.time, value: p.value })),
-              style: { color: overlay.color, width: 2, lineStyle: 'solid' },
-            },
-          ],
-        });
+        ctx.emit({ series: [lineSeries(ctx.id, overlay, true)] });
+      };
+      return {
+        start(c: Emitter, i: Record<string, unknown>) {
+          ctx = c;
+          inputs = i;
+          emit();
+        },
+        onBars: emit,
+        onViewport() {},
+        setInputs(i: Record<string, unknown>) {
+          inputs = i;
+          emit();
+        },
+        suspend() {},
+        resume: emit,
+        stop() {},
+      };
+    },
+  } as never);
+  // One study pane per oscillator indicator: every own-pane series of a group in one instance.
+  registerNativeIndicator({
+    type: 'aegis-pane',
+    title: 'Aegis study',
+    paneHint: 'new',
+    overlay: false,
+    legend: false,
+    multiInstance: true,
+    inputsSchema: () => [{ key: 'group', title: 'Group', type: 'string', defval: '' }],
+    defaultInputs: () => ({ group: '' }),
+    create: () => {
+      let ctx: Emitter | null = null;
+      let inputs: Record<string, unknown> = {};
+      const emit = () => {
+        if (!ctx) return;
+        const overlays = groupRegistry.get(String(inputs.group)) ?? [];
+        ctx.emit({ series: overlays.map((o) => lineSeries(ctx!.id, o, false)) });
       };
       return {
         start(c: Emitter, i: Record<string, unknown>) {
@@ -120,6 +160,7 @@ export class VelaAdapter implements ChartAdapter {
   private chart: Vela | null = null;
   private timeframe: Timeframe = '1h';
   private overlayHandles = new Map<string, Handle>();
+  private paneHandles = new Map<string, Handle>();
   private markerHandle: Handle | null = null;
   private crosshair: ((p: CrosshairPoint | null) => void) | null = null;
   private pendingOverlays: Overlay[] = [];
@@ -138,6 +179,7 @@ export class VelaAdapter implements ChartAdapter {
       this.chart.destroy();
       this.chart = null;
       this.overlayHandles.clear();
+      this.paneHandles.clear();
       this.markerHandle = null;
     }
     this.el.innerHTML = '';
@@ -145,9 +187,15 @@ export class VelaAdapter implements ChartAdapter {
     this.chart = chart;
     const crosshair = this.crosshair;
     if (crosshair) {
-      (chart.renderer as unknown as { onCrosshairMove(cb: (e: { time: number | null; price: number | null }) => void): void }).onCrosshairMove((e) =>
-        crosshair({ time: e.time, price: e.price }),
-      );
+      type Move = { time: number | null; price: number | null; paneKind?: 'price' | 'study' | null; values?: ReadonlyMap<string, number> };
+      (chart.renderer as unknown as { onCrosshairMove(cb: (e: Move) => void): void }).onCrosshairMove((e) => {
+        const values: Record<string, number> = {};
+        for (const [seriesId, value] of e.values ?? new Map<string, number>()) {
+          const overlayId = seriesToOverlay.get(seriesId);
+          if (overlayId !== undefined) values[overlayId] = value;
+        }
+        crosshair({ time: e.time, price: e.price, paneKind: e.paneKind ?? null, values });
+      });
     }
     void chart.ready().then(() => {
       if (this.chart !== chart) return;
@@ -169,7 +217,11 @@ export class VelaAdapter implements ChartAdapter {
   private applyOverlays(series: Overlay[]) {
     const chart = this.chart;
     if (!chart) return;
-    const wanted = new Set(series.map((s) => s.id));
+    const priced = series.filter((s) => s.pane === 'price');
+    const groups = new Map<string, Overlay[]>();
+    for (const s of series) if (s.pane === 'own') groups.set(s.group, [...(groups.get(s.group) ?? []), s]);
+
+    const wanted = new Set(priced.map((s) => s.id));
     for (const [id, handle] of this.overlayHandles) {
       if (!wanted.has(id)) {
         handle.remove();
@@ -177,11 +229,25 @@ export class VelaAdapter implements ChartAdapter {
         overlayRegistry.delete(id);
       }
     }
-    for (const overlay of series) {
+    for (const overlay of priced) {
       overlayRegistry.set(overlay.id, overlay);
       const existing = this.overlayHandles.get(overlay.id);
       if (existing) existing.setInputs({ series: overlay.id });
       else this.overlayHandles.set(overlay.id, chart.addNativeIndicator('aegis-line', { inputs: { series: overlay.id } }) as unknown as Handle);
+    }
+
+    for (const [group, handle] of this.paneHandles) {
+      if (!groups.has(group)) {
+        handle.remove(); // the indicator's study pane goes with it
+        this.paneHandles.delete(group);
+        groupRegistry.delete(group);
+      }
+    }
+    for (const [group, overlays] of groups) {
+      groupRegistry.set(group, overlays);
+      const existing = this.paneHandles.get(group);
+      if (existing) existing.setInputs({ group });
+      else this.paneHandles.set(group, chart.addNativeIndicator('aegis-pane', { inputs: { group } }) as unknown as Handle);
     }
   }
 
@@ -205,6 +271,7 @@ export class VelaAdapter implements ChartAdapter {
     this.chart?.destroy();
     this.chart = null;
     this.overlayHandles.clear();
+    this.paneHandles.clear();
     this.markerHandle = null;
     this.pendingOverlays = [];
     this.pendingMarkers = [];

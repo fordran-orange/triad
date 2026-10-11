@@ -190,3 +190,14 @@ describe('workspace reducer', () => {
     expect(reducer(state, { type: 'SET_RESULTS_TAB', tab: 'walkforward' }).resultsTab).toBe('walkforward');
   });
 });
+
+describe('chart focus and latest values', () => {
+  it('starts on the long side with no values and follows the focus and fetched values', () => {
+    expect(initialState.focusSide).toBe('long');
+    expect(initialState.latest).toEqual({});
+    let state = reducer(initialState, { type: 'SET_FOCUS_SIDE', side: 'short' });
+    expect(state.focusSide).toBe('short');
+    state = reducer(state, { type: 'SET_LATEST', values: { rsi: 41.5, 'donchian.upper': null } });
+    expect(state.latest).toEqual({ rsi: 41.5, 'donchian.upper': null });
+  });
+});

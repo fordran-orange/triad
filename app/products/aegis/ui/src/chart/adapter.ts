@@ -18,10 +18,13 @@ export interface OverlayPoint {
 }
 
 export interface Overlay {
-  id: string;
+  id: string; // the series' reference spelling: `id` or `id.output`
   title: string;
   color: string;
   points: OverlayPoint[];
+  pane: 'price' | 'own'; // price-scale kinds overlay the candles; oscillators get a pane per group
+  group: string; // the indicator id: own-pane series of one group share one pane
+  style: 'line' | 'columns';
 }
 
 export interface Marker {
@@ -33,7 +36,9 @@ export interface Marker {
 
 export interface CrosshairPoint {
   time: number | null;
-  price: number | null;
+  price: number | null; // on the hovered pane's scale: a price, or a study value
+  paneKind: 'price' | 'study' | null;
+  values: Record<string, number>; // series values under the cursor, keyed by overlay id
 }
 
 export interface ChartAdapter {

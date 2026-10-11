@@ -1,13 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import { createChartAdapter, type ChartAdapter, type CrosshairPoint, type Marker } from '../chart/adapter';
-import { syncChart } from '../chart/sync';
+import { chartMeta, syncChart, type OverlayMeta } from '../chart/sync';
 import { num } from '../format';
 import type { Provenance } from '../results';
-import { runStaleness, useDispatch, useWorkspace } from '../state/workspace';
-import { sideIndicators } from './StrategyPanel';
-
-const COLORS: Record<string, string> = { ema: '#2da7ff', sma: '#39d98a' };
+import { runStaleness, SIDE_KEY, useDispatch, useWorkspace } from '../state/workspace';
 
 interface Loaded {
   count: number;
@@ -16,7 +13,7 @@ interface Loaded {
 
 export function ChartPanel() {
   const state = useWorkspace();
-  const { selection, strategy, lastRun, symbols } = state;
+  const { selection, strategy, lastRun, symbols, focusSide } = state;
   const dispatch = useDispatch();
   const mountRef = useRef<HTMLDivElement>(null);
   const adapterRef = useRef<ChartAdapter | null>(null);
@@ -25,9 +22,11 @@ export function ChartPanel() {
   const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<CrosshairPoint | null>(null);
   const [loading, setLoading] = useState(false);
+  const [meta, setMeta] = useState<Record<string, OverlayMeta>>({});
 
-  const indicators = strategy ? sideIndicators(strategy, 'long_side') : [];
-  const indicatorKey = indicators.map((i) => `${i.id}:${i.kind}:${i.length}:${i.source ?? 'close'}`).join('|');
+  // The chart shows the focused side's indicators (plan ruling P9).
+  const indicators = strategy ? (strategy[SIDE_KEY[focusSide]].indicators ?? []) : [];
+  const indicatorKey = JSON.stringify(indicators.map((i) => [i.id, i.kind, i.length, i.source ?? 'close', i.params ?? {}]));
   const pinnedVintage = lastRun?.data.vintage;
   const stale = runStaleness(state);
   // Markers belong to the run's selection and archive; on any other chart they would be a lie.
@@ -58,7 +57,7 @@ export function ChartPanel() {
   // Selection or indicator parameters changed: fetch bars and series, then sync the chart.
   useEffect(() => {
     const adapter = adapterRef.current;
-    if (!adapter || !adapterReady || indicators.length === 0) return;
+    if (!adapter || !adapterReady || !strategy) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -68,21 +67,23 @@ export function ChartPanel() {
         if (cancelled) return;
         setLoaded({ count: bars.count, data: bars.data });
         dispatch({ type: 'BARS_LOADED', bars: { count: bars.count, vintage: String(bars.data.vintage ?? '') } });
-        syncChart(adapter, {
-          bars: bars.bars,
-          timeframe: selection.timeframe,
-          times: series.times,
-          series: series.series,
-          colors: COLORS,
-          titles: Object.fromEntries(indicators.map((i) => [i.id, `${i.kind.toUpperCase()} ${i.length}`])),
-          markers,
-        });
+        const drawn = chartMeta(indicators, series.outputs, series.pane);
+        setMeta(drawn);
+        syncChart(adapter, { bars: bars.bars, timeframe: selection.timeframe, times: series.times, series: series.series, meta: drawn, markers });
+        const latest: Record<string, number | null> = {};
+        for (const [key, values] of Object.entries(series.series)) {
+          const last = [...values].reverse().find((v) => v !== null && v !== undefined);
+          latest[key] = last ?? null;
+        }
+        dispatch({ type: 'SET_LATEST', values: latest });
       })
       .catch((e: unknown) => {
         if (cancelled) return;
         adapter.clear(); // never leave a previous selection's candles under a header that names the new one
         setLoaded(null);
+        setMeta({});
         dispatch({ type: 'BARS_LOADED', bars: null });
+        dispatch({ type: 'SET_LATEST', values: {} });
         setError(errorMessage(e));
       })
       .finally(() => !cancelled && setLoading(false));
@@ -99,8 +100,7 @@ export function ChartPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markerKey]);
 
-  const fast = indicators.find((i) => i.kind.toUpperCase() === 'EMA');
-  const slow = indicators.find((i) => i.kind.toUpperCase() === 'SMA');
+  const studyValues = cursor?.paneKind === 'study' ? Object.entries(cursor.values).filter(([k]) => meta[k]?.pane === 'own') : [];
 
   return (
     <div className="chart-panel">
@@ -134,7 +134,16 @@ export function ChartPanel() {
             )}
           </div>
           <div className="ohlc">
-            {cursor?.price != null ? (
+            {studyValues.length > 0 ? (
+              <span id="study-readout">
+                {studyValues.map(([k, v]) => (
+                  <span key={k} style={{ color: meta[k].color, marginRight: 8 }}>
+                    {meta[k].title} {num(v)}
+                  </span>
+                ))}
+                <span className="muted">{cursor?.time ? new Date(cursor.time).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : ''}</span>
+              </span>
+            ) : cursor?.price != null && cursor.paneKind !== 'study' ? (
               <>
                 cursor {num(cursor.price)} <span className="muted">{cursor.time ? new Date(cursor.time).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : ''}</span>
               </>
@@ -149,8 +158,13 @@ export function ChartPanel() {
             )}
           </div>
           <div className="legend">
-            <b className="accent">EMA {fast?.length ?? '—'}</b>
-            <b className="green">SMA {slow?.length ?? '—'}</b>
+            <span className="muted">{focusSide.toUpperCase()}</span>
+            {Object.entries(meta).map(([key, m]) => (
+              <b key={key} style={{ color: m.color }} title={m.pane === 'own' ? 'drawn in its own pane' : 'drawn on the price pane'}>
+                {m.title}
+              </b>
+            ))}
+            {Object.keys(meta).length === 0 && loaded && <span className="muted">no indicators on this side</span>}
             <span>Volume</span>
             {markers.length > 0 && <span className="muted">{markers.length} markers</span>}
             {lastRun && markers.length === 0 && (lastRun.markers?.length ?? 0) > 0 && (
