@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from datetime import date, datetime
+from typing import Literal
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -34,6 +35,26 @@ class EventPoint(BaseModel):
         return value
 
 
+class OpenPosition(BaseModel):
+    """A position held at the end of one run and carried into the next (walk-forward windows).
+
+    `exit_signal_time`/`exit_tags` are set when the exit signal fired on the run's last bar; the
+    next run fills that exit at its first evaluated bar's open, as a continuous run would."""
+
+    model_config = ConfigDict(extra="forbid")
+    side: Literal["LONG", "SHORT"]
+    entry_time: str
+    signal_time: str
+    entry_price: float
+    quantity: int = Field(gt=0)
+    entry_fee: float
+    capital_at_entry: float
+    entry_tags: list[str]
+    origin_window: int | None = None
+    exit_signal_time: str | None = None
+    exit_tags: list[str] = Field(default_factory=list)
+
+
 class BacktestSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     initial_capital: float = Field(default=100_000, gt=0)
@@ -41,6 +62,10 @@ class BacktestSettings(BaseModel):
     # Warm-up boundary (walk-forward): before it no entry is permitted and no equity point is
     # reported, while indicators and warm-up proceed normally. Timezone-aware when set.
     evaluate_from: datetime | None = None
+    # Carry-over (walk-forward): start holding this position; and, when close_at_end is false,
+    # report a position still open at the last bar instead of closing it there.
+    initial_position: OpenPosition | None = None
+    close_at_end: bool = True
 
     @field_validator("evaluate_from")
     @classmethod
@@ -93,6 +118,23 @@ def _check_warmup(frame: pd.DataFrame, strategy: StrategySpec) -> None:
             f"insufficient bars: {len(frame)} bars cannot complete the warm-up of a "
             f"{longest}-period indicator; widen the range or shorten the length"
         )
+
+
+def _check_initial_position(request: BacktestRequest) -> None:
+    """A carried position belongs to the side of its direction, which must be simulated."""
+    position = request.settings.initial_position
+    if position is None:
+        return
+    strategy = request.strategy
+    owner = strategy.long_side if position.side == "LONG" else strategy.short_side
+    if not owner.enabled:
+        enabled = [
+            name
+            for name, spec in (("long", strategy.long_side), ("short", strategy.short_side))
+            if spec.enabled
+        ]
+        target = f"the {enabled[0]} side" if enabled else "any enabled side"
+        raise ValueError(f"initial_position side {position.side} does not match {target}")
 
 
 def _prepare_frame(rows: list[dict]) -> pd.DataFrame:
@@ -193,6 +235,9 @@ def _simulate_side(
             "trades": [],
             "equity": [],
             "metrics": _metrics([], [], settings.initial_capital),
+            "open_position": None,
+            "ending_cash": settings.initial_capital,
+            "ending_equity": settings.initial_capital,
             "_in_position": [],
         }
     data = _side_frame(frame, spec, cache, data_key)
@@ -201,17 +246,41 @@ def _simulate_side(
     cash = settings.initial_capital
     position = None
     pending = None
+    carried = settings.initial_position
+    if carried is not None and carried.side == side:
+        position = {
+            "entry_time": carried.entry_time,
+            "signal_time": carried.signal_time,
+            "entry_price": carried.entry_price,
+            "quantity": carried.quantity,
+            "entry_tags": list(carried.entry_tags),
+            "entry_fee": carried.entry_fee,
+            "capital_at_entry": carried.capital_at_entry,
+            "carried_from_window": carried.origin_window,
+        }
+        if carried.exit_signal_time is not None:
+            # An exit signalled on the previous run's last bar fills at this run's first
+            # evaluated bar open (never inside the warm-up lead).
+            pending = {
+                "action": "EXIT",
+                "signal_index": -1,
+                "signal_time": carried.exit_signal_time,
+                "tags": tuple(carried.exit_tags),
+                "carried": True,
+            }
     trades = []
     curve = []
     in_position = []
     peak = settings.initial_capital
+    exit_carry: dict = {}
     commission = strategy.execution.commission_per_side
     slippage = strategy.execution.slippage_bps
 
     for i, row in data.iterrows():
         timestamp = row.timestamp
+        evaluating = settings.evaluate_from is None or timestamp >= settings.evaluate_from
 
-        if pending and i > pending["signal_index"]:
+        if pending and i > pending["signal_index"] and (evaluating or not pending.get("carried")):
             if pending["action"] == "ENTER" and position is None:
                 fill = _fill_price(float(row.open), side, True, slippage)
                 budget = cash * settings.allocation_fraction
@@ -234,27 +303,31 @@ def _simulate_side(
                 net = gross - position["entry_fee"] - commission
                 pre_trade_capital = position.get("capital_at_entry", settings.initial_capital)
                 trades.append(
-                    {
-                        "side": side,
-                        "signal_time": position["signal_time"],
-                        "entry_time": position["entry_time"],
-                        "entry_price": position["entry_price"],
-                        "exit_signal_time": pending["signal_time"],
-                        "exit_time": timestamp.isoformat(),
-                        "exit_price": fill,
-                        "quantity": quantity,
-                        "gross_pnl": gross,
-                        "net_pnl": net,
-                        "return": net / pre_trade_capital,
-                        "temporal_tags": sorted(set(position["entry_tags"]) | set(pending["tags"])),
-                    }
+                    _carried(
+                        position,
+                        {
+                            "side": side,
+                            "signal_time": position["signal_time"],
+                            "entry_time": position["entry_time"],
+                            "entry_price": position["entry_price"],
+                            "exit_signal_time": pending["signal_time"],
+                            "exit_time": timestamp.isoformat(),
+                            "exit_price": fill,
+                            "quantity": quantity,
+                            "gross_pnl": gross,
+                            "net_pnl": net,
+                            "return": net / pre_trade_capital,
+                            "temporal_tags": sorted(
+                                set(position["entry_tags"]) | set(pending["tags"])
+                            ),
+                        },
+                    )
                 )
                 # Use realized P&L accounting for both sides to avoid synthetic short cash distortion.
                 cash = pre_trade_capital + net
                 position = None
             pending = None
 
-        evaluating = settings.evaluate_from is None or timestamp >= settings.evaluate_from
         if not evaluating:
             continue  # warm-up lead: indicators accumulate, nothing is counted or permitted
 
@@ -278,7 +351,20 @@ def _simulate_side(
             }
         )
 
-        if i >= len(data) - 1 or not bool(row.warm):
+        if i >= len(data) - 1:
+            if (
+                not settings.close_at_end
+                and position is not None
+                and bool(row.warm)
+                and bool(row[exit_signal])
+            ):
+                # No next bar here to fill on: the signal travels with the open position.
+                exit_carry = {
+                    "exit_signal_time": timestamp.isoformat(),
+                    "exit_tags": list(_trade_tags(timestamp, strategy, events, symbol)),
+                }
+            continue
+        if not bool(row.warm):
             continue
 
         tags = _trade_tags(timestamp, strategy, events, symbol)
@@ -302,7 +388,23 @@ def _simulate_side(
                 "tags": tags,
             }
 
-    if position is not None:
+    open_position = None
+    if position is not None and not settings.close_at_end:
+        open_position = {
+            "side": side,
+            "entry_time": position["entry_time"],
+            "signal_time": position["signal_time"],
+            "entry_price": position["entry_price"],
+            "quantity": position["quantity"],
+            "entry_fee": position["entry_fee"],
+            "capital_at_entry": position["capital_at_entry"],
+            "entry_tags": list(position["entry_tags"]),
+            "origin_window": position.get("carried_from_window"),
+            "exit_signal_time": None,
+            "exit_tags": [],
+            **exit_carry,
+        }
+    elif position is not None:
         row = data.iloc[-1]
         fill = _fill_price(float(row.close), side, False, slippage)
         sign = _side_sign(side)
@@ -310,23 +412,26 @@ def _simulate_side(
         net = gross - position["entry_fee"] - commission
         capital = position.get("capital_at_entry", settings.initial_capital)
         trades.append(
-            {
-                "side": side,
-                "signal_time": position["signal_time"],
-                "entry_time": position["entry_time"],
-                "entry_price": position["entry_price"],
-                "exit_signal_time": row.timestamp.isoformat(),
-                "exit_time": row.timestamp.isoformat(),
-                "exit_price": fill,
-                "quantity": position["quantity"],
-                "gross_pnl": gross,
-                "net_pnl": net,
-                "return": net / capital,
-                "temporal_tags": sorted(
-                    set(position["entry_tags"])
-                    | set(_trade_tags(row.timestamp, strategy, events, symbol))
-                ),
-            }
+            _carried(
+                position,
+                {
+                    "side": side,
+                    "signal_time": position["signal_time"],
+                    "entry_time": position["entry_time"],
+                    "entry_price": position["entry_price"],
+                    "exit_signal_time": row.timestamp.isoformat(),
+                    "exit_time": row.timestamp.isoformat(),
+                    "exit_price": fill,
+                    "quantity": position["quantity"],
+                    "gross_pnl": gross,
+                    "net_pnl": net,
+                    "return": net / capital,
+                    "temporal_tags": sorted(
+                        set(position["entry_tags"])
+                        | set(_trade_tags(row.timestamp, strategy, events, symbol))
+                    ),
+                },
+            )
         )
         cash = capital + net
         if curve:
@@ -338,8 +443,19 @@ def _simulate_side(
         "trades": trades,
         "equity": curve,
         "metrics": _metrics(trades, curve, settings.initial_capital, _fraction(in_position)),
+        "open_position": open_position,
+        "ending_cash": float(cash),
+        "ending_equity": float(curve[-1]["equity"]) if curve else float(settings.initial_capital),
         "_in_position": in_position,
     }
+
+
+def _carried(position: dict, trade: dict) -> dict:
+    """A trade closing a position that was carried in names the window it came from; trades of
+    plain runs are left exactly as before so their hashes do not move."""
+    if "carried_from_window" in position:
+        return {**trade, "carried_from_window": position["carried_from_window"]}
+    return trade
 
 
 def _fraction(flags: list[bool]) -> float:
@@ -433,6 +549,7 @@ def markers(result: dict) -> list[dict]:
 
 def run_backtest(request: BacktestRequest, cache: IndicatorCache | None = None) -> dict:
     validate(request.strategy.temporal)
+    _check_initial_position(request)
     cache = cache if cache is not None else IndicatorCache()
     frame = _prepare_frame(request.bars)
     _check_warmup(frame, request.strategy)

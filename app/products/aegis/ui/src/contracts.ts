@@ -4,6 +4,8 @@ export interface BacktestSettings {
   initial_capital?: number;
   allocation_fraction?: number;
   evaluate_from?: string | null;
+  initial_position?: OpenPosition | null;
+  close_at_end?: boolean;
 }
 
 export interface ClockWindow {
@@ -61,6 +63,20 @@ export interface MarketCrossover {
   start: string;
   end: string;
   mode?: WindowMode;
+}
+
+export interface OpenPosition {
+  side: 'LONG' | 'SHORT';
+  entry_time: string;
+  signal_time: string;
+  entry_price: number;
+  quantity: number;
+  entry_fee: number;
+  capital_at_entry: number;
+  entry_tags: string[];
+  origin_window?: number | null;
+  exit_signal_time?: string | null;
+  exit_tags?: string[];
 }
 
 export interface OptimizationParameter {

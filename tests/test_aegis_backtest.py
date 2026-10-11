@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from products.aegis.backtest import BacktestRequest, run_backtest
 from products.aegis.indicators import IndicatorCache
 from products.aegis.strategy import apply_parameters, default_strategy
@@ -178,3 +179,113 @@ def test_block_window_straddling_evaluate_from_counts_nothing_before_it():
                 __import__("zoneinfo").ZoneInfo("America/New_York")
             )
             assert not ("09:00" <= local.strftime("%H:%M") < "10:00"), trade["signal_time"]
+
+
+# --- Mission 5: carrying an open position in and out of a run ------------------------------
+
+PLAIN_FIXTURE_HASH = "fc356e7edacda9a6865fe287e5626c58294582f4c72b04ca327648890e598ada"
+
+
+def _long_only():
+    strategy = default_strategy()
+    strategy.short_side.enabled = False
+    return strategy
+
+
+def _run(rows, **settings):
+    from products.aegis.backtest import BacktestSettings
+
+    return run_backtest(
+        BacktestRequest(strategy=_long_only(), bars=rows, settings=BacktestSettings(**settings))
+    )
+
+
+def test_close_at_end_false_reports_the_open_position():
+    # The fixture's first long trade is held from bar 36 to bar 59; cut while it is open.
+    result = _run(bars()[:50], close_at_end=False)
+    side = result["long"]
+    open_position = side["open_position"]
+    assert open_position["side"] == "LONG"
+    assert open_position["quantity"] > 0
+    assert not any(t["exit_signal_time"] == t["exit_time"] for t in side["trades"])
+    assert side["ending_cash"] == 100_000
+    assert side["ending_equity"] == side["equity"][-1]["equity"]
+
+
+def test_carried_position_reproduces_the_continuous_run():
+    from datetime import datetime as _dt
+
+    from products.aegis.backtest import OpenPosition
+
+    rows = bars()
+    continuous = _run(rows)["long"]["trades"][0]
+    first = _run(rows[:50], close_at_end=False)["long"]
+    second = _run(
+        rows[50 - 35 :],
+        initial_capital=first["ending_cash"],
+        initial_position=OpenPosition(**{**first["open_position"], "origin_window": 0}),
+        evaluate_from=_dt.fromisoformat(rows[50]["timestamp"].isoformat()),
+    )["long"]
+    carried = second["trades"][0]
+    assert carried["exit_time"] == continuous["exit_time"]
+    assert carried["exit_price"] == pytest.approx(continuous["exit_price"], abs=1e-9)
+    assert carried["net_pnl"] == pytest.approx(continuous["net_pnl"], abs=1e-9)
+    assert carried["carried_from_window"] == 0
+
+
+def test_exit_signal_on_the_last_bar_travels_with_the_position():
+    from products.aegis.backtest import OpenPosition
+
+    rows = bars()
+    continuous = _run(rows)["long"]["trades"][0]
+    signal_index = next(
+        i
+        for i, r in enumerate(rows)
+        if r["timestamp"].isoformat() == continuous["exit_signal_time"]
+    )
+    first = _run(rows[: signal_index + 1], close_at_end=False)["long"]
+    assert first["open_position"]["exit_signal_time"] == continuous["exit_signal_time"]
+    second = _run(
+        rows[signal_index + 1 - 35 :],
+        initial_capital=first["ending_cash"],
+        initial_position=OpenPosition(**{**first["open_position"], "origin_window": 0}),
+        evaluate_from=rows[signal_index + 1]["timestamp"],
+    )["long"]
+    carried = second["trades"][0]
+    assert carried["exit_signal_time"] == continuous["exit_signal_time"]
+    assert carried["exit_time"] == rows[signal_index + 1]["timestamp"].isoformat()
+    assert carried["net_pnl"] == pytest.approx(continuous["net_pnl"], abs=1e-9)
+
+
+def test_initial_position_side_mismatch_is_refused():
+    from products.aegis.backtest import BacktestSettings, OpenPosition
+
+    strategy = default_strategy()
+    strategy.long_side.enabled = False
+    position = OpenPosition(
+        side="LONG",
+        entry_time="2026-01-05T15:00:00+00:00",
+        signal_time="2026-01-05T14:30:00+00:00",
+        entry_price=100.0,
+        quantity=10,
+        entry_fee=0.0,
+        capital_at_entry=100_000.0,
+        entry_tags=[],
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        run_backtest(
+            BacktestRequest(
+                strategy=strategy,
+                bars=bars(),
+                settings=BacktestSettings(initial_position=position),
+            )
+        )
+
+
+def test_plain_run_result_is_unchanged():
+    from products.aegis.results import canonical_payload, result_hash
+
+    strategy = default_strategy()
+    result = run_backtest(BacktestRequest(strategy=strategy, bars=bars()))
+    identity = {"source": "supplied_bars", "bar_count": len(bars())}
+    assert result_hash(canonical_payload(result, strategy, identity)) == PLAIN_FIXTURE_HASH
