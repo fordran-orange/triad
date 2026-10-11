@@ -54,7 +54,7 @@ export interface IndicatorSpec {
   length: number;
   source?: string;
   overlay?: boolean;
-  params?: Record<string, unknown>;
+  params?: Record<string, number>;
 }
 
 export interface MarketCrossover {
@@ -166,3 +166,139 @@ export interface WalkForwardRequest {
   in_sample_bars: number;
   out_of_sample_bars: number;
 }
+
+export interface IndicatorKind {
+  outputs: string[];
+  pane: 'price' | 'own';
+  params: Record<string, number>;
+  integer_params: string[];
+  requires: string[];
+  default_length: number;
+  warmup_terms: string[];
+  warmup_offset: number;
+}
+
+export const INDICATOR_KINDS: Record<string, IndicatorKind> = {
+  "EMA": {
+    "outputs": [],
+    "pane": "price",
+    "params": {},
+    "integer_params": [],
+    "requires": [
+      "source"
+    ],
+    "default_length": 9,
+    "warmup_terms": [
+      "length"
+    ],
+    "warmup_offset": 0
+  },
+  "SMA": {
+    "outputs": [],
+    "pane": "price",
+    "params": {},
+    "integer_params": [],
+    "requires": [
+      "source"
+    ],
+    "default_length": 30,
+    "warmup_terms": [
+      "length"
+    ],
+    "warmup_offset": 0
+  },
+  "RSI": {
+    "outputs": [],
+    "pane": "own",
+    "params": {},
+    "integer_params": [],
+    "requires": [
+      "source"
+    ],
+    "default_length": 14,
+    "warmup_terms": [
+      "length"
+    ],
+    "warmup_offset": 1
+  },
+  "ATR": {
+    "outputs": [],
+    "pane": "own",
+    "params": {},
+    "integer_params": [],
+    "requires": [
+      "high",
+      "low",
+      "close"
+    ],
+    "default_length": 14,
+    "warmup_terms": [
+      "length"
+    ],
+    "warmup_offset": 1
+  },
+  "BB": {
+    "outputs": [
+      "upper",
+      "middle",
+      "lower"
+    ],
+    "pane": "price",
+    "params": {
+      "multiplier": 2.0
+    },
+    "integer_params": [],
+    "requires": [
+      "source"
+    ],
+    "default_length": 20,
+    "warmup_terms": [
+      "length"
+    ],
+    "warmup_offset": 0
+  },
+  "DONCHIAN": {
+    "outputs": [
+      "upper",
+      "lower",
+      "middle"
+    ],
+    "pane": "price",
+    "params": {},
+    "integer_params": [],
+    "requires": [
+      "high",
+      "low"
+    ],
+    "default_length": 20,
+    "warmup_terms": [
+      "length"
+    ],
+    "warmup_offset": 1
+  },
+  "MACD": {
+    "outputs": [
+      "line",
+      "signal",
+      "histogram"
+    ],
+    "pane": "own",
+    "params": {
+      "slow": 26.0,
+      "signal": 9.0
+    },
+    "integer_params": [
+      "signal",
+      "slow"
+    ],
+    "requires": [
+      "source"
+    ],
+    "default_length": 12,
+    "warmup_terms": [
+      "slow",
+      "signal"
+    ],
+    "warmup_offset": -1
+  }
+};

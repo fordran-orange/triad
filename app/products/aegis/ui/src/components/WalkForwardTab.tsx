@@ -20,14 +20,6 @@ export function defaultWindowBars(bars: number | null, longest: number): { inSam
   };
 }
 
-/** The longest indicator length a side's grid can visit: current lengths and enabled length-range stops. */
-export function longestLength(side: StrategySide | undefined): number {
-  if (!side) return 0;
-  const lengths = (side.indicators ?? []).map((i) => i.length);
-  for (const range of side.optimization ?? []) if (range.enabled !== false && range.path.endsWith('.length')) lengths.push(Math.ceil(range.stop));
-  return lengths.length ? Math.max(...lengths) : 0;
-}
-
 /** Out-of-sample equity of the done windows in order, with the point index where each window starts. */
 export function stitchedPoints(records: WindowRecord[]): { points: EquityPoint[]; boundaries: number[] } {
   const points: EquityPoint[] = [];

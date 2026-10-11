@@ -38,3 +38,31 @@ def test_generated_contracts_cover_the_strategy_and_backtest_models():
         assert f"export interface {name}" in text or f"export type {name}" in text, name
     assert "export type Direction = 'long' | 'short'" in text
     assert "export type WindowMode = 'allow' | 'block' | 'analyze' | 'modify_risk'" in text
+
+
+def test_indicator_kinds_constant_matches_python():
+    import json
+
+    from products.aegis.kinds import KINDS
+
+    text = load_generator().render()
+    marker = "export const INDICATOR_KINDS: Record<string, IndicatorKind> = "
+    assert marker in text
+    emitted = json.loads(text.split(marker, 1)[1].split(";\n", 1)[0])
+    assert set(emitted) == set(KINDS)
+    for name, info in KINDS.items():
+        assert emitted[name] == {
+            "outputs": list(info.outputs),
+            "pane": info.pane,
+            "params": dict(info.params),
+            "integer_params": sorted(info.integer_params),
+            "requires": list(info.requires),
+            "default_length": info.default_length,
+            "warmup_terms": list(info.warmup_terms),
+            "warmup_offset": info.warmup_offset,
+        }, name
+
+
+def test_parameter_maps_are_typed_as_number_records():
+    text = load_generator().render()
+    assert "params?: Record<string, number>" in text

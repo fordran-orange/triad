@@ -89,7 +89,9 @@ export interface BarsResponse {
 
 export interface IndicatorsResponse {
   times: number[];
-  series: Record<string, Array<number | null>>;
+  series: Record<string, Array<number | null>>; // keyed by reference spelling: `id` or `id.output`
+  outputs: Record<string, string[]>; // indicator id → its outputs ([] for single-series kinds)
+  pane: Record<string, 'price' | 'own'>; // indicator id → the chart pane its series belong on
   data: Provenance;
 }
 

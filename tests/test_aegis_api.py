@@ -610,3 +610,38 @@ def test_backtest_with_a_range_on_a_removed_indicator_is_422_naming_the_path(cli
     response = c.post("/aegis/api/backtest", json=payload)
     assert response.status_code == 422
     assert "indicators.rsi.length" in response.text
+
+
+def test_indicators_endpoint_names_outputs_and_panes(client):
+    c, _, _ = client
+    body = c.post(
+        "/aegis/api/indicators",
+        json={
+            "symbol": "QQQ",
+            "timeframe": "15m",
+            **RANGE,
+            "indicators": [
+                {"id": "donchian", "kind": "DONCHIAN", "length": 5},
+                {"id": "rsi", "kind": "RSI", "length": 5},
+                {"id": "macd", "kind": "MACD", "length": 3, "params": {"slow": 5, "signal": 3}},
+            ],
+        },
+    )
+    assert body.status_code == 200, body.text
+    body = body.json()
+    assert set(body["series"]) == {
+        "donchian.upper",
+        "donchian.lower",
+        "donchian.middle",
+        "rsi",
+        "macd.line",
+        "macd.signal",
+        "macd.histogram",
+    }
+    assert body["outputs"] == {
+        "donchian": ["upper", "lower", "middle"],
+        "rsi": [],
+        "macd": ["line", "signal", "histogram"],
+    }
+    assert body["pane"] == {"donchian": "price", "rsi": "own", "macd": "own"}
+    assert body["series"]["rsi"][4] is None and body["series"]["rsi"][5] is not None

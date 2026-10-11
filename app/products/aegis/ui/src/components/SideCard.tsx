@@ -1,21 +1,8 @@
-import type { RuleGroup, RuleSpec } from '../contracts';
+import { describeRule } from '../rules';
 import { useDispatch, useWorkspace, type Side } from '../state/workspace';
 import { sideIndicators } from './StrategyPanel';
 
 const KEY: Record<Side, 'long_side' | 'short_side'> = { long: 'long_side', short: 'short_side' };
-
-function describe(indicators: Array<{ id: string; kind: string; length: number }>, rule: RuleSpec | RuleGroup): string {
-  const name = (id: string) => {
-    const i = indicators.find((x) => x.id === id);
-    return i ? `${i.kind.toUpperCase()}(${i.length})` : id;
-  };
-  const one = (r: RuleSpec) => {
-    const verb = r.operator === 'crosses_above' ? 'crosses ABOVE' : r.operator === 'crosses_below' ? 'crosses BELOW' : r.operator;
-    return `${name(r.left)} ${verb} ${name(r.right)}`;
-  };
-  if ('left' in rule) return one(rule);
-  return rule.all_of ? rule.all_of.map(one).join(' AND ') : (rule.any_of ?? []).map(one).join(' OR ');
-}
 
 export function SideCard({ side }: { side: Side }) {
   const { strategy } = useWorkspace();
@@ -36,9 +23,9 @@ export function SideCard({ side }: { side: Side }) {
         />
       </div>
       <div className="logic">
-        ENTRY: {describe(indicators, spec.entry)}
+        ENTRY: {describeRule(spec.entry, indicators)}
         <br />
-        EXIT: {describe(indicators, spec.exit)}
+        EXIT: {describeRule(spec.exit, indicators)}
       </div>
     </div>
   );

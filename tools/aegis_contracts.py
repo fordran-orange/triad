@@ -4,6 +4,7 @@ committed file is stale (tests/test_aegis_contracts.py enforces the same)."""
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -52,6 +53,9 @@ def _ts_type(schema: dict, defs: dict) -> str:
     if kind == "object":
         if "properties" in schema:
             return "{ " + "; ".join(_fields(schema, defs)) + " }"
+        values = schema.get("additionalProperties")
+        if isinstance(values, dict):
+            return f"Record<string, {_ts_type(values, defs)}>"
         return "Record<string, unknown>"
     return "unknown"
 
@@ -82,6 +86,38 @@ def _render_def(name: str, schema: dict, defs: dict) -> str:
     return f"export interface {name} {{\n{body}}}\n"
 
 
+INDICATOR_KIND_INTERFACE = """export interface IndicatorKind {
+  outputs: string[];
+  pane: 'price' | 'own';
+  params: Record<string, number>;
+  integer_params: string[];
+  requires: string[];
+  default_length: number;
+  warmup_terms: string[];
+  warmup_offset: number;
+}
+"""
+
+
+def indicator_kinds() -> dict:
+    """kinds.KINDS as plain JSON, emitted into contracts.ts as INDICATOR_KINDS (plan ruling P7)."""
+    from products.aegis.kinds import KINDS
+
+    return {
+        name: {
+            "outputs": list(info.outputs),
+            "pane": info.pane,
+            "params": dict(info.params),
+            "integer_params": sorted(info.integer_params),
+            "requires": list(info.requires),
+            "default_length": info.default_length,
+            "warmup_terms": list(info.warmup_terms),
+            "warmup_offset": info.warmup_offset,
+        }
+        for name, info in KINDS.items()
+    }
+
+
 def render() -> str:
     defs: dict[str, dict] = {}
     roots: list[tuple[str, dict]] = []
@@ -98,6 +134,13 @@ def render() -> str:
     for name, schema in roots:
         chunks.append(_render_def(name, schema, defs))
         chunks.append("\n")
+    chunks.append(INDICATOR_KIND_INTERFACE)
+    chunks.append("\n")
+    chunks.append(
+        "export const INDICATOR_KINDS: Record<string, IndicatorKind> = "
+        + json.dumps(indicator_kinds(), indent=2)
+        + ";\n"
+    )
     return "".join(chunks).rstrip("\n") + "\n"
 
 

@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import { METRICS, METRIC_LABELS, TERMINAL_JOB_STATES, type Metric, type OptimizePlan, type WalkForwardPlan } from '../results';
 import { SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
-import { defaultWindowBars, longestLength } from './WalkForwardTab';
+import { warmupBars } from '../rules';
+import { defaultWindowBars } from './WalkForwardTab';
 
 export function formatSeconds(seconds: number): string {
   if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
@@ -21,14 +22,14 @@ export function OptimizePopover({ onClose }: { onClose: () => void }) {
   const [objective, setObjective] = useState<Metric>('net_pnl');
   const [plan, setPlan] = useState<OptimizePlan | null>(null);
   const [wfPlan, setWfPlan] = useState<WalkForwardPlan | null>(null);
-  const [windows, setWindows] = useState(() => defaultWindowBars(loadedBars?.count ?? null, longestLength(strategy?.[SIDE_KEY['long']])));
+  const [windows, setWindows] = useState(() => defaultWindowBars(loadedBars?.count ?? null, warmupBars(strategy?.[SIDE_KEY['long']])));
   const [touched, setTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const busy = SIDES.some(
     (s) => (optimization[s] && !TERMINAL_JOB_STATES.has(optimization[s]!.status)) || (walkforward[s] && !TERMINAL_JOB_STATES.has(walkforward[s]!.status)),
   );
-  const longest = longestLength(strategy?.[SIDE_KEY[side]]);
+  const longest = warmupBars(strategy?.[SIDE_KEY[side]]);
 
   // Propose window lengths from the loaded bars until the operator edits them.
   useEffect(() => {

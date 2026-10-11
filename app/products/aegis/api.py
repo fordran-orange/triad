@@ -30,6 +30,7 @@ from products.aegis.data import (
 )
 from products.aegis.indicators import IndicatorCache, compute
 from products.aegis.jobs import JobBusy, JobRunner, estimate_seconds
+from products.aegis.kinds import kind_info
 from products.aegis.optimize import OptimizeRequest, OptimizerJob, engine_rows, expand_grid
 from products.aegis.results import canonical_payload, result_hash
 from products.aegis.runs import JsonRunRepository, RunRepository
@@ -143,8 +144,11 @@ class IndicatorsRequest(BaseModel):
 @router.post("/indicators")
 def indicators(request: IndicatorsRequest, store: ArchiveStore = STORE):
     frame, pinned = _select(store, request.symbol, request.timeframe, request.start, request.end)
-    series = {}
+    series, outputs, panes = {}, {}, {}
     for spec in request.indicators:
+        info = kind_info(spec.kind)
+        outputs[spec.id] = list(info.outputs)
+        panes[spec.id] = info.pane
         try:
             produced = compute(spec, frame)
         except ValueError as exc:
@@ -156,6 +160,8 @@ def indicators(request: IndicatorsRequest, store: ArchiveStore = STORE):
     return {
         "times": [record["time"] for record in to_records(frame)],
         "series": series,
+        "outputs": outputs,
+        "pane": panes,
         "data": _provenance(pinned),
     }
 
