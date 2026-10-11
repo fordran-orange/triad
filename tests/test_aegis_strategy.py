@@ -44,7 +44,7 @@ def test_apply_parameters_rejects_unknown_paths():
 
 
 def test_rule_referencing_unknown_indicator_is_rejected():
-    with pytest.raises(ValidationError, match="unknown indicator"):
+    with pytest.raises(ValidationError, match="unknown operand"):
         StrategySide(
             direction=Direction.LONG,
             indicators=[],
@@ -217,3 +217,89 @@ def test_integer_parameter_ranges_need_whole_numbers():
                 )
             ],
         )
+
+
+# --- Mission 5: rule operands, operators and groups -------------------------------------------
+
+
+def _side(entry, exit=None, extra=()):
+    """The reference long side plus Donchian 20, RSI 14 and Bollinger 20, with the given rules."""
+    from products.aegis.strategy import default_strategy
+
+    data = default_strategy().long_side.model_dump(mode="json")
+    data["indicators"] += [
+        {"id": "donchian", "kind": "DONCHIAN", "length": 20},
+        {"id": "rsi", "kind": "RSI", "length": 14},
+        {"id": "bb", "kind": "BB", "length": 20},
+        *extra,
+    ]
+    data["entry"] = entry
+    if exit is not None:
+        data["exit"] = exit
+    return StrategySide.model_validate(data)
+
+
+def rule(left, operator, right):
+    return {"left": left, "operator": operator, "right": right}
+
+
+@pytest.mark.parametrize(
+    ("entry", "message"),
+    [
+        (rule("foo", "greater_than", "70"), "unknown operand 'foo'"),
+        (rule("donchian", "greater_than", "70"), "donchian has outputs upper, lower, middle"),
+        (rule("rsi.upper", "greater_than", "70"), "rsi has no output 'upper'"),
+        (rule("price.close", "inside_band", "rsi"), r"inside_band needs a band \(bb or donchian\)"),
+        (rule("30", "less_than", "70"), "compares two constants"),
+        ({"all_of": [rule("rsi", "less_than", "70")]}, "a group needs two conditions"),
+        (
+            {"any_of": [rule("rsi", "less_than", "70")] * 3},
+            "at most two conditions in this slice",
+        ),
+        (
+            {
+                "all_of": [rule("rsi", "less_than", "70")] * 2,
+                "any_of": [rule("rsi", "less_than", "70")] * 2,
+            },
+            "exactly one of all_of or any_of",
+        ),
+        (rule("rsi", "between", "70"), "unknown operator 'between'"),
+        (rule("70", "inside_band", "bb"), "needs a series on the left"),
+    ],
+)
+def test_rule_validation_names_the_problem(entry, message):
+    with pytest.raises(ValidationError, match=message):
+        _side(entry)
+
+
+@pytest.mark.parametrize("constant", ["1e3", "+5", " 70", "NaN", "Infinity", ".5", "70 ", "0x10"])
+def test_unusual_constants_are_refused_as_unknown_operands(constant):
+    with pytest.raises(ValidationError, match="unknown operand"):
+        _side(rule("rsi", "less_than", constant))
+
+
+@pytest.mark.parametrize("constant", ["70", "-1", "0.5", "100.25"])
+def test_plain_decimal_constants_are_accepted(constant):
+    side = _side(rule("rsi", "less_than", constant))
+    assert side.entry.right == constant
+
+
+def test_groups_and_bands_validate_and_dump_without_the_unused_key():
+    side = _side(
+        {
+            "all_of": [
+                rule("price.close", "crosses_above", "donchian.upper"),
+                rule("rsi", "less_than", "70"),
+            ]
+        },
+        exit=rule("price.close", "outside_band", "bb"),
+    )
+    dumped = side.model_dump(mode="json")
+    assert set(dumped["entry"]) == {"all_of"}
+    assert dumped["exit"] == {**rule("price.close", "outside_band", "bb"), "timing": "bar_close"}
+    assert StrategySide.model_validate(dumped) == side
+
+
+def test_indicator_id_price_is_reserved():
+    with pytest.raises(ValidationError, match="reserved"):
+        _side(rule("rsi", "less_than", "70"), extra=[{"id": "price", "kind": "EMA", "length": 5}])

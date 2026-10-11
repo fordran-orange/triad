@@ -9,12 +9,14 @@ and market crossovers are data carried by the strategy, not UI-only filters.
 from __future__ import annotations
 
 import math
+import re
 from enum import StrEnum
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_validator,
     model_serializer,
     model_validator,
 )
@@ -23,6 +25,28 @@ from products.aegis.kinds import kind_info, warmup
 
 TIME_PATTERN = r"^(?:[01]\d|2[0-3]):[0-5]\d$"
 ID_PATTERN = r"^[a-z][a-z0-9_]*$"  # never ambiguous with a numeric constant operand
+
+# Rule grammar (Mission 5 spec §6).
+OPERATORS = (
+    "crosses_above",
+    "crosses_below",
+    "greater_than",
+    "less_than",
+    "inside_band",
+    "outside_band",
+)
+BAND_OPERATORS = ("inside_band", "outside_band")
+PRICE_OPERANDS = {
+    "price.close": "close",
+    "price.open": "open",
+    "price.high": "high",
+    "price.low": "low",
+}
+CONSTANT = re.compile(r"-?\d+(\.\d+)?")  # matched with fullmatch: plain decimals only
+
+
+def is_constant(operand: str) -> bool:
+    return CONSTANT.fullmatch(operand) is not None
 
 
 class Direction(StrEnum):
@@ -55,6 +79,8 @@ class IndicatorSpec(BaseModel):
     def known_kind_and_parameters(self):
         info = kind_info(self.kind)
         name = self.kind.upper()
+        if self.id == "price":
+            raise ValueError("indicator id 'price' is reserved for price.close/open/high/low")
         for key, value in self.params.items():
             if key not in info.params:
                 raise ValueError(f"{name} has no parameter {key!r}")
@@ -83,11 +109,113 @@ class IndicatorSpec(BaseModel):
 
 
 class RuleSpec(BaseModel):
+    """One condition. Operands are an indicator reference (`id` or `id.output`), a price field
+    (`price.close|open|high|low`) or a plain decimal constant; band operators take the bare id of
+    a band indicator (`bb`, `donchian`) on the right."""
+
     model_config = ConfigDict(extra="forbid")
     left: str
     operator: str
     right: str
     timing: str = "bar_close"
+
+    @field_validator("operator")
+    @classmethod
+    def known_operator(cls, value):
+        if value not in OPERATORS:
+            raise ValueError(f"unknown operator {value!r}; expected one of {', '.join(OPERATORS)}")
+        return value
+
+
+class RuleGroup(BaseModel):
+    """Two conditions joined by AND (`all_of`) or OR (`any_of`); exactly one key is set."""
+
+    model_config = ConfigDict(extra="forbid")
+    all_of: list[RuleSpec] | None = None
+    any_of: list[RuleSpec] | None = None
+
+    @model_validator(mode="after")
+    def exactly_two_conditions(self):
+        if (self.all_of is None) == (self.any_of is None):
+            raise ValueError("a group sets exactly one of all_of or any_of")
+        count = len(self.all_of if self.all_of is not None else self.any_of)
+        if count < 2:
+            raise ValueError("a group needs two conditions")
+        if count > 2:
+            raise ValueError("at most two conditions in this slice")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_unused_key(self, handler):
+        data = handler(self)
+        if isinstance(data, dict):
+            for key in ("all_of", "any_of"):
+                if data.get(key) is None:
+                    data.pop(key, None)
+        return data
+
+
+Rule = RuleSpec | RuleGroup
+
+
+def conditions(rule: Rule) -> list[RuleSpec]:
+    if isinstance(rule, RuleSpec):
+        return [rule]
+    return list(rule.all_of if rule.all_of is not None else rule.any_of)
+
+
+def _check_operand(rule_name: str, operand: str, outputs: dict[str, tuple[str, ...]]) -> str:
+    """'series' or 'constant'; anything unresolvable is refused naming the operand."""
+    if operand in PRICE_OPERANDS:
+        return "series"
+    if is_constant(operand):
+        return "constant"
+    if operand in outputs:
+        if outputs[operand]:
+            names = ", ".join(outputs[operand])
+            raise ValueError(
+                f"{rule_name} rule: {operand} has outputs {names}; name one as {operand}.<output>"
+            )
+        return "series"
+    identifier, _, output = operand.partition(".")
+    if output and identifier in outputs:
+        if output not in outputs[identifier]:
+            raise ValueError(f"{rule_name} rule: {identifier} has no output {output!r}")
+        return "series"
+    raise ValueError(
+        f"{rule_name} rule references unknown operand {operand!r} "
+        "(not an indicator of this side, a price field or a plain number)"
+    )
+
+
+def _check_condition(rule_name: str, rule: RuleSpec, outputs: dict[str, tuple[str, ...]]) -> None:
+    left = _check_operand(rule_name, rule.left, outputs)
+    if rule.operator in BAND_OPERATORS:
+        if not {"upper", "lower"} <= set(outputs.get(rule.right, ())):
+            raise ValueError(
+                f"{rule_name} rule: {rule.operator} needs a band (bb or donchian) on the right, "
+                f"got {rule.right!r}"
+            )
+        if left == "constant":
+            raise ValueError(f"{rule_name} rule: {rule.operator} needs a series on the left")
+        return
+    right = _check_operand(rule_name, rule.right, outputs)
+    if left == right == "constant":
+        raise ValueError(f"{rule_name} rule compares two constants: {rule.left} and {rule.right}")
+
+
+def referenced_columns(side: StrategySide) -> set[str]:
+    """The indicator columns the side's rules read (reference spellings)."""
+    columns: set[str] = set()
+    for rule in (side.entry, side.exit):
+        for condition in conditions(rule):
+            operands = [condition.left]
+            if condition.operator in BAND_OPERATORS:
+                columns |= {f"{condition.right}.upper", f"{condition.right}.lower"}
+            else:
+                operands.append(condition.right)
+            columns |= {o for o in operands if o not in PRICE_OPERANDS and not is_constant(o)}
+    return columns
 
 
 class OptimizationParameter(BaseModel):
@@ -116,8 +244,8 @@ class StrategySide(BaseModel):
     direction: Direction
     enabled: bool = True
     indicators: list[IndicatorSpec] = Field(default_factory=list)
-    entry: RuleSpec
-    exit: RuleSpec
+    entry: RuleSpec | RuleGroup
+    exit: RuleSpec | RuleGroup
     optimization: list[OptimizationParameter] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -125,10 +253,10 @@ class StrategySide(BaseModel):
         ids = [i.id for i in self.indicators]
         if len(set(ids)) != len(ids):
             raise ValueError("duplicate indicator id")
+        outputs = {spec.id: kind_info(spec.kind).outputs for spec in self.indicators}
         for rule_name, rule in (("entry", self.entry), ("exit", self.exit)):
-            for operand in (rule.left, rule.right):
-                if operand not in ids:
-                    raise ValueError(f"{rule_name} rule references unknown indicator {operand!r}")
+            for condition in conditions(rule):
+                _check_condition(rule_name, condition, outputs)
         for parameter in self.optimization:
             identifier, field = _resolve_path(self, parameter.path)
             whole = field == "length" or (

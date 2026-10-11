@@ -585,3 +585,28 @@ def test_status_routes_refuse_the_other_kind(client):
     assert c.get(f"/aegis/api/optimize/{walk}").status_code == 404
     assert c.post(f"/aegis/api/walkforward/{optimization}/cancel").status_code == 404
     assert c.get(f"/aegis/api/optimize/{optimization}").status_code == 200
+
+
+def test_backtest_with_a_rule_on_a_removed_indicator_is_422_naming_it(client):
+    c, _, _ = client
+    strategy = default_strategy().model_dump(mode="json")
+    strategy["long_side"]["indicators"] = [
+        i for i in strategy["long_side"]["indicators"] if i["id"] != "sma"
+    ]
+    strategy["long_side"]["optimization"] = []
+    payload = {"strategy": strategy, "data": {"symbol": "QQQ", "timeframe": "15m", **RANGE}}
+    response = c.post("/aegis/api/backtest", json=payload)
+    assert response.status_code == 422
+    assert "'sma'" in response.text
+
+
+def test_backtest_with_a_range_on_a_removed_indicator_is_422_naming_the_path(client):
+    c, _, _ = client
+    strategy = default_strategy().model_dump(mode="json")
+    strategy["long_side"]["optimization"].append(
+        {"path": "indicators.rsi.length", "start": 7, "stop": 21, "step": 7}
+    )
+    payload = {"strategy": strategy, "data": {"symbol": "QQQ", "timeframe": "15m", **RANGE}}
+    response = c.post("/aegis/api/backtest", json=payload)
+    assert response.status_code == 422
+    assert "indicators.rsi.length" in response.text

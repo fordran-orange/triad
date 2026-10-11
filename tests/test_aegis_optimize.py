@@ -339,3 +339,32 @@ def test_reference_grid_is_unchanged():
     assert (len(plan.cells), len(plan.skipped)) == (271, 1)
     assert plan.fast_path == "indicators.ema.length" and plan.slow_path == "indicators.sma.length"
     assert plan.skip_reason == "fast ≥ slow"
+
+
+def test_grid_axes_for_a_group_rule_are_the_first_two_paths():
+    from products.aegis.strategy import IndicatorSpec, RuleGroup, RuleSpec
+
+    side = _ranged_side(
+        [
+            IndicatorSpec(id="donchian", kind="DONCHIAN", length=20),
+            IndicatorSpec(id="rsi", kind="RSI", length=14),
+        ],
+        [("indicators.donchian.length", 10, 40, 10), ("indicators.rsi.length", 7, 21, 7)],
+    )
+    side = type(side).model_validate(
+        {
+            **side.model_dump(mode="json"),
+            "entry": RuleGroup(
+                all_of=[
+                    RuleSpec(left="price.close", operator="crosses_above", right="donchian.upper"),
+                    RuleSpec(left="rsi", operator="less_than", right="70"),
+                ]
+            ).model_dump(mode="json"),
+        }
+    )
+    plan = expand_grid(side)
+    assert len(plan.cells) == 12 and plan.skip_reason is None
+    assert (plan.fast_path, plan.slow_path) == (
+        "indicators.donchian.length",
+        "indicators.rsi.length",
+    )

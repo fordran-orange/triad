@@ -15,7 +15,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from products.aegis.indicators import IndicatorCache, named, references
 from products.aegis.kinds import warmup
-from products.aegis.strategy import RuleSpec, StrategySide, StrategySpec
+from products.aegis.strategy import (
+    BAND_OPERATORS,
+    PRICE_OPERANDS,
+    Rule,
+    RuleSpec,
+    StrategySide,
+    StrategySpec,
+    conditions,
+    is_constant,
+    referenced_columns,
+)
 from products.aegis.temporal import entry_permitted, validate
 from products.aegis.temporal import tags as temporal_tags
 
@@ -168,13 +178,42 @@ def _data_key(frame: pd.DataFrame) -> str:
     return format(int(pd.util.hash_pandas_object(frame[columns], index=False).sum()), "x")
 
 
-def _signal(frame: pd.DataFrame, rule: RuleSpec) -> pd.Series:
-    left, right = frame[rule.left], frame[rule.right]
+def _operand(frame: pd.DataFrame, operand: str) -> pd.Series:
+    """An operand as a series aligned to the bars: a price column, a constant, or an indicator
+    column named by its reference spelling."""
+    if operand in PRICE_OPERANDS:
+        return frame[PRICE_OPERANDS[operand]].astype(float)
+    if is_constant(operand):
+        return pd.Series(float(operand), index=frame.index)
+    return frame[operand]
+
+
+def _condition(frame: pd.DataFrame, rule: RuleSpec) -> pd.Series:
+    left = _operand(frame, rule.left)
+    if rule.operator in BAND_OPERATORS:
+        upper, lower = frame[f"{rule.right}.upper"], frame[f"{rule.right}.lower"]
+        if rule.operator == "inside_band":
+            return (left >= lower) & (left <= upper)
+        return (left < lower) | (left > upper)
+    right = _operand(frame, rule.right)
     if rule.operator == "crosses_above":
         return (left > right) & (left.shift(1) <= right.shift(1))
     if rule.operator == "crosses_below":
         return (left < right) & (left.shift(1) >= right.shift(1))
+    if rule.operator == "greater_than":
+        return left > right
+    if rule.operator == "less_than":
+        return left < right
     raise ValueError(f"unsupported rule operator {rule.operator!r}")
+
+
+def evaluate(frame: pd.DataFrame, rule: Rule) -> pd.Series:
+    """A rule as a boolean series over the bars: one condition, or two joined by AND / OR."""
+    parts = [_condition(frame, condition) for condition in conditions(rule)]
+    combined = parts[0]
+    for part in parts[1:]:
+        combined = (combined | part) if getattr(rule, "any_of", None) else (combined & part)
+    return combined.fillna(False).astype(bool)
 
 
 def _side_frame(
@@ -182,14 +221,14 @@ def _side_frame(
 ) -> pd.DataFrame:
     """Bars plus this side's own indicator columns and entry/exit signal columns."""
     data = frame.copy()
-    columns: list[str] = []
     for spec in side.indicators:
         produced = named(spec, cache.get(data_key, spec, frame))
         for column in produced.columns:
             data[column] = produced[column].to_numpy()
-            columns.append(column)
-    data["entry_signal"] = _signal(data, side.entry)
-    data["exit_signal"] = _signal(data, side.exit)
+    data["entry_signal"] = evaluate(data, side.entry)
+    data["exit_signal"] = evaluate(data, side.exit)
+    # Warm where every indicator column the rules read has a value (spec §6).
+    columns = sorted(referenced_columns(side))
     data["warm"] = data[columns].notna().all(axis=1) if columns else True
     return data
 

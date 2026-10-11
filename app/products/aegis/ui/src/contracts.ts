@@ -88,6 +88,11 @@ export interface OptimizationParameter {
   step: number;
 }
 
+export interface RuleGroup {
+  all_of?: RuleSpec[] | null;
+  any_of?: RuleSpec[] | null;
+}
+
 export interface RuleSpec {
   left: string;
   operator: string;
@@ -99,8 +104,8 @@ export interface StrategySide {
   direction: Direction;
   enabled?: boolean;
   indicators?: IndicatorSpec[];
-  entry: RuleSpec;
-  exit: RuleSpec;
+  entry: RuleSpec | RuleGroup;
+  exit: RuleSpec | RuleGroup;
   optimization?: OptimizationParameter[];
 }
 

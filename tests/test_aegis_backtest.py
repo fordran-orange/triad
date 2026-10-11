@@ -299,3 +299,133 @@ def test_warmup_check_uses_the_kind():
     with pytest.raises(ValueError, match=r"warm-up of RSI\(40\) \(41 bars\)"):
         run_backtest(BacktestRequest(strategy=strategy, bars=bars()[:41]))
     run_backtest(BacktestRequest(strategy=strategy, bars=bars()[:42]))
+
+
+# --- Mission 5: rule evaluation --------------------------------------------------------------
+
+
+def _frame(**columns):
+    import pandas as pd
+
+    return pd.DataFrame(columns)
+
+
+def _cond(left, operator, right):
+    from products.aegis.strategy import RuleSpec
+
+    return RuleSpec(left=left, operator=operator, right=right)
+
+
+def test_comparisons_against_constants_and_crossing_a_constant():
+    from products.aegis.backtest import evaluate
+
+    data = _frame(rsi=[20.0, 29.0, 31.0, 35.0, 28.0], close=[1.0, 2, 3, 4, 5])
+    assert evaluate(data, _cond("rsi", "less_than", "30")).tolist() == [
+        True,
+        True,
+        False,
+        False,
+        True,
+    ]
+    assert evaluate(data, _cond("rsi", "greater_than", "30")).tolist() == [
+        False,
+        False,
+        True,
+        True,
+        False,
+    ]
+    assert evaluate(data, _cond("rsi", "crosses_above", "30")).tolist() == [
+        False,
+        False,
+        True,
+        False,
+        False,
+    ]
+    assert evaluate(data, _cond("rsi", "crosses_below", "30")).tolist() == [
+        False,
+        False,
+        False,
+        False,
+        True,
+    ]
+    assert evaluate(data, _cond("price.close", "greater_than", "rsi")).tolist() == [False] * 5
+
+
+def test_band_operators_include_the_boundaries_inside():
+    from products.aegis.backtest import evaluate
+
+    data = _frame(
+        close=[9.0, 10.0, 15.0, 20.0, 21.0, float("nan")],
+        **{"dc.upper": [20.0] * 6, "dc.lower": [10.0] * 6},
+    )
+    inside = evaluate(data, _cond("price.close", "inside_band", "dc")).tolist()
+    outside = evaluate(data, _cond("price.close", "outside_band", "dc")).tolist()
+    assert inside == [False, True, True, True, False, False]
+    assert outside == [True, False, False, False, True, False]
+
+
+def test_groups_combine_with_and_or():
+    from products.aegis.backtest import evaluate
+    from products.aegis.strategy import RuleGroup
+
+    data = _frame(a=[1.0, 1, 0, 0], b=[1.0, 0, 1, 0])
+    first, second = _cond("a", "greater_than", "0.5"), _cond("b", "greater_than", "0.5")
+    assert evaluate(data, RuleGroup(all_of=[first, second])).tolist() == [True, False, False, False]
+    assert evaluate(data, RuleGroup(any_of=[first, second])).tolist() == [True, True, True, False]
+
+
+def _breakout(rows_fixture):
+    from products.aegis.strategy import StrategySide
+
+    strategy = _long_only()
+    data = strategy.long_side.model_dump(mode="json")
+    data["indicators"] = [
+        {"id": "donchian", "kind": "DONCHIAN", "length": 20},
+        {"id": "rsi", "kind": "RSI", "length": 14},
+    ]
+    data["entry"] = {
+        "all_of": [
+            {"left": "price.close", "operator": "crosses_above", "right": "donchian.upper"},
+            {"left": "rsi", "operator": "less_than", "right": "70"},
+        ]
+    }
+    data["exit"] = {"left": "price.close", "operator": "crosses_below", "right": "donchian.middle"}
+    data["optimization"] = []
+    return strategy.model_copy(update={"long_side": StrategySide.model_validate(data)})
+
+
+def test_breakout_strategy_trades_and_hashes_stably():
+    from products.aegis.results import canonical_payload, result_hash
+    from test_aegis_walkforward import wave_bars
+
+    strategy = _breakout(wave_bars)
+    rows = wave_bars(n=300, period=60.0, amplitude=8.0)
+    identity = {"source": "supplied_bars", "bar_count": len(rows)}
+    first = run_backtest(BacktestRequest(strategy=strategy, bars=rows))
+    second = run_backtest(BacktestRequest(strategy=strategy, bars=rows))
+    assert first["long"]["metrics"]["trade_count"] >= 1
+    assert set(first["long"]["series"]) == {
+        "donchian.upper",
+        "donchian.lower",
+        "donchian.middle",
+        "rsi",
+    }
+    assert result_hash(canonical_payload(first, strategy, identity)) == result_hash(
+        canonical_payload(second, strategy, identity)
+    )
+
+
+def test_side_without_indicators_runs():
+    from products.aegis.strategy import StrategySide
+
+    strategy = _long_only()
+    data = strategy.long_side.model_dump(mode="json")
+    data.update(
+        indicators=[],
+        optimization=[],
+        entry={"left": "price.close", "operator": "greater_than", "right": "110"},
+        exit={"left": "price.close", "operator": "less_than", "right": "105"},
+    )
+    strategy = strategy.model_copy(update={"long_side": StrategySide.model_validate(data)})
+    result = run_backtest(BacktestRequest(strategy=strategy, bars=bars()))
+    assert result["long"]["metrics"]["trade_count"] >= 1
