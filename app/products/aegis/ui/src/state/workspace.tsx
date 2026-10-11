@@ -1,6 +1,6 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
 import type { SymbolInfo } from '../api/client';
-import { INDICATOR_KINDS, type IndicatorSpec, type OptimizationParameter, type StrategySpec, type WindowMode } from '../contracts';
+import { INDICATOR_KINDS, type IndicatorSpec, type OptimizationParameter, type StrategyDocument, type StrategySpec, type WindowMode } from '../contracts';
 import { ruleReferences, type Rule } from '../rules';
 import type { JobStatus, RunEnvelope, WalkForwardStatus } from '../results';
 
@@ -58,6 +58,8 @@ export interface WorkspaceState {
   selectedConfigs: SelectedConfigs;
   focusSide: Side; // the side the chart and the Indicators tab show (plan ruling P9)
   rightTab: 'strategy' | 'indicators';
+  page: 'charts' | 'lab';
+  document: StrategyDocument | null; // the saved document the workspace strategy came from
   latest: Record<string, number | null>; // last value per drawn series, from the chart's fetch
 }
 
@@ -88,7 +90,10 @@ export type Action =
   | { type: 'SET_RIGHT_TAB'; tab: 'strategy' | 'indicators' }
   | { type: 'ADD_INDICATOR'; side: Side; kind: string }
   | { type: 'REMOVE_INDICATOR'; side: Side; id: string }
-  | { type: 'SET_RULE'; side: Side; which: 'entry' | 'exit'; rule: Rule };
+  | { type: 'SET_RULE'; side: Side; which: 'entry' | 'exit'; rule: Rule }
+  | { type: 'SET_PAGE'; page: 'charts' | 'lab' }
+  | { type: 'SET_DOCUMENT'; document: StrategyDocument }
+  | { type: 'ADOPT_DOCUMENT'; document: StrategyDocument | null };
 
 export const initialState: WorkspaceState = {
   strategy: null,
@@ -107,8 +112,15 @@ export const initialState: WorkspaceState = {
   selectedConfigs: { long: null, short: null },
   focusSide: 'long',
   rightTab: 'strategy',
+  page: 'charts',
+  document: null,
   latest: {},
 };
+
+/** The workspace strategy differs from the loaded document's saved spec (plan ruling P2). */
+export function unsavedEdits(state: Pick<WorkspaceState, 'document' | 'strategy'>): boolean {
+  return state.document !== null && state.strategy !== null && canonical(state.document.spec) !== canonical(state.strategy);
+}
 
 /** A new indicator of `kind` with an id unique on the side, its default length, no parameters. */
 export function newIndicator(kind: string, taken: string[]): IndicatorSpec {
@@ -304,6 +316,12 @@ export function reducer(state: WorkspaceState, action: Action): WorkspaceState {
       return { ...state, focusSide: action.side };
     case 'SET_RIGHT_TAB':
       return { ...state, rightTab: action.tab };
+    case 'SET_PAGE':
+      return { ...state, page: action.page };
+    case 'SET_DOCUMENT':
+      return { ...state, document: action.document, strategy: action.document.spec };
+    case 'ADOPT_DOCUMENT':
+      return { ...state, document: action.document };
     case 'ADD_INDICATOR': {
       if (!state.strategy) return state;
       const key = SIDE_KEY[action.side];

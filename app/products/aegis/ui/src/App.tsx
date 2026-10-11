@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from './api/client';
 import { ChartPanel } from './components/ChartPanel';
+import { LabPage } from './components/LabPage';
 import { JobPoller } from './components/JobPoller';
 import { ResultsTabs } from './components/ResultsTabs';
 import { RunsDrawer } from './components/RunsDrawer';
@@ -9,20 +10,24 @@ import { StatusStrip } from './components/StatusStrip';
 import { StrategyPanel } from './components/StrategyPanel';
 import { TopBar } from './components/TopBar';
 import { TERMINAL_JOB_STATES } from './results';
-import { useDispatch } from './state/workspace';
+import { useDocumentSync } from './state/documents';
+import { useDispatch, useWorkspace } from './state/workspace';
 
 export function App() {
   const dispatch = useDispatch();
+  const { page } = useWorkspace();
+  useDocumentSync();
   const [apiState, setApiState] = useState<string>('loading strategy contract…');
   const [runsOpen, setRunsOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    // The workspace starts on the built-in reference document (spec §8).
     api
-      .defaultStrategy()
-      .then((strategy) => {
+      .strategyDocument('ema9-sma30-cross-v1')
+      .then((document) => {
         if (cancelled) return;
-        dispatch({ type: 'SET_STRATEGY', strategy });
+        dispatch({ type: 'SET_DOCUMENT', document });
         setApiState('strategy contract loaded');
       })
       .catch((error: Error) => !cancelled && setApiState('strategy API unavailable: ' + error.message));
@@ -74,11 +79,20 @@ export function App() {
       <TopBar runsOpen={runsOpen} onToggleRuns={() => setRunsOpen((v) => !v)} />
       <SideNav />
       <main className="main">
-        <section className="workspace">
-          <ChartPanel />
-          <StrategyPanel />
-        </section>
-        <ResultsTabs />
+        {page === 'lab' ? (
+          <section className="workspace">
+            <LabPage />
+            <StrategyPanel />
+          </section>
+        ) : (
+          <>
+            <section className="workspace">
+              <ChartPanel />
+              <StrategyPanel />
+            </section>
+            <ResultsTabs />
+          </>
+        )}
       </main>
       <RunsDrawer open={runsOpen} onClose={() => setRunsOpen(false)} />
       <JobPoller />

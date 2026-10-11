@@ -1,5 +1,5 @@
 // Thin typed fetch wrappers for the Aegis worker routes (spec §7). Same-origin under /aegis/api.
-import type { IndicatorSpec, StrategySpec } from '../contracts';
+import type { IndicatorSpec, StrategyDocument, StrategySpec } from '../contracts';
 import type {
   JobStatus,
   JobSummary,
@@ -110,6 +110,22 @@ export interface WalkForwardBody extends OptimizeBody {
   out_of_sample_bars: number;
 }
 
+/** GET /strategies: one row per document, the built-in first (spec §8). */
+export interface StrategySummary {
+  id: string;
+  name: string;
+  created_at: string | null;
+  updated_at: string | null;
+  strategy_hash: string;
+  parent: string | null;
+  builtin: boolean;
+  kinds: string[];
+  usage: { runs: number; optimizations: number; walkforwards: number };
+}
+
+const put = (body: unknown): RequestInit => ({ method: 'PUT', body: JSON.stringify(body) });
+const doc = (id: string) => `/strategies/${encodeURIComponent(id)}`;
+
 export const api = {
   status: () => request<{ product: string; mode: string; status: string; exchange: string }>('/status'),
   defaultStrategy: () => request<StrategySpec>('/strategy/default'),
@@ -131,4 +147,10 @@ export const api = {
   walkforwards: () => request<WalkForwardSummary[]>('/walkforward'),
   walkforwardJob: (id: string) => request<WalkForwardStatus>(`/walkforward/${encodeURIComponent(id)}`),
   cancelWalkforward: (id: string) => request<{ cancelled: boolean }>(`/walkforward/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  strategies: () => request<StrategySummary[]>('/strategies'),
+  strategyDocument: (id: string) => request<StrategyDocument>(doc(id)),
+  createStrategy: (name: string, spec: StrategySpec) => request<StrategyDocument>('/strategies', post({ name, spec })),
+  updateStrategy: (id: string, patch: { name?: string; spec?: StrategySpec }) => request<StrategyDocument>(doc(id), put(patch)),
+  duplicateStrategy: (id: string, name: string) => request<StrategyDocument>(doc(id) + '/duplicate', post({ name })),
+  deleteStrategy: (id: string) => request<{ deleted: string }>(doc(id), { method: 'DELETE' }),
 };

@@ -145,3 +145,10 @@ tr.muted td{color:#4f6b80}
 .rule-editor .rule-row{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
 .rule-editor select,.rule-editor input{max-width:120px}
 .latest b{color:var(--bright)}
+.lab-page{padding:14px;overflow:auto;min-width:0}
+.lab-table{width:100%;margin-top:10px;border-collapse:collapse}
+.lab-table td,.lab-table th{padding:6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.lab-table tr.selected td{background:#102b3d}
+.lab-table .row-actions{display:flex;gap:4px;flex-wrap:wrap}
+.sidebar button.nav{background:none;border:none;font:inherit;text-align:left;width:100%;cursor:pointer}
+.document-header .actions{display:flex;gap:6px;margin-top:6px}

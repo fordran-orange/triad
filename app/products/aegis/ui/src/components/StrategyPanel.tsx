@@ -1,5 +1,6 @@
 import type { IndicatorSpec, StrategySpec } from '../contracts';
 import { useDispatch, useWorkspace, type Side } from '../state/workspace';
+import { DocumentHeader } from './DocumentHeader';
 import { ExecutionPanel } from './ExecutionPanel';
 import { IndicatorInputs } from './IndicatorInputs';
 import { IndicatorsTab } from './IndicatorsTab';
@@ -44,6 +45,7 @@ export function StrategyPanel() {
         </button>
         <span className="disabled" title="Not yet built">Objects</span>
       </div>
+      <DocumentHeader />
       {rightTab === 'indicators' ? (
         <IndicatorsTab />
       ) : (

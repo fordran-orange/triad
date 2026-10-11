@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StrategySpec } from '../contracts';
 import { ruleReferences } from '../rules';
-import { applyConfigs, canonical, initialState, reducer, runStaleness, type RunRecord, type WorkspaceState } from './workspace';
+import { applyConfigs, canonical, initialState, reducer, runStaleness, unsavedEdits, type RunRecord, type WorkspaceState } from './workspace';
 
 // Side-owned indicator parameters (the shape Task 3 makes canonical); typed loosely until then.
 function strategy(): StrategySpec {
@@ -258,5 +258,30 @@ describe('indicator and rule editing', () => {
     expect(canonical(long(state).entry)).toBe(canonical(group));
     expect(short(state).entry).toEqual(withStrategy().strategy!.short_side.entry);
     expect(reducer(state, { type: 'SET_RIGHT_TAB', tab: 'indicators' }).rightTab).toBe('indicators');
+  });
+});
+
+describe('strategy documents in the workspace', () => {
+  const doc = (spec: StrategySpec) =>
+    ({ id: spec.id, name: spec.name, spec, created_at: null, updated_at: null, strategy_hash: 'h', parent: null, builtin: true }) as const;
+
+  it('tracks unsaved edits against the loaded document', () => {
+    let state = reducer(initialState, { type: 'SET_DOCUMENT', document: doc(strategy()) });
+    expect(state.strategy).toEqual(strategy());
+    expect(unsavedEdits(state)).toBe(false);
+    state = reducer(state, { type: 'SET_SIDE_PARAM', side: 'long', path: 'indicators.ema.length', value: 12 });
+    expect(unsavedEdits(state)).toBe(true);
+    const edited = state.strategy!;
+    state = reducer(state, { type: 'ADOPT_DOCUMENT', document: doc(edited) });
+    expect(state.strategy).toBe(edited);
+    expect(unsavedEdits(state)).toBe(false);
+    expect(unsavedEdits(reducer(state, { type: 'ADOPT_DOCUMENT', document: null }))).toBe(false);
+  });
+
+  it('switches pages without touching the strategy', () => {
+    const state = reducer(withStrategy(), { type: 'SET_PAGE', page: 'lab' });
+    expect(state.page).toBe('lab');
+    expect(state.strategy).toEqual(withStrategy().strategy);
+    expect(initialState.page).toBe('charts');
   });
 });
