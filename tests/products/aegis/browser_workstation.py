@@ -1,15 +1,16 @@
-"""Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items and the 14 Mission 4 items (both specs §1) in Chromium
+"""Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items, the 14 Mission 4 items and the 11 Mission 5 items (each spec §1) in Chromium
 against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per
 item, timings (indicator ms, backtest ms, optimizer cell ms) and both result_hash values.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
-Exit code 0 only when all 36 items PASS with no page errors.
+Exit code 0 only when all 47 items PASS with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
 
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import re
 import sys
@@ -59,7 +60,23 @@ ITEMS = [
     "rerun an identical walk-forward request and obtain the same result_hash",
     "a walk-forward on a range too short for one window is refused with the bar counts",
     "after the restarts the governance contract and the disabled schedule record are unchanged",
+    # Mission 5 (spec §1 items 1–11)
+    "build a Donchian / RSI breakout in the Strategy Lab from a new document and save it",
+    "use it on QQQ 1h 2023–2024: Donchian on the price pane, RSI in its own pane, the crosshair reads the study",
+    "run its backtest: trades, markers, long/short/combined metrics and a result_hash",
+    "optimize Donchian 10–40 step 10 x RSI 7–21 step 7 (12 cells) and apply the best cell",
+    "walk the long side forward 1000/250: positions carry across joins, only the final window may close at its edge",
+    "duplicate, rename and delete a copy; deleting the referenced original is refused",
+    "the default strategy still produces the recorded Mission 3 identical-request hash",
+    "rerun the new strategy's backtest unchanged and obtain the same result_hash",
+    "the Indicators tab lists kind, parameters, source, pane and latest values; removing a read indicator is refused",
+    "invalid rules and parameters are refused with 422 naming the problem",
+    "governance unchanged and no file under Core, the platform host or Triad changed",
 ]
+RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
+MISSION5_BASE = (
+    "a73f70e"  # the Mission 5 spec commit; Core, platform host and Triad are frozen since
+)
 WF_HEAD = "document.querySelector('.job-head')?.innerText ?? ''"
 WF_ROWS = "document.querySelectorAll('#walkforward-windows-long tbody tr')"
 PROGRESS = "document.querySelector('.results .chip.active').innerText.match(/(\\d+)\\/(\\d+)/)"
@@ -564,6 +581,7 @@ class Acceptance:
                 first["result_hash"],
                 second["result_hash"],
             )
+            assert first["result_hash"] == RECORDED_IDENTICAL_HASH, first["result_hash"]
             assert first["run_id"] != second["run_id"]
             self.timings["identical_request_hashes"] = [first["result_hash"], second["result_hash"]]
             return (
@@ -806,6 +824,365 @@ class Acceptance:
             return f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} enabled={schedule['enabled']}"
 
         self.item(36, item36)
+
+        # -- Mission 5 (spec §1 items 1–11) ----------------------------------------------------
+
+        def set_number(selector: str, value) -> None:
+            page.locator(selector).fill(str(value))
+
+        def wait_text(selector: str, needle: str, timeout=30_000) -> None:
+            page.wait_for_function(
+                f"(document.querySelector({json.dumps(selector)})?.innerText ?? '').includes({json.dumps(needle)})",
+                timeout=timeout,
+            )
+
+        def doc_rows() -> list[str]:
+            return self.js("[...document.querySelectorAll('.lab-table tbody tr')].map(r => r.id)")
+
+        def item37():
+            page.locator("#nav-lab").click()
+            page.wait_for_selector("#doc-ema9-sma30-cross-v1")  # the list has loaded
+            before = set(doc_rows())
+            page.locator("#lab-new").click()
+            page.wait_for_function(
+                f"[...document.querySelectorAll('.lab-table tbody tr')].length > {len(before)}",
+                timeout=30_000,
+            )
+            new_row = next(r for r in doc_rows() if r not in before)
+            doc_id = new_row[len("doc-") :]
+            name = f"Donchian RSI breakout {self.stamp}"
+            page.locator(f"#rename-{doc_id}").click()
+            page.locator("#rename-input").fill(name)
+            page.locator("#rename-confirm").click()
+            wait_text(f"#doc-{doc_id}", name)
+            page.locator(f"#use-{doc_id}").click()
+            page.wait_for_selector("#chart-mount")
+            wait_text("#document-name", name)
+            # Indicators on the long side only (plan ruling P11).
+            page.locator("#right-tab-indicators").click()
+            page.locator("#focus-long").click()
+            for kind in ("DONCHIAN", "RSI"):
+                page.locator("#add-indicator-kind").select_option(kind)
+                page.locator("#add-indicator").click()
+            page.wait_for_selector("#indicator-donchian")
+            page.wait_for_selector("#indicator-rsi")
+            # Rules: entry = close crosses above donchian.upper AND rsi < 70; exit on the middle.
+            page.locator("#right-tab-strategy").click()
+            page.locator("#long-entry-left-0").select_option("price.close")
+            page.locator("#long-entry-operator-0").select_option("crosses_above")
+            page.locator("#long-entry-right-0").select_option("donchian.upper")
+            page.locator("#long-entry-add-condition").click()
+            page.locator("#long-entry-join").select_option("all")
+            page.locator("#long-entry-left-1").select_option("rsi")
+            page.locator("#long-entry-operator-1").select_option("less_than")
+            page.locator("#long-entry-right-1").select_option("__constant__")
+            set_number("#long-entry-constant-1", 70)
+            page.locator("#long-exit-left-0").select_option("price.close")
+            page.locator("#long-exit-operator-0").select_option("crosses_below")
+            page.locator("#long-exit-right-0").select_option("donchian.middle")
+            # The crossover indicators are no longer read on the long side: remove them.
+            page.locator("#right-tab-indicators").click()
+            for gone in ("ema", "sma"):
+                page.locator(f"#remove-{gone}").click()
+                page.wait_for_selector(f"#indicator-{gone}", state="detached")
+            page.wait_for_selector("#unsaved-edits")  # its label is uppercased by CSS
+            page.locator("#save-document").click()
+            page.wait_for_selector("#unsaved-edits", state="detached", timeout=30_000)
+            saved = self.api(f"strategies/{doc_id}")
+            side = saved["spec"]["long_side"]
+            assert [i["id"] for i in side["indicators"]] == ["donchian", "rsi"], side["indicators"]
+            assert side["entry"] == {
+                "all_of": [
+                    {
+                        "left": "price.close",
+                        "operator": "crosses_above",
+                        "right": "donchian.upper",
+                        "timing": "bar_close",
+                    },
+                    {"left": "rsi", "operator": "less_than", "right": "70", "timing": "bar_close"},
+                ]
+            }, side["entry"]
+            assert side["exit"]["right"] == "donchian.middle", side["exit"]
+            self.lab = {"id": doc_id, "name": name, "hash": saved["strategy_hash"]}
+            card = self.js("document.querySelector('.side-card.long .logic')?.innerText ?? ''")
+            return f"document {doc_id} '{name}' saved, hash {saved['strategy_hash'][:12]}; card '{card.splitlines()[0] if card else ''}'"
+
+        self.item(37, item37)
+
+        def item38():
+            page.locator("#right-tab-strategy").click()
+            self.select("Timeframe", "1h")
+            page.get_by_label("Start date").fill("2023-01-01")
+            page.get_by_label("End date").fill("2024-12-31")
+            page.wait_for_function(
+                "(document.querySelector('.chart-header')?.innerText ?? '').startsWith('QQQ · 1h')"
+            )
+            count = self.wait_bars()
+            page.wait_for_function(
+                "(document.querySelector('.chart-header .legend')?.innerText ?? '').includes('RSI 14')",
+                timeout=60_000,
+            )
+            legend = self.js(
+                "[...document.querySelectorAll('.chart-header .legend b')].map(b => [b.innerText, b.title])"
+            )
+            panes = dict(legend)
+            for title in ("DONCHIAN 20 upper", "DONCHIAN 20 lower", "DONCHIAN 20 middle"):
+                assert panes.get(title) == "drawn on the price pane", (title, legend)
+            assert panes.get("RSI 14") == "drawn in its own pane", legend
+            box = page.locator("#chart-mount").bounding_box()
+            readout = ""
+            for offset in range(12, int(box["height"] * 0.5), 12):
+                page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] - offset)
+                page.wait_for_timeout(60)
+                readout = self.js("document.getElementById('study-readout')?.innerText ?? ''")
+                if "RSI 14" in readout:
+                    break
+            assert "RSI 14" in readout, readout
+            page.mouse.move(box["x"] + 5, box["y"] + 5)
+            page.screenshot(path=str(self.screenshot_path("lab-panes")), full_page=True)
+            return (
+                f"{count} bars; legend {[t for t, _ in legend]}; study readout '{readout.strip()}'"
+            )
+
+        self.item(38, item38)
+
+        def item39():
+            envelope = self.run_backtest()
+            long_metrics = envelope["result"]["long"]["metrics"]
+            assert long_metrics["trade_count"] >= 1, long_metrics
+            assert envelope["markers"], "no markers"
+            assert envelope["strategy_id"] == self.lab["id"], envelope["strategy_id"]
+            assert len(envelope["result_hash"]) == 64
+            for side in ("long", "short", "combined"):
+                assert self.summary_cell("Trades", side) not in ("", DASH), side
+            self.lab_run = envelope
+            return (
+                f"run {envelope['run_id'][:8]}: long {long_metrics['trade_count']} trades, net "
+                f"{long_metrics['net_pnl']:.2f}; {len(envelope['markers'])} markers; hash {envelope['result_hash']}"
+            )
+
+        self.item(39, item39)
+
+        def item40():
+            for path, start, stop, step in (
+                ("indicators.donchian.length", 10, 40, 10),
+                ("indicators.rsi.length", 7, 21, 7),
+            ):
+                page.get_by_label(f"long {path} start").fill(str(start))
+                page.get_by_label(f"long {path} stop").fill(str(stop))
+                page.get_by_label(f"long {path} step").fill(str(step))
+                box = page.get_by_label(f"long {path} enabled")
+                if not box.is_checked():
+                    box.check()
+            page.locator("#optimize").click()
+            page.wait_for_function(
+                "/12 valid cells/.test(document.getElementById('optimize-plan')?.innerText ?? '')",
+                timeout=90_000,
+            )
+            plan = self.js("document.getElementById('optimize-plan').innerText")
+            page.locator("#start-optimization").click()
+            page.wait_for_function(
+                "(document.querySelector('.job-head')?.innerText ?? '').startsWith('DONE')",
+                timeout=600_000,
+            )
+            done, total = self.progress()
+            assert done == total == 12, (done, total)
+            page.locator("#optimization-cells-long tbody tr").first.click()
+            best = self.js(
+                "document.querySelector('#optimization-cells-long tbody tr').innerText.replace(/\\t/g, ' | ')"
+            )
+            previous = self.run_state()
+            page.locator("#apply-configs").click()
+            page.wait_for_function(
+                "(s => s.startsWith('run ') && s !== "
+                + json.dumps(previous)
+                + ")(document.getElementById('run-state')?.innerText ?? '')",
+                timeout=120_000,
+            )
+            card = self.js(
+                "document.querySelector('.side-card.long .logic').innerText.split('\\n')[0]"
+            )
+            return f"plan '{plan}'; 12/12 cells; best '{best}' applied → '{card}'"
+
+        self.item(40, item40)
+
+        def item41():
+            plan = self.open_walkforward(1000, 250)
+            assert "9 windows" in plan and "12 cells each" in plan, plan
+            with page.expect_response(
+                lambda r: r.url.endswith("/aegis/api/walkforward") and r.request.method == "POST"
+            ) as caught:
+                self.start_walkforward()
+            job_id = caught.value.json()["job_id"]
+            deadline = time.monotonic() + 900
+            while time.monotonic() < deadline:
+                status = self.api(f"walkforward/{job_id}")
+                if status["status"] in ("done", "failed", "cancelled"):
+                    break
+                time.sleep(1)
+            assert status["status"] == "done", status.get("error")
+            records = status["window_records"]
+            for record in records[:-1]:
+                assert not any(t["window_edge_exit"] for t in record["oos"]["trades"]), record[
+                    "index"
+                ]
+            for before, after in itertools.pairwise(records):
+                assert before["open_at_end"] == after["carried_in"], before["index"]
+            baseline = status["settings"]["initial_capital"]
+            for record in records:
+                net = record["oos"]["metrics"]["net_pnl"]
+                assert abs(net - (record["ending_equity"] - baseline)) < 1e-6, record["index"]
+                baseline = record["ending_equity"]
+            carried = [t for r in records for t in r["oos"]["trades"] if "carried_from_window" in t]
+            joins = sum(1 for r in records if r["open_at_end"])
+            assert status["strategy_id"] == self.lab["id"], status["strategy_id"]
+            self.lab_walkforward = status
+            wait_text("#walkforward-stitched-long", "Net P&L")
+            return (
+                f"9/9 windows; {joins} joins crossed holding a position, {len(carried)} carried trades; "
+                f"no interior edge close; stitched net {status['stitched']['metrics']['net_pnl']:.2f}; "
+                f"hash {status['result_hash']}"
+            )
+
+        self.item(41, item41)
+
+        def item42():
+            original = self.lab["id"]
+            page.locator("#nav-lab").click()
+            page.wait_for_selector(f"#doc-{original}")
+            before = set(doc_rows())
+            page.locator(f"#duplicate-{original}").click()
+            page.locator("#duplicate-input").fill(f"Breakout copy {self.stamp}")
+            page.locator("#duplicate-confirm").click()
+            page.wait_for_function(
+                f"[...document.querySelectorAll('.lab-table tbody tr')].length > {len(before)}"
+            )
+            copy = next(r for r in doc_rows() if r not in before)[len("doc-") :]
+            assert self.api(f"strategies/{copy}")["parent"] == original
+            page.locator(f"#rename-{copy}").click()
+            page.locator("#rename-input").fill(f"Breakout copy renamed {self.stamp}")
+            page.locator("#rename-confirm").click()
+            wait_text(f"#doc-{copy}", "renamed")
+            page.locator(f"#delete-{copy}").click()
+            page.locator("#delete-confirm").click()
+            page.wait_for_selector(f"#doc-{copy}", state="detached")
+            page.locator(f"#delete-{original}").click()
+            page.locator("#delete-confirm").click()
+            wait_text("#lab-error", "is referenced by")
+            refusal = self.js("document.getElementById('lab-error').innerText")
+            assert refusal.startswith("409"), refusal
+            assert original in [r[len("doc-") :] for r in doc_rows()]
+            page.locator("#lab-page button", has_text="Cancel").click()
+            page.locator("#nav-charts").click()
+            page.wait_for_selector("#chart-mount")
+            self.wait_bars()
+            return f"copy {copy} (parent {original}) renamed and deleted; original refused: '{refusal}'"
+
+        self.item(42, item42)
+
+        def item43():
+            first, second = self.timings["identical_request_hashes"]
+            assert first == second == RECORDED_IDENTICAL_HASH, (first, second)
+            return f"item 22 produced the recorded Mission 3 hash {first}"
+
+        self.item(43, item43)
+
+        def item44():
+            first = self.run_backtest()
+            second = self.run_backtest()
+            assert first["result_hash"] == second["result_hash"], (
+                first["result_hash"],
+                second["result_hash"],
+            )
+            assert first["strategy_id"] == second["strategy_id"] == self.lab["id"]
+            return f"runs {first['run_id'][:8]} and {second['run_id'][:8]} both hash {first['result_hash']}"
+
+        self.item(44, item44)
+
+        def item45():
+            page.locator("#right-tab-indicators").click()
+            page.locator("#focus-long").click()
+            donchian = self.js("document.getElementById('indicator-donchian')?.innerText ?? ''")
+            rsi = self.js("document.getElementById('indicator-rsi')?.innerText ?? ''")
+            assert (
+                "DONCHIAN" in donchian and "price pane" in donchian and "donchian.upper" in donchian
+            ), donchian
+            assert "RSI" in rsi and "own pane" in rsi and "source" in rsi, rsi
+            latest = self.js(
+                "[...document.querySelectorAll('#indicator-rsi .latest b')].map(b => b.innerText)"
+            )
+            assert latest and all(v != DASH for v in latest), latest
+            page.locator("#remove-rsi").click()
+            wait_text("#indicator-error", "entry rule")
+            refusal = self.js("document.getElementById('indicator-error').innerText")
+            assert self.js("!!document.getElementById('indicator-rsi')"), "rsi was removed"
+            page.locator("#right-tab-strategy").click()
+            return f"donchian '{donchian.splitlines()[0]}', rsi latest {latest}; removal refused: '{refusal}'"
+
+        self.item(45, item45)
+
+        def item46():
+            spec = self.api(f"strategies/{self.lab['id']}")["spec"]
+            data = {"symbol": "QQQ", "timeframe": "1h", "start": "2024-06-03", "end": "2024-06-07"}
+
+            def refused(mutate, needle):
+                bad = json.loads(json.dumps(spec))
+                mutate(bad["long_side"])
+                response = self.post("backtest", {"strategy": bad, "data": data})
+                assert response.status == 422, (needle, response.status, response.text()[:200])
+                assert needle in response.text(), (needle, response.text()[:300])
+                return needle
+
+            condition = {"left": "rsi", "operator": "less_than", "right": "70"}
+            checks = [
+                refused(lambda s: s["exit"].update(right="foo"), "unknown operand 'foo'"),
+                refused(lambda s: s["exit"].update(right="donchian"), "donchian has outputs"),
+                refused(
+                    lambda s: s.update(
+                        exit={"left": "price.close", "operator": "inside_band", "right": "rsi"}
+                    ),
+                    "needs a band",
+                ),
+                refused(
+                    lambda s: s.update(entry={"all_of": [condition]}),
+                    "a group needs two conditions",
+                ),
+                refused(
+                    lambda s: s.update(entry={"any_of": [condition] * 3}),
+                    "at most two conditions in this slice",
+                ),
+                refused(
+                    lambda s: s["indicators"][1].update(params={"x": 1}), "RSI has no parameter 'x'"
+                ),
+            ]
+            return "422 for each: " + "; ".join(checks)
+
+        self.item(46, item46)
+
+        def item47():
+            import subprocess
+
+            status = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
+            assert status["mode"] == "human_directed" and status["exchange"] == "CLOSED", status
+            paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
+            committed = subprocess.run(
+                ["git", "diff", "--name-only", MISSION5_BASE, "HEAD", "--", *paths],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            pending = subprocess.run(
+                ["git", "status", "--porcelain", "--", *paths],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            assert committed == "" and pending == "", (committed, pending)
+            return f"aegis {status['mode']} / {status['exchange']}; no change under {', '.join(paths)} since {MISSION5_BASE}"
+
+        self.item(47, item47)
 
 
 def main(argv=None) -> int:
