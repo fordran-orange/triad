@@ -89,3 +89,31 @@ def test_walkforward_kind_round_trips_with_sidecar(tmp_path):
     listed = repository.list_walkforwards()
     assert [w["job_id"] for w in listed] == ["w1"] and "window_records" not in listed[0]
     assert listed[0]["windows"] == {"done": 2, "total": 2} and listed[0]["kind"] == "walkforward"
+
+
+def test_strategies_kind_saves_lists_and_deletes(tmp_path):
+    repo = JsonRunRepository(tmp_path / "aegis")
+    document = {
+        "id": "breakout",
+        "name": "Breakout",
+        "spec": {
+            "long_side": {"indicators": [{"kind": "DONCHIAN"}]},
+            "short_side": {"indicators": []},
+        },
+        "created_at": "2026-10-11T01:00:00+00:00",
+        "updated_at": "2026-10-11T01:00:00+00:00",
+        "strategy_hash": "abc",
+        "parent": None,
+        "builtin": False,
+    }
+    assert repo.save_strategy(document) == "breakout"
+    assert repo.get_strategy("breakout") == document
+    [summary] = repo.list_strategies()
+    assert (
+        summary["id"] == "breakout" and summary["kinds"] == ["DONCHIAN"] and "spec" not in summary
+    )
+    repo.delete_strategy("breakout")
+    assert repo.list_strategies() == []
+    assert list((tmp_path / "aegis" / "strategies").iterdir()) == []
+    with pytest.raises(KeyError):
+        repo.delete_strategy("breakout")

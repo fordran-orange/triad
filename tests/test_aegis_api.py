@@ -645,3 +645,83 @@ def test_indicators_endpoint_names_outputs_and_panes(client):
     }
     assert body["pane"] == {"donchian": "price", "rsi": "own", "macd": "own"}
     assert body["series"]["rsi"][4] is None and body["series"]["rsi"][5] is not None
+
+
+# --- strategy documents (Mission 5 spec §8) ---------------------------------------------------
+
+
+def test_strategy_routes_round_trip(client):
+    c, _, _ = client
+    listed = c.get("/aegis/api/strategies").json()
+    assert listed[0]["id"] == "ema9-sma30-cross-v1" and listed[0]["builtin"] is True
+    created = c.post(
+        "/aegis/api/strategies",
+        json={"name": "Breakout", "spec": default_strategy().model_dump(mode="json")},
+    )
+    assert created.status_code == 201, created.text
+    doc = created.json()
+    assert doc["id"] == "breakout" and doc["spec"]["id"] == "breakout"
+    assert c.get("/aegis/api/strategies/breakout").json() == doc
+    renamed = c.put("/aegis/api/strategies/breakout", json={"name": "Breakout v2"})
+    assert renamed.status_code == 200 and renamed.json()["spec"]["name"] == "Breakout v2"
+    copy = c.post("/aegis/api/strategies/breakout/duplicate", json={"name": "Copy"})
+    assert copy.status_code == 201 and copy.json()["parent"] == "breakout"
+    assert c.delete("/aegis/api/strategies/copy").json() == {"deleted": "copy"}
+    assert c.get("/aegis/api/strategies/copy").status_code == 404
+
+
+def test_strategy_route_refusals(client):
+    c, _, _ = client
+    assert c.get("/aegis/api/strategies/nope").status_code == 404
+    assert c.delete("/aegis/api/strategies/nope").status_code == 404
+    builtin = c.put("/aegis/api/strategies/ema9-sma30-cross-v1", json={"name": "x"})
+    assert builtin.status_code == 422 and "read-only" in builtin.text
+    assert c.delete("/aegis/api/strategies/ema9-sma30-cross-v1").status_code == 422
+    assert (
+        c.post(
+            "/aegis/api/strategies",
+            json={"name": "   ", "spec": default_strategy().model_dump(mode="json")},
+        ).status_code
+        == 422
+    )
+    spec = default_strategy().model_dump(mode="json")
+    spec["long_side"]["entry"]["right"] = "nope"
+    bad = c.post("/aegis/api/strategies", json={"name": "Bad", "spec": spec})
+    assert bad.status_code == 422 and "nope" in bad.text
+
+
+def test_backtest_envelope_carries_strategy_identity_outside_the_hash(client):
+    from products.aegis.results import result_hash
+
+    c, _, _ = client
+    payload = {
+        "strategy": default_strategy().model_dump(mode="json"),
+        "data": {"symbol": "QQQ", "timeframe": "15m", **RANGE},
+    }
+    body = c.post("/aegis/api/backtest", json=payload).json()
+    assert body["strategy_id"] == "ema9-sma30-cross-v1" and len(body["strategy_hash"]) == 64
+    assert "strategy_id" not in body["result"] and "strategy_hash" not in body["result"]
+    assert body["result_hash"] == result_hash(body["result"])
+    [summary] = c.get("/aegis/api/runs").json()
+    assert summary["strategy_id"] == "ema9-sma30-cross-v1"
+
+
+def test_deleting_a_document_a_running_job_uses_is_409(client):
+    """Review Focus 5: a running job's persisted summary is a reference."""
+    c, _, repository = client
+    _runner, gate = _held_runner(repository)
+    try:
+        doc = c.post(
+            "/aegis/api/strategies",
+            json={"name": "Held", "spec": small_strategy().model_dump(mode="json")},
+        ).json()
+        payload = {**_optimize_payload(), "strategy": doc["spec"]}
+        started = c.post("/aegis/api/optimize", json=payload)
+        assert started.status_code == 202, started.text
+        status = c.get(f"/aegis/api/optimize/{started.json()['job_id']}").json()
+        assert status["strategy_id"] == "held" and len(status["strategy_hash"]) == 64
+        refused = c.delete("/aegis/api/strategies/held")
+        assert refused.status_code == 409
+        assert "referenced by 0 runs, 1 optimization, 0 walk-forwards" in refused.text
+    finally:
+        gate.set()

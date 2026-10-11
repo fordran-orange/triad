@@ -28,7 +28,7 @@ from products.aegis.backtest import (
 )
 from products.aegis.indicators import IndicatorCache
 from products.aegis.optimize import GridPlan, engine_rows, expand_grid, provenance
-from products.aegis.results import result_hash, walkforward_payload
+from products.aegis.results import result_hash, strategy_hash, walkforward_payload
 from products.aegis.strategy import StrategySide, StrategySpec, apply_parameters, side_warmup
 
 MAX_WINDOWS = 50
@@ -467,6 +467,8 @@ class WalkForwardJob:
             "stability": stability(records, self._paths()),
             "cache_hits": self.cache_hits,
             "data": self.data,
+            "strategy_id": self.request.strategy.id,
+            "strategy_hash": strategy_hash(self.request.strategy),
             "strategy": self.request.strategy.model_dump(mode="json"),
             "settings": self.request.settings.model_dump(mode="json"),
             "result_hash": self.result_hash,

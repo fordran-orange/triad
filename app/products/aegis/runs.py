@@ -36,6 +36,17 @@ SUMMARY_KEYS = (
     "in_sample_bars",
     "out_of_sample_bars",
     "cells_per_window",
+    "strategy_id",
+    "strategy_hash",
+)
+STRATEGY_SUMMARY_KEYS = (
+    "id",
+    "name",
+    "created_at",
+    "updated_at",
+    "strategy_hash",
+    "parent",
+    "builtin",
 )
 
 
@@ -49,6 +60,10 @@ class RunRepository(Protocol):
     def save_walkforward(self, envelope: dict) -> str: ...
     def get_walkforward(self, job_id: str) -> dict: ...
     def list_walkforwards(self) -> list[dict]: ...
+    def save_strategy(self, document: dict) -> str: ...
+    def get_strategy(self, strategy_id: str) -> dict: ...
+    def list_strategies(self) -> list[dict]: ...
+    def delete_strategy(self, strategy_id: str) -> None: ...
 
 
 def _check_id(identifier: str) -> str:
@@ -59,6 +74,22 @@ def _check_id(identifier: str) -> str:
 
 def _summary(envelope: dict) -> dict:
     return {key: envelope[key] for key in SUMMARY_KEYS if key in envelope}
+
+
+def _strategy_summary(document: dict) -> dict:
+    """A strategy document's listing entry: identity, timestamps, hash and the kinds it uses."""
+    spec = document.get("spec") or {}
+    kinds = sorted(
+        {
+            str(indicator.get("kind", "")).upper()
+            for side in ("long_side", "short_side")
+            for indicator in (spec.get(side) or {}).get("indicators", [])
+        }
+    )
+    return {
+        **{key: document[key] for key in STRATEGY_SUMMARY_KEYS if key in document},
+        "kinds": kinds,
+    }
 
 
 def _retry(action, attempts: int = 50, delay: float = 0.01):
@@ -84,12 +115,12 @@ class JsonRunRepository:
         folder.mkdir(parents=True, exist_ok=True)
         return folder
 
-    def _save(self, kind: str, key: str, envelope: dict) -> str:
+    def _save(self, kind: str, key: str, envelope: dict, summarize=_summary) -> str:
         identifier = _check_id(envelope[key])
         folder = self._folder(kind)
         self._write(folder / f"{identifier}.json", envelope)
         # Sidecar summary: listing never has to parse full envelopes (series, equity, cells).
-        self._write(folder / f"{identifier}.summary.json", _summary(envelope))
+        self._write(folder / f"{identifier}.summary.json", summarize(envelope))
         return identifier
 
     @staticmethod
@@ -108,7 +139,7 @@ class JsonRunRepository:
             raise KeyError(identifier)
         return self._read(path)
 
-    def _list(self, kind: str) -> list[dict]:
+    def _list(self, kind: str, summarize=_summary) -> list[dict]:
         folder = self._folder(kind)
         items: dict[str, dict] = {}
         for path in folder.glob("*.summary.json"):
@@ -120,7 +151,7 @@ class JsonRunRepository:
             if path.name.endswith(".summary.json") or path.stem in items:
                 continue
             try:  # legacy envelope without a sidecar: summarize once and keep the sidecar
-                summary = _summary(self._read(path))
+                summary = summarize(self._read(path))
             except (OSError, ValueError):
                 continue
             items[path.stem] = summary
@@ -156,3 +187,23 @@ class JsonRunRepository:
 
     def list_walkforwards(self) -> list[dict]:
         return self._list("walkforward")
+
+    # Strategy documents (Mission 5 spec §8): one JSON file per document under strategies/.
+    def save_strategy(self, document: dict) -> str:
+        return self._save("strategies", "id", document, _strategy_summary)
+
+    def get_strategy(self, strategy_id: str) -> dict:
+        return self._get("strategies", strategy_id)
+
+    def list_strategies(self) -> list[dict]:
+        return self._list("strategies", _strategy_summary)
+
+    def delete_strategy(self, strategy_id: str) -> None:
+        folder = self._folder("strategies")
+        path = folder / f"{_check_id(strategy_id)}.json"
+        if not path.is_file():
+            raise KeyError(strategy_id)
+        _retry(path.unlink)
+        sidecar = folder / f"{strategy_id}.summary.json"
+        if sidecar.is_file():
+            _retry(sidecar.unlink)

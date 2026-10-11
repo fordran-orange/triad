@@ -167,6 +167,17 @@ export interface WalkForwardRequest {
   out_of_sample_bars: number;
 }
 
+export interface StrategyDocument {
+  id: string;
+  name: string;
+  spec: StrategySpec;
+  created_at: string | null;
+  updated_at: string | null;
+  strategy_hash: string;
+  parent?: string | null;
+  builtin?: boolean;
+}
+
 export interface IndicatorKind {
   outputs: string[];
   pane: 'price' | 'own';

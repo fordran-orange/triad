@@ -88,3 +88,9 @@ def canonical_json(payload: dict) -> str:
 
 def result_hash(payload: dict) -> str:
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def strategy_hash(spec: StrategySpec) -> str:
+    """Identity of a strategy spec (Mission 5 spec §8): SHA-256 of its canonical JSON. It sits on
+    envelopes beside the result and never enters a result hash."""
+    return result_hash(_clean(spec.model_dump(mode="json")))

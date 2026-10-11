@@ -20,6 +20,7 @@ from products.aegis.backtest import BacktestRequest, BacktestSettings, DataRefer
 from products.aegis.indicators import IndicatorCache
 from products.aegis.jobs import MS_PER_BAR, UNFINISHED, JobBusy, JobRunner, estimate_seconds
 from products.aegis.kinds import kind_info
+from products.aegis.results import strategy_hash
 from products.aegis.runs import RunRepository
 from products.aegis.strategy import RuleSpec, StrategySide, StrategySpec, apply_parameters
 
@@ -220,6 +221,8 @@ class OptimizerJob:
             "slow_path": plan.slow_path,
             "cache_hits": self.cache_hits,
             "data": self.data,
+            "strategy_id": self.request.strategy.id,
+            "strategy_hash": strategy_hash(self.request.strategy),
             "strategy": self.request.strategy.model_dump(mode="json"),
             "settings": self.request.settings.model_dump(mode="json"),
         }

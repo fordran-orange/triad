@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from products.aegis.backtest import BacktestRequest, DataReference, markers, run_backtest
 from products.aegis.data import (
@@ -32,9 +32,10 @@ from products.aegis.indicators import IndicatorCache, compute
 from products.aegis.jobs import JobBusy, JobRunner, estimate_seconds
 from products.aegis.kinds import kind_info
 from products.aegis.optimize import OptimizeRequest, OptimizerJob, engine_rows, expand_grid
-from products.aegis.results import canonical_payload, result_hash
+from products.aegis.results import canonical_payload, result_hash, strategy_hash
 from products.aegis.runs import JsonRunRepository, RunRepository
-from products.aegis.strategy import IndicatorSpec
+from products.aegis.strategies import BuiltinRefused, StrategyLibrary, StrategyReferenced
+from products.aegis.strategy import IndicatorSpec, StrategySpec
 from products.aegis.walkforward import WalkForwardJob, WalkForwardRequest
 from products.aegis.walkforward import plan as walkforward_plan
 
@@ -191,6 +192,8 @@ def _envelope(request: BacktestRequest, store: ArchiveStore, cache: IndicatorCac
         "elapsed_ms": int((time.perf_counter() - started) * 1000),
         "result_hash": result_hash(payload),
         "data": identity,
+        "strategy_id": request.strategy.id,
+        "strategy_hash": strategy_hash(request.strategy),
         "strategy": request.strategy.model_dump(mode="json"),
         "settings": request.settings.model_dump(mode="json"),
         "result": payload,
@@ -391,6 +394,110 @@ def walkforward_status(job_id: str, runner: JobRunner = RUNNER):
 @router.post("/walkforward/{job_id}/cancel")
 def cancel_walkforward(job_id: str, runner: JobRunner = RUNNER):
     return _cancel(runner, job_id, "walkforward")
+
+
+# --- strategy documents (Mission 5 spec §8) ------------------------------------------------
+
+
+def get_library(repository: RunRepository = REPOSITORY) -> StrategyLibrary:
+    return StrategyLibrary(repository)
+
+
+LIBRARY = Depends(get_library)
+
+
+def _name(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        raise ValueError("a strategy needs a name")
+    return value
+
+
+class StrategyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(max_length=120)
+    spec: StrategySpec
+
+    @field_validator("name")
+    @classmethod
+    def named(cls, value):
+        return _name(value)
+
+
+class StrategyUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, max_length=120)
+    spec: StrategySpec | None = None
+
+    @field_validator("name")
+    @classmethod
+    def named(cls, value):
+        return _name(value)
+
+
+class StrategyDuplicate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def named(cls, value):
+        return _name(value)
+
+
+def _document(library: StrategyLibrary, strategy_id: str):
+    try:
+        return library.get(strategy_id)
+    except KeyError as exc:
+        raise HTTPException(404, f"unknown strategy {strategy_id!r}") from exc
+
+
+@router.get("/strategies")
+def strategies(library: StrategyLibrary = LIBRARY):
+    return library.list()
+
+
+@router.get("/strategies/{strategy_id}")
+def strategy_document(strategy_id: str, library: StrategyLibrary = LIBRARY):
+    return _document(library, strategy_id).model_dump(mode="json")
+
+
+@router.post("/strategies", status_code=201)
+def create_strategy(request: StrategyCreate, library: StrategyLibrary = LIBRARY):
+    return library.create(request.name, request.spec).model_dump(mode="json")
+
+
+@router.put("/strategies/{strategy_id}")
+def update_strategy(strategy_id: str, request: StrategyUpdate, library: StrategyLibrary = LIBRARY):
+    try:
+        return library.update(strategy_id, request.name, request.spec).model_dump(mode="json")
+    except BuiltinRefused as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(404, f"unknown strategy {strategy_id!r}") from exc
+
+
+@router.post("/strategies/{strategy_id}/duplicate", status_code=201)
+def duplicate_strategy(
+    strategy_id: str, request: StrategyDuplicate, library: StrategyLibrary = LIBRARY
+):
+    _document(library, strategy_id)
+    return library.duplicate(strategy_id, request.name).model_dump(mode="json")
+
+
+@router.delete("/strategies/{strategy_id}")
+def delete_strategy(strategy_id: str, library: StrategyLibrary = LIBRARY):
+    try:
+        library.delete(strategy_id)
+    except BuiltinRefused as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except StrategyReferenced as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(404, f"unknown strategy {strategy_id!r}") from exc
+    return {"deleted": strategy_id}
 
 
 __all__ = [
