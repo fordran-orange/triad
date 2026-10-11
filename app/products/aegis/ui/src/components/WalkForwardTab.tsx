@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import type { StrategySide } from '../contracts';
 import { DASH, money, num, pct, shortHash, timeLabel } from '../format';
-import { METRIC_LABELS, TERMINAL_JOB_STATES, type EquityPoint, type WalkForwardStatus, type WindowRecord } from '../results';
+import { METRIC_LABELS, TERMINAL_JOB_STATES, type EquityPoint, type Trade, type WalkForwardStatus, type WindowRecord } from '../results';
 import { useRunBacktest } from '../state/run';
 import { applyConfigs, canonical, SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
 import { formatSeconds } from './OptimizePopover';
@@ -41,6 +41,19 @@ export function stitchedPoints(records: WindowRecord[]): { points: EquityPoint[]
 }
 
 /** "window w of W · cell c of C · unit u of U": the cell count is within the current window. */
+/** How a window joins its neighbours: a position carried in, carried out, both, or neither. */
+export function carryLabel(r: Pick<WindowRecord, 'carried_in' | 'open_at_end'>): string {
+  if (r.carried_in && r.open_at_end) return 'in · out';
+  if (r.carried_in) return 'in';
+  if (r.open_at_end) return 'out';
+  return DASH;
+}
+
+/** Trades closed after crossing at least one window join. */
+export function carriedCount(trades: Trade[]): number {
+  return trades.filter((t) => t.carried_from_window !== undefined).length;
+}
+
 export function progressLabel(job: Pick<WalkForwardStatus, 'progress' | 'windows' | 'cells_per_window'>): string {
   const perWindow = job.cells_per_window + 1;
   const allDone = job.windows.done >= job.windows.total;
@@ -106,6 +119,7 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
   const choice = finalChoice(job.window_records);
   const stitched = job.stitched.metrics;
   const edgeExits = job.stitched.trades.filter((t) => t.window_edge_exit).length;
+  const carried = carriedCount(job.stitched.trades);
   const pctDone = job.progress.total ? (100 * job.progress.done) / job.progress.total : 0;
   const d = job.data;
   const s = state.selection;
@@ -171,10 +185,16 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
           <span>Win rate <b>{pct(stitched.win_rate)}</b></span>
           <span>
             Trades <b>{num(stitched.trade_count, 0)}</b>
-            {edgeExits > 0 && (
-              <span className="muted" title="Closed by the engine at a window's last bar, not by the strategy's exit rule; positions do not carry into the next window">
+            {carried > 0 && (
+              <span className="muted" title="Entered in one window and held across at least one window join before its exit">
                 {' '}
-                ({edgeExits} closed at a window edge)
+                ({carried} carried)
+              </span>
+            )}
+            {edgeExits > 0 && (
+              <span className="muted" title="Closed by the engine at the last window's last bar, not by the strategy's exit rule">
+                {' '}
+                ({edgeExits} closed at the final edge)
               </span>
             )}
           </span>
@@ -198,6 +218,7 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
                 <th>OOS max DD</th>
                 <th>OOS trades</th>
                 <th>Efficiency</th>
+                <th title="A position carried in from the previous window, out to the next, or both">Carry</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -222,7 +243,10 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
                       {r.oos && r.oos.trades.some((x) => x.window_edge_exit) ? <span className="muted"> ({r.oos.trades.filter((x) => x.window_edge_exit).length} edge)</span> : null}
                     </td>
                     <td>{r.efficiency === null ? DASH : num(r.efficiency, 2)}</td>
-                    <td>{r.status === 'no_valid_cell' ? 'no valid cell' : r.status}</td>
+                    <td>{carryLabel(r)}</td>
+                    <td title={r.inherited_from !== null && r.inherited_from !== undefined ? `no valid in-sample cell; managed the carried position with window ${r.inherited_from + 1}'s choice` : undefined}>
+                      {r.status === 'no_valid_cell' ? 'no valid cell' : r.inherited_from !== null && r.inherited_from !== undefined ? `done (window ${r.inherited_from + 1}'s choice)` : r.status}
+                    </td>
                   </tr>
                 );
               })}

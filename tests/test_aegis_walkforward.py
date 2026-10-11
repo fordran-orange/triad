@@ -1,6 +1,7 @@
 """Walk-forward pure functions (Mission 4 spec §5): windows, selection, chaining, stitching,
 stability, payload identity. DB-free, synthetic inputs."""
 
+import itertools
 import json
 import threading
 import time
@@ -485,3 +486,99 @@ def test_oos_trades_at_window_edges_are_flagged_in_records_and_stitched(tmp_path
         status["stitched"]["metrics"]["max_drawdown"]
         >= max(r["oos"]["metrics"]["max_drawdown"] for r in status["window_records"]) - 1e-12
     )
+
+
+# --- Mission 5: positions carried across windows --------------------------------------------
+
+
+def wave_bars(n=200, period=37.0, amplitude=10.0):
+    """A drifting sine series whose EMA 5 / SMA 8 trades straddle several window joins."""
+    import math
+    from datetime import UTC, datetime, timedelta
+
+    start = datetime(2026, 1, 5, 14, 30, tzinfo=UTC)
+    rows, previous = [], 100.0
+    for i in range(n):
+        close = 100 + amplitude * math.sin(2 * math.pi * i / period) + 0.05 * i
+        rows.append(
+            {
+                "timestamp": start + timedelta(minutes=30 * i),
+                "symbol": "QQQ",
+                "open": previous,
+                "high": max(previous, close) + 0.5,
+                "low": min(previous, close) - 0.5,
+                "close": close,
+                "volume": 1000 + i,
+            }
+        )
+        previous = close
+    return rows
+
+
+def run_sync(request=None, rows=None):
+    """Drive every unit in order on this thread, as the runner would, and return the snapshot."""
+    job = WalkForwardJob(
+        request or job_request(objective="net_pnl"), pd.DataFrame(rows or wave_bars()), PINNED
+    )
+    for unit in range(job.total_units):
+        job.commit(unit, job.run_unit(unit))
+    job.finalize("done")
+    return job.snapshot()
+
+
+def test_only_the_final_window_can_close_at_its_edge():
+    records = run_sync()["window_records"]
+    assert len(records) == 7
+    for record in records[:-1]:
+        assert not any(t["window_edge_exit"] for t in record["oos"]["trades"]), record["index"]
+
+
+def test_open_at_end_and_carried_in_agree_across_every_join():
+    records = run_sync()["window_records"]
+    assert records[0]["carried_in"] is False
+    for before, after in itertools.pairwise(records):
+        assert before["open_at_end"] == after["carried_in"], before["index"]
+    holding = {r["index"] for r in records if r["open_at_end"]}
+    carried = [t for r in records for t in r["oos"]["trades"] if "carried_from_window" in t]
+    assert holding and carried, "the fixture must carry at least one position"
+    assert all(t["carried_from_window"] in holding for t in carried)
+    assert records[-1]["open_at_end"] is False
+
+
+def test_window_net_pnl_is_rebased_on_the_previous_ending_equity():
+    status = run_sync()
+    records = status["window_records"]
+    baseline = status["settings"]["initial_capital"]
+    for record in records:
+        metrics = record["oos"]["metrics"]
+        assert metrics["net_pnl"] == pytest.approx(record["ending_equity"] - baseline, abs=1e-6)
+        baseline = record["ending_equity"]
+
+
+def test_stitched_net_pnl_equals_the_final_ending_equity_minus_capital():
+    status = run_sync()
+    final = status["window_records"][-1]["ending_equity"]
+    assert status["stitched"]["metrics"]["net_pnl"] == pytest.approx(
+        final - status["settings"]["initial_capital"], abs=1e-6
+    )
+
+
+def test_no_valid_cell_after_a_carry_inherits_the_previous_configuration(monkeypatch):
+    from products.aegis import walkforward
+
+    plain = run_sync()["window_records"]
+    k = next(r["index"] for r in plain if r["open_at_end"])
+    real, calls = walkforward.select_best, []
+
+    def select_best(cells, objective):
+        calls.append(1)
+        return None if len(calls) == k + 2 else real(cells, objective)
+
+    monkeypatch.setattr(walkforward, "select_best", select_best)
+    records = run_sync()["window_records"]
+    inherited = records[k + 1]
+    assert inherited["status"] == "done"
+    assert inherited["inherited_from"] == k
+    assert inherited["best"] is None and inherited["efficiency"] is None
+    assert inherited["carried_in"] is True
+    assert records[-1]["open_at_end"] is False

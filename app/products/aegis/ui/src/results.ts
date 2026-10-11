@@ -29,6 +29,7 @@ export interface Trade {
   return: number;
   temporal_tags: string[];
   window_edge_exit?: boolean; // walk-forward only: closed by the engine at a window's last bar
+  carried_from_window?: number | null; // walk-forward only: entered in that earlier window
 }
 
 export interface EquityPoint {
@@ -209,6 +210,11 @@ export interface WindowRecord {
   best: { params: Record<string, number>; metrics: Partial<Metrics> } | null;
   oos: { trades: Trade[]; equity: EquityPoint[]; metrics: Metrics } | null;
   efficiency: number | null;
+  carried_in: boolean; // a position entered in an earlier window was held into this one
+  open_at_end: boolean; // this window ended holding a position, carried into the next
+  ending_cash: number | null;
+  ending_equity: number | null;
+  inherited_from: number | null; // no valid in-sample cell: managed the carry with that window's choice
 }
 
 export interface Spread {

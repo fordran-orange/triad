@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WindowRecord } from '../results';
-import { defaultWindowBars, finalChoice, progressLabel, stitchedPoints } from './WalkForwardTab';
+import { carriedCount, carryLabel, defaultWindowBars, finalChoice, progressLabel, stitchedPoints } from './WalkForwardTab';
 
 const record = (index: number, status: WindowRecord['status'], equities: number[], params: Record<string, number> | null): WindowRecord =>
   ({
@@ -45,5 +45,19 @@ describe('walk-forward helpers', () => {
     expect(progressLabel(job(0, 0))).toBe('window 1 of 2 · cell 0 of 4 · unit 0 of 10');
     expect(progressLabel(job(7, 1))).toBe('window 2 of 2 · cell 2 of 4 · unit 7 of 10');
     expect(progressLabel(job(10, 2))).toBe('window 2 of 2 · cell 4 of 4 · unit 10 of 10');
+  });
+
+  it('carryLabel names how a window joins its neighbours', () => {
+    const r = (carried_in: boolean, open_at_end: boolean) => ({ ...record(0, 'done', [1], { a: 1 }), carried_in, open_at_end }) as WindowRecord;
+    expect(carryLabel(r(false, false))).toBe('—');
+    expect(carryLabel(r(true, false))).toBe('in');
+    expect(carryLabel(r(false, true))).toBe('out');
+    expect(carryLabel(r(true, true))).toBe('in · out');
+  });
+
+  it('carriedCount counts trades closed after crossing a window join', () => {
+    const t = (carried?: number | null) => ({ net_pnl: 1, ...(carried === undefined ? {} : { carried_from_window: carried }) }) as unknown as import('../results').Trade;
+    expect(carriedCount([t(), t(0), t(3), t()])).toBe(2);
+    expect(carriedCount([])).toBe(0);
   });
 });

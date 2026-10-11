@@ -22,6 +22,7 @@ from products.aegis.backtest import (
     BacktestRequest,
     BacktestSettings,
     DataReference,
+    OpenPosition,
     _metrics,
     run_backtest,
 )
@@ -217,6 +218,11 @@ def pending_record(window: Window, timestamps: list[str]) -> dict:
         "best": None,
         "oos": None,
         "efficiency": None,
+        "carried_in": False,
+        "open_at_end": False,
+        "ending_cash": None,
+        "ending_equity": None,
+        "inherited_from": None,
     }
 
 
@@ -226,6 +232,18 @@ def flag_edge_exits(trades: list[dict]) -> list[dict]:
     return [
         {**t, "window_edge_exit": t.get("exit_signal_time") == t.get("exit_time")} for t in trades
     ]
+
+
+def rebase(trades: list[dict], equity: list[dict], baseline: float, exposure: float) -> dict:
+    """A window's out-of-sample equity and metrics measured from `baseline`, the previous
+    window's ending equity (plan ruling P3): a position carried across the join contributes its
+    unrealized gain to the window that held it at the join and only the rest to the next one."""
+    curve, peak = [], float(baseline)
+    for point in equity:
+        value = float(point["equity"])
+        peak = max(peak, value)
+        curve.append({**point, "drawdown": value / peak - 1 if peak else 0.0})
+    return {"equity": curve, "metrics": _metrics(trades, curve, baseline, exposure)}
 
 
 def _done(records: list[dict]) -> list[dict]:
@@ -311,7 +329,11 @@ class WalkForwardJob:
         self._other_side: StrategySide = getattr(request.strategy, self._other_key).model_copy(
             update={"enabled": False}
         )
-        self._chained_capital = request.settings.initial_capital
+        # Carry-over state between out-of-sample units (spec §4.2): the cash the next window
+        # starts with, the equity its metrics are measured from, and the open position, if any.
+        self._chained_cash = request.settings.initial_capital
+        self._chained_equity = request.settings.initial_capital
+        self._carry: dict | None = None
 
     # -- units ----------------------------------------------------------------------------
     def _locate(self, index: int) -> tuple[int, int]:
@@ -340,14 +362,27 @@ class WalkForwardJob:
                 "cell": {"index": unit, "params": params, "metrics": result[self.side]["metrics"]},
             }
         best = self.records[window_index]["best"]  # chosen at the last cell's commit
+        carry = self._carry
+        inherited_from = None
+        if best is None and carry is not None:
+            # Plan ruling P12: a carried position is never orphaned; the window keeps the most
+            # recent earlier window's configuration to manage it.
+            earlier = next(
+                (r for r in reversed(self.records[:window_index]) if r["best"] is not None), None
+            )
+            if earlier is not None:
+                best, inherited_from = earlier["best"], earlier["index"]
         if best is None:
             return {"unit": "oos", "oos": None}
         chosen = apply_parameters(self._base_side, best["params"])
         lead = lead_bars(max(spec.length for spec in chosen.indicators))
+        last = window_index == len(self.plan.windows) - 1
         settings = self.request.settings.model_copy(
             update={
                 "evaluate_from": datetime.fromisoformat(self.timestamps[window.oos_start]),
-                "initial_capital": self._chained_capital,
+                "initial_capital": self._chained_cash,
+                "initial_position": OpenPosition(**carry) if carry is not None else None,
+                "close_at_end": last,
             }
         )
         result = run_backtest(
@@ -359,13 +394,21 @@ class WalkForwardJob:
             cache=self.cache,
         )
         side = result[self.side]
+        rebased = rebase(
+            side["trades"], side["equity"], self._chained_equity, side["metrics"]["exposure"]
+        )
         return {
             "unit": "oos",
             "oos": {
                 "trades": flag_edge_exits(side["trades"]),
-                "equity": side["equity"],
-                "metrics": side["metrics"],
+                "equity": rebased["equity"],
+                "metrics": rebased["metrics"],
             },
+            "carried_in": carry is not None,
+            "inherited_from": inherited_from,
+            "open_position": side["open_position"],
+            "ending_cash": side["ending_cash"],
+            "ending_equity": side["ending_equity"],
         }
 
     def commit(self, index: int, result: dict) -> None:
@@ -389,11 +432,24 @@ class WalkForwardJob:
             return
         record["oos"] = oos
         record["status"] = "done"
-        record["efficiency"] = efficiency(
-            record["best"]["metrics"], record["is_bars"], oos["metrics"], record["oos_bars"]
+        record["inherited_from"] = result["inherited_from"]
+        record["efficiency"] = (
+            efficiency(
+                record["best"]["metrics"], record["is_bars"], oos["metrics"], record["oos_bars"]
+            )
+            if record["best"] is not None
+            else None
         )
-        if oos["equity"]:
-            self._chained_capital = float(oos["equity"][-1]["equity"])
+        record["carried_in"] = result["carried_in"]
+        record["ending_cash"] = result["ending_cash"]
+        record["ending_equity"] = result["ending_equity"]
+        open_position = result["open_position"]
+        record["open_at_end"] = open_position is not None
+        if open_position is not None and open_position.get("origin_window") is None:
+            open_position = {**open_position, "origin_window": window_index}
+        self._carry = open_position
+        self._chained_cash = float(result["ending_cash"])
+        self._chained_equity = float(result["ending_equity"])
 
     def release(self) -> None:
         """Drop the bar rows and the indicator cache once the job is terminal and persisted;
@@ -457,6 +513,7 @@ __all__ = [
     "longest_length",
     "pending_record",
     "plan",
+    "rebase",
     "select_best",
     "stability",
     "stitch",
