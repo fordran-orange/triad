@@ -10,7 +10,8 @@ folds in the nine minors deferred from Mission 5.
 Standing constraints carry over unchanged: the honesty rule (nothing fabricated is shown), pinned
 raw-archive provenance, one job at a time, Core imports neither product, exchange CLOSED, no
 broker path, Triad suspended with its scheduled autonomy disabled. This mission changes one file
-outside `app/products/aegis/`: the shared `pyproject.toml`, to add the `numba` dependency (§4.4).
+outside `app/products/aegis/`: the shared `pyproject.toml`, to declare `numba` as the optional
+extra `aegis` (§4.4); Core's required dependency list stays byte-for-byte unchanged.
 
 ## 1. The principle: peaks to plateaus
 
@@ -68,7 +69,7 @@ all of which must pass on the compiled engine):
     experiment, a delete of a running one, each a 422 or 409 naming the problem.
 13. `GET /aegis/api/status` still reports `human_directed` / `CLOSED`; no file under
     `app/trading_core/`, `app/platform_host/` or `app/products/triad/` changed; `pyproject.toml`
-    changed by the one dependency line only.
+    changed by the one optional-extra line only, with the required list unchanged.
 
 ## 3. Operator decisions recorded in this design
 
@@ -149,10 +150,20 @@ never the envelopes. Tests run with a pool of two.
 
 ### 4.4 Dependency
 
-`pyproject.toml` gains `"numba>=0.61,<0.69"` (0.68.0 installs for the venv's Python 3.12.10;
-llvmlite comes with it). Core and Triad run from the same venv but never import it; the
-architecture test asserts that. The install is reversible and pinned; the independent QA names
-it, as Mission 4's record named the Core helper.
+`pyproject.toml` gains an optional extra, `aegis = ["numba>=0.61,<0.69"]`, beside the existing
+`dev` extra; the required dependency list is untouched. The Aegis worker's install becomes
+`pip install -e .[aegis]` (0.68.0 installs for the venv's Python 3.12.10; llvmlite comes with
+it). For now the library still lands in the shared `.venv`, so Core and Triad could import it but
+never do: the architecture test asserts that no module under `app/trading_core/` or
+`app/products/triad/` imports numba. The install is reversible and pinned; the independent QA
+names it, as Mission 4's record named the Core helper.
+
+The long-term fix is one environment per product: each product with its own dependency manifest
+and virtual environment, and the supervisor launching each worker with its own interpreter, so a
+product library never enters Core's runtime. That touches `tools/start_product.ps1`, the Core
+supervisor and the install notes, so it is a Core-governed mission of its own with independent
+QA; the Mission 6 record carries it as the next open item. The `aegis` extra is the line that
+split will follow.
 
 ## 5. Surfaces and the planner
 
