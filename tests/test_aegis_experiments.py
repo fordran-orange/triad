@@ -254,10 +254,18 @@ def test_sampled_experiment_runs_first_pass_then_refinement(world, monkeypatch):
 
     def analyse(table, grid, objective, tolerance, mode, seed, data_label):
         run = sorted(table.column("cell").to_pylist())
-        return {"plateaus": [{"cells": run[:5], "centre": {"cell": run[0]}}]}
+        return {
+            "objective": objective,
+            "tolerance": tolerance,
+            "plateaus": [{"id": 1, "cells": run[:5], "centre": {"cell": run[0]}}],
+            "recommendation": None,
+            "statement": "stub",
+            "cells_named": [],
+        }
 
     stub = types.ModuleType("products.aegis.analysis")
     stub.analyse = analyse
+    stub.render_markdown = lambda report: "# stub"
     monkeypatch.setitem(sys.modules, "products.aegis.analysis", stub)
     surface = Surface(
         parameters=[
@@ -283,3 +291,156 @@ def test_sampled_experiment_runs_first_pass_then_refinement(world, monkeypatch):
     assert len(set(table.column("cell").to_pylist())) == 30
     assert len(doc.first_pass_cells) == 20 and len(doc.refinement_cells) == 10
     assert doc.progress["cells_done"] == 30 and doc.plan["sampled_fraction"] == 30 / 400
+
+
+# --- Mission 6 Task 6: reports on the document, decision, refine ------------------------------
+
+
+def finished(world, monkeypatch=None, **overrides):
+    repository, library, document = world
+    _runner, _job, _job_id, experiment_id = start(repository, library, document, **overrides)
+    assert wait_for(lambda: document_of(repository, experiment_id).status in ("done", "failed"))
+    doc = document_of(repository, experiment_id)
+    assert doc.status == "done", doc.error
+    return repository, doc
+
+
+def test_report_is_written_at_completion_and_can_be_recomputed(world, monkeypatch):
+    monkeypatch.setattr(exp, "CURVES_LIMIT", 5)  # a "large" experiment: curves only for named cells
+    repository, doc = finished(world)
+    store = exp.ExperimentStore(repository)
+    assert doc.latest_report == 1 and len(doc.reports) == 1
+    assert doc.reports[0]["objective"] == "net_pnl" and doc.reports[0]["tolerance"] == 0.15
+    report = store.read_report(doc.id, 1)
+    for key in (
+        "recommendation",
+        "plateaus",
+        "peaks",
+        "main_effects",
+        "sensitivity",
+        "clusters",
+        "statement",
+        "report_id",
+        "generated_at",
+    ):
+        assert key in report, key
+    assert report["report_id"] == 1 and report["valid_cells"] == 12
+    markdown = store.read_markdown(doc.id, 1)
+    assert markdown.startswith("# Recommendation")
+    named = set(report["cells_named"])
+    curves = store.curves(doc.id, range(12))
+    assert set(curves) == named and all(len(c) == 128 for c in curves.values())
+
+    doc, again = exp.recompute_report(store, doc, objective="max_drawdown", tolerance=0.10)
+    assert (
+        again["report_id"] == 2
+        and again["objective"] == "max_drawdown"
+        and again["tolerance"] == 0.10
+    )
+    assert doc.latest_report == 2 and [r["report_id"] for r in doc.reports] == [1, 2]
+    assert store.read_report(doc.id, 1)["objective"] == "net_pnl"
+    assert document_of(repository, doc.id).latest_report == 2
+
+
+def test_cancelled_experiment_reports_what_it_has(world):
+    repository, library, document = world
+
+    def after_unit(done):
+        if done == 1:
+            runner.cancel(job_id)
+
+    runner = JobRunner(repository, after_unit=after_unit)
+    runner, _job, job_id, experiment_id = start(repository, library, document, runner=runner)
+    assert wait_for(lambda: document_of(repository, experiment_id).status in ("cancelled", "done"))
+    doc = document_of(repository, experiment_id)
+    assert doc.status == "cancelled" and doc.latest_report == 1
+    report = exp.ExperimentStore(repository).read_report(doc.id, 1)
+    assert report["valid_cells"] == doc.progress["cells_done"] < 12
+    assert "cancelled" in report["statement"]
+
+
+def test_decision_round_trip(world):
+    repository, doc = finished(world)
+    store = exp.ExperimentStore(repository)
+    decided = exp.decide(store, doc, "accepted", "use the centre next week")
+    assert (
+        decided.decision["verdict"] == "accepted"
+        and decided.decision["notes"] == "use the centre next week"
+    )
+    assert (
+        decided.decision["decided_at"]
+        and document_of(repository, doc.id).decision == decided.decision
+    )
+    with pytest.raises(ValueError, match="verdict"):
+        exp.decide(store, doc, "maybe", "")
+    summary = next(s for s in repository.list_experiments() if s["id"] == doc.id)
+    assert summary["decision"]["verdict"] == "accepted"
+
+
+def test_refined_surface_narrows_to_the_plateau_plus_one_step():
+    from products.aegis.surface import build_grid
+
+    surface = Surface(
+        parameters=[
+            Parameter(path="long_side.indicators.donchian.length", start=10, stop=40, step=5),
+            Parameter(path="long_side.indicators.rsi.length", start=7, stop=28, step=7),
+        ]
+    )
+    grid = build_grid(pinned(), surface)
+    plateau = [
+        grid.index_of(
+            {"long_side.indicators.donchian.length": d, "long_side.indicators.rsi.length": 14}
+        )
+        for d in (20, 25)
+    ]
+    narrowed = exp.refined_surface(surface, grid, plateau)
+    assert [(p.start, p.stop, p.step) for p in narrowed.parameters] == [(15, 30, 5), (7, 21, 7)]
+    edge = [
+        grid.index_of(
+            {"long_side.indicators.donchian.length": 10, "long_side.indicators.rsi.length": 28}
+        )
+    ]
+    clipped = exp.refined_surface(surface, grid, edge)
+    assert [(p.start, p.stop) for p in clipped.parameters] == [(10, 15), (21, 28)]
+
+
+def test_refine_creates_a_queued_child_from_the_recommended_plateau(world):
+    repository, doc = finished(world)
+    store = exp.ExperimentStore(repository)
+    report = store.read_report(doc.id, 1)
+    from products.aegis.surface import build_grid
+
+    grid = build_grid(doc.spec, doc.surface)
+    plateau = [
+        grid.index_of(
+            {"long_side.indicators.donchian.length": 15, "long_side.indicators.rsi.length": r}
+        )
+        for r in (7, 14, 21)
+    ]
+    report["recommendation"] = {
+        "plateau": 1,
+        "centre": {"cell": plateau[1]},
+        "supported_peak": None,
+        "fragile_peaks": [],
+        "statement": "x",
+    }
+    report["plateaus"] = [{"id": 1, "cells": plateau, "centre": {"cell": plateau[1]}}]
+    store.write_report(doc.id, 1, report, "# Recommendation — x\n")
+    child = exp.refine(store, doc, bars=len(ROWS), max_workers=2)
+    assert child.parent == doc.id and child.status == "queued" and child.id != doc.id
+    assert child.name == f"{doc.name} · refined"
+    assert [(p.start, p.stop, p.step) for p in child.surface.parameters] == [
+        (10, 20, 5),
+        (7, 28, 7),
+    ]
+    assert (child.objective, child.budget, child.tolerance) == (
+        doc.objective,
+        doc.budget,
+        doc.tolerance,
+    )
+    assert child.spec == doc.spec and child.strategy_hash == doc.strategy_hash
+    assert document_of(repository, child.id).parent == doc.id
+    report["recommendation"] = None
+    store.write_report(doc.id, 1, report, "# Recommendation — none\n")
+    with pytest.raises(ValueError, match="no recommendation"):
+        exp.refine(store, doc, bars=len(ROWS), max_workers=2)

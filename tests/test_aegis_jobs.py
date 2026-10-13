@@ -146,3 +146,22 @@ def test_a_kind_may_override_its_persisted_terminal_status(tmp_path):
     assert wait_for(lambda: runner.status(job_id)["status"] == "cancelled")
     assert repository.get_experiment("exp-1")["status"] == "paused"
     assert runner.status(job_id)["status"] == "cancelled"  # the runner's own record is unchanged
+
+
+class Exploding(Counting):
+    """A kind whose finalize raises: the job must still be persisted as failed."""
+
+    name = "optimization"
+
+    def finalize(self, status):
+        raise RuntimeError("report blew up")
+
+
+def test_a_failing_finalize_is_persisted_as_failed(tmp_path):
+    repository = JsonRunRepository(tmp_path)
+    runner = JobRunner(repository)
+    job_id = runner.start(Exploding())
+    assert wait_for(lambda: runner.status(job_id)["status"] == "failed")
+    persisted = repository.get_optimization(job_id)
+    assert persisted["status"] == "failed"
+    assert "RuntimeError: report blew up" in persisted["error"]

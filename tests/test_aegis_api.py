@@ -919,3 +919,71 @@ def test_experiment_route_refusals(client, monkeypatch):
         ),
     )
     assert carried.status_code == 422 and "settings.close_at_end" in carried.text
+
+
+def test_experiment_report_decision_and_refine_routes(client, monkeypatch):
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    c, _, repository = client
+    _runner(repository)
+    created = c.post("/aegis/api/experiments", json=_experiment_body(c, name="reported"))
+    assert created.status_code == 202, created.text
+    experiment_id = created.json()["experiment_id"]
+    done = _wait_experiment(c, experiment_id, ("done", "failed"))
+    assert done["status"] == "done" and done["latest_report"] == 1
+
+    report = c.get(f"/aegis/api/experiments/{experiment_id}/report").json()
+    assert report["report_id"] == 1 and "statement" in report and report["objective"] == "net_pnl"
+    markdown = c.get(f"/aegis/api/experiments/{experiment_id}/report.md")
+    assert markdown.status_code == 200 and markdown.text.startswith("# Recommendation")
+    assert markdown.headers["content-type"].startswith("text/markdown")
+    again = c.post(
+        f"/aegis/api/experiments/{experiment_id}/report",
+        json={"objective": "trade_count", "tolerance": 0.2},
+    )
+    assert again.status_code == 200 and again.json()["report_id"] == 2
+    assert (
+        c.get(f"/aegis/api/experiments/{experiment_id}/report?n=1").json()["objective"] == "net_pnl"
+    )
+    assert c.get(f"/aegis/api/experiments/{experiment_id}/report?n=9").status_code == 404
+    bad = c.post(f"/aegis/api/experiments/{experiment_id}/report", json={"objective": "sharpe"})
+    assert bad.status_code == 422
+
+    decided = c.put(
+        f"/aegis/api/experiments/{experiment_id}/decision",
+        json={"verdict": "deferred", "notes": "later"},
+    )
+    assert decided.status_code == 200 and decided.json()["decision"]["verdict"] == "deferred"
+    assert (
+        c.put(
+            f"/aegis/api/experiments/{experiment_id}/decision",
+            json={"verdict": "maybe", "notes": ""},
+        ).status_code
+        == 422
+    )
+
+    from products.aegis import experiments as exp
+
+    store = exp.ExperimentStore(repository)
+    doc = store.get(experiment_id)
+    latest = store.read_report(experiment_id, doc.latest_report)
+    if latest["recommendation"] is None:  # 4 cells rarely plateau; give refine something to narrow
+        from products.aegis.surface import build_grid
+
+        grid = build_grid(doc.spec, doc.surface)
+        latest["recommendation"] = {
+            "plateau": 1,
+            "centre": {"cell": 0},
+            "supported_peak": None,
+            "fragile_peaks": [],
+            "statement": "x",
+        }
+        latest["plateaus"] = [{"id": 1, "cells": list(range(grid.size)), "centre": {"cell": 0}}]
+        store.write_report(experiment_id, doc.latest_report, latest, "# Recommendation — x\n")
+    refined = c.post(f"/aegis/api/experiments/{experiment_id}/refine")
+    assert refined.status_code == 201, refined.text
+    child = refined.json()
+    assert child["parent"] == experiment_id and child["status"] == "queued"
+    assert c.get(f"/aegis/api/experiments/{child['id']}").status_code == 200
+    latest["recommendation"] = None
+    store.write_report(experiment_id, doc.latest_report, latest, "# Recommendation — none\n")
+    assert c.post(f"/aegis/api/experiments/{experiment_id}/refine").status_code == 422

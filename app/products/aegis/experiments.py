@@ -11,6 +11,7 @@ an ordinary run whose hash proves it is the same computation.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import math
 import time
@@ -34,6 +35,7 @@ from products.aegis.strategy import StrategySpec
 from products.aegis.surface import (
     KERNEL_MS_PER_BAR,
     Budget,
+    Parameter,
     Surface,
     apply_params,
     build_grid,
@@ -277,6 +279,40 @@ class ExperimentStore:
             if len(found):
                 return found.to_pylist()[0]
         raise KeyError(cell)
+
+    def write_curves(self, experiment_id: str, chunk_index: int, rows: list[dict]) -> None:
+        curved = [r for r in rows if r.get("curve") is not None]
+        if curved:
+            name = f"{chunk_index:06d}.parquet"
+            _write_atomic(self.curves_dir(experiment_id) / name, _curves_table(curved))
+
+    # -- reports ------------------------------------------------------------------------------
+    def report_path(self, experiment_id: str, n: int, suffix: str = "json") -> Path:
+        folder = self.repository.experiment_dir(experiment_id, "cells").parent
+        return folder / f"{experiment_id}.report.{n}.{suffix}"
+
+    def write_report(self, experiment_id: str, n: int, report: dict, markdown: str) -> None:
+        path = self.report_path(experiment_id, n)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(report, allow_nan=False), encoding="utf-8")
+        tmp.replace(path)
+        md = self.report_path(experiment_id, n, "md")
+        md_tmp = md.with_name(md.name + ".tmp")
+        md_tmp.write_text(markdown, encoding="utf-8")
+        md_tmp.replace(md)
+
+    def read_report(self, experiment_id: str, n: int) -> dict:
+        path = self.report_path(experiment_id, n)
+        if not path.is_file():
+            raise KeyError(n)
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def read_markdown(self, experiment_id: str, n: int) -> str:
+        path = self.report_path(experiment_id, n, "md")
+        if not path.is_file():
+            raise KeyError(n)
+        return path.read_text(encoding="utf-8")
 
     def curves(self, experiment_id: str, cells: Iterable[int]) -> dict[int, list[float]]:
         wanted = set(cells)
@@ -538,16 +574,217 @@ class ExperimentJob:
     def finalize(self, status: str) -> dict:
         mapped = "paused" if status == "cancelled" and self.pause_requested else status
         self.status = mapped
-        self.document = self.document.model_copy(
-            update={"status": mapped, "progress": self._progress(), "updated_at": _now()}
-        )
+        update: dict[str, Any] = {
+            "status": mapped,
+            "progress": self._progress(),
+            "updated_at": _now(),
+        }
+        if mapped in ("done", "cancelled") and self.cells_done:
+            report = self._write_report(1, self.document.objective, self.document.tolerance, mapped)
+            entry = {
+                "report_id": 1,
+                "objective": report["objective"],
+                "tolerance": report["tolerance"],
+                "generated_at": report["generated_at"],
+            }
+            update["reports"] = [entry]
+            update["latest_report"] = 1
+        self.document = self.document.model_copy(update=update)
         return {"status": mapped}
+
+    def _write_report(self, n: int, objective: str, tolerance: float, status: str) -> dict:
+        """Analyse the cells on disk into report `n`; for a large experiment, also fetch the
+        curves of the cells the report names through the pool (plan ruling P7)."""
+        from products.aegis.analysis import analyse, render_markdown
+
+        table = self.store.cells(self.document.id)
+        report = analyse(
+            table,
+            self.grid,
+            objective,
+            tolerance,
+            self.document.plan["mode"],
+            self.document.seed,
+            self._data_label(),
+        )
+        if status == "cancelled":
+            report["statement"] = (
+                f"cancelled before completion ({self.cells_done} of "
+                f"{self.document.plan['planned_runs']} cells); " + report["statement"]
+            )
+        report["report_id"] = n
+        report["generated_at"] = _now()
+        if not self.keep_curves and self.pool is not None and report["cells_named"]:
+            have = set(self.store.curves(self.document.id, report["cells_named"]))
+            missing = [c for c in report["cells_named"] if c not in have]
+            if missing:
+                rows = self.pool.run_chunk(
+                    [(i, self.grid.cell_values(i)) for i in missing], want_curve=True
+                )
+                self.store.write_curves(self.document.id, 900_000 + n, rows)
+        self.store.write_report(self.document.id, n, report, render_markdown(report))
+        return report
 
     def release(self) -> None:
         if self.pool is not None:
             self.pool.shutdown()
             self.pool = None
         self.rows = []
+
+
+# --- reports, decision, refine ---------------------------------------------------------------
+
+
+def recompute_report(
+    store: ExperimentStore,
+    document: ExperimentDocument,
+    objective: str | None = None,
+    tolerance: float | None = None,
+) -> tuple[ExperimentDocument, dict]:
+    """Another report from the stored cells, kept beside the earlier ones (spec §8.1)."""
+    from products.aegis.analysis import analyse, render_markdown
+    from products.aegis.surface import build_grid
+
+    table = store.cells(document.id)
+    if table is None:
+        raise ValueError("no cells to analyse")
+    objective = objective or document.objective
+    tolerance = document.tolerance if tolerance is None else tolerance
+    grid = build_grid(document.spec, document.surface)
+    d = document.data
+    report = analyse(
+        table,
+        grid,
+        objective,
+        tolerance,
+        document.plan["mode"],
+        document.seed,
+        f"{d.symbol} {d.timeframe} {d.start} → {d.end}",
+    )
+    n = (document.latest_report or 0) + 1
+    while n in {r["report_id"] for r in document.reports}:
+        n += 1
+    report["report_id"] = n
+    report["generated_at"] = _now()
+    store.write_report(document.id, n, report, render_markdown(report))
+    entry = {
+        "report_id": n,
+        "objective": objective,
+        "tolerance": tolerance,
+        "generated_at": report["generated_at"],
+    }
+    updated = document.model_copy(
+        update={
+            "reports": [*document.reports, entry],
+            "latest_report": n,
+            "updated_at": _now(),
+        }
+    )
+    store.save(updated)
+    return updated, report
+
+
+VERDICTS = ("accepted", "rejected", "deferred")
+
+
+def decide(
+    store: ExperimentStore, document: ExperimentDocument, verdict: str, notes: str
+) -> ExperimentDocument:
+    if verdict not in VERDICTS:
+        raise ValueError(f"verdict must be one of {', '.join(VERDICTS)}")
+    updated = document.model_copy(
+        update={
+            "decision": {"verdict": verdict, "notes": notes, "decided_at": _now()},
+            "updated_at": _now(),
+        }
+    )
+    store.save(updated)
+    return updated
+
+
+def refined_surface(surface: Surface, grid, plateau_cells: list[int]) -> Surface:
+    """The surface narrowed to each parameter's span over the plateau, extended by one step
+    each way and clipped to the original range (spec §8.3)."""
+    positions = [grid.positions(cell) for cell in plateau_cells]
+    parameters = []
+    for k, parameter in enumerate(surface.parameters):
+        column = [p[k] for p in positions]
+        lo = max(0, min(column) - 1)
+        hi = min(grid.shape[k] - 1, max(column) + 1)
+        parameters.append(
+            Parameter(
+                path=parameter.path,
+                start=grid.values[k][lo],
+                stop=grid.values[k][hi],
+                step=parameter.step,
+            )
+        )
+    return Surface(parameters=parameters)
+
+
+def refine(
+    store: ExperimentStore,
+    document: ExperimentDocument,
+    bars: int,
+    max_workers: int,
+    timeframe: str | None = None,
+) -> ExperimentDocument:
+    """A queued child experiment around the latest report's recommended plateau, pinned to the
+    parent's spec (not the document's current one), with the same objective, budget and tolerance."""
+    from products.aegis.surface import build_grid
+
+    if document.latest_report is None:
+        raise ValueError("no report yet: nothing to refine")
+    report = store.read_report(document.id, document.latest_report)
+    recommendation = report.get("recommendation")
+    if not recommendation:
+        raise ValueError("the latest report has no recommendation to refine around")
+    plateau = next(
+        (p for p in report.get("plateaus", []) if p.get("id") == recommendation.get("plateau")),
+        None,
+    )
+    if plateau is None or not plateau.get("cells"):
+        raise ValueError("the latest report has no recommendation to refine around")
+    grid = build_grid(document.spec, document.surface)
+    narrowed = refined_surface(document.surface, grid, plateau["cells"])
+    price = store.last_ms_per_cell_bar() or KERNEL_MS_PER_BAR
+    planned = plan_surface(
+        document.spec, narrowed, document.budget, bars, price, max_workers, timeframe
+    )
+    now = _now()
+    name = f"{document.name} · refined"
+    chunk = CHUNK_CELLS
+    child = ExperimentDocument(
+        id=store.free_id(name),
+        name=name,
+        strategy_id=document.strategy_id,
+        strategy_hash=document.strategy_hash,
+        spec=document.spec,
+        data=document.data,
+        settings=document.settings,
+        objective=document.objective,
+        surface=narrowed,
+        budget=document.budget,
+        tolerance=document.tolerance,
+        seed=document.seed,
+        plan=planned.model_dump(mode="json"),
+        status="queued",
+        progress={
+            "cells_done": 0,
+            "cells_planned": planned.planned_runs,
+            "chunks_done": 0,
+            "chunks_total": math.ceil(planned.first_pass / chunk)
+            + math.ceil(planned.refinement / chunk),
+        },
+        engine="kernel" if kernel.AVAILABLE else "reference",
+        created_at=now,
+        updated_at=now,
+        parent=document.id,
+        workers=max_workers,
+        chunk_cells=chunk,
+    )
+    store.save(child)
+    return child
 
 
 # --- materialize -----------------------------------------------------------------------------
@@ -603,10 +840,15 @@ __all__ = [
     "CURVES_LIMIT",
     "CURVE_POINTS",
     "UNFINISHED",
+    "VERDICTS",
     "ExperimentDocument",
     "ExperimentJob",
     "ExperimentRequest",
     "ExperimentStore",
     "create",
+    "decide",
     "materialize",
+    "recompute_report",
+    "refine",
+    "refined_surface",
 ]

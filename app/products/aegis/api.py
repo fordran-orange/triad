@@ -13,8 +13,10 @@ import math
 import threading
 import time
 from functools import lru_cache
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from products.aegis import experiments as experiments_module
@@ -713,6 +715,99 @@ def materialize_cell(
         raise HTTPException(404, f"experiment {experiment_id} has no row for cell {cell}") from exc
     except RuntimeError as exc:
         raise HTTPException(500, str(exc)) from exc
+
+
+class ReportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    objective: experiments_module.Objective | None = None
+    tolerance: float | None = Field(default=None, gt=0, le=1)
+
+
+class DecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    verdict: Literal["accepted", "rejected", "deferred"]
+    notes: str = Field(default="", max_length=4000)
+
+
+@router.post("/experiments/{experiment_id}/report")
+def recompute_experiment_report(
+    experiment_id: str,
+    request: ReportRequest,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    document = _experiment(experiments, experiment_id)
+    if document.status in ("queued", "running"):
+        raise HTTPException(
+            409, f"experiment {experiment_id} is {document.status}; reports need its cells"
+        )
+    try:
+        _, report = experiments_module.recompute_report(
+            experiments, document, request.objective, request.tolerance
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return report
+
+
+@router.get("/experiments/{experiment_id}/report")
+def experiment_report(
+    experiment_id: str,
+    n: int | None = None,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    document = _experiment(experiments, experiment_id)
+    number = n if n is not None else document.latest_report
+    if number is None:
+        raise HTTPException(404, f"experiment {experiment_id} has no report yet")
+    try:
+        return experiments.read_report(experiment_id, number)
+    except KeyError as exc:
+        raise HTTPException(404, f"experiment {experiment_id} has no report {number}") from exc
+
+
+@router.get("/experiments/{experiment_id}/report.md")
+def experiment_report_markdown(
+    experiment_id: str,
+    n: int | None = None,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    document = _experiment(experiments, experiment_id)
+    number = n if n is not None else document.latest_report
+    if number is None:
+        raise HTTPException(404, f"experiment {experiment_id} has no report yet")
+    try:
+        text = experiments.read_markdown(experiment_id, number)
+    except KeyError as exc:
+        raise HTTPException(404, f"experiment {experiment_id} has no report {number}") from exc
+    return PlainTextResponse(text, media_type="text/markdown; charset=utf-8")
+
+
+@router.put("/experiments/{experiment_id}/decision")
+def decide_experiment(
+    experiment_id: str,
+    request: DecisionRequest,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    document = _experiment(experiments, experiment_id)
+    decided = experiments_module.decide(experiments, document, request.verdict, request.notes)
+    return decided.model_dump(mode="json")
+
+
+@router.post("/experiments/{experiment_id}/refine", status_code=201)
+def refine_experiment(
+    experiment_id: str,
+    store: ArchiveStore = STORE,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    document = _experiment(experiments, experiment_id)
+    frame, _ = _experiment_bars(document.data, store)
+    try:
+        child = experiments_module.refine(
+            experiments, document, len(frame), default_workers(), document.data.timeframe
+        )
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return child.model_dump(mode="json")
 
 
 @router.delete("/experiments/{experiment_id}")

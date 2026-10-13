@@ -166,6 +166,13 @@ class JobRunner:
             final = "failed"
             with self._lock:
                 job.error = job.error or f"{type(exc).__name__}: {exc}"
+                envelope = {**self._snapshot(job), "status": "failed", "error": job.error}
+            try:
+                self._save(
+                    kind.name, envelope
+                )  # a failed finalize must not leave "running" on disk
+            except Exception as save_exc:  # noqa: BLE001 - nothing more can be done but say so
+                log.warning("job %s could not be persisted as failed: %s", job.job_id, save_exc)
         finally:
             with self._lock:
                 job.status = final
