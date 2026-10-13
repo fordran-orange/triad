@@ -30,7 +30,9 @@ from products.aegis.runs import RunRepository
 # runner replaces it with the measured figure of the last completed job (persisted with it).
 MS_PER_BAR = 0.7
 UNFINISHED = ("queued", "running")
-KINDS = ("optimization", "walkforward")
+KINDS = ("optimization", "walkforward", "experiment")
+# Kinds persisted by their own id that survive a worker death as "paused", not "lost".
+RESUMABLE = ("experiment",)
 log = logging.getLogger("aegis")
 
 
@@ -145,8 +147,16 @@ class JobRunner:
                 if error:
                     job.error = error
                 job.extra = dict(kind.finalize(final))
-                envelope = {**self._snapshot(job), "status": final, "elapsed_ms": job.elapsed_ms}
+                # A kind may decide its persisted terminal status (an experiment pauses instead
+                # of cancelling); the runner's own record keeps `final`.
+                envelope = {
+                    **self._snapshot(job),
+                    "status": job.extra.get("status", final),
+                    "elapsed_ms": job.elapsed_ms,
+                }
             self._save(kind.name, envelope)
+            with self._lock:
+                job.status = final  # published before release(), which may take a while
             if final == "done" and job.ms_per_bar:
                 self.ms_per_bar = job.ms_per_bar
             release = getattr(kind, "release", None)
@@ -186,7 +196,6 @@ class JobRunner:
             "job_id": job.job_id,
             "kind": kind.name,
             "side": kind.side,
-            "status": job.status,
             "created_at": job.created_at,
             "progress": {"done": job.done, "total": total},
             "elapsed_ms": elapsed_ms,
@@ -196,6 +205,7 @@ class JobRunner:
             "error": job.error,
             **kind.snapshot(),
             **job.extra,
+            "status": job.status,
         }
 
     # -- queries ------------------------------------------------------------------------------
@@ -214,6 +224,13 @@ class JobRunner:
             except (KeyError, ValueError, AttributeError):
                 continue
         raise KeyError(job_id)
+
+    def job_kind(self, job_id: str):
+        """The kind object of an unfinished in-memory job, or None (a route may set a flag on it,
+        such as an experiment's pause request, before cancelling)."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return job.kind if job is not None and job.status in UNFINISHED else None
 
     def cancel(self, job_id: str) -> bool:
         with self._lock:
@@ -242,12 +259,14 @@ class JobRunner:
         """Persisted jobs of any kind still queued/running belong to a dead worker: mark them lost."""
         lost = []
         for name in KINDS:
+            resumable = name in RESUMABLE
             for summary in self._list(name):
                 if summary.get("status") in UNFINISHED:
-                    envelope = self._get(name, summary["job_id"])
-                    envelope["status"] = "lost"
+                    key = summary["id"] if resumable else summary["job_id"]
+                    envelope = self._get(name, key)
+                    envelope["status"] = "paused" if resumable else "lost"
                     self._save(name, envelope)
-                    lost.append(summary["job_id"])
+                    lost.append(key)
         return lost
 
     def list_jobs(self, name: str | None = None) -> list[dict]:
@@ -257,4 +276,12 @@ class JobRunner:
         return sorted(items, key=lambda s: s.get("created_at", ""), reverse=True)
 
 
-__all__ = ["KINDS", "MS_PER_BAR", "UNFINISHED", "JobBusy", "JobRunner", "estimate_seconds"]
+__all__ = [
+    "KINDS",
+    "MS_PER_BAR",
+    "RESUMABLE",
+    "UNFINISHED",
+    "JobBusy",
+    "JobRunner",
+    "estimate_seconds",
+]

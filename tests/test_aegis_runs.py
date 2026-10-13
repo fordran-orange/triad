@@ -117,3 +117,40 @@ def test_strategies_kind_saves_lists_and_deletes(tmp_path):
     assert list((tmp_path / "aegis" / "strategies").iterdir()) == []
     with pytest.raises(KeyError):
         repo.delete_strategy("breakout")
+
+
+def test_experiments_kind_saves_lists_and_deletes_its_files(tmp_path):
+    repo = JsonRunRepository(tmp_path / "aegis")
+    document = {
+        "id": "twelve",
+        "name": "twelve cells",
+        "strategy_id": "breakout",
+        "status": "done",
+        "objective": "net_pnl",
+        "plan": {
+            "mode": "exhaustive",
+            "planned_runs": 12,
+            "valid_cells": 12,
+            "sampled_fraction": 1.0,
+        },
+        "surface": {"parameters": [{"path": "a", "start": 1, "stop": 2, "step": 1}]},
+        "progress": {"cells_done": 12, "cells_planned": 12, "chunks_done": 3, "chunks_total": 3},
+        "created_at": "2026-10-12T01:00:00+00:00",
+        "updated_at": "2026-10-12T01:00:00+00:00",
+    }
+    assert repo.save_experiment(document) == "twelve"
+    assert repo.get_experiment("twelve") == document
+    [summary] = repo.list_experiments()
+    assert (
+        summary["id"] == "twelve" and summary["mode"] == "exhaustive" and summary["parameters"] == 1
+    )
+    assert "surface" not in summary
+    cells = repo.experiment_dir("twelve", "cells")
+    cells.mkdir(parents=True)
+    (cells / "000000.parquet").write_bytes(b"x")
+    (tmp_path / "aegis" / "experiments" / "twelve.report.1.json").write_text("{}", encoding="utf-8")
+    repo.delete_experiment("twelve")
+    assert repo.list_experiments() == [] and not cells.exists()
+    assert not (tmp_path / "aegis" / "experiments" / "twelve.report.1.json").exists()
+    with pytest.raises(KeyError):
+        repo.delete_experiment("twelve")

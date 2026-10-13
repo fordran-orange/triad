@@ -196,16 +196,28 @@ class Grid:
 
     def apply_cell(self, spec: StrategySpec, params: dict[str, float]) -> StrategySpec:
         """The pinned spec with one cell's values applied to both sides."""
-        per_side: dict[str, dict[str, float]] = {}
-        for k, path in enumerate(self.paths):
-            side_key = self.fields[k][0]
-            relative = path.split(".", 1)[1]
-            per_side.setdefault(side_key, {})[relative] = params[path]
-        update = {
-            side_key: apply_parameters(getattr(spec, side_key), values)
-            for side_key, values in per_side.items()
-        }
-        return spec.model_copy(update=update)
+        return apply_params(spec, params)
+
+
+def apply_params(spec: StrategySpec, params: dict[str, float]) -> StrategySpec:
+    """The spec with side-prefixed parameter paths applied; `ValueError` for an unknown path and
+    Pydantic's `ValidationError` for an invalid combination."""
+    per_side: dict[str, dict[str, float]] = {}
+    for path, value in params.items():
+        parts = path.split(".", 1)
+        if len(parts) != 2 or parts[0] not in SIDE_KEYS:
+            raise ValueError(f"unknown parameter path {path!r}")
+        per_side.setdefault(parts[0], {})[parts[1]] = value
+    update = {
+        side_key: apply_parameters(getattr(spec, side_key), values)
+        for side_key, values in per_side.items()
+    }
+    return spec.model_copy(update=update)
+
+
+def skip_reason_of(exc: ValidationError) -> str:
+    """The validator's message without its numbers, as the grid's skip tables spell it."""
+    return _reason(exc)
 
 
 def build_grid(spec: StrategySpec, surface: Surface) -> Grid:
@@ -472,9 +484,11 @@ __all__ = [
     "Parameter",
     "Plan",
     "Surface",
+    "apply_params",
     "build_grid",
     "current_value",
     "effective_workers",
     "plan",
     "resolve_path",
+    "skip_reason_of",
 ]

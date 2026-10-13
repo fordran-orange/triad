@@ -12,14 +12,13 @@ import logging
 import math
 import threading
 import time
-import uuid
-from datetime import UTC, datetime
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from products.aegis.backtest import BacktestRequest, DataReference, markers, run_backtest
+from products.aegis import experiments as experiments_module
+from products.aegis.backtest import BacktestRequest, DataReference, run_backtest
 from products.aegis.data import (
     TIMEFRAMES,
     ArchiveStore,
@@ -32,7 +31,8 @@ from products.aegis.indicators import IndicatorCache, compute
 from products.aegis.jobs import JobBusy, JobRunner, estimate_seconds
 from products.aegis.kinds import kind_info
 from products.aegis.optimize import OptimizeRequest, OptimizerJob, engine_rows, expand_grid
-from products.aegis.results import canonical_payload, result_hash, strategy_hash
+from products.aegis.pool import default_workers
+from products.aegis.results import envelope
 from products.aegis.runs import JsonRunRepository, RunRepository
 from products.aegis.strategies import BuiltinRefused, StrategyLibrary, StrategyReferenced
 from products.aegis.strategy import IndicatorSpec, StrategySpec
@@ -185,24 +185,14 @@ def _envelope(request: BacktestRequest, store: ArchiveStore, cache: IndicatorCac
         result = run_backtest(engine_request, cache=cache)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    payload = canonical_payload(result, request.strategy, identity)
-    return {
-        "run_id": str(uuid.uuid4()),
-        "created_at": datetime.now(UTC).isoformat(),
-        "elapsed_ms": int((time.perf_counter() - started) * 1000),
-        "result_hash": result_hash(payload),
-        "data": identity,
-        "strategy_id": request.strategy.id,
-        "strategy_hash": strategy_hash(request.strategy),
-        "strategy": request.strategy.model_dump(mode="json"),
-        "settings": request.settings.model_dump(mode="json"),
-        "result": payload,
-        "series": {"long": result["long"]["series"], "short": result["short"]["series"]},
-        "markers": markers(result),
-        "cache_hits": cache.hits - hits_before,
-        "engine": result["engine"],
-        "state": "ok",
-    }
+    return envelope(
+        result,
+        request.strategy,
+        request.settings,
+        identity,
+        int((time.perf_counter() - started) * 1000),
+        cache.hits - hits_before,
+    )
 
 
 @router.post("/backtest")
@@ -499,6 +489,243 @@ def delete_strategy(strategy_id: str, library: StrategyLibrary = LIBRARY):
     except KeyError as exc:
         raise HTTPException(404, f"unknown strategy {strategy_id!r}") from exc
     return {"deleted": strategy_id}
+
+
+# --- experiments (Mission 6 spec §5.6, §6) --------------------------------------------------
+
+
+def get_experiment_store(
+    repository: RunRepository = REPOSITORY,
+) -> experiments_module.ExperimentStore:
+    return experiments_module.ExperimentStore(repository)
+
+
+EXPERIMENTS = Depends(get_experiment_store)
+
+
+def _experiment(store: experiments_module.ExperimentStore, experiment_id: str):
+    try:
+        return store.get(experiment_id)
+    except KeyError as exc:
+        raise HTTPException(404, f"unknown experiment {experiment_id!r}") from exc
+
+
+def _experiment_bars(request_data: DataReference, store: ArchiveStore):
+    return _select(
+        store, request_data.symbol, request_data.timeframe, request_data.start, request_data.end
+    )
+
+
+@router.post("/experiments/plan")
+def experiment_plan(
+    request: experiments_module.ExperimentRequest,
+    store: ArchiveStore = STORE,
+    library: StrategyLibrary = LIBRARY,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    """What a start would do: mode, counts, estimate and the ways back into scope."""
+    frame, _ = _experiment_bars(request.data, store)
+    document = _document(library, request.strategy_id)
+    try:
+        from products.aegis.surface import KERNEL_MS_PER_BAR
+        from products.aegis.surface import plan as plan_surface
+
+        planned = plan_surface(
+            document.spec,
+            request.surface,
+            request.budget,
+            len(frame),
+            experiments.last_ms_per_cell_bar() or KERNEL_MS_PER_BAR,
+            default_workers(),
+            request.data.timeframe,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return planned.model_dump(mode="json")
+
+
+def _start_experiment(
+    document, store: ArchiveStore, runner: JobRunner, repository: RunRepository
+) -> str | None:
+    """Start (or resume) the runner job for a document; None when another job is running."""
+    frame, pinned = _experiment_bars(document.data, store)
+    job = experiments_module.ExperimentJob(
+        document, engine_rows(frame, document.data.symbol), pinned, repository
+    )
+    try:
+        return runner.start(job)
+    except JobBusy:
+        return None
+
+
+@router.post("/experiments", status_code=202)
+def create_experiment(
+    request: experiments_module.ExperimentRequest,
+    store: ArchiveStore = STORE,
+    runner: JobRunner = RUNNER,
+    repository: RunRepository = REPOSITORY,
+    library: StrategyLibrary = LIBRARY,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    frame, _ = _experiment_bars(request.data, store)
+    _document(library, request.strategy_id)
+    try:
+        document = experiments_module.create(
+            experiments, library, request, len(frame), default_workers(), request.data.timeframe
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    job_id = _start_experiment(document, store, runner, repository)
+    return {
+        "experiment_id": document.id,
+        "job_id": job_id,
+        "status": "queued" if job_id is None else "running",
+        "plan": document.plan,
+    }
+
+
+@router.get("/experiments")
+def list_experiments(experiments: experiments_module.ExperimentStore = EXPERIMENTS):
+    return experiments.list()
+
+
+@router.get("/experiments/{experiment_id}")
+def experiment_document(
+    experiment_id: str, experiments: experiments_module.ExperimentStore = EXPERIMENTS
+):
+    return _experiment(experiments, experiment_id).model_dump(mode="json")
+
+
+@router.post("/experiments/{experiment_id}/pause")
+def pause_experiment(
+    experiment_id: str,
+    runner: JobRunner = RUNNER,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    document = _experiment(experiments, experiment_id)
+    if document.status != "running" or not document.job_id:
+        raise HTTPException(409, f"experiment {experiment_id} is {document.status}, not running")
+    job = runner.job_kind(document.job_id)
+    if job is None:
+        raise HTTPException(409, f"experiment {experiment_id} has no running job on this worker")
+    job.pause_requested = True
+    runner.cancel(document.job_id)
+    return {"paused": experiment_id}
+
+
+@router.post("/experiments/{experiment_id}/resume", status_code=202)
+def resume_experiment(
+    experiment_id: str,
+    store: ArchiveStore = STORE,
+    runner: JobRunner = RUNNER,
+    repository: RunRepository = REPOSITORY,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    document = _experiment(experiments, experiment_id)
+    if document.status not in ("queued", "paused"):
+        raise HTTPException(
+            409,
+            f"experiment {experiment_id} is {document.status}; only queued or paused experiments resume",
+        )
+    job_id = _start_experiment(document, store, runner, repository)
+    if job_id is None:
+        raise HTTPException(409, "an optimization is already running")
+    return {"experiment_id": experiment_id, "job_id": job_id, "status": "running"}
+
+
+@router.post("/experiments/{experiment_id}/cancel")
+def cancel_experiment(
+    experiment_id: str,
+    runner: JobRunner = RUNNER,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    document = _experiment(experiments, experiment_id)
+    if document.status == "queued" or (document.status == "paused" and not document.job_id):
+        experiments.save(document.model_copy(update={"status": "cancelled"}))
+        return {"cancelled": True}
+    if document.status != "running" or not document.job_id:
+        raise HTTPException(409, f"experiment {experiment_id} is {document.status}, not running")
+    return {"cancelled": runner.cancel(document.job_id)}
+
+
+@router.get("/experiments/{experiment_id}/cells")
+def experiment_cells(
+    experiment_id: str,
+    offset: int = 0,
+    limit: int = Query(200, ge=1, le=5000),
+    sort: str | None = None,
+    descending: bool = False,
+    valid_only: bool = False,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    _experiment(experiments, experiment_id)
+    table = experiments.cells(experiment_id)
+    if table is None:
+        return {"total": 0, "rows": [], "columns": []}
+    import pyarrow.compute as pc
+
+    if valid_only:
+        table = table.filter(pc.equal(table.column("valid"), True))
+    if sort:
+        if sort not in table.column_names:
+            raise HTTPException(422, f"unknown sort column {sort!r}")
+        table = table.sort_by([(sort, "descending" if descending else "ascending")])
+    total = len(table)
+    page = table.slice(offset, limit)
+    return {"total": total, "rows": page.to_pylist(), "columns": table.column_names}
+
+
+@router.get("/experiments/{experiment_id}/curves")
+def experiment_curves(
+    experiment_id: str,
+    cells: str = Query("", description="comma-separated cell indices"),
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    _experiment(experiments, experiment_id)
+    try:
+        wanted = [int(part) for part in cells.split(",") if part.strip()]
+    except ValueError as exc:
+        raise HTTPException(422, "cells must be integers") from exc
+    found = experiments.curves(experiment_id, wanted[:64])
+    return {str(cell): curve for cell, curve in found.items()}
+
+
+@router.post("/experiments/{experiment_id}/cells/{cell}/materialize")
+def materialize_cell(
+    experiment_id: str,
+    cell: int,
+    store: ArchiveStore = STORE,
+    repository: RunRepository = REPOSITORY,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    document = _experiment(experiments, experiment_id)
+    frame, pinned = _experiment_bars(document.data, store)
+    try:
+        return experiments_module.materialize(
+            document,
+            experiments,
+            repository,
+            engine_rows(frame, document.data.symbol),
+            pinned,
+            cell,
+        )
+    except KeyError as exc:
+        raise HTTPException(404, f"experiment {experiment_id} has no row for cell {cell}") from exc
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+@router.delete("/experiments/{experiment_id}")
+def delete_experiment(
+    experiment_id: str, experiments: experiments_module.ExperimentStore = EXPERIMENTS
+):
+    document = _experiment(experiments, experiment_id)
+    if document.status in experiments_module.UNFINISHED:
+        raise HTTPException(
+            409, f"experiment {experiment_id} is {document.status}; cancel it first"
+        )
+    experiments.delete(experiment_id)
+    return {"deleted": experiment_id}
 
 
 __all__ = [

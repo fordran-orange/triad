@@ -8,6 +8,11 @@ export interface BacktestSettings {
   close_at_end?: boolean;
 }
 
+export interface Budget {
+  runs?: number | null;
+  seconds?: number | null;
+}
+
 export interface ClockWindow {
   id: string;
   label: string;
@@ -57,6 +62,18 @@ export interface IndicatorSpec {
   params?: Record<string, number>;
 }
 
+export interface Lever {
+  kind: 'coarsen' | 'narrow' | 'freeze' | 'shorten' | 'coarser_timeframe' | 'raise_budget';
+  parameter: string | null;
+  label: string;
+  valid_cells: number;
+  estimate_seconds: number;
+  fits: boolean;
+  surface?: Surface | null;
+  budget?: Budget | null;
+  data_hint?: string | null;
+}
+
 export interface MarketCrossover {
   id: string;
   label: string;
@@ -83,6 +100,13 @@ export interface OpenPosition {
 export interface OptimizationParameter {
   path: string;
   enabled?: boolean;
+  start: number;
+  stop: number;
+  step: number;
+}
+
+export interface Parameter {
+  path: string;
   start: number;
   stop: number;
   step: number;
@@ -118,6 +142,10 @@ export interface StrategySpec {
   short_side: StrategySide;
   temporal: TemporalContext;
   execution: ExecutionSpec;
+}
+
+export interface Surface {
+  parameters: Parameter[];
 }
 
 export interface TemporalContext {
@@ -177,6 +205,67 @@ export interface StrategyDocument {
   strategy_hash: string;
   parent?: string | null;
   builtin?: boolean;
+}
+
+export interface ExperimentRequest {
+  name: string;
+  strategy_id: string;
+  data: DataReference;
+  settings?: BacktestSettings;
+  objective?: 'net_pnl' | 'net_return' | 'cagr' | 'max_drawdown' | 'mar' | 'win_rate' | 'expectancy' | 'profit_factor' | 'trade_count' | 'exposure';
+  surface: Surface;
+  budget: Budget;
+  tolerance?: number;
+  seed?: number;
+}
+
+export interface ExperimentDocument {
+  id: string;
+  name: string;
+  strategy_id: string;
+  strategy_hash: string;
+  spec: StrategySpec;
+  data: DataReference;
+  settings: BacktestSettings;
+  objective: 'net_pnl' | 'net_return' | 'cagr' | 'max_drawdown' | 'mar' | 'win_rate' | 'expectancy' | 'profit_factor' | 'trade_count' | 'exposure';
+  surface: Surface;
+  budget: Budget;
+  tolerance: number;
+  seed: number;
+  plan: Record<string, unknown>;
+  status: 'queued' | 'running' | 'paused' | 'done' | 'cancelled' | 'failed';
+  progress: Record<string, unknown>;
+  ms_per_cell_bar?: number | null;
+  engine?: string;
+  created_at: string;
+  updated_at: string;
+  parent?: string | null;
+  decision?: Record<string, unknown> | null;
+  reports?: Record<string, unknown>[];
+  latest_report?: number | null;
+  job_id?: string | null;
+  error?: string | null;
+  first_pass_cells?: number[] | null;
+  refinement_cells?: number[] | null;
+  workers?: number;
+  chunk_cells?: number;
+}
+
+export interface Plan {
+  mode: 'exhaustive' | 'sampled';
+  grid_cells: number;
+  valid_cells: number;
+  skipped: number;
+  skip_reasons: Record<string, number>;
+  planned_runs: number;
+  first_pass: number;
+  refinement: number;
+  sampled_fraction: number;
+  estimate_seconds: number;
+  ms_per_cell_bar: number;
+  workers: number;
+  bars: number;
+  levers?: Lever[];
 }
 
 export interface IndicatorKind {

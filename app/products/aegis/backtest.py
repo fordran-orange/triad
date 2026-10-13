@@ -657,6 +657,145 @@ def _simulate_side_kernel(
     }
 
 
+def _metrics_arrays(
+    net_pnls: list[float],
+    equity: np.ndarray,
+    drawdown: np.ndarray,
+    first_stamp,
+    last_stamp,
+    initial_capital: float,
+    exposure: float,
+) -> dict:
+    """`_metrics` from the kernel's arrays, formula for formula (the experiment pool's path)."""
+    n = len(equity)
+    ending = float(equity[-1]) if n else initial_capital
+    wins = [p for p in net_pnls if p > 0]
+    losses = [p for p in net_pnls if p < 0]
+    max_dd = max((-float(v) for v in drawdown), default=0.0)
+    if n:
+        days = max((last_stamp - first_stamp).total_seconds() / 86400, 0)
+    else:
+        days = 0
+    cagr = (ending / initial_capital) ** (365.25 / days) - 1 if days >= 365 and ending > 0 else None
+    return {
+        "net_pnl": ending - initial_capital,
+        "net_return": ending / initial_capital - 1,
+        "cagr": cagr,
+        "max_drawdown": max_dd,
+        "mar": cagr / max_dd if cagr is not None and max_dd > 0 else None,
+        "win_rate": len(wins) / len(net_pnls) if net_pnls else None,
+        "expectancy": sum(net_pnls) / len(net_pnls) if net_pnls else None,
+        "profit_factor": sum(wins) / abs(sum(losses)) if losses else None,
+        "trade_count": len(net_pnls),
+        "exposure": exposure,
+    }
+
+
+def _side_metrics(
+    frame: pd.DataFrame,
+    strategy: StrategySpec,
+    side: str,
+    settings: BacktestSettings,
+    cache: IndicatorCache,
+    data_key: str,
+) -> tuple[list[dict], dict, list[bool]]:
+    """(lite trades, metrics, exposure flags) of one side from the kernel; no series, no
+    per-bar dicts, no tags. Carried positions are not supported here (experiments never carry)."""
+    spec = strategy.long_side if side == "LONG" else strategy.short_side
+    if not spec.enabled:
+        return [], _metrics([], [], settings.initial_capital), []
+    data = _side_frame(frame, spec, cache, data_key)
+    n = len(data)
+    trades_array, n_trades, equity, drawdown, in_flags, n_points, _scalars, _ = (
+        kernel.simulate_arrays(
+            data["open"].to_numpy(dtype=np.float64),
+            data["high"].to_numpy(dtype=np.float64),
+            data["low"].to_numpy(dtype=np.float64),
+            data["close"].to_numpy(dtype=np.float64),
+            data["entry_signal"].to_numpy(dtype=np.bool_),
+            data["exit_signal"].to_numpy(dtype=np.bool_),
+            data["warm"].to_numpy(dtype=np.bool_),
+            np.ones(n, dtype=np.bool_),
+            permitted_mask(frame, strategy.temporal, data_key),
+            _side_sign(side),
+            settings.initial_capital,
+            settings.allocation_fraction,
+            strategy.execution.commission_per_side,
+            strategy.execution.slippage_bps,
+            True,
+            np.zeros(6),
+        )
+    )
+    timestamps = data["timestamp"]
+    trades = [
+        {"exit_time": timestamps.iloc[int(row[1])].isoformat(), "net_pnl": float(row[8])}
+        for row in trades_array[:n_trades]
+    ]
+    flags = [bool(flag) for flag in in_flags[:n_points]]
+    metrics = _metrics_arrays(
+        [t["net_pnl"] for t in trades],
+        equity[:n_points],
+        drawdown[:n_points],
+        timestamps.iloc[0],
+        timestamps.iloc[n - 1],
+        settings.initial_capital,
+        _fraction(flags),
+    )
+    return trades, metrics, flags
+
+
+def run_metrics(
+    request: BacktestRequest,
+    frame: pd.DataFrame,
+    data_key: str,
+    cache: IndicatorCache,
+    want_curve: bool = False,
+) -> dict:
+    """Metrics only, for the experiment pool (Mission 6): equal to `run_backtest`'s metrics for
+    the same request, at a fraction of the cost. Falls back to the full reference path when the
+    kernel is unavailable."""
+    validate(request.strategy.temporal)
+    _check_initial_position(request)
+    _check_warmup(frame, request.strategy)
+    if not kernel.AVAILABLE:
+        full = run_prepared(request, frame, data_key, cache)
+        curve = [float(p["equity"]) for p in full["combined"]["equity"]] if want_curve else None
+        return {
+            "long": full["long"]["metrics"],
+            "short": full["short"]["metrics"],
+            "combined": full["combined"]["metrics"],
+            "engine": full["engine"],
+            "curve": curve,
+            "first_time": frame["timestamp"].iloc[0].isoformat(),
+            "last_time": frame["timestamp"].iloc[-1].isoformat(),
+        }
+    long_trades, long_metrics, long_flags = _side_metrics(
+        frame, request.strategy, "LONG", request.settings, cache, data_key
+    )
+    short_trades, short_metrics, short_flags = _side_metrics(
+        frame, request.strategy, "SHORT", request.settings, cache, data_key
+    )
+    combined = _combine(
+        {"trades": long_trades}, {"trades": short_trades}, request.settings.initial_capital
+    )
+    length = max(len(long_flags), len(short_flags))
+    union = [
+        (long_flags[i] if i < len(long_flags) else False)
+        or (short_flags[i] if i < len(short_flags) else False)
+        for i in range(length)
+    ]
+    combined["metrics"]["exposure"] = _fraction(union)
+    return {
+        "long": long_metrics,
+        "short": short_metrics,
+        "combined": combined["metrics"],
+        "engine": "kernel",
+        "curve": [float(p["equity"]) for p in combined["equity"]] if want_curve else None,
+        "first_time": frame["timestamp"].iloc[0].isoformat(),
+        "last_time": frame["timestamp"].iloc[-1].isoformat(),
+    }
+
+
 def _carried(position: dict, trade: dict) -> dict:
     """A trade closing a position that was carried in names the window it came from; trades of
     plain runs are left exactly as before so their hashes do not move."""

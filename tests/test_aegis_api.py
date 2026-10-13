@@ -748,3 +748,174 @@ def test_backtest_envelope_names_its_engine(client):
     reference = c.post("/aegis/api/backtest", json={**payload, "engine": "reference"}).json()
     assert reference["engine"] == "reference"
     assert reference["result_hash"] == body["result_hash"]
+
+
+# --- experiments (Mission 6 spec §5.6, §6) ----------------------------------------------------
+
+
+def _experiment_body(c, name="four cells", **overrides):
+    """A saved breakout document and a 4-cell surface that fits the synthetic 52-bar archive."""
+    from test_aegis_surface import pinned
+
+    listed = c.get("/aegis/api/strategies").json()
+    doc = next((d for d in listed if d["name"] == "Breakout for experiments"), None)
+    if doc is None:
+        doc = c.post(
+            "/aegis/api/strategies",
+            json={"name": "Breakout for experiments", "spec": pinned().model_dump(mode="json")},
+        ).json()
+    body = {
+        "name": name,
+        "strategy_id": doc["id"],
+        "data": {"symbol": "QQQ", "timeframe": "15m", **RANGE},
+        "settings": {"initial_capital": 100000, "allocation_fraction": 1},
+        "objective": "net_pnl",
+        "surface": {
+            "parameters": [
+                {
+                    "path": "long_side.indicators.donchian.length",
+                    "start": 10,
+                    "stop": 15,
+                    "step": 5,
+                },
+                {"path": "long_side.indicators.rsi.length", "start": 7, "stop": 14, "step": 7},
+            ]
+        },
+        "budget": {"runs": 100},
+    }
+    body.update(overrides)
+    return body
+
+
+def _wait_experiment(c, experiment_id, statuses, timeout=120.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        body = c.get(f"/aegis/api/experiments/{experiment_id}").json()
+        if body["status"] in statuses:
+            return body
+        time.sleep(0.05)
+    raise AssertionError(f"experiment {experiment_id} never reached {statuses}")
+
+
+def test_experiment_plan_route(client, monkeypatch):
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    c, _, _ = client
+    response = c.post("/aegis/api/experiments/plan", json=_experiment_body(c))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["mode"] == "exhaustive" and body["grid_cells"] == body["valid_cells"] == 4
+    assert body["bars"] == 52 and body["workers"] == 2 and body["levers"] == []
+    for key in (
+        "planned_runs",
+        "first_pass",
+        "refinement",
+        "sampled_fraction",
+        "estimate_seconds",
+        "ms_per_cell_bar",
+        "skip_reasons",
+    ):
+        assert key in body
+    bad = c.post(
+        "/aegis/api/experiments/plan",
+        json=_experiment_body(
+            c,
+            surface={
+                "parameters": [
+                    {"path": "long_side.indicators.nope.length", "start": 1, "stop": 2, "step": 1}
+                ]
+            },
+        ),
+    )
+    assert bad.status_code == 422 and "long_side.indicators.nope.length" in bad.text
+
+
+def test_experiment_runs_pauses_resumes_cancels_and_materializes(client, monkeypatch):
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    from products.aegis import experiments as exp
+
+    monkeypatch.setattr(exp, "CHUNK_CELLS", 2)
+    c, _, repository = client
+    _runner(repository)
+    created = c.post("/aegis/api/experiments", json=_experiment_body(c))
+    assert created.status_code == 202, created.text
+    experiment_id = created.json()["experiment_id"]
+    assert created.json()["job_id"]
+    done = _wait_experiment(c, experiment_id, ("done", "failed"))
+    assert done["status"] == "done", done.get("error")
+    assert done["progress"]["cells_done"] == 4 and done["engine"] == "kernel"
+    listed = c.get("/aegis/api/experiments").json()
+    assert any(item["id"] == experiment_id and item["status"] == "done" for item in listed)
+
+    cells = c.get(
+        f"/aegis/api/experiments/{experiment_id}/cells?limit=3&sort=combined.net_pnl&descending=true"
+    ).json()
+    assert cells["total"] == 4 and len(cells["rows"]) == 3
+    values = [r["combined.net_pnl"] for r in cells["rows"]]
+    assert values == sorted(values, reverse=True)
+    curves = c.get(f"/aegis/api/experiments/{experiment_id}/curves?cells=0,1").json()
+    assert set(curves) == {"0", "1"} and len(curves["0"]) == 128
+
+    materialized = c.post(f"/aegis/api/experiments/{experiment_id}/cells/0/materialize")
+    assert materialized.status_code == 200, materialized.text
+    again = c.post(f"/aegis/api/experiments/{experiment_id}/cells/0/materialize").json()
+    assert materialized.json()["result_hash"] == again["result_hash"]
+    assert (
+        materialized.json()["experiment_id"] == experiment_id and materialized.json()["cell"] == 0
+    )
+    assert c.post(f"/aegis/api/experiments/{experiment_id}/cells/99/materialize").status_code == 404
+
+    assert c.post(f"/aegis/api/experiments/{experiment_id}/pause").status_code == 409  # finished
+    assert c.post(f"/aegis/api/experiments/{experiment_id}/resume").status_code == 409
+    assert c.delete(f"/aegis/api/experiments/{experiment_id}").json() == {"deleted": experiment_id}
+    assert c.get(f"/aegis/api/experiments/{experiment_id}").status_code == 404
+    assert c.delete(f"/aegis/api/experiments/{experiment_id}").status_code == 404
+
+
+def test_experiment_created_queued_while_another_job_runs(client, monkeypatch):
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    c, _, repository = client
+    _runner, gate = _held_runner(repository)
+    try:
+        started = c.post("/aegis/api/optimize", json=_optimize_payload())
+        assert started.status_code == 202
+        created = c.post("/aegis/api/experiments", json=_experiment_body(c, name="queued one"))
+        assert created.status_code == 202, created.text
+        assert created.json()["status"] == "queued" and created.json()["job_id"] is None
+        experiment_id = created.json()["experiment_id"]
+        assert c.post(f"/aegis/api/experiments/{experiment_id}/resume").status_code == 409
+        assert c.delete(f"/aegis/api/experiments/{experiment_id}").status_code == 409
+    finally:
+        gate.set()
+    _wait(c, started.json()["job_id"], "done")
+    resumed = c.post(f"/aegis/api/experiments/{experiment_id}/resume")
+    assert resumed.status_code == 202, resumed.text
+    assert _wait_experiment(c, experiment_id, ("done", "failed"))["status"] == "done"
+
+
+def test_experiment_route_refusals(client, monkeypatch):
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    c, _, repository = client
+    _runner(repository)
+    assert c.get("/aegis/api/experiments/nope").status_code == 404
+    assert c.post("/aegis/api/experiments/nope/pause").status_code == 404
+    unknown = c.post("/aegis/api/experiments", json=_experiment_body(c, strategy_id="nope"))
+    assert unknown.status_code == 404 and "nope" in unknown.text
+    eleven = _experiment_body(
+        c,
+        surface={
+            "parameters": [
+                {"path": f"long_side.indicators.rsi.length{i}", "start": 1, "stop": 2, "step": 1}
+                for i in range(11)
+            ]
+        },
+    )
+    assert c.post("/aegis/api/experiments/plan", json=eleven).status_code == 422
+    zero = c.post("/aegis/api/experiments/plan", json=_experiment_body(c, budget={"runs": 0}))
+    assert zero.status_code == 422 and "runs must be positive" in zero.text
+    carried = c.post(
+        "/aegis/api/experiments/plan",
+        json=_experiment_body(
+            c, settings={"initial_capital": 100000, "allocation_fraction": 1, "close_at_end": False}
+        ),
+    )
+    assert carried.status_code == 422 and "settings.close_at_end" in carried.text

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import time
 from pathlib import Path
 from typing import Protocol
@@ -38,6 +39,29 @@ SUMMARY_KEYS = (
     "cells_per_window",
     "strategy_id",
     "strategy_hash",
+    "experiment_id",
+    "cell",
+    "engine",
+)
+EXPERIMENT_SUMMARY_KEYS = (
+    "id",
+    "name",
+    "strategy_id",
+    "strategy_hash",
+    "objective",
+    "status",
+    "progress",
+    "created_at",
+    "updated_at",
+    "parent",
+    "decision",
+    "latest_report",
+    "job_id",
+    "engine",
+    "budget",
+    "tolerance",
+    "ms_per_cell_bar",
+    "error",
 )
 STRATEGY_SUMMARY_KEYS = (
     "id",
@@ -64,6 +88,11 @@ class RunRepository(Protocol):
     def get_strategy(self, strategy_id: str) -> dict: ...
     def list_strategies(self) -> list[dict]: ...
     def delete_strategy(self, strategy_id: str) -> None: ...
+    def save_experiment(self, document: dict) -> str: ...
+    def get_experiment(self, experiment_id: str) -> dict: ...
+    def list_experiments(self) -> list[dict]: ...
+    def delete_experiment(self, experiment_id: str) -> None: ...
+    def experiment_dir(self, experiment_id: str, kind: str) -> Path: ...
 
 
 def _check_id(identifier: str) -> str:
@@ -74,6 +103,23 @@ def _check_id(identifier: str) -> str:
 
 def _summary(envelope: dict) -> dict:
     return {key: envelope[key] for key in SUMMARY_KEYS if key in envelope}
+
+
+def _experiment_summary(document: dict) -> dict:
+    """An experiment's listing entry: identity, status, progress, the plan's headline numbers
+    and the surface's size, never the spec or the levers."""
+    plan = document.get("plan") or {}
+    parameters = (document.get("surface") or {}).get("parameters") or []
+    return {
+        **{key: document[key] for key in EXPERIMENT_SUMMARY_KEYS if key in document},
+        "mode": plan.get("mode"),
+        "planned_runs": plan.get("planned_runs"),
+        "valid_cells": plan.get("valid_cells"),
+        "sampled_fraction": plan.get("sampled_fraction"),
+        "estimate_seconds": plan.get("estimate_seconds"),
+        "parameters": len(parameters),
+        "paths": [p.get("path") for p in parameters],
+    }
 
 
 def _strategy_summary(document: dict) -> dict:
@@ -197,6 +243,38 @@ class JsonRunRepository:
 
     def list_strategies(self) -> list[dict]:
         return self._list("strategies", _strategy_summary)
+
+    # Experiments (Mission 6 spec §6.2): the document on the repository, its cells, curves and
+    # reports as files beside it, all named by the experiment id.
+    def save_experiment(self, document: dict) -> str:
+        return self._save("experiments", "id", document, _experiment_summary)
+
+    def get_experiment(self, experiment_id: str) -> dict:
+        return self._get("experiments", experiment_id)
+
+    def list_experiments(self) -> list[dict]:
+        return self._list("experiments", _experiment_summary)
+
+    def experiment_dir(self, experiment_id: str, kind: str) -> Path:
+        return self._folder("experiments") / f"{_check_id(experiment_id)}.{kind}"
+
+    def delete_experiment(self, experiment_id: str) -> None:
+        folder = self._folder("experiments")
+        identifier = _check_id(experiment_id)
+        path = folder / f"{identifier}.json"
+        if not path.is_file():
+            raise KeyError(experiment_id)
+        _retry(path.unlink)
+        for extra in [
+            folder / f"{identifier}.summary.json",
+            *folder.glob(f"{identifier}.report.*"),
+        ]:
+            if extra.is_file():
+                _retry(extra.unlink)
+        for kind in ("cells", "curves"):
+            tree = folder / f"{identifier}.{kind}"
+            if tree.is_dir():
+                shutil.rmtree(tree, ignore_errors=True)
 
     def delete_strategy(self, strategy_id: str) -> None:
         folder = self._folder("strategies")

@@ -90,6 +90,39 @@ def result_hash(payload: dict) -> str:
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
+def envelope(
+    result: dict,
+    strategy: StrategySpec,
+    settings,
+    identity: dict,
+    elapsed_ms: int,
+    cache_hits: int = 0,
+) -> dict:
+    """The persisted run envelope around a backtest result: the hash-bearing payload plus the
+    fields a reload needs (identity, strategy, settings, series, markers, engine)."""
+    import uuid
+    from datetime import UTC, datetime
+
+    payload = canonical_payload(result, strategy, identity)
+    return {
+        "run_id": str(uuid.uuid4()),
+        "created_at": datetime.now(UTC).isoformat(),
+        "elapsed_ms": elapsed_ms,
+        "result_hash": result_hash(payload),
+        "data": identity,
+        "strategy_id": strategy.id,
+        "strategy_hash": strategy_hash(strategy),
+        "strategy": strategy.model_dump(mode="json"),
+        "settings": settings.model_dump(mode="json"),
+        "result": payload,
+        "series": {"long": result["long"]["series"], "short": result["short"]["series"]},
+        "markers": markers(result),
+        "cache_hits": cache_hits,
+        "engine": result["engine"],
+        "state": "ok",
+    }
+
+
 def strategy_hash(spec: StrategySpec) -> str:
     """Identity of a strategy spec (Mission 5 spec §8): SHA-256 of its canonical JSON. It sits on
     envelopes beside the result and never enters a result hash."""

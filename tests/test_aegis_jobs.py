@@ -119,3 +119,30 @@ def test_release_is_called_once_the_terminal_status_is_persisted(tmp_path):
     job_id = runner.start(kind)
     assert wait_for(lambda: runner.status(job_id)["status"] == "done")
     assert kind.released and runner.status(job_id)["seen"] == [0, 1, 2]
+
+
+class Resumable(Counting):
+    """A kind whose finalize decides the persisted terminal status (plan ruling P4)."""
+
+    name = "experiment"
+    resumable = True
+
+    def snapshot(self):
+        return {"id": "exp-1", "seen": list(self.seen)}
+
+    def finalize(self, status):
+        return {"status": "paused" if status == "cancelled" else status}
+
+
+def test_a_kind_may_override_its_persisted_terminal_status(tmp_path):
+    repository = JsonRunRepository(tmp_path)
+    hold = threading.Event()
+    runner = JobRunner(repository)
+    kind = Resumable(hold=hold)
+    job_id = runner.start(kind)
+    assert wait_for(lambda: runner.status(job_id)["status"] == "running")
+    assert runner.cancel(job_id)
+    hold.set()
+    assert wait_for(lambda: runner.status(job_id)["status"] == "cancelled")
+    assert repository.get_experiment("exp-1")["status"] == "paused"
+    assert runner.status(job_id)["status"] == "cancelled"  # the runner's own record is unchanged
