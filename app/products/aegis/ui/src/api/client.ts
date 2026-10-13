@@ -1,9 +1,13 @@
 // Thin typed fetch wrappers for the Aegis worker routes (spec §7). Same-origin under /aegis/api.
-import type { IndicatorSpec, StrategyDocument, StrategySpec } from '../contracts';
+import type { ExperimentDocument, IndicatorSpec, Plan, StrategyDocument, StrategySpec } from '../contracts';
 import type {
+  CellsPage,
+  ExperimentReport,
+  ExperimentSummary,
   JobStatus,
   JobSummary,
   Metric,
+  Objective,
   OptimizePlan,
   OptimizeStarted,
   Provenance,
@@ -125,6 +129,27 @@ export interface StrategySummary {
 
 const put = (body: unknown): RequestInit => ({ method: 'PUT', body: JSON.stringify(body) });
 const doc = (id: string) => `/strategies/${encodeURIComponent(id)}`;
+const exp = (id: string) => `/experiments/${encodeURIComponent(id)}`;
+
+/** POST /experiments and /experiments/plan body (ExperimentRequest in contracts.ts). */
+export interface ExperimentBody {
+  name: string;
+  strategy_id: string;
+  data: Selection;
+  settings: Settings;
+  objective: Objective;
+  surface: { parameters: Array<{ path: string; start: number; stop: number; step: number }> };
+  budget: { runs?: number | null; seconds?: number | null };
+  tolerance: number;
+  seed: number;
+}
+
+export interface ExperimentStarted {
+  experiment_id: string;
+  job_id: string | null;
+  status: 'queued' | 'running';
+  plan: Plan;
+}
 
 export const api = {
   status: () => request<{ product: string; mode: string; status: string; exchange: string }>('/status'),
@@ -153,4 +178,27 @@ export const api = {
   updateStrategy: (id: string, patch: { name?: string; spec?: StrategySpec }) => request<StrategyDocument>(doc(id), put(patch)),
   duplicateStrategy: (id: string, name: string) => request<StrategyDocument>(doc(id) + '/duplicate', post({ name })),
   deleteStrategy: (id: string) => request<{ deleted: string }>(doc(id), { method: 'DELETE' }),
+  experimentPlan: (body: ExperimentBody) => request<Plan>('/experiments/plan', post(body)),
+  createExperiment: (body: ExperimentBody) => request<ExperimentStarted>('/experiments', post(body)),
+  experiments: () => request<ExperimentSummary[]>('/experiments'),
+  experiment: (id: string) => request<ExperimentDocument>(exp(id)),
+  experimentCells: (id: string, query: { offset?: number; limit?: number; sort?: string; descending?: boolean; valid_only?: boolean }) => {
+    const q = new URLSearchParams();
+    if (query.offset !== undefined) q.set('offset', String(query.offset));
+    if (query.limit !== undefined) q.set('limit', String(query.limit));
+    if (query.sort) q.set('sort', query.sort);
+    if (query.descending !== undefined) q.set('descending', String(query.descending));
+    if (query.valid_only !== undefined) q.set('valid_only', String(query.valid_only));
+    return request<CellsPage>(`${exp(id)}/cells?${q.toString()}`);
+  },
+  experimentCurves: (id: string, cells: number[]) => request<Record<string, number[]>>(`${exp(id)}/curves?cells=${cells.join(',')}`),
+  pauseExperiment: (id: string) => request<{ paused: string }>(`${exp(id)}/pause`, { method: 'POST' }),
+  resumeExperiment: (id: string) => request<ExperimentStarted>(`${exp(id)}/resume`, { method: 'POST' }),
+  cancelExperiment: (id: string) => request<{ cancelled: boolean }>(`${exp(id)}/cancel`, { method: 'POST' }),
+  materializeCell: (id: string, cell: number) => request<RunEnvelope>(`${exp(id)}/cells/${cell}/materialize`, { method: 'POST' }),
+  recomputeReport: (id: string, body: { objective?: Objective; tolerance?: number }) => request<ExperimentReport>(`${exp(id)}/report`, post(body)),
+  experimentReport: (id: string, n?: number) => request<ExperimentReport>(`${exp(id)}/report${n === undefined ? '' : `?n=${n}`}`),
+  decideExperiment: (id: string, body: { verdict: 'accepted' | 'rejected' | 'deferred'; notes: string }) => request<ExperimentDocument>(`${exp(id)}/decision`, put(body)),
+  refineExperiment: (id: string) => request<ExperimentDocument>(`${exp(id)}/refine`, { method: 'POST' }),
+  deleteExperiment: (id: string) => request<{ deleted: string }>(exp(id), { method: 'DELETE' }),
 };

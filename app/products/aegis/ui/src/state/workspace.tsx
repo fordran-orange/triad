@@ -58,7 +58,7 @@ export interface WorkspaceState {
   selectedConfigs: SelectedConfigs;
   focusSide: Side; // the side the chart and the Indicators tab show (plan ruling P9)
   rightTab: 'strategy' | 'indicators';
-  page: 'charts' | 'lab';
+  page: 'charts' | 'lab' | 'experiments';
   document: StrategyDocument | null; // the saved document the workspace strategy came from
   latest: { key: string; values: Record<string, number | null> }; // last value per drawn series, for the chartKey it was fetched under
 }
@@ -91,7 +91,7 @@ export type Action =
   | { type: 'ADD_INDICATOR'; side: Side; kind: string }
   | { type: 'REMOVE_INDICATOR'; side: Side; id: string }
   | { type: 'SET_RULE'; side: Side; which: 'entry' | 'exit'; rule: Rule }
-  | { type: 'SET_PAGE'; page: 'charts' | 'lab' }
+  | { type: 'SET_PAGE'; page: 'charts' | 'lab' | 'experiments' }
   | { type: 'SET_DOCUMENT'; document: StrategyDocument }
   | { type: 'ADOPT_DOCUMENT'; document: StrategyDocument | null }
   | { type: 'DOCUMENT_RENAMED'; document: StrategyDocument };

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from './api/client';
 import { ChartPanel } from './components/ChartPanel';
+import { ExperimentsPage } from './components/ExperimentsPage';
 import { LabPage } from './components/LabPage';
 import { JobPoller } from './components/JobPoller';
 import { ResultsTabs } from './components/ResultsTabs';
@@ -82,6 +83,11 @@ export function App() {
         {page === 'lab' ? (
           <section className="workspace">
             <LabPage />
+            <StrategyPanel />
+          </section>
+        ) : page === 'experiments' ? (
+          <section className="workspace">
+            <ExperimentsPage />
             <StrategyPanel />
           </section>
         ) : (

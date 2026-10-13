@@ -148,9 +148,11 @@ def test_experiments_kind_saves_lists_and_deletes_its_files(tmp_path):
     cells = repo.experiment_dir("twelve", "cells")
     cells.mkdir(parents=True)
     (cells / "000000.parquet").write_bytes(b"x")
-    (tmp_path / "aegis" / "experiments" / "twelve.report.1.json").write_text("{}", encoding="utf-8")
+    reports = repo.experiment_dir("twelve", "reports")
+    reports.mkdir(parents=True)
+    (reports / "1.json").write_text("{}", encoding="utf-8")
+    assert [s["id"] for s in repo.list_experiments()] == ["twelve"]  # never the report
     repo.delete_experiment("twelve")
-    assert repo.list_experiments() == [] and not cells.exists()
-    assert not (tmp_path / "aegis" / "experiments" / "twelve.report.1.json").exists()
+    assert repo.list_experiments() == [] and not cells.exists() and not reports.exists()
     with pytest.raises(KeyError):
         repo.delete_experiment("twelve")

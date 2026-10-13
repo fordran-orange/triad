@@ -327,6 +327,8 @@ def test_report_is_written_at_completion_and_can_be_recomputed(world, monkeypatc
     assert report["report_id"] == 1 and report["valid_cells"] == 12
     markdown = store.read_markdown(doc.id, 1)
     assert markdown.startswith("# Recommendation")
+    assert [s["id"] for s in repository.list_experiments()] == [doc.id]  # reports are not listed
+    assert store.report_path(doc.id, 1).parent.name == f"{doc.id}.reports"
     named = set(report["cells_named"])
     curves = store.curves(doc.id, range(12))
     assert set(curves) == named and all(len(c) == 128 for c in curves.values())

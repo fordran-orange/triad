@@ -321,3 +321,11 @@ describe('honest document and indicator state (review findings #5, #6)', () => {
     expect(currentLatest(moved)).toEqual({});
   });
 });
+
+describe('the experiments page', () => {
+  it('is a third page beside charts and the lab', () => {
+    const state = reducer(withStrategy(), { type: 'SET_PAGE', page: 'experiments' });
+    expect(state.page).toBe('experiments');
+    expect(state.strategy).toEqual(withStrategy().strategy);
+  });
+});

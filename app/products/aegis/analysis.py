@@ -581,10 +581,19 @@ def analyse(
 
     if not reported_plateaus:
         best = found_peaks[0]
+        others = max(len(fragile) - 1, 0)
+        tail = (
+            ""
+            if others == 0
+            else (
+                ", as is 1 other fragile peak"
+                if others == 1
+                else f", as are {others} other fragile peaks"
+            )
+        )
         base["statement"] = (
             f"no plateau at tolerance {tolerance:g} (τ = {tau:g}); the best cell "
-            f"{_params(grid, best)} with {objective} {sign * considered[best]:g} is a fragile peak, "
-            f"as are the other {max(len(fragile) - 1, 0)}"
+            f"{_params(grid, best)} with {objective} {sign * considered[best]:g} is a fragile peak{tail}"
         )
         return base
 

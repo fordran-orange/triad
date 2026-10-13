@@ -288,8 +288,9 @@ class ExperimentStore:
 
     # -- reports ------------------------------------------------------------------------------
     def report_path(self, experiment_id: str, n: int, suffix: str = "json") -> Path:
-        folder = self.repository.experiment_dir(experiment_id, "cells").parent
-        return folder / f"{experiment_id}.report.{n}.{suffix}"
+        # A folder of its own: the repository lists `experiments/*.json` as documents, so a
+        # report must never sit beside them as a loose JSON file.
+        return self.repository.experiment_dir(experiment_id, "reports") / f"{n}.{suffix}"
 
     def write_report(self, experiment_id: str, n: int, report: dict, markdown: str) -> None:
         path = self.report_path(experiment_id, n)

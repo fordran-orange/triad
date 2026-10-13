@@ -1,12 +1,12 @@
 import { useDispatch, useWorkspace } from '../state/workspace';
 
-const ITEMS: Array<{ label: string; page?: 'charts' | 'lab'; id?: string; disabled?: boolean }> = [
+const ITEMS: Array<{ label: string; page?: 'charts' | 'lab' | 'experiments'; id?: string; disabled?: boolean }> = [
   { label: 'Dashboard', disabled: true },
   { label: 'Charts', page: 'charts', id: 'nav-charts' },
   { label: 'Strategy Lab', page: 'lab', id: 'nav-lab' },
   { label: 'Indicators', disabled: true },
   { label: 'Data', disabled: true },
-  { label: 'Experiments', disabled: true },
+  { label: 'Experiments', page: 'experiments', id: 'nav-experiments' },
   { label: 'Paper Trade', disabled: true },
   { label: 'Settings', disabled: true },
 ];

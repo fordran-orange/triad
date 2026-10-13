@@ -265,13 +265,10 @@ class JsonRunRepository:
         if not path.is_file():
             raise KeyError(experiment_id)
         _retry(path.unlink)
-        for extra in [
-            folder / f"{identifier}.summary.json",
-            *folder.glob(f"{identifier}.report.*"),
-        ]:
-            if extra.is_file():
-                _retry(extra.unlink)
-        for kind in ("cells", "curves"):
+        sidecar = folder / f"{identifier}.summary.json"
+        if sidecar.is_file():
+            _retry(sidecar.unlink)
+        for kind in ("cells", "curves", "reports"):
             tree = folder / f"{identifier}.{kind}"
             if tree.is_dir():
                 shutil.rmtree(tree, ignore_errors=True)

@@ -280,3 +280,17 @@ def test_markdown_starts_with_the_recommendation_and_has_every_section():
     ):
         assert f"## {heading}" in text, heading
     assert "fragile" in text and "4" in text
+
+
+def test_no_plateau_statement_names_the_best_cell_without_phantom_others():
+    grid = grid2((1, 3, 1), (1, 3, 1))
+    rows = rows_for(grid, lambda v: 9.0 if (v[A], v[B]) == (2, 2) else 0.0)
+    report = analyse(rows, grid, "net_pnl", 0.15, "exhaustive", 1, "x")
+    assert report["recommendation"] is None
+    assert "is a fragile peak" in report["statement"]
+    assert "other 0" not in report["statement"]
+    two = rows_for(grid, lambda v: 9.0 if (v[A], v[B]) in ((1, 1), (3, 3)) else 0.0)
+    assert (
+        "as is 1 other fragile peak"
+        in analyse(two, grid, "net_pnl", 0.15, "exhaustive", 1, "x")["statement"]
+    )

@@ -130,6 +130,23 @@ export type Metric = 'net_pnl' | 'mar' | 'max_drawdown' | 'trade_count';
 export const METRICS: Metric[] = ['net_pnl', 'mar', 'max_drawdown', 'trade_count'];
 export const METRIC_LABELS: Record<Metric, string> = { net_pnl: 'Net P&L', mar: 'MAR', max_drawdown: 'Max drawdown', trade_count: 'Trades' };
 
+/** Every metric an experiment may rank by (Mission 6 spec §5.1); the optimizer keeps its four. */
+export type Objective = 'net_pnl' | 'net_return' | 'cagr' | 'max_drawdown' | 'mar' | 'win_rate' | 'expectancy' | 'profit_factor' | 'trade_count' | 'exposure';
+export const OBJECTIVES: Objective[] = ['net_pnl', 'net_return', 'cagr', 'max_drawdown', 'mar', 'win_rate', 'expectancy', 'profit_factor', 'trade_count', 'exposure'];
+export const OBJECTIVE_LABELS: Record<Objective, string> = {
+  net_pnl: 'Net P&L',
+  net_return: 'Net return',
+  cagr: 'CAGR',
+  max_drawdown: 'Max drawdown',
+  mar: 'MAR',
+  win_rate: 'Win rate',
+  expectancy: 'Expectancy',
+  profit_factor: 'Profit factor',
+  trade_count: 'Trades',
+  exposure: 'Exposure',
+};
+export const PERCENT_OBJECTIVES = new Set<Objective>(['net_return', 'cagr', 'max_drawdown', 'win_rate', 'exposure']);
+
 export interface Cell {
   params: Record<string, number>;
   fast: number | null;
@@ -216,6 +233,149 @@ export interface WindowRecord {
   ending_cash: number | null;
   ending_equity: number | null;
   inherited_from: number | null; // no valid in-sample cell: managed the carry with that window's choice
+}
+
+// --- experiments (Mission 6 spec §5–8) ----------------------------------------------------
+
+export interface ExperimentLever {
+  kind: 'coarsen' | 'narrow' | 'freeze' | 'shorten' | 'coarser_timeframe' | 'raise_budget';
+  parameter: string | null;
+  label: string;
+  valid_cells: number;
+  estimate_seconds: number;
+  fits: boolean;
+  surface?: { parameters: Array<{ path: string; start: number; stop: number; step: number }> } | null;
+  budget?: { runs?: number | null; seconds?: number | null } | null;
+  data_hint?: string | null;
+}
+
+export interface ExperimentProgress {
+  cells_done: number;
+  cells_planned: number;
+  chunks_done: number;
+  chunks_total: number;
+}
+
+export type ExperimentStatus = 'queued' | 'running' | 'paused' | 'done' | 'cancelled' | 'failed';
+
+export interface ExperimentDecision {
+  verdict: 'accepted' | 'rejected' | 'deferred';
+  notes: string;
+  decided_at: string;
+}
+
+/** GET /experiments: one row per experiment (the document's summary). */
+export interface ExperimentSummary {
+  id: string;
+  name: string;
+  strategy_id: string;
+  strategy_hash: string;
+  objective: Objective;
+  status: ExperimentStatus;
+  progress: ExperimentProgress;
+  created_at: string;
+  updated_at: string;
+  parent: string | null;
+  decision: ExperimentDecision | null;
+  latest_report: number | null;
+  job_id: string | null;
+  engine: string;
+  budget: { runs?: number | null; seconds?: number | null };
+  tolerance: number;
+  ms_per_cell_bar: number | null;
+  error: string | null;
+  mode: 'exhaustive' | 'sampled' | null;
+  planned_runs: number | null;
+  valid_cells: number | null;
+  sampled_fraction: number | null;
+  estimate_seconds: number | null;
+  parameters: number;
+  paths: string[];
+}
+
+export interface NamedCell {
+  cell: number;
+  params: Record<string, number>;
+  objective: number;
+}
+
+export interface Recommendation {
+  plateau: number;
+  centre: NamedCell & { metrics: Record<string, number | null> };
+  supported_peak: NamedCell | null;
+  fragile_peaks: NamedCell[];
+  statement: string;
+}
+
+export interface Plateau {
+  id: number;
+  cells: number[];
+  size: number;
+  median: number;
+  iqr: number;
+  cliff: number | null;
+  counts: boolean;
+  peaks: number[];
+  centre: NamedCell & { metrics: Record<string, number | null> };
+}
+
+export interface PeakEntry extends NamedCell {
+  fragile: boolean;
+  plateau: number | null;
+}
+
+export interface MainEffectPoint {
+  value: number;
+  median: number | null;
+  p25: number | null;
+  p75: number | null;
+  count: number;
+}
+
+export interface Interaction {
+  paths: [string, string];
+  values_a: number[];
+  values_b: number[];
+  matrix: Array<Array<number | null>>;
+  strength: number;
+}
+
+export interface ClusterGroup {
+  size: number;
+  medians: Record<string, number>;
+  parameter_ranges: Record<string, [number, number]>;
+  exemplar: number;
+  cells: number[];
+}
+
+export interface ExperimentReport {
+  report_id: number;
+  generated_at: string;
+  objective: Objective;
+  tolerance: number;
+  tau: number;
+  mode: 'exhaustive' | 'sampled';
+  sampled_fraction: number;
+  valid_cells: number;
+  skipped: number;
+  null_objective_cells: number;
+  neighbour_rule: string;
+  recommendation: Recommendation | null;
+  plateaus: Plateau[];
+  peaks: PeakEntry[];
+  main_effects: Record<string, MainEffectPoint[]>;
+  interactions: Interaction[] | null;
+  sensitivity: { shares: Record<string, number>; remainder: number | null };
+  clusters: { k: number; silhouette: number; groups: ClusterGroup[]; metrics: string[] } | { refused: string };
+  uncertainty: { iqr: number; cells: number; sampled_fraction: number; statement: string } | null;
+  cells_named: number[];
+  statement: string;
+}
+
+export interface CellsPage {
+  total: number;
+  rows: Array<Record<string, unknown> & { cell: number; valid: boolean }>;
+  columns: string[];
 }
 
 export interface Spread {
