@@ -241,3 +241,45 @@ def test_request_refusals(world):
             bars=260,
             max_workers=2,
         )
+
+
+def test_sampled_experiment_runs_first_pass_then_refinement(world, monkeypatch):
+    """Spec §5.4 / plan P3: a 400-cell grid under a 30-run budget samples 20 cells, then spends
+    10 on the neighbours of what the first pass found (the analysis is stubbed until Task 5)."""
+    import sys
+    import types
+
+    repository, library, document = world
+    monkeypatch.setattr(exp, "CHUNK_CELLS", 10)
+
+    def analyse(table, grid, objective, tolerance, mode, seed, data_label):
+        run = sorted(table.column("cell").to_pylist())
+        return {"plateaus": [{"cells": run[:5], "centre": {"cell": run[0]}}]}
+
+    stub = types.ModuleType("products.aegis.analysis")
+    stub.analyse = analyse
+    monkeypatch.setitem(sys.modules, "products.aegis.analysis", stub)
+    surface = Surface(
+        parameters=[
+            Parameter(path="long_side.indicators.donchian.length", start=10, stop=29, step=1),
+            Parameter(path="long_side.indicators.rsi.length", start=5, stop=24, step=1),
+        ]
+    )
+    _runner, job, _job_id, experiment_id = start(
+        repository,
+        library,
+        document,
+        surface=surface.model_dump(),
+        budget=Budget(runs=30).model_dump(),
+    )
+    assert job.document.plan["mode"] == "sampled" and job.total_units == 3
+    assert job.units[2] is None and len(job.pending_cells()) == 20
+    assert wait_for(lambda: document_of(repository, experiment_id).status in ("done", "failed"))
+    doc = document_of(repository, experiment_id)
+    assert doc.status == "done", doc.error
+    table = exp.ExperimentStore(repository).cells(experiment_id)
+    passes = table.column("pass").to_pylist()
+    assert passes.count("sample") == 20 and passes.count("refine") == 10
+    assert len(set(table.column("cell").to_pylist())) == 30
+    assert len(doc.first_pass_cells) == 20 and len(doc.refinement_cells) == 10
+    assert doc.progress["cells_done"] == 30 and doc.plan["sampled_fraction"] == 30 / 400

@@ -435,7 +435,15 @@ class ExperimentJob:
             self._data_label(),
         )
         budget = self.document.plan["refinement"]
-        chosen = refinement_cells(self.grid, table, report["plateaus"], budget)
+        column = f"combined.{self.document.objective}"
+        sign = -1.0 if self.document.objective == "max_drawdown" else 1.0
+        run_cells = {
+            cell: (None if value is None else sign * float(value))
+            for cell, value in zip(
+                table.column("cell").to_pylist(), table.column(column).to_pylist(), strict=True
+            )
+        }
+        chosen = refinement_cells(self.grid, run_cells, report["plateaus"], budget)
         chunks = list(_chunks(chosen, self.chunk))
         for k in range(self.first_pass_units, self.total_units):
             offset = k - self.first_pass_units

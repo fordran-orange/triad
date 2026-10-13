@@ -10,6 +10,7 @@ against a budget, decides exhaustive or sampled, and lists the ways back into sc
 from __future__ import annotations
 
 import math
+import random
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -156,6 +157,44 @@ class Grid:
     skipped_count: int
     skip_reasons: dict[str, int]
 
+    @property
+    def strides(self) -> tuple[int, ...]:
+        """Mixed-radix strides: the first path varies slowest."""
+        strides = []
+        stride = 1
+        for n in reversed(self.shape):
+            strides.append(stride)
+            stride *= n
+        return tuple(reversed(strides))
+
+    def positions(self, index: int) -> tuple[int, ...]:
+        """The value-list position of each parameter for a cell."""
+        if not 0 <= index < self.size:
+            raise IndexError(index)
+        out = []
+        remainder = index
+        for n in reversed(self.shape):
+            out.append(remainder % n)
+            remainder //= n
+        return tuple(reversed(out))
+
+    def index_at(self, positions: tuple[int, ...]) -> int:
+        index = 0
+        for position, n in zip(positions, self.shape, strict=True):
+            index = index * n + position
+        return index
+
+    def neighbours(self, index: int) -> list[int]:
+        """Cells one step away in exactly one parameter (the exhaustive neighbour rule)."""
+        positions = self.positions(index)
+        out = []
+        for k, stride in enumerate(self.strides):
+            if positions[k] > 0:
+                out.append(index - stride)
+            if positions[k] < self.shape[k] - 1:
+                out.append(index + stride)
+        return out
+
     def cell_values(self, index: int) -> dict[str, float]:
         if not 0 <= index < self.size:
             raise IndexError(index)
@@ -278,6 +317,112 @@ def build_grid(spec: StrategySpec, surface: Surface) -> Grid:
         skipped_count=size - valid_count,
         skip_reasons=skip_reasons,
     )
+
+
+def lhs_stratum(position: int, n: int, count: int) -> int:
+    """Which of `count` strata over `n` value positions a position falls in: stratum j spans
+    positions [j*n//count, (j+1)*n//count); strata may be empty when n < count."""
+    stratum = position * count // n
+    while stratum > 0 and stratum * n // count > position:
+        stratum -= 1
+    while stratum + 1 < count and (stratum + 1) * n // count <= position:
+        stratum += 1
+    return stratum
+
+
+def latin_hypercube(grid: Grid, count: int, seed: int) -> list[int]:
+    """`count` distinct valid cells by a Latin hypercube over the discrete grid (spec §5.4): per
+    parameter, `count` strata over its value list and a seeded permutation choosing one stratum
+    per draw; a draw landing on a skipped or repeated cell is redrawn inside its strata, then
+    anywhere, up to ten times the count in all. May return fewer cells than asked."""
+    rng = random.Random(seed)
+    d = len(grid.shape)
+    permutations = [rng.sample(range(count), count) for _ in range(d)]
+    chosen: list[int] = []
+    seen: set[int] = set()
+    tries = 0
+    limit = 10 * count
+
+    def draw(i: int, anywhere: bool) -> int:
+        positions = []
+        for k, n in enumerate(grid.shape):
+            if anywhere:
+                positions.append(rng.randrange(n))
+                continue
+            stratum = permutations[k][i]
+            lo = stratum * n // count
+            hi = max(lo + 1, (stratum + 1) * n // count)
+            positions.append(rng.randrange(lo, min(hi, n)))
+        return grid.index_at(tuple(positions))
+
+    for i in range(count):
+        attempts = 0
+        while tries < limit:
+            tries += 1
+            index = draw(i, anywhere=attempts >= 10)
+            attempts += 1
+            if index in seen or not grid.is_valid(index):
+                continue
+            seen.add(index)
+            chosen.append(index)
+            break
+        if tries >= limit:
+            break
+    return chosen
+
+
+def _distance(grid: Grid, a: int, b: int) -> float:
+    pa_, pb = grid.positions(a), grid.positions(b)
+    return math.sqrt(
+        sum(((x - y) / max(n - 1, 1)) ** 2 for x, y, n in zip(pa_, pb, grid.shape, strict=True))
+    )
+
+
+def refinement_cells(
+    grid: Grid, run_cells: dict[int, float | None], plateaus: list[dict], budget: int
+) -> list[int]:
+    """Unexplored valid cells within one step of the top three plateaus' cells, nearest each
+    plateau's centre first; with no plateau, the neighbours of the ten best run cells (spec §5.4).
+    Never a cell already run; at most `budget`."""
+    run = set(run_cells)
+    chosen: list[int] = []
+    taken: set[int] = set()
+
+    def admit(candidates: list[int]) -> None:
+        for index in candidates:
+            if len(chosen) >= budget:
+                return
+            if index in run or index in taken or not grid.is_valid(index):
+                continue
+            taken.add(index)
+            chosen.append(index)
+
+    for plateau in plateaus[:3]:
+        members = list(plateau.get("cells", []))
+        centre = plateau.get("centre", {}).get("cell", members[0] if members else None)
+        if centre is None:
+            continue
+        ring = sorted(
+            {n for member in members for n in grid.neighbours(member)},
+            key=lambda index: (_distance(grid, index, centre), index),
+        )
+        admit(ring)
+        if len(chosen) >= budget:
+            return chosen
+    if not plateaus:
+        ranked = sorted(
+            (cell for cell, value in run_cells.items() if value is not None),
+            key=lambda cell: (-float(run_cells[cell]), cell),
+        )
+        for best in ranked[:10]:
+            admit(
+                sorted(
+                    grid.neighbours(best), key=lambda index: (_distance(grid, index, best), index)
+                )
+            )
+            if len(chosen) >= budget:
+                break
+    return chosen
 
 
 LeverKind = Literal["coarsen", "narrow", "freeze", "shorten", "coarser_timeframe", "raise_budget"]
@@ -488,7 +633,10 @@ __all__ = [
     "build_grid",
     "current_value",
     "effective_workers",
+    "latin_hypercube",
+    "lhs_stratum",
     "plan",
+    "refinement_cells",
     "resolve_path",
     "skip_reason_of",
 ]

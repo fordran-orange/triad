@@ -248,3 +248,108 @@ def test_budget_refusals():
     seconds_only = plan(pinned(), step_one_surface(), Budget(seconds=60), BARS, 0.01, WORKERS)
     assert seconds_only.mode == "sampled"
     assert seconds_only.planned_runs == int(60 * 8 * 1000 / (BARS * 0.01))
+
+
+# --- Mission 6 Task 4: sampling and refinement -------------------------------------------------
+
+
+def _grid(donchian=(10, 59, 1), rsi=(5, 54, 1), spec=None):
+    from products.aegis.surface import build_grid, latin_hypercube  # noqa: F401 - exercised below
+
+    surface = Surface(
+        parameters=[
+            P("long_side.indicators.donchian.length", *donchian),
+            P("long_side.indicators.rsi.length", *rsi),
+        ]
+    )
+    return build_grid(spec or pinned(), surface)
+
+
+def test_grid_positions_strides_and_neighbours():
+    grid = _grid((10, 12, 1), (5, 8, 1))  # 3 × 4
+    assert grid.strides == (4, 1)
+    assert grid.positions(0) == (0, 0) and grid.positions(11) == (2, 3)
+    assert grid.positions(6) == (1, 2)
+    assert sorted(grid.neighbours(6)) == [2, 5, 7, 10]
+    assert sorted(grid.neighbours(0)) == [1, 4]
+    assert sorted(grid.neighbours(11)) == [7, 10]
+
+
+def test_latin_hypercube_covers_every_stratum_once_per_parameter():
+    from products.aegis.surface import latin_hypercube
+
+    grid = _grid()  # 50 × 50
+    drawn = latin_hypercube(grid, 20, seed=1)
+    assert len(drawn) == 20 and len(set(drawn)) == 20
+    from products.aegis.surface import lhs_stratum
+
+    for k in range(2):
+        strata = {lhs_stratum(grid.positions(index)[k], 50, 20) for index in drawn}
+        assert len(strata) == 20, (k, sorted(strata))
+    assert [lhs_stratum(p, 50, 20) for p in (0, 1, 2, 4, 5, 49)] == [0, 0, 1, 1, 2, 19]
+
+
+def test_latin_hypercube_is_seeded_and_skips_invalid_cells():
+    from products.aegis.surface import latin_hypercube
+
+    grid = _grid()
+    assert latin_hypercube(grid, 20, seed=1) == latin_hypercube(grid, 20, seed=1)
+    assert latin_hypercube(grid, 20, seed=2) != latin_hypercube(grid, 20, seed=1)
+    spec = pinned()
+    data = spec.long_side.model_dump(mode="json")
+    data["indicators"].append({"id": "macd", "kind": "MACD", "length": 12})
+    spec = spec.model_copy(update={"long_side": StrategySide.model_validate(data)})
+    surface = Surface(
+        parameters=[
+            P("long_side.indicators.macd.length", 10, 30, 1),
+            P("long_side.indicators.macd.params.slow", 20, 30, 1),
+        ]
+    )
+    from products.aegis.surface import build_grid
+
+    macd = build_grid(spec, surface)
+    assert macd.skipped_count > 0
+    drawn = latin_hypercube(macd, 30, seed=1)
+    assert len(drawn) == 30 and len(set(drawn)) == 30
+    assert all(macd.is_valid(index) for index in drawn)
+
+
+def test_refinement_targets_plateau_neighbours_first():
+    from products.aegis.surface import refinement_cells
+
+    grid = _grid((1, 9, 1), (1, 9, 1))  # 9 × 9, positions == value - 1
+    plateau = [
+        grid.index_of(
+            {"long_side.indicators.donchian.length": a, "long_side.indicators.rsi.length": b}
+        )
+        for a in (3, 4, 5, 6)
+        for b in (3, 4, 5, 6)
+    ]
+    centre = grid.index_of(
+        {"long_side.indicators.donchian.length": 4, "long_side.indicators.rsi.length": 4}
+    )
+    run = {index: 10.0 for index in plateau}
+    run[
+        grid.index_of(
+            {"long_side.indicators.donchian.length": 9, "long_side.indicators.rsi.length": 9}
+        )
+    ] = 12.0
+    chosen = refinement_cells(grid, run, [{"cells": plateau, "centre": {"cell": centre}}], budget=6)
+    assert len(chosen) == 6 and not set(chosen) & set(run)
+    for index in chosen:
+        assert any(index in grid.neighbours(member) for member in plateau)
+    distances = [
+        sum(
+            (p - c) ** 2 for p, c in zip(grid.positions(index), grid.positions(centre), strict=True)
+        )
+        for index in chosen
+    ]
+    assert distances == sorted(distances)
+    everything = refinement_cells(
+        grid, run, [{"cells": plateau, "centre": {"cell": centre}}], budget=100
+    )
+    assert len(everything) == 16  # the ring around a 4×4 block minus nothing run outside it
+    no_plateau = refinement_cells(grid, run, [], budget=5)
+    assert len(no_plateau) == 5 and not set(no_plateau) & set(run)
+    best = max(run, key=run.get)
+    assert all(index in grid.neighbours(best) for index in no_plateau[:2])
