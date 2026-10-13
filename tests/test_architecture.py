@@ -131,3 +131,21 @@ def test_aegis_shell_and_legacy_redirect(monkeypatch):
     response = TestClient(gateway).get("/p2p/api/status?view=all", follow_redirects=False)
     assert response.status_code == 307
     assert response.headers["location"] == "/aegis/api/status?view=all"
+
+
+def test_numba_is_imported_only_under_aegis():
+    """The compiled engine's dependency (Mission 6 spec §4.4) stays a product library."""
+    offenders = []
+    for path in (ROOT / "app").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            if any(n == "numba" or n.startswith("numba.") for n in names):
+                relative = path.relative_to(ROOT).as_posix()
+                if not relative.startswith("app/products/aegis/"):
+                    offenders.append(relative)
+    assert offenders == []

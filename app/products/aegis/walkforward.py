@@ -18,6 +18,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from products.aegis import kernel
 from products.aegis.backtest import (
     MIN_BARS,
     BacktestRequest,
@@ -464,6 +465,7 @@ class WalkForwardJob:
             "stability": stability(records, self._paths()),
             "cache_hits": self.cache_hits,
             "data": self.data,
+            "engine": "kernel" if kernel.AVAILABLE else "reference",
             "strategy_id": self.request.strategy.id,
             "strategy_hash": strategy_hash(self.request.strategy),
             "strategy": self.request.strategy.model_dump(mode="json"),

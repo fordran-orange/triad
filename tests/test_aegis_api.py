@@ -725,3 +725,26 @@ def test_deleting_a_document_a_running_job_uses_is_409(client):
         assert "referenced by 0 runs, 1 optimization, 0 walk-forwards" in refused.text
     finally:
         gate.set()
+
+
+# --- Mission 6: the compiled engine --------------------------------------------------------
+
+
+def test_status_reports_the_kernel(client):
+    c, _, _ = client
+    body = c.get("/aegis/api/status").json()
+    assert body["kernel_available"] is True and body["kernel_error"] is None
+
+
+def test_backtest_envelope_names_its_engine(client):
+    c, _, _ = client
+    payload = {
+        "strategy": default_strategy().model_dump(mode="json"),
+        "data": {"symbol": "QQQ", "timeframe": "15m", **RANGE},
+    }
+    body = c.post("/aegis/api/backtest", json=payload).json()
+    assert body["engine"] == "kernel"
+    assert "engine" not in body["result"]
+    reference = c.post("/aegis/api/backtest", json={**payload, "engine": "reference"}).json()
+    assert reference["engine"] == "reference"
+    assert reference["result_hash"] == body["result_hash"]

@@ -200,6 +200,7 @@ def _envelope(request: BacktestRequest, store: ArchiveStore, cache: IndicatorCac
         "series": {"long": result["long"]["series"], "short": result["short"]["series"]},
         "markers": markers(result),
         "cache_hits": cache.hits - hits_before,
+        "engine": result["engine"],
         "state": "ok",
     }
 

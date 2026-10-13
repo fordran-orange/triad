@@ -7,12 +7,15 @@ and combined results are simulated independently so directional edge is never hi
 from __future__ import annotations
 
 import math
+import threading
 from datetime import date, datetime
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from products.aegis import kernel
 from products.aegis.indicators import IndicatorCache, named, references
 from products.aegis.kinds import warmup
 from products.aegis.strategy import (
@@ -103,6 +106,9 @@ class BacktestRequest(BaseModel):
     bars: list[dict] = Field(default_factory=list, max_length=200_000)
     events: list[EventPoint] = Field(default_factory=list, max_length=10_000)
     settings: BacktestSettings = Field(default_factory=BacktestSettings)
+    # The compiled kernel is the default (Mission 6 spec §4.2); the reference engine stays as the
+    # oracle. Both produce byte-identical canonical payloads; `engine` is never hashed.
+    engine: Literal["kernel", "reference"] = "kernel"
 
     @model_validator(mode="after")
     def exactly_one_source(self):
@@ -494,6 +500,163 @@ def _simulate_side(
     }
 
 
+_PERMITTED_CACHE: dict[tuple[str, str], np.ndarray] = {}
+_PERMITTED_LOCK = threading.Lock()
+_PERMITTED_LIMIT = 32
+
+
+def permitted_mask(frame: pd.DataFrame, temporal, data_key: str | None = None) -> np.ndarray:
+    """`entry_permitted` for every bar as one boolean array (plan ruling P9): a pure function
+    of the bar timestamp and the temporal context, so it is cached per data identity."""
+    key = (data_key, temporal.model_dump_json()) if data_key is not None else None
+    if key is not None:
+        with _PERMITTED_LOCK:
+            cached = _PERMITTED_CACHE.get(key)
+        if cached is not None:
+            return cached
+    mask = np.fromiter(
+        (entry_permitted(stamp, temporal) for stamp in frame["timestamp"]),
+        dtype=np.bool_,
+        count=len(frame),
+    )
+    if key is not None:
+        with _PERMITTED_LOCK:
+            if len(_PERMITTED_CACHE) >= _PERMITTED_LIMIT:
+                _PERMITTED_CACHE.pop(next(iter(_PERMITTED_CACHE)))
+            _PERMITTED_CACHE[key] = mask
+    return mask
+
+
+def _simulate_side_kernel(
+    frame: pd.DataFrame,
+    strategy: StrategySpec,
+    side: str,
+    events: list[EventPoint],
+    settings: BacktestSettings,
+    symbol: str | None,
+    cache: IndicatorCache,
+    data_key: str,
+) -> dict:
+    """The reference engine's result from the compiled loop (Mission 6 spec §4.2)."""
+    spec = strategy.long_side if side == "LONG" else strategy.short_side
+    if not spec.enabled:
+        return _simulate_side(frame, strategy, side, events, settings, symbol, cache, data_key)
+    data = _side_frame(frame, spec, cache, data_key)
+    timestamps = data["timestamp"]
+    if settings.evaluate_from is None:
+        evaluating = np.ones(len(data), dtype=np.bool_)
+    else:
+        evaluating = (timestamps >= settings.evaluate_from).to_numpy(dtype=np.bool_)
+    carried = settings.initial_position
+    carried_array = np.zeros(6)
+    if carried is not None and carried.side == side:
+        carried_array[:] = (
+            1.0,
+            carried.entry_price,
+            float(carried.quantity),
+            carried.entry_fee,
+            carried.capital_at_entry,
+            1.0 if carried.exit_signal_time is not None else 0.0,
+        )
+    else:
+        carried = None
+    sign = _side_sign(side)
+    trades_array, n_trades, equity, drawdown, in_flags, n_points, scalars, _ = (
+        kernel.simulate_arrays(
+            data["open"].to_numpy(dtype=np.float64),
+            data["high"].to_numpy(dtype=np.float64),
+            data["low"].to_numpy(dtype=np.float64),
+            data["close"].to_numpy(dtype=np.float64),
+            data["entry_signal"].to_numpy(dtype=np.bool_),
+            data["exit_signal"].to_numpy(dtype=np.bool_),
+            data["warm"].to_numpy(dtype=np.bool_),
+            evaluating,
+            permitted_mask(frame, strategy.temporal, data_key),
+            sign,
+            settings.initial_capital,
+            settings.allocation_fraction,
+            strategy.execution.commission_per_side,
+            strategy.execution.slippage_bps,
+            settings.close_at_end,
+            carried_array,
+        )
+    )
+    iso = [stamp.isoformat() for stamp in timestamps]
+
+    def tags_at(index: int) -> tuple[str, ...]:
+        return _trade_tags(timestamps.iloc[index], strategy, events, symbol)
+
+    trades = []
+    for row in trades_array[:n_trades]:
+        entry_index, exit_index = int(row[0]), int(row[1])
+        signal_index, exit_signal_index = int(row[2]), int(row[3])
+        carried_in = row[10] > 0.0
+        if carried_in:
+            entry_time, signal_time = carried.entry_time, carried.signal_time
+            entry_tags = set(carried.entry_tags)
+        else:
+            entry_time, signal_time = iso[entry_index], iso[signal_index]
+            entry_tags = set(tags_at(signal_index))
+        if exit_signal_index < 0:
+            exit_signal_time, exit_tags = carried.exit_signal_time, set(carried.exit_tags)
+        else:
+            exit_signal_time, exit_tags = iso[exit_signal_index], set(tags_at(exit_signal_index))
+        trade = {
+            "side": side,
+            "signal_time": signal_time,
+            "entry_time": entry_time,
+            "entry_price": float(row[4]),
+            "exit_signal_time": exit_signal_time,
+            "exit_time": iso[exit_index],
+            "exit_price": float(row[5]),
+            "quantity": int(row[6]),
+            "gross_pnl": float(row[7]),
+            "net_pnl": float(row[8]),
+            "return": float(row[9]),
+            "temporal_tags": sorted(entry_tags | exit_tags),
+        }
+        if carried_in:
+            trade["carried_from_window"] = carried.origin_window
+        trades.append(trade)
+
+    evaluated = np.flatnonzero(evaluating)[:n_points]
+    curve = [
+        {"timestamp": iso[int(bar)], "equity": float(equity[k]), "drawdown": float(drawdown[k])}
+        for k, bar in enumerate(evaluated)
+    ]
+    in_position = [bool(flag) for flag in in_flags[:n_points]]
+
+    open_position = None
+    if scalars[2] > 0.0:
+        new_position = scalars[4] >= 0.0
+        exit_index = int(scalars[9])
+        open_position = {
+            "side": side,
+            "entry_time": iso[int(scalars[4])] if new_position else carried.entry_time,
+            "signal_time": iso[int(scalars[3])] if new_position else carried.signal_time,
+            "entry_price": float(scalars[5]),
+            "quantity": int(scalars[6]),
+            "entry_fee": float(scalars[7]),
+            "capital_at_entry": float(scalars[8]),
+            "entry_tags": list(tags_at(int(scalars[3])) if new_position else carried.entry_tags),
+            "origin_window": None if new_position else carried.origin_window,
+            "exit_signal_time": iso[exit_index] if exit_index >= 0 else None,
+            "exit_tags": list(tags_at(exit_index)) if exit_index >= 0 else [],
+        }
+
+    return {
+        "enabled": True,
+        "series": _series(data, spec),
+        "trades": trades,
+        "equity": curve,
+        "metrics": _metrics(trades, curve, settings.initial_capital, _fraction(in_position)),
+        "open_position": open_position,
+        "ending_cash": float(scalars[0]),
+        "ending_equity": float(scalars[1]),
+        "_in_position": in_position,
+    }
+
+
 def _carried(position: dict, trade: dict) -> dict:
     """A trade closing a position that was carried in names the window it came from; trades of
     plain runs are left exactly as before so their hashes do not move."""
@@ -592,18 +755,29 @@ def markers(result: dict) -> list[dict]:
 
 
 def run_backtest(request: BacktestRequest, cache: IndicatorCache | None = None) -> dict:
+    frame = _prepare_frame(request.bars)
+    return run_prepared(request, frame, _data_key(frame), cache)
+
+
+def run_prepared(
+    request: BacktestRequest,
+    frame: pd.DataFrame,
+    data_key: str,
+    cache: IndicatorCache | None = None,
+) -> dict:
+    """`run_backtest` on bars already prepared once (the pool reuses one frame per worker)."""
     validate(request.strategy.temporal)
     _check_initial_position(request)
     cache = cache if cache is not None else IndicatorCache()
-    frame = _prepare_frame(request.bars)
     _check_warmup(frame, request.strategy)
-    data_key = _data_key(frame)
     symbol = str(frame.iloc[0].get("symbol")) if "symbol" in frame.columns else None
+    engine = "kernel" if request.engine == "kernel" and kernel.AVAILABLE else "reference"
+    simulate = _simulate_side_kernel if engine == "kernel" else _simulate_side
 
-    long_result = _simulate_side(
+    long_result = simulate(
         frame, request.strategy, "LONG", request.events, request.settings, symbol, cache, data_key
     )
-    short_result = _simulate_side(
+    short_result = simulate(
         frame, request.strategy, "SHORT", request.events, request.settings, symbol, cache, data_key
     )
     combined = _combine(long_result, short_result, request.settings.initial_capital)
@@ -631,4 +805,5 @@ def run_backtest(request: BacktestRequest, cache: IndicatorCache | None = None) 
         },
         "execution": request.strategy.execution.model_dump(mode="json"),
         "lookahead_policy": "closed-bar signal; next-bar-open fill",
+        "engine": engine,
     }

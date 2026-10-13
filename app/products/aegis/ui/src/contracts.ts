@@ -147,6 +147,7 @@ export interface BacktestRequest {
   bars?: Record<string, unknown>[];
   events?: EventPoint[];
   settings?: BacktestSettings;
+  engine?: 'kernel' | 'reference';
 }
 
 export interface OptimizeRequest {

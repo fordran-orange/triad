@@ -16,6 +16,7 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
+from products.aegis import kernel
 from products.aegis.backtest import BacktestRequest, BacktestSettings, DataReference, run_backtest
 from products.aegis.indicators import IndicatorCache
 from products.aegis.jobs import MS_PER_BAR, UNFINISHED, JobBusy, JobRunner, estimate_seconds
@@ -221,6 +222,7 @@ class OptimizerJob:
             "slow_path": plan.slow_path,
             "cache_hits": self.cache_hits,
             "data": self.data,
+            "engine": "kernel" if kernel.AVAILABLE else "reference",
             "strategy_id": self.request.strategy.id,
             "strategy_hash": strategy_hash(self.request.strategy),
             "strategy": self.request.strategy.model_dump(mode="json"),

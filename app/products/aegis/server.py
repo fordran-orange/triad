@@ -11,7 +11,7 @@ from trading_core.api import local_headers
 from trading_core.process_power import opt_out_of_power_throttling
 from trading_core.store import Store
 
-from products.aegis import api
+from products.aegis import api, kernel
 from products.aegis.strategy import default_strategy
 
 log = logging.getLogger("aegis")
@@ -62,6 +62,8 @@ def status():
         "status": "ACTIVE_DEVELOPMENT",
         "preservation": "PRODUCT_FIRST_RESET",
         "exchange": "CLOSED",
+        "kernel_available": kernel.AVAILABLE,
+        "kernel_error": kernel.IMPORT_ERROR,
         "work_items": [w.model_dump(mode="json") for w in Store(scope="aegis").list_work()],
     }
 
