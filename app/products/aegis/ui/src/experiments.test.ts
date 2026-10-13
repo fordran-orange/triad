@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StrategySpec } from './contracts';
-import { applyCellToStrategy, cellsView, leverLabel, recommendationText, surfaceLine } from './experiments';
+import { applyCellToStrategy, bestPoint, cellsView, leverLabel, priceLabel, recommendationText, surfaceLine } from './experiments';
 
 function strategy(): StrategySpec {
   const side = (direction: 'long' | 'short') => ({
@@ -93,5 +93,28 @@ describe('experiment helpers', () => {
     expect(leverLabel({ kind: 'coarsen', parameter: 'x', label: 'coarsen x: step 1 → 2', valid_cells: 40656, estimate_seconds: 180, fits: false })).toBe(
       'coarsen x: step 1 → 2 → 40,656 cells, 3 min 0 s',
     );
+  });
+});
+
+
+describe('bestPoint', () => {
+  const points = [
+    { value: 10, median: 1 },
+    { value: 20, median: 5 },
+    { value: 30, median: 3 },
+  ];
+  it('picks the highest median, or the lowest when lower is better (max_drawdown)', () => {
+    expect(bestPoint(points, false)?.value).toBe(20);
+    expect(bestPoint(points, true)?.value).toBe(10);
+  });
+  it('is null when no level has a median', () => {
+    expect(bestPoint([{ value: 1, median: null }], false)).toBeNull();
+  });
+});
+
+describe('priceLabel', () => {
+  it('says whether the plan was priced from a measurement or the starting guess', () => {
+    expect(priceLabel({ price_source: 'measured' })).toBe('measured on this host');
+    expect(priceLabel({ price_source: 'starting_guess' })).toBe('starting guess; no experiment has finished on this host yet');
   });
 });

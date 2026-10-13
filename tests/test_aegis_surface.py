@@ -353,3 +353,38 @@ def test_refinement_targets_plateau_neighbours_first():
     assert len(no_plateau) == 5 and not set(no_plateau) & set(run)
     best = max(run, key=run.get)
     assert all(index in grid.neighbours(best) for index in no_plateau[:2])
+
+
+def test_plan_skips_lengths_whose_warm_up_exceeds_the_bars():
+    """Review finding 2: a surface over lengths longer than the data must plan them as skipped
+    (reason "insufficient bars"), as spec §5.2 says of cells the engine cannot run."""
+    from products.aegis.kinds import warmup
+    from products.aegis.surface import build_grid
+
+    surface = Surface(parameters=[P("long_side.indicators.donchian.length", 10, 60, 10)])
+    bars = 52
+    lengths = [10, 20, 30, 40, 50, 60]
+    expected_valid = sum(1 for n in lengths if bars > warmup("DONCHIAN", n))
+    assert 0 < expected_valid < len(lengths)
+    result = plan(pinned(), surface, Budget(runs=100), bars, 0.01, WORKERS)
+    assert result.valid_cells == expected_valid, (result.valid_cells, expected_valid)
+    assert result.skipped == len(lengths) - expected_valid
+    assert result.skip_reasons == {"insufficient bars": result.skipped}
+    # Without a bar count the grid's validity is the spec's alone (unchanged callers).
+    assert build_grid(pinned(), surface).skipped_count == 0
+
+
+def test_plan_names_its_price_source():
+    """Review finding 5: the plan line must say whether the price was measured or guessed."""
+    guessed = plan(pinned(), item2_surface(), Budget(runs=2000), BARS, KERNEL_MS_PER_BAR, WORKERS)
+    assert guessed.price_source == "starting_guess"
+    measured = plan(
+        pinned(),
+        item2_surface(),
+        Budget(runs=2000),
+        BARS,
+        0.025,
+        WORKERS,
+        price_source="measured",
+    )
+    assert measured.price_source == "measured"

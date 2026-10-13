@@ -294,3 +294,33 @@ def test_no_plateau_statement_names_the_best_cell_without_phantom_others():
         "as is 1 other fragile peak"
         in analyse(two, grid, "net_pnl", 0.15, "exhaustive", 1, "x")["statement"]
     )
+
+
+def test_plateaus_reached_from_several_peaks_merge_into_one():
+    """Review finding 3: a lower peak whose band bridges two higher plateaus must union them
+    (spec §7: plateaus reached from several peaks are one plateau), never leave a twin."""
+    from products.aegis.analysis import neighbours_exhaustive
+
+    grid = grid1((1, 9, 1))
+    heights = [10, 10, 10, 7.5, 8, 7.5, 10, 10, 10]
+    values = {i: float(h) for i, h in enumerate(heights)}
+    relation = neighbours_exhaustive(grid, sorted(values))
+    found = plateaus(values, relation, peaks(values, relation), tau=1.0, min_cells=3)
+    assert len(found) == 1, [(p["cells"], p["size"]) for p in found]
+    assert found[0]["cells"] == list(range(9)) and found[0]["counts"]
+    assert {0, 4, 6} <= set(found[0]["peaks"])
+
+
+def test_flat_between_the_percentiles_is_not_called_identical():
+    """Review finding 6: P10 == P90 with differing values is an empty tolerance band, not a
+    constant surface; the headline must not claim every cell is the same."""
+    grid = grid2((1, 10, 1), (1, 10, 1))
+    rows = rows_for(grid, lambda v: 5.0)
+    for k, cell in enumerate(range(0, 88, 11)):  # eight cells spread 0 … 84 among 92 at 5.0
+        rows[cell]["combined.net_pnl"] = 12.0 * k
+    report = analyse(rows, grid, "net_pnl", 0.15, "exhaustive", 1, "x")
+    assert report["tau"] == 0 and report["recommendation"] is None
+    assert "between the 10th and 90th percentiles" in report["statement"], report["statement"]
+    assert "every valid cell has the same" not in report["statement"]
+    assert report["peaks"] and report["peaks"][0]["cell"] == 77 and report["peaks"][0]["fragile"]
+    assert report["cells_named"] == [77]

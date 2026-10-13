@@ -100,7 +100,14 @@ def _run_cell(index: int, params: dict[str, float], want_curve: bool) -> dict:
     request = BacktestRequest.model_construct(
         strategy=strategy, data=None, bars=[], events=[], settings=_SETTINGS, engine="kernel"
     )
-    result = run_metrics(request, _FRAME, _DATA_KEY, _CACHE, want_curve)
+    try:
+        result = run_metrics(request, _FRAME, _DATA_KEY, _CACHE, want_curve)
+    except ValueError as exc:  # the engine's own refusal (a warm-up longer than the data)
+        message = str(exc)
+        reason = "insufficient bars" if message.startswith("insufficient bars") else message
+        row.update(valid=False, skip_reason=reason)
+        row["elapsed_ms"] = (time.perf_counter() - started) * 1000
+        return row
     row.update(
         metrics={scope: result[scope] for scope in SCOPES},
         curve=resample_curve(result["curve"]) if want_curve else None,

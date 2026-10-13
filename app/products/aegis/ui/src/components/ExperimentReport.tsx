@@ -137,7 +137,7 @@ export function ExperimentReportView({ experiment, report, onUse, onChanged, onR
 
       <div className="report-section">
         <h4>Main effects</h4>
-        <MainEffects effects={report.main_effects} objective={report.objective} />
+        <MainEffects effects={report.main_effects} objective={report.objective} lowerIsBetter={report.objective === 'max_drawdown'} />
       </div>
 
       <div className="report-section">
@@ -159,6 +159,7 @@ export function ExperimentReportView({ experiment, report, onUse, onChanged, onR
                 rowLabel={pair.paths[0]}
                 colLabel={pair.paths[1]}
                 format={(v) => num(v, 2)}
+                lowerIsBetter={report.objective === 'max_drawdown'}
               />
             ))}
           </div>

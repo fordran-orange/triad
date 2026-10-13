@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, errorMessage, type ExperimentBody } from '../api/client';
 import { INDICATOR_KINDS, type Plan, type StrategyDocument } from '../contracts';
-import { leverLabel, surfaceLine } from '../experiments';
+import { leverLabel, priceLabel, surfaceLine } from '../experiments';
 import { num } from '../format';
 import { effectiveParams } from '../rules';
 import { OBJECTIVE_LABELS, OBJECTIVES, type ExperimentLever, type Objective } from '../results';
@@ -206,7 +206,7 @@ export function ExperimentPlanner({ document, onCreated, onClose }: Props) {
         {params.length === 0
           ? 'Add at least one parameter.'
           : plan
-            ? `${surfaceLine({ parameters: params }, plan)} · ≈ ${formatSeconds(plan.estimate_seconds)} on ${plan.workers} workers at ${num(plan.ms_per_cell_bar * plan.bars, 1)} ms per cell` +
+            ? `${surfaceLine({ parameters: params }, plan)} · ≈ ${formatSeconds(plan.estimate_seconds)} on ${plan.workers} workers at ${num(plan.ms_per_cell_bar * plan.bars, 1)} ms per cell (${priceLabel(plan)})` +
               (plan.skipped ? ` · ${plan.skipped.toLocaleString()} skipped (${Object.keys(plan.skip_reasons).join('; ')})` : '')
             : error
               ? ''

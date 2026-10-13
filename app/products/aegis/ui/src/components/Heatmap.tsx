@@ -13,10 +13,12 @@ export interface HeatmapProps {
   selected?: { fast: number; slow: number } | null;
   onSelect?: (fast: number, slow: number) => void;
   empty?: string;
+  /** Hot = best; for an objective where lower is better (max_drawdown) the tones flip. */
+  lowerIsBetter?: boolean;
 }
 
 /** Maps a metric matrix onto the heat grid. Pure; vitest-covered (heatmap.test.ts). */
-export function cells(fast: number[], slow: number[], matrix: HeatmapProps['matrix']) {
+export function cells(fast: number[], slow: number[], matrix: HeatmapProps['matrix'], lowerIsBetter = false) {
   const values = (matrix ?? []).flat().filter((v): v is number => v !== null && Number.isFinite(v));
   const lo = values.length ? Math.min(...values) : 0;
   const hi = values.length ? Math.max(...values) : 0;
@@ -25,7 +27,8 @@ export function cells(fast: number[], slow: number[], matrix: HeatmapProps['matr
       const v = matrix?.[r]?.[c] ?? null;
       let tone: 'empty' | 'hot' | 'cool' | 'mid' = 'empty';
       if (v !== null && Number.isFinite(v)) {
-        const t = hi === lo ? 0.5 : (v - lo) / (hi - lo);
+        const raw = hi === lo ? 0.5 : (v - lo) / (hi - lo);
+        const t = lowerIsBetter ? 1 - raw : raw;
         tone = t >= 0.67 ? 'hot' : t <= 0.33 ? 'cool' : 'mid';
       }
       return { fast: f, slow: s, value: v, tone };
@@ -33,8 +36,8 @@ export function cells(fast: number[], slow: number[], matrix: HeatmapProps['matr
   );
 }
 
-export function Heatmap({ title, metric, fast, slow, matrix, format, rowLabel = 'fast↓', colLabel = 'slow→', selected, onSelect, empty }: HeatmapProps) {
-  const grid = cells(fast, slow, matrix);
+export function Heatmap({ title, metric, fast, slow, matrix, format, rowLabel = 'fast↓', colLabel = 'slow→', selected, onSelect, empty, lowerIsBetter = false }: HeatmapProps) {
+  const grid = cells(fast, slow, matrix, lowerIsBetter);
   const fmt = format ?? ((v: number) => v.toFixed(0));
   return (
     <div className="heatmap">

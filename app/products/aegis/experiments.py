@@ -46,6 +46,7 @@ from products.aegis.surface import plan as plan_surface
 log = logging.getLogger("aegis")
 CHUNK_CELLS = 200
 CURVES_LIMIT = 20_000
+PRICE_MIN_CELLS = 50  # a smaller experiment's cost is mostly its workers' cold first cells
 Objective = Literal[
     "net_pnl",
     "net_return",
@@ -229,12 +230,18 @@ class ExperimentStore:
         return candidate
 
     def last_ms_per_cell_bar(self) -> float | None:
-        """The newest finished experiment's measured cost per cell-bar on this host."""
+        """The newest finished experiment's measured cost per cell-bar on this host, preferring
+        experiments of at least PRICE_MIN_CELLS cells: a tiny one is priced by its workers' cold
+        first cells and would inflate the next plan tenfold (QA observation 1)."""
         finished = [
             s for s in self.list() if s.get("status") == "done" and s.get("ms_per_cell_bar")
         ]
         finished.sort(key=lambda s: s.get("updated_at", ""), reverse=True)
-        return float(finished[0]["ms_per_cell_bar"]) if finished else None
+        sized = [
+            s for s in finished if (s.get("progress") or {}).get("cells_done", 0) >= PRICE_MIN_CELLS
+        ]
+        chosen = sized or finished
+        return float(chosen[0]["ms_per_cell_bar"]) if chosen else None
 
     def delete(self, experiment_id: str) -> None:
         self.repository.delete_experiment(experiment_id)
@@ -340,9 +347,16 @@ def create(
     """Plan and save a queued experiment pinned to the strategy document's current spec."""
     document = library.get(request.strategy_id)  # KeyError when unknown
     spec = document.spec
-    price = store.last_ms_per_cell_bar() or KERNEL_MS_PER_BAR
+    measured = store.last_ms_per_cell_bar()
     planned = plan_surface(
-        spec, request.surface, request.budget, bars, price, max_workers, timeframe
+        spec,
+        request.surface,
+        request.budget,
+        bars,
+        measured or KERNEL_MS_PER_BAR,
+        max_workers,
+        timeframe,
+        price_source="measured" if measured else "starting_guess",
     )
     now = _now()
     chunk = CHUNK_CELLS
@@ -407,8 +421,8 @@ class ExperimentJob:
         self.pinned = provenance(pinned)
         self.repository = repository
         self.store = ExperimentStore(repository)
-        self.grid = build_grid(document.spec, document.surface)
         self.bars = len(rows)
+        self.grid = build_grid(document.spec, document.surface, self.bars)
         self.workers = max_workers or document.workers or default_workers()
         self.chunk = document.chunk_cells or CHUNK_CELLS
         self.keep_curves = document.plan["planned_runs"] <= CURVES_LIMIT
@@ -685,6 +699,20 @@ def recompute_report(
     return updated, report
 
 
+def cancel_idle(store: ExperimentStore, document: ExperimentDocument) -> ExperimentDocument:
+    """Cancel a queued or paused experiment that has no live job (review finding 1): the status
+    is written here and, when cells exist and no report does, report 1 is computed from them,
+    as finalize does when a running job is cancelled."""
+    cancelled = document.model_copy(update={"status": "cancelled", "updated_at": _now()})
+    store.save(cancelled)
+    if cancelled.latest_report is None and store.done_cells(document.id):
+        try:
+            cancelled, _ = recompute_report(store, cancelled)
+        except ValueError as exc:  # nothing to rank: the cancellation stands without a report
+            log.info("experiment %s cancelled without a report: %s", document.id, exc)
+    return cancelled
+
+
 VERDICTS = ("accepted", "rejected", "deferred")
 
 
@@ -746,11 +774,18 @@ def refine(
     )
     if plateau is None or not plateau.get("cells"):
         raise ValueError("the latest report has no recommendation to refine around")
-    grid = build_grid(document.spec, document.surface)
+    grid = build_grid(document.spec, document.surface, bars)
     narrowed = refined_surface(document.surface, grid, plateau["cells"])
-    price = store.last_ms_per_cell_bar() or KERNEL_MS_PER_BAR
+    measured = store.last_ms_per_cell_bar()
     planned = plan_surface(
-        document.spec, narrowed, document.budget, bars, price, max_workers, timeframe
+        document.spec,
+        narrowed,
+        document.budget,
+        bars,
+        measured or KERNEL_MS_PER_BAR,
+        max_workers,
+        timeframe,
+        price_source="measured" if measured else "starting_guess",
     )
     now = _now()
     name = f"{document.name} · refined"
@@ -846,6 +881,7 @@ __all__ = [
     "ExperimentJob",
     "ExperimentRequest",
     "ExperimentStore",
+    "cancel_idle",
     "create",
     "decide",
     "materialize",

@@ -542,14 +542,16 @@ def experiment_plan(
         from products.aegis.surface import KERNEL_MS_PER_BAR
         from products.aegis.surface import plan as plan_surface
 
+        measured = experiments.last_ms_per_cell_bar()
         planned = plan_surface(
             document.spec,
             request.surface,
             request.budget,
             len(frame),
-            experiments.last_ms_per_cell_bar() or KERNEL_MS_PER_BAR,
+            measured or KERNEL_MS_PER_BAR,
             default_workers(),
             request.data.timeframe,
+            price_source="measured" if measured else "starting_guess",
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -634,10 +636,11 @@ def resume_experiment(
     experiments: experiments_module.ExperimentStore = EXPERIMENTS,
 ):
     document = _experiment(experiments, experiment_id)
-    if document.status not in ("queued", "paused"):
+    if document.status not in ("queued", "paused", "failed"):
         raise HTTPException(
             409,
-            f"experiment {experiment_id} is {document.status}; only queued or paused experiments resume",
+            f"experiment {experiment_id} is {document.status}; "
+            "only queued, paused or failed experiments resume",
         )
     job_id = _start_experiment(document, store, runner, repository)
     if job_id is None:
@@ -652,12 +655,18 @@ def cancel_experiment(
     experiments: experiments_module.ExperimentStore = EXPERIMENTS,
 ):
     document = _experiment(experiments, experiment_id)
-    if document.status == "queued" or (document.status == "paused" and not document.job_id):
-        experiments.save(document.model_copy(update={"status": "cancelled"}))
-        return {"cancelled": True}
-    if document.status != "running" or not document.job_id:
+    if document.status not in experiments_module.UNFINISHED:
         raise HTTPException(409, f"experiment {experiment_id} is {document.status}, not running")
-    return {"cancelled": runner.cancel(document.job_id)}
+    live = runner.job_kind(document.job_id) if document.job_id else None
+    if live is not None:  # a job on this worker, started or about to start: it finalizes itself
+        return {"cancelled": runner.cancel(document.job_id)}
+    if document.status == "running":
+        raise HTTPException(409, f"experiment {experiment_id} has no running job on this worker")
+    # Queued without a job, or paused (its job has stopped): cancelled here, with report 1 from
+    # the cells present (review finding 1: a paused experiment could be neither cancelled nor
+    # deleted, since every real pause keeps its job_id).
+    experiments_module.cancel_idle(experiments, document)
+    return {"cancelled": True}
 
 
 @router.get("/experiments/{experiment_id}/cells")

@@ -111,3 +111,23 @@ def test_resample_curve_pads_short_series_and_keeps_the_ends():
     assert resample_curve([], 4) == [0.0, 0.0, 0.0, 0.0]
     long = resample_curve([float(i) for i in range(1000)], 128)
     assert len(long) == 128 and long[0] == 0.0 and long[-1] == 999.0
+
+
+def test_a_cell_whose_warm_up_exceeds_the_bars_is_an_invalid_row_not_a_failure():
+    """Review finding 2: the engine's "insufficient bars" refusal is a skipped cell with the
+    reason, never an exception that fails the whole experiment."""
+    from products.aegis import pool as worker
+
+    worker._init_worker(
+        [dict(r) for r in ROWS],
+        "QQQ",
+        pinned().model_dump(mode="json"),
+        {"initial_capital": 100_000, "allocation_fraction": 1},
+    )
+    params = {
+        "long_side.indicators.donchian.length": 1000.0,
+        "long_side.indicators.rsi.length": 14.0,
+    }
+    row = worker._run_cell(7, params, False)
+    assert row["valid"] is False and row["skip_reason"] == "insufficient bars", row
+    assert row["metrics"] is None and row["cell"] == 7 and row["params"] == params

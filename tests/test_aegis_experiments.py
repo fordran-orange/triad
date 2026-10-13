@@ -446,3 +446,90 @@ def test_refine_creates_a_queued_child_from_the_recommended_plateau(world):
     store.write_report(doc.id, 1, report, "# Recommendation — none\n")
     with pytest.raises(ValueError, match="no recommendation"):
         exp.refine(store, doc, bars=len(ROWS), max_workers=2)
+
+
+def test_lengths_beyond_the_bars_are_skipped_not_failed(world):
+    """Review finding 2: the dry run's donchian 10–5000 surface would have failed the whole
+    experiment at its second chunk; such cells are planned as skipped and the run finishes."""
+    repository, library, document = world
+    surface = Surface(
+        parameters=[
+            Parameter(path="long_side.indicators.donchian.length", start=10, stop=310, step=50)
+        ]
+    )
+    body = request(document, surface=surface.model_dump(), name="beyond the bars")
+    store = exp.ExperimentStore(repository)
+    doc = exp.create(store, library, body, bars=len(ROWS), max_workers=2)
+    assert doc.plan["skipped"] >= 1, doc.plan
+    assert doc.plan["skip_reasons"] == {"insufficient bars": doc.plan["skipped"]}, doc.plan
+    assert doc.plan["planned_runs"] == 7 - doc.plan["skipped"]
+    runner = JobRunner(repository)
+    runner.start(exp.ExperimentJob(doc, ROWS, PINNED_DATA, repository))
+    assert wait_for(lambda: document_of(repository, doc.id).status in ("done", "failed"))
+    finished = document_of(repository, doc.id)
+    assert finished.status == "done", finished.error
+    assert finished.progress["cells_done"] == doc.plan["planned_runs"]
+    assert finished.latest_report == 1
+
+
+def test_cancel_idle_writes_report_one_from_the_cells_present(world):
+    """Review finding 1: a paused experiment carries its job_id, so cancel must not need a live
+    job; it keeps the chunks and reports on them."""
+    repository, library, document = world
+    gate = {"paused": False}
+
+    def after_unit(done):
+        if done == 1 and not gate["paused"]:
+            gate["paused"] = True
+            runner.cancel(job_id)
+
+    runner = JobRunner(repository, after_unit=after_unit)
+    store = exp.ExperimentStore(repository)
+    doc = exp.create(store, library, request(document), bars=len(ROWS), max_workers=2)
+    job = exp.ExperimentJob(doc, ROWS, PINNED_DATA, repository)
+    job.pause_requested = True
+    job_id = runner.start(job)
+    assert wait_for(lambda: document_of(repository, doc.id).status == "paused")
+    paused = document_of(repository, doc.id)
+    assert paused.job_id == job_id and paused.latest_report is None
+    cancelled = exp.cancel_idle(store, paused)
+    assert cancelled.status == "cancelled" and cancelled.latest_report == 1
+    report = store.read_report(doc.id, 1)
+    assert report["valid_cells"] == paused.progress["cells_done"] > 0
+    assert document_of(repository, doc.id).status == "cancelled"
+    store.delete(doc.id)
+    assert doc.id not in {s["id"] for s in repository.list_experiments()}
+
+
+def test_price_prefers_the_newest_experiment_with_enough_cells(world):
+    """QA observation 1: a four-cell experiment's cold first cells priced the next plan tenfold.
+    The price comes from the newest finished experiment with at least PRICE_MIN_CELLS cells, and
+    from a smaller one only when nothing bigger has finished on this host."""
+    repository, library, document = world
+    store = exp.ExperimentStore(repository)
+    big = exp.create(store, library, request(document, name="big"), bars=len(ROWS), max_workers=2)
+    small = exp.create(
+        store, library, request(document, name="small"), bars=len(ROWS), max_workers=2
+    )
+    repository.save_experiment(
+        {
+            **big.model_dump(mode="json"),
+            "status": "done",
+            "ms_per_cell_bar": 0.02,
+            "progress": {**big.progress, "cells_done": 252},
+            "updated_at": "2026-10-13T00:00:00+00:00",
+        }
+    )
+    repository.save_experiment(
+        {
+            **small.model_dump(mode="json"),
+            "status": "done",
+            "ms_per_cell_bar": 0.3,
+            "progress": {**small.progress, "cells_done": 4},
+            "updated_at": "2026-10-13T01:00:00+00:00",
+        }
+    )
+    assert exp.PRICE_MIN_CELLS == 50
+    assert store.last_ms_per_cell_bar() == 0.02  # the bigger, older measurement wins
+    repository.delete_experiment(big.id)
+    assert store.last_ms_per_cell_bar() == 0.3  # the only measurement left still beats the guess

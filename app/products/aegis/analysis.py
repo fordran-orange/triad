@@ -159,12 +159,13 @@ def plateaus(
                     plateau["peaks"].append(peak)
             continue
         members = _plateau_of(peak, values, relation, tau)
-        merged = None
-        for plateau in found:
-            if members & plateau["cells"]:
-                merged = plateau
-                break
-        if merged is not None:
+        touching = [plateau for plateau in found if members & plateau["cells"]]
+        if touching:  # one plateau for every set the new one bridges (review finding 3)
+            merged = touching[0]
+            for other in touching[1:]:
+                merged["cells"] |= other["cells"]
+                merged["peaks"] += other["peaks"]
+                found.remove(other)
             merged["cells"] |= members
             merged["peaks"].append(peak)
         else:
@@ -509,9 +510,30 @@ def analyse(
     tau = float(tolerance * (p90 - p10))
     base["tau"] = tau
     if tau <= 0:
+        best = max(values, key=lambda c: (values[c], -c))
+        if len({float(v) for v in vals}) == 1:
+            base["statement"] = (
+                f"the surface is flat: every valid cell has the same {objective} "
+                f"({sign * float(vals[0]):g}); no peak or plateau to name"
+            )
+            return base
+        # P10 == P90 but the values differ: the tolerance band is empty, so no plateau can be
+        # named; the best cell stands alone as a fragile peak (review finding 6).
+        base["peaks"] = [
+            {
+                "cell": best,
+                "params": _params(grid, best),
+                "objective": sign * values[best],
+                "fragile": True,
+                "plateau": None,
+            }
+        ]
+        base["cells_named"] = [best]
         base["statement"] = (
-            f"the surface is flat: every valid cell has the same {objective} "
-            f"({sign * float(vals[0]):g}); no peak or plateau to name"
+            f"the surface is flat between the 10th and 90th percentiles of {objective} "
+            f"(both {sign * float(p10):g}), so the tolerance band is empty and no plateau can be "
+            f"named; the best cell {_params(grid, best)} with {objective} "
+            f"{sign * values[best]:g} is a fragile peak"
         )
         return base
 

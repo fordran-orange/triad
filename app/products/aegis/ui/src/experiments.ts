@@ -17,6 +17,22 @@ export interface PlanLike {
 
 const n = (value: number) => value.toLocaleString('en-US');
 
+/** The level a main-effect chart points at: the highest median, or the lowest for an objective
+ *  where lower is better (max_drawdown) — review finding 4. Null when no level has a median. */
+export function bestPoint<T extends { value: number; median: number | null }>(points: T[], lowerIsBetter: boolean): T | null {
+  const drawn = points.filter((p) => p.median !== null);
+  if (drawn.length === 0) return null;
+  return drawn.reduce((a, b) => {
+    const better = lowerIsBetter ? (b.median as number) < (a.median as number) : (b.median as number) > (a.median as number);
+    return better ? b : a;
+  });
+}
+
+/** Where the plan's price came from (review finding 5): an estimate is never shown as a measurement. */
+export function priceLabel(plan: { price_source?: 'measured' | 'starting_guess' | null }): string {
+  return plan.price_source === 'measured' ? 'measured on this host' : 'starting guess; no experiment has finished on this host yet';
+}
+
 /** "4 parameters · 252 cells · exhaustive" or "… · sampled 1.3% (2,000 runs)". */
 export function surfaceLine(surface: SurfaceLike, plan: PlanLike | null): string {
   const count = surface.parameters.length;

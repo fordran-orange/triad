@@ -189,7 +189,14 @@ export function ExperimentsPage() {
             <button type="button" className="btn" id="experiment-pause" disabled={busy || selected.status !== 'running'} onClick={() => act(() => api.pauseExperiment(selected.id))}>
               Pause
             </button>
-            <button type="button" className="btn" id="experiment-resume" disabled={busy || !(selected.status === 'paused' || selected.status === 'queued')} onClick={() => act(() => api.resumeExperiment(selected.id))}>
+            <button
+              type="button"
+              className="btn"
+              id="experiment-resume"
+              disabled={busy || !(selected.status === 'paused' || selected.status === 'queued' || selected.status === 'failed')}
+              title={selected.status === 'failed' ? 'Continue from the cells already on disk' : undefined}
+              onClick={() => act(() => api.resumeExperiment(selected.id))}
+            >
               Resume
             </button>
             <button type="button" className="btn" id="experiment-cancel" disabled={busy || !(selected.status === 'running' || selected.status === 'queued' || selected.status === 'paused')} onClick={() => act(() => api.cancelExperiment(selected.id))}>
@@ -228,7 +235,7 @@ export function ExperimentsPage() {
         />
       )}
       {selected && !report && selected.status !== 'running' && selected.status !== 'queued' && (
-        <div className="empty-state">No report yet{selected.status === 'paused' ? ': resume the experiment to finish it' : ''}.</div>
+        <div className="empty-state">No report yet{selected.status === 'paused' || selected.status === 'failed' ? ': resume the experiment to finish it' : ''}.</div>
       )}
     </div>
   );

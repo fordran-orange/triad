@@ -24,3 +24,12 @@ describe('heatmap mapping', () => {
     expect(cells([5], [8], null)[0][0]).toMatchObject({ value: null, tone: 'empty' });
   });
 });
+
+
+describe('heatmap orientation', () => {
+  it('flips the tones when lower is better', () => {
+    const grid = cells([5], [8, 9, 10], [[1, 5, 9]], true);
+    expect(grid[0].map((c) => c.tone)).toEqual(['hot', 'mid', 'cool']);
+    expect(cells([5], [8, 9, 10], [[1, 5, 9]])[0].map((c) => c.tone)).toEqual(['cool', 'mid', 'hot']);
+  });
+});

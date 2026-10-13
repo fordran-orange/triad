@@ -4,7 +4,9 @@ Branch `aegis/experiments`, cut from `main` at `5189e12` (the plan commit; the s
 amended at `cabe40e`). Spec: `docs/superpowers/specs/2026-10-12-aegis-experiments-design.md`.
 Plan: `docs/superpowers/plans/2026-10-12-aegis-experiments.md` (9 tasks, 14 plan rulings).
 Executed natively in one session on Fable 5.1 (the session was compacted once, after Task 7's
-browser check; the ledger carried the state).
+browser check; the ledger carried the state). The milestone QA and the whole-branch review ran on
+Fable 5.1 as independent background agents at `60a723f`; the fix pass that followed is the
+commit after this record's Task 9 commit (its hash is in `git log`).
 
 Nothing under `app/trading_core/`, `app/platform_host/` or `app/products/triad/` changed
 (acceptance item 60 checks it with git against `5189e12`); `pyproject.toml` changed by one added
@@ -49,7 +51,8 @@ supported and stays valid. The single best cell is never the recommendation on i
 | 6 Reports, decision, refine, contracts | `e7a0f8d` | report 1 written at finish; recompute with another objective or tolerance, every report kept and numbered; the decision (accepted / rejected / deferred with notes); refine → a queued child pinned to the parent's spec with ranges narrowed around the plateau; contracts regenerated |
 | 7 Experiments page | `c2c9e34` | the list, the planner with the levers, the running view (chunks, measured cost, remaining), the report (recommendation first, plateaus, peaks with their standing, main-effect charts, interaction heatmaps, sensitivity, clusters), the sortable paged cells table with equity overlays, Materialize and Use per cell, Recompute, the decision form, Refine; a ten-metric `Objective` type beside the optimizer's `Metric` |
 | 8 Hygiene (P14) | `f302c3d` | the nine Mission 5 minors, each test-first: list details rendered as the Value error messages; a document that no longer parses answers 422 naming the field (and may still be deleted); the walk-forward's empty-grid refusal names the skip reason; band operators disabled with the reason until the side has a band; `OptimizeRequest` and `WalkForwardRequest` refuse `initial_position` and `close_at_end=false`; the P12 test asserts the carried trade; grid values rounded to the step's decimals; the chart's series map pruned with its overlays; the constant regex ASCII-only |
-| 9 Acceptance and this record | (this commit) | items 48–60 in `tests/products/aegis/browser_workstation.py` (item 51 restarts the worker through WMI); the runner persists a job as running from its first unit (found by the dry run); evidence under `docs/evidence/`; this record |
+| 9 Acceptance and this record | `60a723f` | items 48–60 in `tests/products/aegis/browser_workstation.py` (item 51 restarts the worker through WMI); the runner persists a job as running from its first unit (found by the dry run); evidence under `docs/evidence/`; this record |
+| Fix pass | the commit after `60a723f` | the six Important review findings and QA observation 1, each test-first (below); the spec's dated section 14 "Execution amendments"; contracts regenerated; acceptance rerun 60/60 (`20261013T035147Z`) |
 
 ## Acceptance evidence
 
@@ -79,6 +82,12 @@ product changed. Items 1–47 all ran on the kernel engine (item 48).
 The acceptance leaves its evidence on the worker: the stamped breakout document, the 252-cell
 experiment (done, accepted) with its materialized runs, and the refined child (paused).
 
+**After the fix pass** the walk was rerun against the restarted worker (listener 18716, then
+43000 after item 51's own restart): run `20261013T035147Z`, **60/60 PASS, no page errors**,
+`docs/evidence/aegis-acceptance-20261013T035147Z.json`. The plan lines now read "… at 98.7 ms per
+cell (measured on this host)"; item 52's report was identical cell for cell to the first run's
+(plateau 1 of 44 cells, centre 94, supported peak 13, all 8 peaks supported).
+
 ## Measurements (final acceptance run, this laptop)
 
 | Measure | Mission 5 (reference engine) | Mission 6 (kernel) |
@@ -98,16 +107,117 @@ The planner's starting price is `KERNEL_MS_PER_BAR = 0.01` (34.9 ms per cell on 
 measured cost on this host is 0.023–0.028 ms per cell-bar, and every plan after the first finished
 experiment is priced from it.
 
-## Verification (Task 9 tree)
+## Verification
 
-| Check | Result |
-|---|---|
-| `pytest -q -p no:cacheprovider` (whole repository) | 1265 passed, 596 skipped, 209 subtests passed (234 s) |
-| `ruff check` / `ruff format --check` (Aegis sources, Aegis tests, `tools/aegis_contracts.py`) | clean |
-| `tools/aegis_contracts.py --check` | current |
-| `npm test` | 56 passed (10 files) |
-| `npm run build` | built |
-| Acceptance | 60/60 PASS (run `20261013T030527Z`) |
+| Check | Task 9 tree (`60a723f`) | After the fix pass |
+|---|---|---|
+| `pytest -q -p no:cacheprovider` (whole repository) | 1265 passed, 596 skipped, 209 subtests passed (234 s) | 1275 passed, 596 skipped, 209 subtests passed (221 s) |
+| `ruff check` / `ruff format --check` (Aegis sources, Aegis tests, `tools/aegis_contracts.py`) | clean | clean |
+| `tools/aegis_contracts.py --check` | current | current (regenerated for `Plan.price_source`) |
+| `npm test` | 56 passed (10 files) | 60 passed (10 files) |
+| `npm run build` | built | built |
+| Acceptance | 60/60 PASS (run `20261013T030527Z`) | 60/60 PASS (run `20261013T035147Z`) |
+
+## Milestone QA (Fable 5.1, read-only, at `60a723f`)
+
+Artefacts under `logs/qa_m6/` (git-ignored; report `logs/qa_m6/report.md`). Verdict:
+**PASS_WITH_OBSERVATIONS**, no product defect.
+
+- Suite 1265 passed; ruff and contracts clean; UI 56 passed and built.
+- numba 0.68.0 installed; no `numba` under Core, the platform host or Triad; the architecture
+  test pins it; `pyproject.toml` one added line.
+- Kernel equivalence re-derived over HTTP on nine strategy/data pairs (the default strategy, the
+  Donchian/RSI document and a MACD + Bollinger band strategy with commission and slippage, each
+  on QQQ 1h, QQQ 1D and SPY 30m): `result_hash`, the full result, series and markers identical
+  between `reference` and `kernel`; speed 2.6–5.6×. Carried windows: the acceptance walk-forward
+  reproduced to the same hash; windows 0–2 rebuilt independently with supplied bars, carried
+  position included, identical on both engines; a plain carried pair identical.
+- Peaks to plateaus hand-checked on synthetic surfaces with known answers (spike fragile, 16-cell
+  plateau with centre (4,4), the single best cell never the recommendation, a touching spike
+  admitted and supported, all-null refused, d = 1) and the acceptance experiment's two reports
+  recomputed by an independent implementation: τ, peaks, plateau membership, median, iqr, cliff,
+  centre, standing, sensitivity shares and main effects all equal.
+- Pause/resume over HTTP on a 100-run sampled experiment: 67 + 33 cells, each exactly once; a
+  real restart was outside the brief (unit tests and the acceptance evidence cover it).
+- Materialize for cells 94, 0 and 251: equal hashes twice, equal to direct backtests, 30 metrics
+  equal.
+- Every refusal of §2 item 12 reproduced on both the plan and the create routes, plus budget,
+  tolerance, objective, duplicate-path, disabled-side, recompute and verdict refusals.
+- The page's honesty: nothing fabricated, "—" for every absent value, the null-objective
+  experiment shown as the sentence, not an empty card; the live page compared field for field
+  with the API.
+- Observations: (1) a 4-cell experiment's cold first cells priced the next plan tenfold — fixed
+  in the pass; (2) a pause on a single-chunk experiment is acknowledged with 200 and the run
+  finishes done — deferred; (3) the wrong-side wording and (4) the 5,000-row plateau filter —
+  known; two spec mismatches (§5.6 said 409 where the route queues with 202; §6.2's single file
+  and loose reports) — met by the spec's section 14; one cosmetic (the walk-forward's empty-grid
+  reason is the optimizer's generic one) — deferred.
+- QA left 43 run envelopes and one walk-forward job on the worker (no delete routes for runs and
+  jobs); their ids are in `logs/qa_m6/created_not_deletable.json`.
+
+## Whole-branch review (Fable 5.1, `5189e12..60a723f`) and fix pass
+
+Verdict: **with fixes**. No Critical findings. The reviewer walked the kernel against the
+reference loop line by line, the analysis against §7, the grid algebra, the storage and the
+routes, the five UI components and every test; it ran the suites, lint and GET-only probes.
+
+Important findings, all fixed in one pass, each test-first (RED watched, then GREEN):
+
+1. A paused experiment could be neither cancelled nor deleted (every real pause keeps its
+   `job_id`, and cancel demanded a live job) → `cancel_idle()` writes the status and report 1
+   from the cells present; the cancel route asks the runner first and falls back to it.
+   `test_cancel_idle_writes_report_one_from_the_cells_present`,
+   `test_a_paused_experiment_can_be_cancelled_then_deleted`.
+2. One cell whose warm-up exceeded the bars failed the whole experiment, non-resumably, with no
+   report → the grid takes the bar count and skips such combinations as `insufficient bars`
+   (planned and counted); the worker turns the engine's refusal into an invalid row; a failed
+   experiment resumes from its cells. `test_a_cell_whose_warm_up_exceeds_the_bars_is_an_invalid_row_not_a_failure`,
+   `test_plan_skips_lengths_whose_warm_up_exceeds_the_bars`,
+   `test_lengths_beyond_the_bars_are_skipped_not_failed`, `test_resume_continues_a_failed_experiment`.
+3. Plateau merging unioned into the first touching plateau only, leaving twins that
+   double-counted cells → a new plateau unions every plateau it touches.
+   `test_plateaus_reached_from_several_peaks_merge_into_one`.
+4. The main-effect charts and interaction heatmaps called the worst drawdown "best" → `lowerIsBetter`
+   for `max_drawdown` on `MainEffects` and an optional flag on the shared `Heatmap` (the
+   optimizer's default unchanged). vitest `bestPoint`, heatmap orientation.
+5. The starting-guess price was shown like a measurement → `Plan.price_source`
+   (`measured` / `starting_guess`) set by the plan, create and refine paths and printed on the
+   plan line. `test_plan_names_its_price_source`, the plan-route assertion, vitest `priceLabel`.
+6. The flat-surface headline claimed every cell equal whenever P10 == P90 → the statement names
+   the empty tolerance band and the best cell as a fragile peak; only identical values are
+   called flat. `test_flat_between_the_percentiles_is_not_called_identical`.
+
+Also in the pass, from the QA: the measured price comes from the newest finished experiment with
+at least 50 cells (`PRICE_MIN_CELLS`), a smaller one's only when nothing bigger has finished.
+`test_price_prefers_the_newest_experiment_with_enough_cells`.
+
+The spec gained a dated section 14 "Execution amendments (2026-10-13)" so the binding document
+matches the code (validity covers the data; the price source; cancel on paused; per-chunk files
+and the reports folder; the peak rule and the full merge; the flat case; the cluster metric
+filter; 202 queued).
+
+### Deferred minors
+
+From the review (14) and the QA (2), each in the ledger as `minor (deferred)`:
+
+- clusters: a nan first silhouette can never be beaten (guard in the best-of loop).
+- `GET /experiments/{id}/cells?offset=-1` answers 500.
+- The resume 409 says "an optimization is already running" whatever kind holds the runner.
+- Duplicate DOM id `use-cell-<n>` on the centre (card and cells row).
+- Document overwrite races over the API only: decide() while running is lost at the next commit;
+  recompute on a paused experiment then resume resets the reports.
+- A Latin-hypercube shortfall is silent ("N of M" without a reason).
+- `mark_lost_on_startup` turns a never-started queued child into paused.
+- A materialize mismatch raises 500 rather than marking the row.
+- CellsTable refetches the viewed cells on every 2 s poll while any experiment runs.
+- Ticked cells without a stored curve are silently absent from the overlay.
+- Cancel of a queued document whose runner job has not registered yet (a microsecond window).
+- Test gaps: the numba-absent test does not assert the status route; no corrupt-.parquet resume
+  test; Review Focus 4 tested through /plan only.
+- `ExperimentStore.get` maps a document that no longer parses to 404.
+- Large sampled experiments serialize their cell lists under the runner lock on every commit.
+- A pause on a single-chunk experiment is acknowledged with 200 and the run finishes done.
+- The walk-forward's empty-grid refusal names the optimizer's generic skip reason.
 
 ## Rulings
 
@@ -176,8 +286,12 @@ it (item 60 confirms the frozen trees).
    computing chunk is covered by `test_restart_marks_an_unfinished_experiment_paused_not_lost`,
    not by the browser walk.
 4. The first plan on a fresh worker is priced at the starting guess (0.01 ms per cell-bar, about
-   a third of this host's measured cost); the planner says which price it used only through the
-   estimate and the measured cost appears once an experiment has finished.
+   a third of this host's measured cost); since the fix pass the plan line says "starting guess"
+   until an experiment has finished on the host.
+5. The sixteen deferred minors above, the Latin-hypercube shortfall and the single-chunk pause
+   acknowledgement first among them.
+6. Runs and walk-forward jobs have no delete routes; QA's 43 probe runs and one job stay on the
+   worker until a later mission adds them.
 
 ## Known limits
 

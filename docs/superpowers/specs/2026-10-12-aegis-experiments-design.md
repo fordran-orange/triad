@@ -420,3 +420,39 @@ nothing re-enabling Triad's autonomy.
 | Long jobs block the runner lock | snapshots carry counters only; rows are written outside the lock |
 | A 10-parameter sampled map yields no plateau | the report says so honestly and lists the peaks; refinement spends budget around the best cells |
 | Clustering overclaims | refused below 20 cells or silhouette 0.5 |
+
+
+## 14. Execution amendments (2026-10-13)
+
+Recorded after the build so that this binding document matches the code; each item is a ruling
+in the execution ledger and in `docs/MISSION6_EXPERIMENTS.md`.
+
+- **§5.2 validity also covers the data.** A parameter combination whose indicator warm-up the
+  engine would refuse on the planned bar count (`backtest._check_warmup`: bars ≤ warm-up) is a
+  skipped cell with the reason `insufficient bars`, counted in the plan like any other skip; a
+  cell the engine still refuses at run time is written as an invalid row with that reason, never
+  a failed experiment. A `failed` experiment keeps its chunks and resumes like a paused one.
+- **§5.3 the plan names its price source.** `Plan.price_source` is `measured` when the cost
+  came from a finished experiment on this host and `starting_guess` when it is
+  `KERNEL_MS_PER_BAR`; the planner prints it beside the per-cell cost. The measured price is the
+  newest finished experiment's with at least 50 cells (a smaller one is priced by its workers'
+  cold first cells), and a smaller one's only when nothing bigger has finished.
+- **§5.6 create while another job runs.** `POST /aegis/api/experiments` answers 202 with status
+  `queued` and no job id (the document is saved and resumes when the runner is free), not 409.
+- **§6.1 pause and cancel.** A paused (or never-started queued) experiment can be cancelled
+  without a live job: the status is written directly and report 1 is computed from the cells
+  present, as it is when a running job is cancelled; delete then follows.
+- **§6.2 files.** Cells and curves are one Parquet file per committed chunk under
+  `experiments/<id>.cells/` and `experiments/<id>.curves/`, each written atomically (tmp +
+  replace), never appended; a torn write is a leftover `.tmp` and is ignored. Reports live under
+  `experiments/<id>.reports/<n>.json|md`, not beside the document.
+- **§7 peaks.** A peak is a cell at or above every neighbour that beats at least one of them, or
+  that sits at the surface's maximum; the bare "at or above every neighbour" made every cell of
+  a flat basin a peak and one plateau then swallowed the surface. Plateaus reached from several
+  peaks are one plateau: a new plateau unions every plateau it touches, not only the first.
+- **§7 the flat case.** When the 10th and 90th percentiles coincide the tolerance band is empty:
+  the report says so, names no plateau and lists the best cell as a fragile peak; only when every
+  valid value is identical does it call the surface flat.
+- **§7 clusters.** An outcome metric whose spread across cells is below 1e-6 or 1% of its mean
+  magnitude is left out of the clustering; when none remains the clusters are refused with that
+  reason.

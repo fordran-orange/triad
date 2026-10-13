@@ -266,6 +266,7 @@ export interface Plan {
   workers: number;
   bars: number;
   levers?: Lever[];
+  price_source?: 'measured' | 'starting_guess';
 }
 
 export interface IndicatorKind {

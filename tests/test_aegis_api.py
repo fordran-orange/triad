@@ -805,6 +805,7 @@ def test_experiment_plan_route(client, monkeypatch):
     body = response.json()
     assert body["mode"] == "exhaustive" and body["grid_cells"] == body["valid_cells"] == 4
     assert body["bars"] == 52 and body["workers"] == 2 and body["levers"] == []
+    assert body["price_source"] == "starting_guess"  # no experiment has finished on this store
     for key in (
         "planned_runs",
         "first_pass",
@@ -1012,3 +1013,49 @@ def test_a_stored_strategy_that_no_longer_parses_is_422_naming_the_field(client,
     assert c.delete("/aegis/api/strategies/breakout").json() == {
         "deleted": "breakout"
     }  # still deletable
+
+
+def test_a_paused_experiment_can_be_cancelled_then_deleted(client, monkeypatch):
+    """Review finding 1: every real pause persists the job_id; cancel and delete both refused."""
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    from products.aegis import experiments as exp
+    from products.aegis.strategies import StrategyLibrary
+
+    c, _, repository = client
+    _runner(repository)
+    store = exp.ExperimentStore(repository)
+    body = exp.ExperimentRequest.model_validate(_experiment_body(c, name="paused one"))
+    doc = exp.create(store, StrategyLibrary(repository), body, bars=52, max_workers=2)
+    repository.save_experiment(
+        {**doc.model_dump(mode="json"), "status": "paused", "job_id": "dead"}
+    )
+    cancelled = c.post(f"/aegis/api/experiments/{doc.id}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    assert c.get(f"/aegis/api/experiments/{doc.id}").json()["status"] == "cancelled"
+    assert c.delete(f"/aegis/api/experiments/{doc.id}").json() == {"deleted": doc.id}
+
+
+def test_resume_continues_a_failed_experiment(client, monkeypatch):
+    """Review finding 2c: a failed experiment keeps its cells; resume runs the rest."""
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    from products.aegis import experiments as exp
+    from products.aegis.strategies import StrategyLibrary
+
+    c, _, repository = client
+    _runner(repository)
+    store = exp.ExperimentStore(repository)
+    body = exp.ExperimentRequest.model_validate(_experiment_body(c, name="failed one"))
+    doc = exp.create(store, StrategyLibrary(repository), body, bars=52, max_workers=2)
+    repository.save_experiment(
+        {
+            **doc.model_dump(mode="json"),
+            "status": "failed",
+            "job_id": "dead",
+            "error": "ValueError: boom",
+        }
+    )
+    resumed = c.post(f"/aegis/api/experiments/{doc.id}/resume")
+    assert resumed.status_code == 202, resumed.text
+    finished = _wait_experiment(c, doc.id, ("done", "failed"))
+    assert finished["status"] == "done", finished.get("error")
+    assert finished["progress"]["cells_done"] == 4 and finished["error"] is None

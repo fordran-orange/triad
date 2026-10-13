@@ -19,7 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from products.aegis.kinds import kind_info
+from products.aegis.kinds import kind_info, warmup
 from products.aegis.optimize import step_decimals
 from products.aegis.strategy import IndicatorSpec, StrategySpec, _resolve_path, apply_parameters
 
@@ -255,7 +255,9 @@ def skip_reason_of(exc: ValidationError) -> str:
     return _reason(exc)
 
 
-def build_grid(spec: StrategySpec, surface: Surface) -> Grid:
+def build_grid(spec: StrategySpec, surface: Surface, bars: int | None = None) -> Grid:
+    """The grid over a pinned spec. With `bars`, a combination whose warm-up the engine would
+    refuse on that many bars (backtest._check_warmup) is skipped as "insufficient bars"."""
     fields = [_check_parameter(spec, p) for p in surface.parameters]
     values = [p.values() for p in surface.parameters]
     shape = tuple(len(v) for v in values)
@@ -286,10 +288,14 @@ def build_grid(spec: StrategySpec, surface: Surface) -> Grid:
                     whole = name in kind_info(candidate["kind"]).integer_params
                     candidate["params"][name] = float(round(value)) if whole else float(value)
             try:
-                IndicatorSpec.model_validate(candidate)
-                table[combination] = None
+                validated = IndicatorSpec.model_validate(candidate)
             except ValidationError as exc:
                 table[combination] = _reason(exc)
+                continue
+            needed = warmup(validated.kind, validated.length, validated.effective_params())
+            table[combination] = (
+                "insufficient bars" if bars is not None and bars <= needed else None
+            )
         tables.append(table)
     group_sizes = [len(t) for t in tables]
     group_valid = [sum(1 for r in t.values() if r is None) for t in tables]
@@ -453,6 +459,7 @@ class Plan(BaseModel):
     workers: int
     bars: int
     levers: list[Lever] = Field(default_factory=list)
+    price_source: Literal["measured", "starting_guess"] = "starting_guess"
 
 
 def _core(grid: Grid, budget: Budget, bars: int, ms_per_cell_bar: float, max_workers: int) -> dict:
@@ -512,7 +519,7 @@ def _levers(
     def priced(
         kind, parameter, label, *, new_surface=None, new_budget=None, new_bars=None, hint=None
     ):
-        g = build_grid(spec, new_surface) if new_surface is not None else grid
+        g = build_grid(spec, new_surface, bars) if new_surface is not None else grid
         try:
             core = _core(g, new_budget or budget, new_bars or bars, ms_per_cell_bar, max_workers)
             fits = core["mode"] == "exhaustive"
@@ -603,17 +610,19 @@ def plan(
     ms_per_cell_bar: float,
     max_workers: int,
     timeframe: str | None = None,
+    price_source: Literal["measured", "starting_guess"] = "starting_guess",
 ) -> Plan:
     """Exhaustive when every valid cell fits the budget, sampled otherwise, with the levers that
-    bring an over-budget grid back into scope (spec §5.3–5.5)."""
-    grid = build_grid(spec, surface)
+    bring an over-budget grid back into scope (spec §5.3–5.5). `price_source` says whether
+    `ms_per_cell_bar` was measured on this host or is the starting guess."""
+    grid = build_grid(spec, surface, bars)
     core = _core(grid, budget, bars, ms_per_cell_bar, max_workers)
     levers = (
         []
         if core["mode"] == "exhaustive"
         else _levers(spec, surface, grid, budget, bars, ms_per_cell_bar, max_workers, timeframe)
     )
-    return Plan(**core, levers=levers)
+    return Plan(**core, levers=levers, price_source=price_source)
 
 
 __all__ = [

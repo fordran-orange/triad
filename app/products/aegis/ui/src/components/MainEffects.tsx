@@ -1,20 +1,22 @@
+import { bestPoint } from '../experiments';
 import { DASH, num } from '../format';
 import type { MainEffectPoint } from '../results';
 
-/** One small SVG per parameter: the median of the objective at each value with its p25–p75 band. */
-export function MainEffects({ effects, objective }: { effects: Record<string, MainEffectPoint[]>; objective: string }) {
+/** One small SVG per parameter: the median of the objective at each value with its p25–p75 band.
+ *  `lowerIsBetter` (max_drawdown) turns "best at" towards the lowest median. */
+export function MainEffects({ effects, objective, lowerIsBetter = false }: { effects: Record<string, MainEffectPoint[]>; objective: string; lowerIsBetter?: boolean }) {
   const entries = Object.entries(effects);
   if (entries.length === 0) return <div className="empty-state">No main effects: no valid cells.</div>;
   return (
     <div className="effects">
       {entries.map(([path, points]) => (
-        <Effect key={path} path={path} points={points} objective={objective} />
+        <Effect key={path} path={path} points={points} objective={objective} lowerIsBetter={lowerIsBetter} />
       ))}
     </div>
   );
 }
 
-function Effect({ path, points, objective }: { path: string; points: MainEffectPoint[]; objective: string }) {
+function Effect({ path, points, objective, lowerIsBetter }: { path: string; points: MainEffectPoint[]; objective: string; lowerIsBetter: boolean }) {
   const drawn = points.filter((p) => p.median !== null);
   const width = 300;
   const height = 100;
@@ -37,11 +39,14 @@ function Effect({ path, points, objective }: { path: string; points: MainEffectP
   const index = (p: MainEffectPoint) => points.indexOf(p);
   const band = [...drawn.map((p) => `${x(index(p)).toFixed(1)},${y((p.p75 ?? p.median) as number).toFixed(1)}`), ...[...drawn].reverse().map((p) => `${x(index(p)).toFixed(1)},${y((p.p25 ?? p.median) as number).toFixed(1)}`)].join(' ');
   const line = drawn.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(index(p)).toFixed(1)} ${y(p.median as number).toFixed(1)}`).join(' ');
-  const best = drawn.reduce((a, b) => ((b.median as number) > (a.median as number) ? b : a));
+  const best = bestPoint(drawn, lowerIsBetter) as MainEffectPoint;
   return (
     <div className="effect" id={`effect-${path.replace(/\./g, '-')}`}>
       <div className="small">
-        <b>{path}</b> <span className="muted">median {objective}; best at {num(best.value, 4)} ({num(best.median, 4)})</span>
+        <b>{path}</b>{' '}
+        <span className="muted">
+          median {objective}; best ({lowerIsBetter ? 'lowest' : 'highest'}) at {num(best.value, 4)} ({num(best.median, 4)})
+        </span>
       </div>
       <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-label={`main effect of ${path}`}>
         <polygon points={band} fill="#2da7ff" fillOpacity={0.15} stroke="none" />
