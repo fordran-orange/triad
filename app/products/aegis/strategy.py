@@ -42,7 +42,7 @@ PRICE_OPERANDS = {
     "price.high": "high",
     "price.low": "low",
 }
-CONSTANT = re.compile(r"-?\d+(\.\d+)?")  # matched with fullmatch: plain decimals only
+CONSTANT = re.compile(r"-?\d+(\.\d+)?", re.ASCII)  # fullmatch: plain ASCII decimals only
 
 
 def is_constant(operand: str) -> bool:

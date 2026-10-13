@@ -443,25 +443,45 @@ def test_plan_refuses_mar_under_a_year_and_grids_without_a_valid_cell():
         out_of_sample_bars=50,
         ranges=small_ranges(fast=(30, 32, 1), slow=(8, 9, 1)),
     )
-    with pytest.raises(ValueError, match="grid has no valid cell"):
+    with pytest.raises(ValueError, match="grid has no valid cell: fast ≥ slow"):
         plan(empty, 500)
 
 
 def test_walkforward_request_rejects_a_warmup_boundary_of_its_own():
     from datetime import UTC, datetime
 
-    from products.aegis.backtest import BacktestSettings
+    from products.aegis.backtest import BacktestSettings, OpenPosition
     from pydantic import ValidationError
 
-    with pytest.raises(ValidationError, match="evaluate_from"):
-        WalkForwardRequest(
+    def request(**settings):
+        return WalkForwardRequest(
             strategy=default_strategy(),
             side="long",
             data=DATA,
             in_sample_bars=200,
             out_of_sample_bars=50,
-            settings=BacktestSettings(evaluate_from=datetime(2024, 1, 2, 14, 30, tzinfo=UTC)),
+            settings=BacktestSettings(**settings),
         )
+
+    carried = OpenPosition(
+        side="LONG",
+        entry_time="2024-01-02T14:30:00+00:00",
+        signal_time="2024-01-02T14:00:00+00:00",
+        entry_price=100.0,
+        quantity=1,
+        entry_fee=0.0,
+        capital_at_entry=100_000.0,
+        entry_tags=[],
+    )
+    for field, value in (
+        ("evaluate_from", datetime(2024, 1, 2, 14, 30, tzinfo=UTC)),
+        ("initial_position", carried),
+        ("close_at_end", False),
+    ):
+        with pytest.raises(
+            ValidationError, match=f"settings.{field} is set by the job itself; leave it unset"
+        ):
+            request(**{field: value})
 
 
 def test_oos_trades_at_window_edges_are_flagged_in_records_and_stitched(tmp_path):
@@ -536,6 +556,15 @@ def test_open_at_end_and_carried_in_agree_across_every_join():
     carried = [t for r in records for t in r["oos"]["trades"] if "carried_from_window" in t]
     assert holding and carried, "the fixture must carry at least one position"
     assert all(t["carried_from_window"] in holding for t in carried)
+    for k in holding:  # the position window k left open closes as a trade of a later window
+        later = [
+            t
+            for r in records
+            if r["index"] > k
+            for t in r["oos"]["trades"]
+            if t.get("carried_from_window") == k
+        ]
+        assert later, f"window {k} ended open but no later window records its carried trade"
     assert records[-1]["open_at_end"] is False
 
 

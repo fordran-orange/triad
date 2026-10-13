@@ -4,13 +4,14 @@
 import { Vela, registerNativeIndicator } from '@luxalgo/vela';
 import type { Bar, ChartAdapter, CrosshairPoint, Marker, Overlay } from './adapter';
 import type { Timeframe } from '../state/workspace';
+import { SeriesMap } from './seriesMap';
 
 const TIMEFRAME_TO_VELA: Record<Timeframe, string> = { '1m': '1', '15m': '15', '30m': '30', '1h': '60', '1D': 'D' };
 
 // Module-level registries read by the native indicator instances (one chart per page in Aegis).
 const overlayRegistry = new Map<string, Overlay>();
 const groupRegistry = new Map<string, Overlay[]>(); // own-pane series by indicator id
-const seriesToOverlay = new Map<string, string>(); // emitted series id → overlay id (crosshair values)
+const seriesToOverlay = new SeriesMap(); // emitted series id → overlay id (crosshair values)
 let markerRegistry: Marker[] = [];
 let registered = false;
 
@@ -178,9 +179,7 @@ export class VelaAdapter implements ChartAdapter {
     if (this.chart) {
       this.chart.destroy();
       this.chart = null;
-      this.overlayHandles.clear();
-      this.paneHandles.clear();
-      this.markerHandle = null;
+      this.forgetAll();
     }
     this.el.innerHTML = '';
     const chart = new Vela(this.el, { data, timeframe: TIMEFRAME_TO_VELA[timeframe], theme: 'dark' } as never);
@@ -191,7 +190,7 @@ export class VelaAdapter implements ChartAdapter {
       (chart.renderer as unknown as { onCrosshairMove(cb: (e: Move) => void): void }).onCrosshairMove((e) => {
         const values: Record<string, number> = {};
         for (const [seriesId, value] of e.values ?? new Map<string, number>()) {
-          const overlayId = seriesToOverlay.get(seriesId);
+          const overlayId = seriesToOverlay.overlayOf(seriesId);
           if (overlayId !== undefined) values[overlayId] = value;
         }
         crosshair({ time: e.time, price: e.price, paneKind: e.paneKind ?? null, values });
@@ -227,6 +226,7 @@ export class VelaAdapter implements ChartAdapter {
         handle.remove();
         this.overlayHandles.delete(id);
         overlayRegistry.delete(id);
+        seriesToOverlay.forget([id]);
       }
     }
     for (const overlay of priced) {
@@ -240,6 +240,7 @@ export class VelaAdapter implements ChartAdapter {
       if (!groups.has(group)) {
         handle.remove(); // the indicator's study pane goes with it
         this.paneHandles.delete(group);
+        seriesToOverlay.forget((groupRegistry.get(group) ?? []).map((o) => o.id));
         groupRegistry.delete(group);
       }
     }
@@ -267,12 +268,20 @@ export class VelaAdapter implements ChartAdapter {
     this.chart?.resize();
   }
 
-  clear(): void {
-    this.chart?.destroy();
-    this.chart = null;
+  /** Handles and the module registries go with the chart; a rebuilt chart re-registers what it shows. */
+  private forgetAll() {
     this.overlayHandles.clear();
     this.paneHandles.clear();
     this.markerHandle = null;
+    overlayRegistry.clear();
+    groupRegistry.clear();
+    seriesToOverlay.clear();
+  }
+
+  clear(): void {
+    this.chart?.destroy();
+    this.chart = null;
+    this.forgetAll();
     this.pendingOverlays = [];
     this.pendingMarkers = [];
     if (this.el) this.el.innerHTML = '';

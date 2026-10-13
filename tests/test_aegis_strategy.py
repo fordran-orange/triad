@@ -303,3 +303,11 @@ def test_groups_and_bands_validate_and_dump_without_the_unused_key():
 def test_indicator_id_price_is_reserved():
     with pytest.raises(ValidationError, match="reserved"):
         _side(rule("rsi", "less_than", "70"), extra=[{"id": "price", "kind": "EMA", "length": 5}])
+
+
+def test_constants_are_ascii_digits_only():
+    from products.aegis.strategy import is_constant
+
+    assert is_constant("50") and is_constant("-0.5") and is_constant("100")
+    assert not is_constant("٥٠")  # Arabic-Indic digits are not a constant the engine can read
+    assert not is_constant("1e3") and not is_constant("1.") and not is_constant(" 50")

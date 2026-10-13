@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from products.aegis import kernel
 from products.aegis.backtest import BacktestRequest, BacktestSettings, DataReference, run_backtest
@@ -33,6 +33,21 @@ Objective = Literal["net_pnl", "mar", "max_drawdown", "trade_count"]
 SIDE_KEY = {"long": "long_side", "short": "short_side"}
 
 
+def plain_settings(value: BacktestSettings, *fields: str) -> BacktestSettings:
+    """Refuse the settings a job sets for its own units (P14 item 5): every cell runs over the
+    whole range from a flat start and closes at the end; the walk-forward also owns the warm-up
+    boundary. The message names the field so the form can point at it."""
+    clean = {
+        "evaluate_from": value.evaluate_from is None,
+        "initial_position": value.initial_position is None,
+        "close_at_end": value.close_at_end,
+    }
+    for name in fields:
+        if not clean[name]:
+            raise ValueError(f"settings.{name} is set by the job itself; leave it unset")
+    return value
+
+
 class OptimizeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     strategy: StrategySpec
@@ -40,6 +55,11 @@ class OptimizeRequest(BaseModel):
     data: DataReference
     settings: BacktestSettings = Field(default_factory=BacktestSettings)
     objective: Objective = "net_pnl"
+
+    @field_validator("settings")
+    @classmethod
+    def plain(cls, value):
+        return plain_settings(value, "initial_position", "close_at_end")
 
 
 @dataclass
@@ -53,9 +73,16 @@ class GridPlan:
     skip_reason: str | None = None
 
 
+def step_decimals(step: float) -> int:
+    """Decimal places of a grid step, so values read as the operator typed them (P14 item 7)."""
+    text = repr(float(step))
+    return len(text.split(".")[1]) if "." in text and "e" not in text else 0
+
+
 def _values(start: float, stop: float, step: float) -> list[float]:
     count = math.floor((stop - start) / step + 1e-9) + 1
-    return [float(start + i * step) for i in range(max(count, 0))]
+    decimals = step_decimals(step)
+    return [round(float(start + i * step), decimals) for i in range(max(count, 0))]
 
 
 def expand_grid(side: StrategySide) -> GridPlan:

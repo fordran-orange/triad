@@ -107,3 +107,18 @@ def test_delete_removes_an_unreferenced_document(library):
         library.get(doc.id)
     with pytest.raises(KeyError):
         library.delete(doc.id)
+
+
+def test_get_lets_a_document_that_no_longer_parses_through_as_a_validation_error(library, tmp_path):
+    from pydantic import ValidationError
+
+    doc = library.create("Breakout", default_strategy())
+    path = tmp_path / "aegis" / "strategies" / f"{doc.id}.json"
+    assert path.is_file()
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["spec"]["long_side"]["entry"]["right"] = "nope"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValidationError):
+        library.get(doc.id)
+    with pytest.raises(KeyError):  # an unknown id is still unknown, not a parse failure
+        library.get("never-saved")

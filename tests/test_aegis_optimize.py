@@ -368,3 +368,46 @@ def test_grid_axes_for_a_group_rule_are_the_first_two_paths():
         "indicators.donchian.length",
         "indicators.rsi.length",
     )
+
+
+def test_optimize_request_refuses_the_settings_the_job_sets_itself():
+    from products.aegis.backtest import BacktestSettings, OpenPosition
+    from pydantic import ValidationError
+
+    carried = OpenPosition(
+        side="LONG",
+        entry_time="2026-01-05T10:00:00+00:00",
+        signal_time="2026-01-05T09:30:00+00:00",
+        entry_price=100.0,
+        quantity=1,
+        entry_fee=0.0,
+        capital_at_entry=100_000.0,
+        entry_tags=[],
+    )
+    with pytest.raises(
+        ValidationError, match="settings.initial_position is set by the job itself; leave it unset"
+    ):
+        OptimizeRequest(
+            strategy=small_strategy(),
+            side="long",
+            data=DATA,
+            settings=BacktestSettings(initial_position=carried),
+        )
+    with pytest.raises(
+        ValidationError, match="settings.close_at_end is set by the job itself; leave it unset"
+    ):
+        OptimizeRequest(
+            strategy=small_strategy(),
+            side="long",
+            data=DATA,
+            settings=BacktestSettings(close_at_end=False),
+        )
+    assert OptimizeRequest(strategy=small_strategy(), side="long", data=DATA).settings.close_at_end
+
+
+def test_grid_values_are_rounded_to_the_steps_decimals():
+    from products.aegis.optimize import _values
+
+    assert _values(0.1, 0.5, 0.1) == [0.1, 0.2, 0.3, 0.4, 0.5]
+    assert _values(5, 7, 1) == [5.0, 6.0, 7.0]
+    assert _values(1.0, 2.0, 0.25) == [1.0, 1.25, 1.5, 1.75, 2.0]

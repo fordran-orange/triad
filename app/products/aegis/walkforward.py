@@ -29,7 +29,13 @@ from products.aegis.backtest import (
     run_backtest,
 )
 from products.aegis.indicators import IndicatorCache
-from products.aegis.optimize import GridPlan, engine_rows, expand_grid, provenance
+from products.aegis.optimize import (
+    GridPlan,
+    engine_rows,
+    expand_grid,
+    plain_settings,
+    provenance,
+)
 from products.aegis.results import result_hash, strategy_hash, walkforward_payload
 from products.aegis.strategy import StrategySide, StrategySpec, apply_parameters, side_warmup
 
@@ -67,11 +73,7 @@ class WalkForwardRequest(BaseModel):
     @field_validator("settings")
     @classmethod
     def no_boundary_of_its_own(cls, value):
-        if value.evaluate_from is not None:
-            raise ValueError(
-                "settings.evaluate_from is set by the walk-forward itself; leave it unset"
-            )
-        return value
+        return plain_settings(value, "evaluate_from", "initial_position", "close_at_end")
 
     @property
     def side_spec(self) -> StrategySide:
@@ -136,7 +138,7 @@ def plan(
         )
     grid = expand_grid(side)  # raises "grid too large" over 400 cells
     if not grid.cells:
-        raise ValueError("grid has no valid cell: every cell has fast >= slow; widen the ranges")
+        raise ValueError(f"grid has no valid cell: {grid.skip_reason or 'no enabled parameter'}")
     windows, tail = cut_windows(n_bars, request.in_sample_bars, request.out_of_sample_bars)
     if len(windows) > MAX_WINDOWS:
         raise ValueError(

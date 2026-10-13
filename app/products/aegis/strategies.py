@@ -95,10 +95,15 @@ class StrategyLibrary:
         )
 
     def get(self, identifier: str) -> StrategyDocument:
+        """The document, or KeyError when unknown. A saved document that no longer parses raises
+        pydantic's ValidationError (a ValueError) for the caller to report (P14 item 2)."""
         if identifier == BUILTIN_ID:
             return self._builtin()
+        return StrategyDocument.model_validate(self._raw(identifier))
+
+    def _raw(self, identifier: str) -> dict:
         try:
-            return StrategyDocument.model_validate(self.repository.get_strategy(identifier))
+            return self.repository.get_strategy(identifier)
         except ValueError as exc:  # an identifier the repository refuses is simply unknown
             raise KeyError(identifier) from exc
 
@@ -197,7 +202,7 @@ class StrategyLibrary:
     def delete(self, identifier: str) -> None:
         if identifier == BUILTIN_ID:
             raise BuiltinRefused()
-        self.get(identifier)  # KeyError when unknown
+        self._raw(identifier)  # KeyError when unknown; a document that no longer parses may go
         counts = self.usage(identifier)
         if any(counts.values()):
             raise StrategyReferenced(identifier, counts)

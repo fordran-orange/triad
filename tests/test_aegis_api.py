@@ -987,3 +987,28 @@ def test_experiment_report_decision_and_refine_routes(client, monkeypatch):
     latest["recommendation"] = None
     store.write_report(experiment_id, doc.latest_report, latest, "# Recommendation — none\n")
     assert c.post(f"/aegis/api/experiments/{experiment_id}/refine").status_code == 422
+
+
+def test_a_stored_strategy_that_no_longer_parses_is_422_naming_the_field(client, tmp_path):
+    import json
+
+    c, _, _ = client
+    created = c.post(
+        "/aegis/api/strategies",
+        json={"name": "Breakout", "spec": default_strategy().model_dump(mode="json")},
+    )
+    assert created.status_code == 201, created.text
+    path = tmp_path / "aegis" / "strategies" / "breakout.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["spec"]["long_side"]["entry"]["right"] = "nope"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    for response in (
+        c.get("/aegis/api/strategies/breakout"),
+        c.put("/aegis/api/strategies/breakout", json={"name": "Breakout v2"}),
+        c.post("/aegis/api/strategies/breakout/duplicate", json={"name": "Copy"}),
+    ):
+        assert response.status_code == 422, response.text
+        assert response.json()["detail"].startswith("strategy breakout no longer parses: spec")
+    assert c.delete("/aegis/api/strategies/breakout").json() == {
+        "deleted": "breakout"
+    }  # still deletable

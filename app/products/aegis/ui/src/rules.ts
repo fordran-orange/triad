@@ -8,6 +8,8 @@ export type Rule = RuleSpec | RuleGroup;
 export const PRICE_OPERANDS = ['price.close', 'price.open', 'price.high', 'price.low'] as const;
 export const OPERATORS = ['crosses_above', 'crosses_below', 'greater_than', 'less_than', 'inside_band', 'outside_band'] as const;
 export const BAND_OPERATORS = ['inside_band', 'outside_band'];
+export type Operator = (typeof OPERATORS)[number];
+export const NO_BAND_TITLE = 'needs a band indicator (one with upper and lower outputs) on this side';
 
 const CONSTANT = /^-?\d+(\.\d+)?$/;
 
@@ -23,6 +25,22 @@ export function kindOf(spec: Pick<IndicatorSpec, 'kind'>): IndicatorKind | undef
 export function referencesOf(spec: Pick<IndicatorSpec, 'id' | 'kind'>): string[] {
   const outputs = kindOf(spec)?.outputs ?? [];
   return outputs.length ? outputs.map((o) => `${spec.id}.${o}`) : [spec.id];
+}
+
+/** The side's band indicators: kinds with both an upper and a lower output. */
+export function bandIndicators(indicators: IndicatorSpec[] | null | undefined): IndicatorSpec[] {
+  return (indicators ?? []).filter((i) => {
+    const outputs = kindOf(i)?.outputs ?? [];
+    return outputs.includes('upper') && outputs.includes('lower');
+  });
+}
+
+/** The operator menu: the band operators are disabled, with the reason, until the side has a band (P14 item 4). */
+export function operatorChoices(hasBand: boolean): { operator: Operator; disabled: boolean; title: string | undefined }[] {
+  return OPERATORS.map((operator) => {
+    const disabled = !hasBand && BAND_OPERATORS.includes(operator);
+    return { operator, disabled, title: disabled ? NO_BAND_TITLE : undefined };
+  });
 }
 
 export function effectiveParams(spec: Pick<IndicatorSpec, 'kind' | 'params'>): Record<string, number> {

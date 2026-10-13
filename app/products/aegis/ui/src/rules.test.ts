@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { IndicatorSpec, RuleGroup, RuleSpec, StrategySide } from './contracts';
-import { conditionsOf, describeRule, referencesOf, ruleReferences, warmupBars, warmupOf } from './rules';
+import { bandIndicators, conditionsOf, describeRule, operatorChoices, referencesOf, ruleReferences, warmupBars, warmupOf } from './rules';
 
 const rule = (left: string, operator: string, right: string): RuleSpec => ({ left, operator, right, timing: 'bar_close' });
 
@@ -59,5 +59,22 @@ describe('rule helpers', () => {
     expect(ruleReferences(breakout, 'rsi')).toEqual(['entry rule']);
     expect(ruleReferences(breakout, 'macd')).toEqual([]);
     expect(ruleReferences(reference, 'ema')).toEqual(['entry rule', 'exit rule']);
+  });
+});
+
+
+describe('operatorChoices', () => {
+  it('disables the band operators, with a reason, when the side has no band indicator', () => {
+    expect(bandIndicators(reference.indicators)).toEqual([]);
+    const choices = operatorChoices(false);
+    expect(choices.map((c) => c.operator)).toEqual(['crosses_above', 'crosses_below', 'greater_than', 'less_than', 'inside_band', 'outside_band']);
+    expect(choices.filter((c) => c.disabled).map((c) => c.operator)).toEqual(['inside_band', 'outside_band']);
+    expect(choices.find((c) => c.operator === 'inside_band')?.title).toMatch(/band indicator/);
+    expect(choices.find((c) => c.operator === 'crosses_above')).toEqual({ operator: 'crosses_above', disabled: false, title: undefined });
+  });
+
+  it('enables every operator when the side has a band indicator', () => {
+    expect(bandIndicators(breakout.indicators).map((i) => i.id)).toEqual(['donchian']);
+    expect(operatorChoices(true).every((c) => !c.disabled && c.title === undefined)).toBe(true);
   });
 });

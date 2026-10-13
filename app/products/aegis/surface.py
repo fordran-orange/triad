@@ -20,6 +20,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from products.aegis.kinds import kind_info
+from products.aegis.optimize import step_decimals
 from products.aegis.strategy import IndicatorSpec, StrategySpec, _resolve_path, apply_parameters
 
 KERNEL_MS_PER_BAR = 0.01  # the starting price per cell-bar before any experiment has run
@@ -32,11 +33,6 @@ _NUMBER = re.compile(r"\s*-?\d+(?:\.\d+)?")
 
 def effective_workers(max_workers: int) -> float:
     return max_workers * 0.8
-
-
-def _decimals(step: float) -> int:
-    text = repr(float(step))
-    return len(text.split(".")[1]) if "." in text and "e" not in text else 0
 
 
 class Parameter(BaseModel):
@@ -54,7 +50,7 @@ class Parameter(BaseModel):
 
     def values(self) -> list[float]:
         count = math.floor((self.stop - self.start) / self.step + 1e-9) + 1
-        decimals = _decimals(self.step)
+        decimals = step_decimals(self.step)
         return [round(self.start + i * self.step, decimals) for i in range(max(count, 0))]
 
 

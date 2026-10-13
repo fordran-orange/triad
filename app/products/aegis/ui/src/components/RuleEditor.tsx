@@ -1,5 +1,5 @@
 import type { RuleSpec, StrategySide } from '../contracts';
-import { BAND_OPERATORS, conditionsOf, isConstant, isGroup, kindOf, OPERATORS, PRICE_OPERANDS, referencesOf, type Rule } from '../rules';
+import { BAND_OPERATORS, bandIndicators, conditionsOf, isConstant, isGroup, operatorChoices, PRICE_OPERANDS, referencesOf, type Rule } from '../rules';
 import { useDispatch, type Side } from '../state/workspace';
 
 const CONSTANT = '__constant__';
@@ -19,10 +19,8 @@ export function RuleEditor({ side, which, spec }: { side: Side; which: 'entry' |
   const conditions = conditionsOf(rule);
   const any = isGroup(rule) && rule.any_of !== undefined && rule.any_of !== null;
   const series = [...(spec.indicators ?? []).flatMap((i) => referencesOf(i)), ...PRICE_OPERANDS];
-  const bands = (spec.indicators ?? []).filter((i) => {
-    const outputs = kindOf(i)?.outputs ?? [];
-    return outputs.includes('upper') && outputs.includes('lower');
-  });
+  const bands = bandIndicators(spec.indicators);
+  const operators = operatorChoices(bands.length > 0);
   const base = `${side}-${which}`;
 
   const write = (next: RuleSpec[], joinAny = any) => {
@@ -65,9 +63,9 @@ export function RuleEditor({ side, which, spec }: { side: Side; which: 'entry' |
               ))}
             </select>
             <select id={`${base}-operator-${i}`} value={c.operator} onChange={(e) => setOperator(i, e.target.value)} aria-label={`${side} ${which} condition ${i + 1} operator`}>
-              {OPERATORS.map((o) => (
-                <option key={o} value={o}>
-                  {LABELS[o]}
+              {operators.map((o) => (
+                <option key={o.operator} value={o.operator} disabled={o.disabled} title={o.title}>
+                  {LABELS[o.operator]}
                 </option>
               ))}
             </select>

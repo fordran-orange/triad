@@ -24,9 +24,33 @@ export type { Provenance } from '../results';
 
 const BASE = '/aegis/api';
 
+/** FastAPI's `detail`: a string, or for a 422 the list of errors whose `msg` carries the text.
+ *  The `Value error, ...` messages (our validators) are joined by "; "; failing that, the last
+ *  entry's message stands for the lot (Mission 5 review minor, plan P14 item 1). */
+export function detailText(detail: unknown): string {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map((entry) => {
+      const msg = (entry as { msg?: unknown } | null)?.msg;
+      return typeof msg === 'string' ? msg : JSON.stringify(entry);
+    });
+    const prefix = 'Value error, ';
+    const valueErrors = messages.filter((m) => m.startsWith(prefix)).map((m) => m.slice(prefix.length));
+    if (valueErrors.length) return valueErrors.join('; ');
+    return messages[messages.length - 1] ?? JSON.stringify(detail);
+  }
+  return JSON.stringify(detail);
+}
+
 export class ApiError extends Error {
-  constructor(public status: number, public detail: string) {
-    super(detail);
+  readonly detail: string;
+  constructor(
+    public status: number,
+    detail: unknown,
+  ) {
+    const text = detailText(detail);
+    super(text);
+    this.detail = text;
   }
 }
 
@@ -42,11 +66,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
   });
   if (!response.ok) {
-    let detail = response.statusText;
+    let detail: unknown = response.statusText;
     try {
       const body = (await response.json()) as { detail?: unknown };
-      if (typeof body.detail === 'string') detail = body.detail;
-      else if (body.detail) detail = JSON.stringify(body.detail);
+      if (body.detail !== undefined && body.detail !== null) detail = body.detail;
     } catch {
       /* non-JSON error body */
     }

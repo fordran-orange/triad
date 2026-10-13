@@ -17,7 +17,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from products.aegis import experiments as experiments_module
 from products.aegis.backtest import BacktestRequest, DataReference, run_backtest
@@ -440,11 +440,19 @@ class StrategyDuplicate(BaseModel):
         return _name(value)
 
 
+def _no_longer_parses(strategy_id: str, exc: ValidationError) -> HTTPException:
+    """A saved document the current StrategySpec refuses (P14 item 2): 422 naming the field."""
+    field = ".".join(str(part) for part in exc.errors()[0]["loc"]) or "document"
+    return HTTPException(422, f"strategy {strategy_id} no longer parses: {field}")
+
+
 def _document(library: StrategyLibrary, strategy_id: str):
     try:
         return library.get(strategy_id)
     except KeyError as exc:
         raise HTTPException(404, f"unknown strategy {strategy_id!r}") from exc
+    except ValidationError as exc:
+        raise _no_longer_parses(strategy_id, exc) from exc
 
 
 @router.get("/strategies")
@@ -470,6 +478,8 @@ def update_strategy(strategy_id: str, request: StrategyUpdate, library: Strategy
         raise HTTPException(422, str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(404, f"unknown strategy {strategy_id!r}") from exc
+    except ValidationError as exc:
+        raise _no_longer_parses(strategy_id, exc) from exc
 
 
 @router.post("/strategies/{strategy_id}/duplicate", status_code=201)
