@@ -120,8 +120,12 @@ class JobRunner:
         with self._lock:
             job.status = "running"
             job.started = time.perf_counter()
+            envelope = self._snapshot(job)
         final, error = "done", None
         try:
+            # Running from its first unit, on disk: a pause or a restart during a long first
+            # unit (an experiment's chunk) finds the document running, not queued.
+            self._save(kind.name, envelope)
             for index in range(kind.total_units):
                 if job.cancel.is_set():
                     break

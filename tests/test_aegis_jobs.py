@@ -24,12 +24,13 @@ class Counting:
     bars_per_unit = 10
     total_units = 3
 
-    def __init__(self, hold=None):
+    def __init__(self, hold=None, hold_at=1):
         self.seen = []
         self.hold = hold
+        self.hold_at = hold_at
 
     def run_unit(self, index):
-        if self.hold is not None and index == 1:
+        if self.hold is not None and index == self.hold_at:
             self.hold.wait(10)
         return index
 
@@ -76,6 +77,24 @@ def test_runner_refuses_a_second_kind_while_one_runs_and_cancels_between_units(t
     assert runner.status(first)["final"] == "cancelled"
     second = runner.start(Counting())  # free again
     assert wait_for(lambda: runner.status(second)["status"] == "done")
+
+
+def test_a_running_job_is_persisted_as_running_before_its_first_unit_commits(tmp_path):
+    """An experiment's first chunk can take seconds; a pause during it must find the document
+    running (Mission 6 Task 9 finding: it read queued until the first commit)."""
+    gate = threading.Event()
+    repository = JsonRunRepository(tmp_path)
+    runner = JobRunner(repository)
+    job_id = runner.start(Counting(hold=gate, hold_at=0))
+    try:
+        assert wait_for(
+            lambda: repository.get_optimization(job_id)["status"] == "running", timeout=3
+        ), repository.get_optimization(job_id)["status"]
+        persisted = repository.get_optimization(job_id)
+        assert persisted["progress"] == {"done": 0, "total": 3} and persisted["job_id"] == job_id
+    finally:
+        gate.set()
+    assert wait_for(lambda: runner.status(job_id)["status"] == "done")
 
 
 def test_status_and_known_respect_the_kind(tmp_path):

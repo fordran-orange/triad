@@ -1,9 +1,11 @@
-"""Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items, the 14 Mission 4 items and the 11 Mission 5 items (each spec §1) in Chromium
-against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per
-item, timings (indicator ms, backtest ms, optimizer cell ms) and both result_hash values.
+"""Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items, the 14 Mission 4
+items, the 11 Mission 5 items and the 13 Mission 6 items (spec §2) in Chromium against the
+running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
+(indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
+Item 51 restarts the worker detached through WMI (tools/start_product.ps1), as the DoD asks.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
-Exit code 0 only when all 47 items PASS with no page errors.
+Exit code 0 only when all 60 items PASS with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
 
@@ -72,11 +74,39 @@ ITEMS = [
     "the Indicators tab lists kind, parameters, source, pane and latest values; removing a read indicator is refused",
     "invalid rules and parameters are refused with 422 naming the problem",
     "governance unchanged and no file under Core, the platform host or Triad changed",
+    # Mission 6 (spec §2 items 1–13)
+    "every earlier item ran on the kernel engine: the status reports it available and the recorded Mission 3 and 5 hashes are reproduced",
+    "define the 252-cell experiment on the breakout document (four parameters across both sides, MAR): the plan says exhaustive, 252 runs, priced",
+    "start it: progress advances by chunk while the status route stays responsive (the pause is requested during the first chunk)",
+    "pause, restart the worker: the experiment is paused, not lost; resume it; it finishes with every cell present exactly once",
+    "the report: the recommended plateau with its centre and supported peak, every peak's standing, main effects, interaction heatmaps, sensitivity, clusters or their refusal",
+    "materialize the centre twice: the same result_hash, equal to a direct backtest of the pinned spec with those parameters",
+    "use the centre in the workspace: the Charts page with unsaved edits, the side cards show its parameters, a backtest runs on them",
+    "record the decision accepted with a note: shown on the experiment and in the list",
+    "refine: a queued child with the parent linked and ranges narrowed around the plateau, not started",
+    "plan the over-budget experiment (step 1, budget 2,000): sampled with its fraction and the levers; freezing the two short-side parameters gives 682 cells, exhaustive",
+    "recompute the finished experiment's report with net P&L and tolerance 0.10 without rerunning: both reports kept",
+    "every refusal is honest over HTTP: no parameters, eleven, a path on the wrong side, a fractional step, a budget of zero, a pause on a finished experiment, a delete of a running one",
+    "governance unchanged, no file under Core, the platform host or Triad changed, and pyproject.toml changed by the one optional-extra line only",
 ]
 RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
 MISSION5_BASE = (
     "a73f70e"  # the Mission 5 spec commit; Core, platform host and Triad are frozen since
 )
+
+RECORDED_WALKFORWARD_HASH = (  # item 34 as the Mission 5 record kept it (run 20261011T184458Z)
+    "5d9371614fc09596e6fb2c8b4a36a7182adc0c427d7d333dab88cf337763230a"
+)
+RECORDED_LAB_WALKFORWARD_PREFIX = "783f07c3146b"  # item 28's hash as the Mission 5 record kept it
+MISSION6_BASE = (
+    "5189e12"  # the Mission 6 plan commit; Core, platform host and Triad are frozen since
+)
+EXPERIMENT_SURFACE = [  # spec §2 item 2: 7 × 4 × 3 × 3 = 252 cells across both sides
+    ("long_side.indicators.donchian.length", 10, 40, 5),
+    ("long_side.indicators.rsi.length", 7, 28, 7),
+    ("short_side.indicators.ema.length", 5, 15, 5),
+    ("short_side.indicators.sma.length", 20, 40, 10),
+]
 WF_HEAD = "document.querySelector('.job-head')?.innerText ?? ''"
 WF_ROWS = "document.querySelectorAll('#walkforward-windows-long tbody tr')"
 PROGRESS = "document.querySelector('.results .chip.active').innerText.match(/(\\d+)\\/(\\d+)/)"
@@ -241,6 +271,129 @@ class Acceptance:
 
     def screenshot_path(self, label: str) -> Path:
         return ROOT / "logs" / f"aegis-acceptance-{self.stamp}-{label}.png"
+
+    # -- experiment plumbing (Mission 6) ------------------------------------------------------
+    def wait_until(self, predicate, timeout: float, interval: float = 0.2) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return True
+            time.sleep(interval)
+        return False
+
+    def experiment(self, experiment_id: str) -> dict:
+        return self.api(f"experiments/{experiment_id}")
+
+    def experiment_body(self, surface, budget_runs=2000, objective="mar", name=None) -> dict:
+        return {
+            "name": name or f"Breakout surface {self.stamp}",
+            "strategy_id": self.lab["id"],
+            "data": {
+                "symbol": "QQQ",
+                "timeframe": "1h",
+                "start": "2023-01-01",
+                "end": "2024-12-31",
+            },
+            "settings": {"initial_capital": 100000, "allocation_fraction": 1},
+            "objective": objective,
+            "surface": {
+                "parameters": [
+                    {"path": p, "start": a, "stop": b, "step": s} for p, a, b, s in surface
+                ]
+            },
+            "budget": {"runs": budget_runs, "seconds": None},
+            "tolerance": 0.15,
+            "seed": 1,
+        }
+
+    def open_planner(self) -> None:
+        """New experiment; when the gate asks, revert the workspace's unsaved edits (an
+        experiment pins the saved spec)."""
+        page = self.page
+        page.locator("#experiment-new").click()
+        page.wait_for_selector("#experiment-planner, #experiment-gate", timeout=30_000)
+        if self.js("!!document.getElementById('experiment-gate')"):
+            page.locator("#experiment-gate-revert").click()
+            page.wait_for_selector("#experiment-planner", timeout=30_000)
+
+    def add_surface(self, surface) -> None:
+        """Fill the planner with these parameters in order; rows surface-0.. follow it."""
+        page = self.page
+        for i, (path, start, stop, step) in enumerate(surface):
+            page.locator("#surface-add").select_option(path)
+            page.wait_for_selector(f"#surface-path-{i}")
+            for field, value in (("start", start), ("stop", stop), ("step", step)):
+                page.locator(f"#surface-{field}-{i}").fill(str(value))
+
+    def plan_text(self) -> str:
+        return self.js("document.getElementById('experiment-plan')?.innerText ?? ''")
+
+    def wait_plan(self, needle: str, timeout=90_000) -> str:
+        self.page.wait_for_function(
+            f"(document.getElementById('experiment-plan')?.innerText ?? '').includes({json.dumps(needle)})",
+            timeout=timeout,
+        )
+        return self.plan_text()
+
+    def progress_text(self) -> str:
+        return self.js("document.getElementById('experiment-progress')?.innerText ?? ''")
+
+    def worker_pid(self) -> int | None:
+        import subprocess
+
+        out = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                (
+                    "(Get-NetTCPConnection -LocalPort 8102 -State Listen -ErrorAction SilentlyContinue"
+                    " | Select-Object -First 1).OwningProcess"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        return int(out) if out.isdigit() else None
+
+    def restart_worker(self) -> tuple[int | None, int]:
+        """Relaunch the worker detached through WMI (as Missions 3–5 did by hand) and wait for
+        the new listener to answer the status route; returns (old, new) listener PIDs."""
+        import subprocess
+
+        old = self.worker_pid()
+        script = str(ROOT / "tools" / "start_product.ps1")
+        command = (
+            "Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine="
+            f"'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass"
+            f" -File {script} -Product aegis'; CurrentDirectory='{ROOT}'}} | Out-Null"
+        )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        deadline = time.monotonic() + 120
+        new, last_error = None, "no new listener yet"
+        while time.monotonic() < deadline:
+            pid = self.worker_pid()
+            if pid is not None and pid != old:
+                try:
+                    status = self.page.request.get(self.base + "api/status", timeout=3_000)
+                    if status.ok and status.json().get("kernel_available"):
+                        new = pid
+                        break
+                    last_error = f"HTTP {status.status}"
+                except Exception as exc:  # noqa: BLE001 - the worker is still coming up
+                    last_error = f"{type(exc).__name__}: {exc}"
+            time.sleep(1)
+        assert new is not None, (
+            f"the worker did not come back within 120 s (old pid {old}): {last_error}"
+        )
+        return old, new
 
     # -- the 22 items -------------------------------------------------------------------------
     def run(self):
@@ -1184,6 +1337,592 @@ class Acceptance:
 
         self.item(47, item47)
 
+        # -- Mission 6 (spec §2 items 1–13) ----------------------------------------------------
+
+        def item48():
+            status = self.api("status")
+            assert status["kernel_available"] is True and status["kernel_error"] is None, status
+            engines = {self.first_run["engine"], self.lab_run["engine"]}
+            assert engines == {"kernel"}, engines
+            first, second = self.timings["identical_request_hashes"]
+            assert first == second == RECORDED_IDENTICAL_HASH, (first, second)
+            lab_wf = self.wf_status["result_hash"]
+            assert lab_wf.startswith(RECORDED_LAB_WALKFORWARD_PREFIX), lab_wf
+            api_wf = self.timings["identical_walkforward_hashes"]
+            assert api_wf == [RECORDED_WALKFORWARD_HASH] * 2, api_wf
+            self.timings["walkforward_hash_item28"] = lab_wf
+            return (
+                f"kernel available; runs report engine kernel; item 22 {first[:12]}…, item 28 "
+                f"{lab_wf[:12]}… and item 34 {api_wf[0][:12]}… match the Mission 3 and 5 records"
+            )
+
+        self.item(48, item48)
+
+        def item49():
+            page.locator("#nav-experiments").click()
+            page.wait_for_selector("#experiments-page")
+            page.wait_for_function(
+                "document.getElementById('experiment-new') && !document.getElementById('experiment-new').disabled",
+                timeout=30_000,
+            )
+            self.open_planner()
+            page.locator("#experiment-name").fill(f"Breakout surface {self.stamp}")
+            self.add_surface(EXPERIMENT_SURFACE)
+            page.locator("#experiment-objective").select_option("mar")
+            page.locator("#budget-runs").fill("2000")
+            line = self.wait_plan("252 cells")
+            assert "4 parameters" in line and "exhaustive" in line, line
+            planned = self.post("experiments/plan", self.experiment_body(EXPERIMENT_SURFACE)).json()
+            assert planned["mode"] == "exhaustive", planned
+            assert planned["planned_runs"] == planned["valid_cells"] == 252, planned
+            assert planned["skipped"] == 0 and planned["bars"] == 3493, planned
+            priced = (
+                "the measured cost of an earlier experiment on this worker"
+                if abs(planned["ms_per_cell_bar"] - 0.01) > 1e-12
+                else "the starting guess of 0.01 ms per cell-bar (no experiment has finished on this worker yet)"
+            )
+            self.timings["experiment_plan"] = {
+                k: planned[k]
+                for k in (
+                    "mode",
+                    "valid_cells",
+                    "planned_runs",
+                    "estimate_seconds",
+                    "ms_per_cell_bar",
+                    "workers",
+                    "bars",
+                )
+            }
+            return (
+                f"plan '{line}'; API: exhaustive, 252 of 252 valid cells, ≈ {planned['estimate_seconds']:.1f} s "
+                f"on {planned['workers']} workers at {planned['ms_per_cell_bar'] * planned['bars']:.1f} ms per cell, "
+                f"priced at {priced}"
+            )
+
+        self.item(49, item49)
+
+        def item50():
+            with page.expect_response(
+                lambda r: r.url.endswith("/aegis/api/experiments") and r.request.method == "POST",
+                timeout=60_000,
+            ) as caught:
+                page.locator("#experiment-start").click()
+            started = caught.value
+            assert started.status == 202, started.text()
+            self.exp_id = started.json()["experiment_id"]
+            assert self.wait_until(
+                lambda: self.experiment(self.exp_id)["status"] == "running", 30
+            ), self.experiment(self.exp_id)["status"]
+            latencies = []
+            for _ in range(10):
+                t = time.perf_counter()
+                assert page.request.get(self.base + f"api/experiments/{self.exp_id}").ok
+                latencies.append(int((time.perf_counter() - t) * 1000))
+            assert max(latencies) < 500, latencies
+            # Requested during the first chunk; it lands at the chunk boundary, after 200 cells.
+            paused = self.post(f"experiments/{self.exp_id}/pause", {})
+            assert paused.status == 200, paused.text()
+            page.wait_for_function(
+                "/200 of 252 cells/.test(document.getElementById('experiment-progress')?.innerText ?? '')",
+                timeout=180_000,
+            )
+            doc = self.experiment(self.exp_id)
+            assert doc["progress"]["cells_done"] == 200, doc["progress"]
+            assert doc["progress"]["chunks_done"] == 1, doc["progress"]
+            self.timings["experiment_status_latency_ms_max"] = max(latencies)
+            return (
+                f"experiment {self.exp_id} started; status route {max(latencies)} ms max over 10 calls "
+                f"while running; progress advanced 0 → 200 of 252 with the first chunk; the pause "
+                f"requested during it took effect at the chunk boundary"
+            )
+
+        self.item(50, item50)
+
+        def item51():
+            assert self.wait_until(
+                lambda: self.experiment(self.exp_id)["status"] == "paused", 180
+            ), self.experiment(self.exp_id)["status"]
+            page.wait_for_function(
+                "(document.getElementById('experiment-progress')?.innerText ?? '').includes('paused')",
+                timeout=30_000,
+            )
+            old, new = self.restart_worker()
+            after = self.experiment(self.exp_id)
+            assert after["status"] == "paused" and after["progress"]["cells_done"] == 200, (
+                after["status"],
+                after["progress"],
+            )
+            page.locator("#nav-charts").click()
+            page.wait_for_selector("#chart-mount")
+            page.locator("#nav-experiments").click()
+            page.wait_for_selector(f"#exp-{self.exp_id}", timeout=60_000)
+            page.locator(f"#exp-{self.exp_id}").click()
+            page.wait_for_function(
+                "(document.getElementById('experiment-progress')?.innerText ?? '').includes('paused')",
+                timeout=30_000,
+            )
+            shown = self.progress_text().replace("\n", " | ")
+            started = time.perf_counter()
+            with page.expect_response(
+                lambda r: (
+                    r.url.endswith(f"/experiments/{self.exp_id}/resume")
+                    and r.request.method == "POST"
+                ),
+                timeout=120_000,
+            ) as caught:
+                page.locator("#experiment-resume").click()
+            assert caught.value.status == 202, caught.value.text()
+            assert self.wait_until(
+                lambda: self.experiment(self.exp_id)["status"] in ("done", "failed", "cancelled"),
+                600,
+                0.5,
+            ), self.experiment(self.exp_id)["status"]
+            doc = self.experiment(self.exp_id)
+            assert doc["status"] == "done", doc.get("error")
+            seconds = round(time.perf_counter() - started, 1)
+            page.wait_for_selector("#experiment-report", timeout=60_000)
+            cells = self.api(f"experiments/{self.exp_id}/cells?limit=300")
+            indices = [r["cell"] for r in cells["rows"]]
+            assert cells["total"] == len(indices) == len(set(indices)) == 252, (
+                cells["total"],
+                len(indices),
+                len(set(indices)),
+            )
+            assert all(r["valid"] for r in cells["rows"])
+            self.exp_doc = doc
+            self.timings["experiment_ms_per_cell_bar"] = doc["ms_per_cell_bar"]
+            self.timings["experiment_ms_per_cell"] = round(
+                doc["ms_per_cell_bar"] * doc["plan"]["bars"], 1
+            )
+            self.timings["experiment_resume_seconds"] = seconds
+            return (
+                f"worker restarted (listener pid {old} → {new}); after it the experiment read "
+                f"'{shown}'; resumed and done in {seconds} s; 252 rows, 252 distinct cells, all valid; "
+                f"measured {self.timings['experiment_ms_per_cell']} ms per cell per worker"
+            )
+
+        self.item(51, item51)
+
+        def item52():
+            report = self.api(f"experiments/{self.exp_id}/report")
+            rec = report["recommendation"]
+            assert rec is not None, report["statement"]
+            plateau = next(p for p in report["plateaus"] if p["id"] == rec["plateau"])
+            assert rec["centre"]["cell"] in plateau["cells"] and plateau["size"] >= 9, (
+                rec["centre"],
+                plateau["size"],
+            )
+            text = self.js("document.getElementById('recommendation-text')?.innerText ?? ''")
+            assert f"plateau {rec['plateau']}" in text.lower(), text
+            assert f"cell {rec['centre']['cell']}" in text, text
+            assert self.js(f"!!document.getElementById('plateau-{rec['plateau']}')"), (
+                "no plateau row"
+            )
+            fragile = [p for p in report["peaks"] if p["fragile"]]
+            standing = self.js(
+                "[...document.querySelectorAll('#experiment-report .badge')].map(b => b.innerText)"
+                ".filter(t => / · fragile$/.test(t) || / · plateau \\d+$/.test(t))"
+            )
+            assert len(standing) == min(len(report["peaks"]), 40), (
+                len(standing),
+                len(report["peaks"]),
+            )
+            assert (
+                sum(t.endswith("fragile") for t in standing) == len(fragile)
+                or len(report["peaks"]) > 40
+            )
+            effects = self.js("document.querySelectorAll('[id^=\"effect-\"]').length")
+            assert effects == len(report["main_effects"]) == 4, (
+                effects,
+                list(report["main_effects"]),
+            )
+            heatmaps = self.js("document.querySelectorAll('.heat-grid').length")
+            assert heatmaps == len(report["interactions"]) > 0, (heatmaps, report["interactions"])
+            sensitivity_rows = self.js(
+                "[...document.querySelectorAll('#experiment-report .report-section')]"
+                ".find(s => s.querySelector('h4')?.innerText === 'Sensitivity')?.querySelectorAll('tbody tr').length"
+            )
+            assert sensitivity_rows == len(report["sensitivity"]["shares"]) + 1 == 5, (
+                sensitivity_rows
+            )
+            clusters = self.js("document.getElementById('clusters')?.innerText ?? ''")
+            if "refused" in report["clusters"]:
+                assert "Not reported:" in clusters and report["clusters"]["refused"] in clusters, (
+                    clusters
+                )
+                groups = f"refused: {report['clusters']['refused']}"
+            else:
+                assert "groups, silhouette" in clusters, clusters
+                groups = f"{report['clusters']['k']} groups, silhouette {report['clusters']['silhouette']:.2f}"
+            uncertainty = self.js("document.getElementById('uncertainty')?.innerText ?? ''")
+            assert "out-of-sample" in uncertainty, uncertainty
+            supported = rec["supported_peak"]
+            page.screenshot(path=str(self.screenshot_path("experiment-report")), full_page=True)
+            return (
+                f"plateau {rec['plateau']}: {plateau['size']} cells, median {report['objective']} "
+                f"{plateau['median']:.4f}, centre cell {rec['centre']['cell']} {rec['centre']['params']}; "
+                f"supported peak {None if supported is None else supported['cell']}; {len(fragile)} fragile "
+                f"of {len(report['peaks'])} peaks, each badge with its standing; {effects} main-effect charts, "
+                f"{heatmaps} interaction heatmaps, sensitivity shares for 4 paths; clusters {groups}"
+            )
+
+        self.item(52, item52)
+
+        def apply_params(spec: dict, params: dict) -> dict:
+            strategy = json.loads(json.dumps(spec))
+            for path, value in params.items():
+                side, _, identifier, field = path.split(".", 3)
+                indicator = next(i for i in strategy[side]["indicators"] if i["id"] == identifier)
+                if field == "length":
+                    indicator["length"] = int(value)
+                else:
+                    indicator.setdefault("params", {})[field.split(".", 1)[1]] = value
+            return strategy
+
+        def item53():
+            rec = self.api(f"experiments/{self.exp_id}/report")["recommendation"]
+            centre = rec["centre"]["cell"]
+            runs = [
+                self.post(f"experiments/{self.exp_id}/cells/{centre}/materialize", {})
+                for _ in range(2)
+            ]
+            assert all(r.status == 200 for r in runs), [r.text()[:200] for r in runs]
+            envelopes = [r.json() for r in runs]
+            hashes = [e["result_hash"] for e in envelopes]
+            assert hashes[0] == hashes[1] and envelopes[0]["run_id"] != envelopes[1]["run_id"], (
+                hashes
+            )
+            assert envelopes[0]["experiment_id"] == self.exp_id and envelopes[0]["cell"] == centre
+            doc = self.exp_doc
+            direct = self.post(
+                "backtest",
+                {
+                    "strategy": apply_params(doc["spec"], rec["centre"]["params"]),
+                    "data": doc["data"],
+                    "settings": doc["settings"],
+                },
+            )
+            assert direct.status == 200, direct.text()[:300]
+            assert direct.json()["result_hash"] == hashes[0], (
+                direct.json()["result_hash"],
+                hashes[0],
+            )
+            page.locator("#cells-plateau").select_option(str(rec["plateau"]))
+            page.wait_for_selector(f"#cell-{centre}", timeout=30_000)
+            page.locator(f"#materialize-{centre}").click()
+            page.wait_for_function(
+                f"(document.getElementById('cell-{centre}')?.innerText ?? '').includes('hash')",
+                timeout=60_000,
+            )
+            shown = re.search(
+                r"hash (\S+)", self.js(f"document.getElementById('cell-{centre}').innerText")
+            ).group(1)
+            assert hashes[0].startswith(shown.rstrip("…")), (shown, hashes[0])
+            self.hashes.append(hashes[0])
+            self.timings["materialized_hash"] = hashes[0]
+            return (
+                f"centre cell {centre} materialized twice → the same hash {hashes[0]}; a direct backtest of "
+                f"the pinned spec with {rec['centre']['params']} → the same hash; the row shows hash {shown}"
+            )
+
+        self.item(53, item53)
+
+        def item54():
+            rec = self.api(f"experiments/{self.exp_id}/report")["recommendation"]
+            params = rec["centre"]["params"]
+            page.locator(f"#recommendation #use-cell-{rec['centre']['cell']}").click()
+            page.wait_for_selector("#chart-mount", timeout=30_000)
+            page.wait_for_selector("#unsaved-edits", timeout=30_000)
+            self.wait_bars()
+            long_card = self.js("document.querySelector('.side-card.long .logic')?.innerText ?? ''")
+            short_card = self.js(
+                "document.querySelector('.side-card.short .logic')?.innerText ?? ''"
+            )
+            donchian = int(params["long_side.indicators.donchian.length"])
+            rsi = int(params["long_side.indicators.rsi.length"])
+            ema = int(params["short_side.indicators.ema.length"])
+            sma = int(params["short_side.indicators.sma.length"])
+            assert f"DONCHIAN({donchian})" in long_card and f"RSI({rsi})" in long_card, (
+                long_card,
+                params,
+            )
+            assert f"EMA({ema})" in short_card and f"SMA({sma})" in short_card, (short_card, params)
+            envelope = self.run_backtest()
+            spec = envelope["strategy"]
+            assert (
+                next(i for i in spec["long_side"]["indicators"] if i["id"] == "rsi")["length"]
+                == rsi
+            )
+            assert (
+                next(i for i in spec["short_side"]["indicators"] if i["id"] == "ema")["length"]
+                == ema
+            )
+            same = envelope["result_hash"] == self.timings["materialized_hash"]
+            return (
+                f"the Charts page with unsaved edits; long '{long_card.splitlines()[0]}', short "
+                f"'{short_card.splitlines()[0]}'; backtest run {envelope['run_id'][:8]} hash "
+                f"{envelope['result_hash'][:12]}… ({'equal to' if same else 'differs from'} the materialized hash)"
+            )
+
+        self.item(54, item54)
+
+        def item55():
+            page.locator("#nav-experiments").click()
+            page.wait_for_selector(f"#exp-{self.exp_id}", timeout=60_000)
+            page.locator(f"#exp-{self.exp_id}").click()
+            page.wait_for_selector("#decision-save", timeout=60_000)
+            note = f"centre is robust on QQQ 1h; walk it forward before any use ({self.stamp})"
+            page.locator("#decision-verdict").select_option("accepted")
+            page.locator("#decision-notes").fill(note)
+            page.locator("#decision-save").click()
+            page.wait_for_function(
+                f"(document.getElementById('decision')?.innerText ?? '').includes({json.dumps(note)})",
+                timeout=30_000,
+            )
+            page.wait_for_function(
+                f"(document.getElementById('exp-{self.exp_id}')?.innerText ?? '').includes('accepted')",
+                timeout=30_000,
+            )
+            doc = self.experiment(self.exp_id)
+            assert doc["decision"]["verdict"] == "accepted" and doc["decision"]["notes"] == note, (
+                doc["decision"]
+            )
+            listed = next(e for e in self.api("experiments") if e["id"] == self.exp_id)
+            assert listed["decision"]["verdict"] == "accepted", listed
+            return f"accepted at {doc['decision']['decided_at']} with the note; shown on the experiment and in its list row"
+
+        self.item(55, item55)
+
+        def item56():
+            parent = self.exp_doc
+            with page.expect_response(
+                lambda r: (
+                    r.url.endswith(f"/experiments/{self.exp_id}/refine")
+                    and r.request.method == "POST"
+                ),
+                timeout=60_000,
+            ) as caught:
+                page.locator("#experiment-refine").click()
+            assert caught.value.status == 201, caught.value.text()
+            child = caught.value.json()
+            self.child_id = child["id"]
+            page.wait_for_selector(f"#exp-{self.child_id}", timeout=30_000)
+            row = self.js(f"document.getElementById('exp-{self.child_id}').innerText")
+            assert f"refines {self.exp_id}" in row and "queued" in row, row
+            page.wait_for_function(
+                "(document.getElementById('experiment-progress')?.innerText ?? '').includes('queued')",
+                timeout=30_000,
+            )
+            assert child["status"] == "queued" and child["parent"] == self.exp_id, (
+                child["status"],
+                child["parent"],
+            )
+            assert child["progress"]["cells_done"] == 0 and child["latest_report"] is None
+            parents = {p["path"]: p for p in parent["surface"]["parameters"]}
+            narrowed = []
+            for p in child["surface"]["parameters"]:
+                before = parents[p["path"]]
+                assert before["start"] <= p["start"] <= p["stop"] <= before["stop"], (before, p)
+                assert p["step"] == before["step"], (before, p)
+                if (p["stop"] - p["start"]) < (before["stop"] - before["start"]):
+                    narrowed.append(p["path"].split(".")[-2])
+            assert narrowed, child["surface"]
+            ranges = "; ".join(
+                f"{p['path'].split('.')[-2]} {p['start']:g}–{p['stop']:g}"
+                for p in child["surface"]["parameters"]
+            )
+            return (
+                f"child {self.child_id} queued (not started), parent {self.exp_id}, plan "
+                f"{child['plan']['mode']} {child['plan']['planned_runs']} runs; narrowed {narrowed}: {ranges}"
+            )
+
+        self.item(56, item56)
+
+        def item57():
+            wide = [(p, a, b, 1) for p, a, b, _ in EXPERIMENT_SURFACE]
+            self.open_planner()  # the gate shows: the workspace holds the centre as unsaved edits
+            page.locator("#experiment-name").fill(f"Breakout wide {self.stamp}")
+            self.add_surface(wide)
+            page.locator("#experiment-objective").select_option("mar")
+            page.locator("#budget-runs").fill("2000")
+            line = self.wait_plan("157,542 cells")
+            assert "sampled" in line, line
+            planned = self.post("experiments/plan", self.experiment_body(wide)).json()
+            assert planned["mode"] == "sampled" and planned["planned_runs"] == 2000, planned
+            assert planned["valid_cells"] == 157_542, planned
+            assert abs(planned["sampled_fraction"] - 2000 / 157_542) < 1e-9, planned
+            levers = planned["levers"]
+            assert len(levers) >= 14 and all(lv["valid_cells"] > 0 for lv in levers), len(levers)
+            shown = self.js("[...document.querySelectorAll('[id^=lever-]')].map(b => b.innerText)")
+            assert len(shown) == len(levers), (len(shown), len(levers))
+            freeze = {lv["parameter"]: lv for lv in levers if lv["kind"] == "freeze"}
+            page.locator("#lever-freeze-2").click()
+            self.wait_plan(f"{freeze['short_side.indicators.ema.length']['valid_cells']:,} cells")
+            page.locator("#lever-freeze-3").click()
+            line2 = self.wait_plan("682 cells")
+            assert "exhaustive" in line2, line2
+            assert not self.js("!!document.querySelector('[id^=lever-]')"), (
+                "levers shown for an exhaustive plan"
+            )
+            page.locator("#experiment-planner .panel-title button", has_text="Close").click()
+            page.wait_for_selector("#experiment-planner", state="detached")
+            return (
+                f"plan '{line}'; API sampled 2,000 of 157,542 ({planned['sampled_fraction']:.2%}), first pass "
+                f"{planned['first_pass']}, refinement {planned['refinement']}; {len(levers)} levers listed, e.g. "
+                f"freeze ema → {freeze['short_side.indicators.ema.length']['valid_cells']:,} cells, freeze sma → "
+                f"{freeze['short_side.indicators.sma.length']['valid_cells']:,}; both frozen → '{line2}'"
+            )
+
+        self.item(57, item57)
+
+        def item58():
+            page.locator(f"#exp-{self.exp_id}").click()
+            page.wait_for_selector("#report-recompute", timeout=60_000)
+            before = self.experiment(self.exp_id)
+            page.locator("#report-objective").select_option("net_pnl")
+            page.locator("#report-tolerance").fill("0.10")
+            with page.expect_response(
+                lambda r: (
+                    r.url.endswith(f"/experiments/{self.exp_id}/report")
+                    and r.request.method == "POST"
+                ),
+                timeout=120_000,
+            ) as caught:
+                page.locator("#report-recompute").click()
+            assert caught.value.status == 200, caught.value.text()[:300]
+            page.wait_for_function(
+                "(document.getElementById('experiment-report')?.innerText ?? '').includes('2 reports kept')",
+                timeout=30_000,
+            )
+            after = self.experiment(self.exp_id)
+            assert [r["report_id"] for r in after["reports"]] == [1, 2], after["reports"]
+            assert after["latest_report"] == 2 and after["status"] == "done", after["latest_report"]
+            assert after["progress"] == before["progress"], (before["progress"], after["progress"])
+            first = self.api(f"experiments/{self.exp_id}/report?n=1")
+            second = self.api(f"experiments/{self.exp_id}/report?n=2")
+            assert (first["objective"], first["tolerance"]) == ("mar", 0.15), first["objective"]
+            assert (second["objective"], second["tolerance"]) == ("net_pnl", 0.1), second[
+                "objective"
+            ]
+            text = self.js("document.getElementById('recommendation-text')?.innerText ?? ''")
+            return (
+                f"report 2: net_pnl at tolerance 0.10 → {len(second['plateaus'])} plateau(s), "
+                f"{sum(p['fragile'] for p in second['peaks'])} fragile of {len(second['peaks'])} peaks, "
+                f"'{text[:140]}'; report 1 (mar, 0.15) kept; cells untouched "
+                f"({after['progress']['cells_done']} done, {after['progress']['chunks_done']} chunks)"
+            )
+
+        self.item(58, item58)
+
+        def item59():
+            body = self.experiment_body(EXPERIMENT_SURFACE, name=f"refusals {self.stamp}")
+
+            def refused(label, mutate, needle):
+                bad = json.loads(json.dumps(body))
+                mutate(bad)
+                response = self.post("experiments/plan", bad)
+                assert response.status == 422, (label, response.status, response.text()[:200])
+                assert needle in response.text(), (label, response.text()[:300])
+                return f"{label} → 422 {needle!r}"
+
+            eleven = [
+                {"path": f"long_side.indicators.x{i}.length", "start": 1, "stop": 2, "step": 1}
+                for i in range(11)
+            ]
+            wrong_side = {
+                "path": "short_side.indicators.donchian.length",
+                "start": 10,
+                "stop": 40,
+                "step": 5,
+            }
+            checks = [
+                refused(
+                    "no parameters",
+                    lambda b: b["surface"].update(parameters=[]),
+                    "a surface needs at least one parameter",
+                ),
+                refused(
+                    "eleven parameters",
+                    lambda b: b["surface"].update(parameters=eleven),
+                    "at most 10 parameters",
+                ),
+                refused(
+                    "a path on the wrong side",
+                    lambda b: b["surface"]["parameters"].__setitem__(0, wrong_side),
+                    "unknown parameter path 'short_side.indicators.donchian.length'",
+                ),
+                refused(
+                    "a fractional step on a whole-number parameter",
+                    lambda b: b["surface"]["parameters"][0].update(step=0.5),
+                    "ranges of whole-number parameters need integer start, stop and step",
+                ),
+                refused(
+                    "a budget of zero",
+                    lambda b: b.update(budget={"runs": 0, "seconds": None}),
+                    "runs must be positive",
+                ),
+            ]
+            pause = self.post(f"experiments/{self.exp_id}/pause", {})
+            assert pause.status == 409 and "is done, not running" in pause.text(), (
+                pause.status,
+                pause.text(),
+            )
+            checks.append(f"pause on the finished experiment → 409 {pause.json()['detail']!r}")
+            # The refined child: resumed, a delete while it runs is refused; then paused again.
+            resumed = self.post(f"experiments/{self.child_id}/resume", {})
+            assert resumed.status == 202, resumed.text()
+            deleted = page.request.delete(self.base + f"api/experiments/{self.child_id}")
+            assert deleted.status == 409 and "cancel it first" in deleted.text(), (
+                deleted.status,
+                deleted.text(),
+            )
+            checks.append(f"delete of the running child → 409 {deleted.json()['detail']!r}")
+            paused = self.post(f"experiments/{self.child_id}/pause", {})
+            assert paused.status == 200, paused.text()
+            assert self.wait_until(
+                lambda: self.experiment(self.child_id)["status"] in ("paused", "done"), 300, 0.5
+            ), self.experiment(self.child_id)["status"]
+            child = self.experiment(self.child_id)
+            self.timings["child_after_item59"] = {
+                "status": child["status"],
+                "cells_done": child["progress"]["cells_done"],
+            }
+            return "; ".join(checks) + (
+                f"; child left {child['status']} at {child['progress']['cells_done']} of "
+                f"{child['progress']['cells_planned']} cells"
+            )
+
+        self.item(59, item59)
+
+        def item60():
+            import subprocess
+
+            def git(*args) -> str:
+                return subprocess.run(
+                    ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
+                ).stdout
+
+            status = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
+            assert status["mode"] == "human_directed" and status["exchange"] == "CLOSED", status
+            assert status["kernel_available"] is True, status
+            schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
+            assert schedule["enabled"] is False and schedule["id"].startswith("c99fa831"), schedule
+            paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
+            committed = git("diff", "--name-only", MISSION6_BASE, "HEAD", "--", *paths).strip()
+            pending = git("status", "--porcelain", "--", *paths).strip()
+            assert committed == "" and pending == "", (committed, pending)
+            diff = git("diff", MISSION6_BASE, "HEAD", "--", "pyproject.toml").splitlines()
+            added = [line for line in diff if line.startswith("+") and not line.startswith("+++")]
+            removed = [line for line in diff if line.startswith("-") and not line.startswith("---")]
+            assert added == ['+aegis = ["numba>=0.61,<0.69"]'] and removed == [], (added, removed)
+            return (
+                f"aegis {status['mode']} / {status['exchange']}, kernel available; DailySchedule "
+                f"{schedule['id'][:8]} enabled={schedule['enabled']}; no change under {', '.join(paths)} "
+                f"since {MISSION6_BASE}; pyproject.toml: one added line {added[0][1:]!r}, nothing removed"
+            )
+
+        self.item(60, item60)
+
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -1214,6 +1953,8 @@ def main(argv=None) -> int:
         "items": acceptance.results,
         "timings": acceptance.timings,
         "result_hashes": acceptance.hashes,
+        "experiment_id": getattr(acceptance, "exp_id", None),
+        "refined_experiment_id": getattr(acceptance, "child_id", None),
         "page_errors": acceptance.errors,
     }
     out = ROOT / "logs" / f"aegis-acceptance-{stamp}.json"
