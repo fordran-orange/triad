@@ -1,7 +1,20 @@
-param([ValidateSet('triad','aegis')][string]$Product, [switch]$OnlyIfStopped)
+# Launch a product worker on its own interpreter (Mission 7 spec §3.2): Triad on .venv-triad,
+# Aegis on .venv-aegis. One Core codebase; only the dependencies differ. The supervisor
+# (tools/ensure_product_worker.py) and Core's trusted restart both come through here.
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)][ValidateSet('triad','aegis')][string]$Product,
+    [switch]$OnlyIfStopped,
+    [string]$EnvironmentRoot = ''
+)
 $ErrorActionPreference = 'Stop'
 $TradingRoot = Split-Path $PSScriptRoot -Parent
-$TradingPython = Join-Path $TradingRoot '.venv/Scripts/python.exe'
+$EnvRoot = if ($EnvironmentRoot) { $EnvironmentRoot } else { $TradingRoot }
+$TradingPython = Join-Path $EnvRoot ".venv-$Product/Scripts/python.exe"
+if (!(Test-Path -LiteralPath $TradingPython)) {
+    # Before any listener is touched: a missing environment never stops the running worker.
+    throw "Missing ${TradingPython}: run tools/bootstrap.ps1 -Product $Product"
+}
 $ProductPort = if ($Product -eq 'triad') {8101} else {8102}
 $ProductApp = "products.$Product.server:app"
 $listeners = Get-NetTCPConnection -LocalPort $ProductPort -State Listen -ErrorAction SilentlyContinue
