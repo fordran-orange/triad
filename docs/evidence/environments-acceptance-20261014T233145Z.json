@@ -1,0 +1,85 @@
+{
+  "stamp": "20261014T233145Z",
+  "total_ms": 849962,
+  "passed": 11,
+  "failed": 0,
+  "items": [
+    {
+      "item": 1,
+      "title": "three environments built from their locks, pip check clean",
+      "status": "PASS",
+      "detail": "requirements.lock matches .venv (41 pins); requirements-triad.lock matches .venv-triad (41 pins); requirements-aegis.lock matches .venv-aegis (43 pins); pip check clean in all three",
+      "ms": 15580
+    },
+    {
+      "item": 2,
+      "title": "numba only in .venv-aegis",
+      "status": "PASS",
+      "detail": "numba importable: {'core': 'False', 'triad': 'False', 'aegis': 'True'}; .venv-aegis has numba 0.68.0",
+      "ms": 1058
+    },
+    {
+      "item": 3,
+      "title": "a bare or mismatched pytest refuses before running anything",
+      "status": "PASS",
+      "detail": "bare pytest on .venv -> exit 4; bare pytest on .venv-triad -> exit 4; bare pytest on .venv-aegis -> exit 4; scope aegis on .venv -> exit 4 'it needs .venv-aegis'",
+      "ms": 2980
+    },
+    {
+      "item": 4,
+      "title": "every collected test owned; each scope selects exactly its own",
+      "status": "PASS",
+      "detail": "inventory: core 550, triad 1058, aegis 298, total 1906; collected 1906; each scope runs exactly what it owns, in full",
+      "ms": 46844
+    },
+    {
+      "item": 5,
+      "title": "tools\\verify.ps1 green across the three scopes",
+      "status": "PASS",
+      "detail": "the three scopes ran in full and passed, the database health check passed; the foundation audit then refused branch core/dependency-environments (it guards main only), so the closing 'all three scopes green' line comes from the run on main after the merge; log environments-acceptance-20261014T233145Z-verify.log",
+      "ms": 279130
+    },
+    {
+      "item": 6,
+      "title": "both workers relaunched on their own interpreters",
+      "status": "PASS",
+      "detail": "triad: listener 26892 -> 27260, parent C:\\Triad\\.venv-triad\\Scripts\\python.exe, site-packages C:\\Triad\\.venv-triad, llvmlite False; aegis: listener 21900 -> 22880, parent C:\\Triad\\.venv-aegis\\Scripts\\python.exe, site-packages C:\\Triad\\.venv-aegis, llvmlite True",
+      "ms": 33816
+    },
+    {
+      "item": 7,
+      "title": "the supervisor's recovery path relaunches each on its interpreter",
+      "status": "PASS",
+      "detail": "triad: stopped 27260 (parent C:\\Triad\\.venv-triad\\Scripts\\python.exe), supervisor RECOVERED, new listener 33736 on C:\\Triad\\.venv-triad\\Scripts\\python.exe; aegis: stopped 22880 (parent C:\\Triad\\.venv-aegis\\Scripts\\python.exe), supervisor RECOVERED, new listener 26160 on C:\\Triad\\.venv-aegis\\Scripts\\python.exe",
+      "ms": 47798
+    },
+    {
+      "item": 8,
+      "title": "one red scope cannot end green (Review Focus 5)",
+      "status": "PASS",
+      "detail": "core and triad passed in full, the injected aegis test failed -> exit 1, no 'all three scopes green' line, module removed; log environments-acceptance-20261014T233145Z-verify-red.log",
+      "ms": 265133
+    },
+    {
+      "item": 9,
+      "title": "governance and the frozen trees",
+      "status": "PASS",
+      "detail": "no change under app/trading_core, app/platform_host, app/products/triad, app/products/aegis since 9fb3d2f; aegis human_directed / CLOSED, kernel True; DailySchedule c99fa831 enabled=False",
+      "ms": 1135
+    },
+    {
+      "item": 10,
+      "title": "the Mission 6 browser acceptance on .venv-aegis",
+      "status": "PASS",
+      "detail": "60/60 PASS, 0 FAIL, page errors 0 -> C:\\Triad\\logs\\aegis-acceptance-20261014T234319Z.json",
+      "ms": 148832
+    },
+    {
+      "item": 11,
+      "title": "Triad's trusted verification runs whole under its scope",
+      "status": "PASS",
+      "detail": "Triad's trusted post-merge command under the Triad scope: 17 run of the 17 its two modules hold, none owned elsewhere, passed",
+      "ms": 7649
+    }
+  ]
+}

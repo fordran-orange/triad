@@ -1,0 +1,521 @@
+{
+  "stamp": "20261014T234319Z",
+  "base": "http://127.0.0.1:8102/aegis/",
+  "total_ms": 148177,
+  "passed": 60,
+  "failed": 0,
+  "items": [
+    {
+      "item": 1,
+      "title": "select QQQ",
+      "status": "PASS",
+      "detail": "chart header QQQ \u00b7 1h RAW ARCHIVE \u00b7 NOT RESEARCH-ELIGIBLE",
+      "ms": 42
+    },
+    {
+      "item": 2,
+      "title": "select 1m, 15m, 30m, 1h or 1D",
+      "status": "PASS",
+      "detail": "bars per timeframe {'1m': 1827, '15m': 12974, '30m': 6488, '1h': 3493, '1D': 502}",
+      "ms": 3464
+    },
+    {
+      "item": 3,
+      "title": "choose a date range",
+      "status": "PASS",
+      "detail": "QQQ 1h 2023-01-01\u21922024-12-31: 3493 bars; indicators response in 215 ms",
+      "ms": 636
+    },
+    {
+      "item": 4,
+      "title": "see real candles from the pinned raw archive",
+      "status": "PASS",
+      "detail": "3493 bars, vintage 20260919T233952760505Z, file sha256 ad3cdc78a91c\u2026, 7 canvas layers",
+      "ms": 258
+    },
+    {
+      "item": 5,
+      "title": "see the permanent RAW ARCHIVE / NOT RESEARCH ELIGIBLE indicator",
+      "status": "PASS",
+      "detail": "RAW ARCHIVE \u00b7 NOT RESEARCH-ELIGIBLE",
+      "ms": 39
+    },
+    {
+      "item": 6,
+      "title": "see the 9 EMA and 30 SMA",
+      "status": "PASS",
+      "detail": "legend 'LONG / EMA 9 / SMA 30 / Volume'; ema 3485 values, sma 3464 values (warm-up gaps null)",
+      "ms": 17
+    },
+    {
+      "item": 7,
+      "title": "run a backtest",
+      "status": "PASS",
+      "detail": "run 7dae6730 in 507 ms server / 1071 ms wall, hash c9b6f8f821c0",
+      "ms": 1086
+    },
+    {
+      "item": 8,
+      "title": "inspect real entries and exits",
+      "status": "PASS",
+      "detail": "250 markers for 125 trades; first entry 2023-01-19T14:30 after signal 2023-01-18T20:30",
+      "ms": 3
+    },
+    {
+      "item": 9,
+      "title": "inspect LONG results independently",
+      "status": "PASS",
+      "detail": "long: 62 trades, net P&L $51,462, exposure 57.40%",
+      "ms": 69
+    },
+    {
+      "item": 10,
+      "title": "inspect SHORT results independently",
+      "status": "PASS",
+      "detail": "short: 63 trades, net P&L -$20,438, exposure 40.40%",
+      "ms": 78
+    },
+    {
+      "item": 11,
+      "title": "inspect COMBINED results",
+      "status": "PASS",
+      "detail": "combined: 125 trades, net P&L $31,024, exposure 97.80%",
+      "ms": 82
+    },
+    {
+      "item": 12,
+      "title": "inspect temporal performance",
+      "status": "PASS",
+      "detail": "tags ['ALL', 'CLOCK:close', 'CLOCK:open', 'CROSSOVER:cash_open', 'CROSSOVER:london_new_york']",
+      "ms": 4
+    },
+    {
+      "item": 13,
+      "title": "inspect trades",
+      "status": "PASS",
+      "detail": "125 trades listed, 62 long; first row tags 'CLOCK:close'",
+      "ms": 260
+    },
+    {
+      "item": 14,
+      "title": "inspect equity",
+      "status": "PASS",
+      "detail": "3 curves; legend 'combined (125) / long (3493) / short (3493) / min 76265 \u00b7 max 158567'",
+      "ms": 88
+    },
+    {
+      "item": 15,
+      "title": "see real KPIs",
+      "status": "PASS",
+      "detail": "strip shows net P&L $31,024 (API 31024.18), hash c9b6f8f821c0",
+      "ms": 8
+    },
+    {
+      "item": 16,
+      "title": "reload the saved experiment",
+      "status": "PASS",
+      "detail": "run 7dae6730 reloaded from the drawer, state ok, hash unchanged",
+      "ms": 1522
+    },
+    {
+      "item": 17,
+      "title": "launch an optimization",
+      "status": "PASS",
+      "detail": "plan '271 valid cells \u00b7 1 skipped (fast \u2265 slow) \u00b7 502 bars \u00b7 \u2248 4.8 s estimated'; LONG job started",
+      "ms": 1006
+    },
+    {
+      "item": 18,
+      "title": "watch progress",
+      "status": "PASS",
+      "detail": "progress advanced 4 \u2192 65 of 271; 'RUNNING | 65 / 271 cells \u00b7 1 skipped \u00b7 502 bars \u00b7 objective Net P&L | 1.2 s elapsed \u00b7 \u2248 3.8 s remaining \u00b7 cache hits 109'",
+      "ms": 1069
+    },
+    {
+      "item": 19,
+      "title": "cancel it",
+      "status": "PASS",
+      "detail": "cancelled at 73/271 cells after 1.3 s (17.8 ms per cell)",
+      "ms": 994
+    },
+    {
+      "item": 20,
+      "title": "inspect progressively completed parameter cells",
+      "status": "PASS",
+      "detail": "73 completed cells visible in the table and heatmap (272 grid cells); best so far 'EMA 7 / SMA 30 | $49,492 | 12.09% | 1.85 | 62.50% | 8 | 72.11%'",
+      "ms": 49
+    },
+    {
+      "item": 21,
+      "title": "view the final heatmap and table",
+      "status": "PASS",
+      "detail": "40/40 cells in 0.7 s (17.5 ms per cell); applied the best cell \u2192 long side now 'ENTRY: EMA(12) crosses ABOVE SMA(40)'",
+      "ms": 1958
+    },
+    {
+      "item": 22,
+      "title": "rerun an identical computational request and obtain the same result_hash",
+      "status": "PASS",
+      "detail": "two identical requests: runs ebe659b1 and 029abe08 both hash cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360",
+      "ms": 2094
+    },
+    {
+      "item": 23,
+      "title": "workers opt out of power throttling; gateway and Core latencies recorded",
+      "status": "PASS",
+      "detail": "gateway /aegis/api/status 288 ms median (317 max); Core /health/live 7 ms; worker direct 51 ms",
+      "ms": 3543
+    },
+    {
+      "item": 24,
+      "title": "open the Optimize popover in walk-forward mode and see the plan",
+      "status": "PASS",
+      "detail": "plan '6 windows \u00b7 40 cells each \u00b7 246 units \u00b7 2 unused tail bars \u00b7 502 bars \u00b7 \u2248 1.8 s estimated'",
+      "ms": 1067
+    },
+    {
+      "item": 25,
+      "title": "start a LONG walk-forward on QQQ 1D 2023\u20132024 and land on the Walk-Forward tab",
+      "status": "PASS",
+      "detail": "started: 'RUNNING | window 1 of 6 \u00b7 cell 1 of 40 \u00b7 unit 1 of 246 \u00b7 in-sample 200 / out-of-sample 50 bars \u00b7 objective Net P&L'",
+      "ms": 499
+    },
+    {
+      "item": 26,
+      "title": "watch progress advance by window and cell while the status route stays responsive",
+      "status": "PASS",
+      "detail": "cells 1 \u2192 74 of 246; status route 15 ms while running",
+      "ms": 1327
+    },
+    {
+      "item": 27,
+      "title": "cancel between cells; completed windows stay and the job is cancelled",
+      "status": "PASS",
+      "detail": "cancelled at window 2 of 6 (cell 95 of 246); 2 done window(s) still shown",
+      "ms": 810
+    },
+    {
+      "item": 28,
+      "title": "start again and let it complete",
+      "status": "PASS",
+      "detail": "6/6 windows, 246 units in 5.1 s (20.7 ms per unit); hash 783f07c3146b",
+      "ms": 5473
+    },
+    {
+      "item": 29,
+      "title": "inspect every window: ranges, chosen configuration, in-sample objective, out-of-sample results, efficiency",
+      "status": "PASS",
+      "detail": "6 windows; chosen ['11/40', '5/20', '11/35', '5/30', '11/20', '6/20']; efficiencies [2.47, 0.72, 0.07, 1.15, -0.26, 0.79]",
+      "ms": 7
+    },
+    {
+      "item": 30,
+      "title": "inspect the stitched out-of-sample equity with window boundaries",
+      "status": "PASS",
+      "detail": "one curve, 5 window boundaries, 300 points; 'Net P&L $22,952 Return 22.95% CAGR 18.94% Max DD 8.46% MAR 2.24 Win rate 83.33% Trades 6 (4 carried) (1 closed at the final edge) Exposure 77.00%'",
+      "ms": 18
+    },
+    {
+      "item": 31,
+      "title": "inspect stability: parameter spread, positive out-of-sample windows, mean efficiency",
+      "status": "PASS",
+      "detail": "EMA 5\u201311 (mean 8.2, std 2.85); positive OOS windows 5 of 6; mean efficiency 0.8214798062928104",
+      "ms": 4
+    },
+    {
+      "item": 32,
+      "title": "apply the final window's configuration and rerun the combined backtest",
+      "status": "PASS",
+      "detail": "applied EMA 6 / SMA 20 \u2192 'ENTRY: EMA(6) crosses ABOVE SMA(20)'; combined rerun with 19 trades",
+      "ms": 443
+    },
+    {
+      "item": 33,
+      "title": "reload the finished walk-forward from the persisted list and see the same numbers",
+      "status": "PASS",
+      "detail": "persisted job 18200be0 reloaded: hash 783f07c3146b, stitched net P&L 22951.72",
+      "ms": 126
+    },
+    {
+      "item": 34,
+      "title": "rerun an identical walk-forward request and obtain the same result_hash",
+      "status": "PASS",
+      "detail": "two identical requests \u2192 the same hash 5d9371614fc09596e6fb2c8b4a36a7182adc0c427d7d333dab88cf337763230a",
+      "ms": 51834
+    },
+    {
+      "item": 35,
+      "title": "a walk-forward on a range too short for one window is refused with the bar counts",
+      "status": "PASS",
+      "detail": "422: range too short: 502 bars; one window needs 500 + 100 bars",
+      "ms": 36
+    },
+    {
+      "item": 36,
+      "title": "after the restarts the governance contract and the disabled schedule record are unchanged",
+      "status": "PASS",
+      "detail": "aegis human_directed / CLOSED; DailySchedule c99fa831 enabled=False",
+      "ms": 619
+    },
+    {
+      "item": 37,
+      "title": "build a Donchian / RSI breakout in the Strategy Lab from a new document and save it",
+      "status": "PASS",
+      "detail": "document untitled-strategy-4d02e3 'Donchian RSI breakout 20261014T234319Z' saved, hash 0544c1d7b520; card ''",
+      "ms": 6891
+    },
+    {
+      "item": 38,
+      "title": "use it on QQQ 1h 2023\u20132024: Donchian on the price pane, RSI in its own pane, the crosshair reads the study",
+      "status": "PASS",
+      "detail": "3493 bars; legend ['DONCHIAN 20 upper', 'DONCHIAN 20 lower', 'DONCHIAN 20 middle', 'RSI 14']; study readout 'RSI 14 60.152024-12-10 16:30 UTC'",
+      "ms": 1431
+    },
+    {
+      "item": 39,
+      "title": "run its backtest: trades, markers, long/short/combined metrics and a result_hash",
+      "status": "PASS",
+      "detail": "run 00347bfe: long 55 trades, net 40134.92; 236 markers; hash 76b1d4e20e59e2b404b53c29c713c1198cbfce3a8e33020835029a466855fd85",
+      "ms": 662
+    },
+    {
+      "item": 40,
+      "title": "optimize Donchian 10\u201340 step 10 x RSI 7\u201321 step 7 (12 cells) and apply the best cell",
+      "status": "PASS",
+      "detail": "plan '12 valid cells \u00b7 0 skipped \u00b7 3,493 bars \u00b7 \u2248 3.1 s estimated'; 12/12 cells; best 'DONCHIAN 10 / RSI 14 | $47,239 | 7.68% | 2.79 | 47.47% | 99 | 34.30%' applied \u2192 'ENTRY: price.close crosses ABOVE DONCHIAN(10).upper AND RSI(14) < 70'",
+      "ms": 2342
+    },
+    {
+      "item": 41,
+      "title": "walk the long side forward 1000/250: positions carry across joins, only the final window may close at its edge",
+      "status": "PASS",
+      "detail": "9/9 windows; 4 joins crossed holding a position, 4 carried trades; no interior edge close; stitched net 23042.29; hash 9552c89d6a192c4d806d04b78d28f96f365a696e251bb31ba8a87b428e0b8047",
+      "ms": 5340
+    },
+    {
+      "item": 42,
+      "title": "duplicate, rename and delete a copy; deleting the referenced original is refused",
+      "status": "PASS",
+      "detail": "copy breakout-copy-20261014t234319z (parent untitled-strategy-4d02e3) renamed and deleted; original refused: '409: strategy untitled-strategy-4d02e3 is referenced by 2 runs, 1 optimization, 1 walk-forward'",
+      "ms": 2324
+    },
+    {
+      "item": 43,
+      "title": "the default strategy still produces the recorded Mission 3 identical-request hash",
+      "status": "PASS",
+      "detail": "item 22 produced the recorded Mission 3 hash cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360",
+      "ms": 0
+    },
+    {
+      "item": 44,
+      "title": "rerun the new strategy's backtest unchanged and obtain the same result_hash",
+      "status": "PASS",
+      "detail": "runs 980438e5 and 5137dc5e both hash 47b81013a2672843f4e7eb59aa91e0a0229a41ee1dbe011833ff7de126d3c1f5",
+      "ms": 1642
+    },
+    {
+      "item": 45,
+      "title": "the Indicators tab lists kind, parameters, source, pane and latest values; removing a read indicator is refused",
+      "status": "PASS",
+      "detail": "donchian 'DONCHIAN donchian \u00b7 price pane', rsi latest ['36.72']; removal refused: 'rsi is read by the long entry rule; change that rule before removing it'",
+      "ms": 277
+    },
+    {
+      "item": 46,
+      "title": "invalid rules and parameters are refused with 422 naming the problem",
+      "status": "PASS",
+      "detail": "422 for each: unknown operand 'foo'; donchian has outputs; needs a band; a group needs two conditions; at most two conditions in this slice; RSI has no parameter 'x'",
+      "ms": 74
+    },
+    {
+      "item": 47,
+      "title": "governance unchanged and no file under Core, the platform host or Triad changed",
+      "status": "PASS",
+      "detail": "aegis human_directed / CLOSED; no change under app/trading_core, app/platform_host, app/products/triad since a73f70e",
+      "ms": 388
+    },
+    {
+      "item": 48,
+      "title": "every earlier item ran on the kernel engine: the status reports it available and the recorded Mission 3 and 5 hashes are reproduced",
+      "status": "PASS",
+      "detail": "kernel available; runs report engine kernel; item 22 cdbc9abd2238\u2026, item 28 783f07c3146b\u2026 and item 34 5d9371614fc0\u2026 match the Mission 3 and 5 records",
+      "ms": 81
+    },
+    {
+      "item": 49,
+      "title": "define the 252-cell experiment on the breakout document (four parameters across both sides, MAR): the plan says exhaustive, 252 runs, priced",
+      "status": "PASS",
+      "detail": "plan '4 parameters \u00b7 252 cells \u00b7 exhaustive \u00b7 \u2248 2.5 s on 10 workers at 80.3 ms per cell (measured on this host)'; API: exhaustive, 252 of 252 valid cells, \u2248 2.5 s on 10 workers at 80.3 ms per cell, priced at the measured cost of an earlier experiment on this worker",
+      "ms": 1160
+    },
+    {
+      "item": 50,
+      "title": "start it: progress advances by chunk while the status route stays responsive (the pause is requested during the first chunk)",
+      "status": "PASS",
+      "detail": "experiment breakout-surface-20261014t234319z started; status route 12 ms max over 10 calls while running; progress advanced 0 \u2192 200 of 252 with the first chunk; the pause requested during it took effect at the chunk boundary",
+      "ms": 6272
+    },
+    {
+      "item": 51,
+      "title": "pause, restart the worker: the experiment is paused, not lost; resume it; it finishes with every cell present exactly once",
+      "status": "PASS",
+      "detail": "worker restarted (listener pid 26160 \u2192 27140); after it the experiment read 'Breakout surface 20261014T234319Z | paused | 4 parameters \u00b7 252 cells \u00b7 exhaustive \u00b7 QQQ 1h 2023-01-01 \u2192 2024-12-31 \u00b7 objective mar \u00b7 engine kernel | 200 of 252 cells \u00b7 chunk 1 of 2 \u00b7 42.4 ms per cell per worker \u00b7 \u2248 0.3 s remaining | Pause | Resume | Cancel | Delete'; resumed and done in 6.8 s; 252 rows, 252 distinct cells, all valid; measured 78.2 ms per cell per worker",
+      "ms": 24626
+    },
+    {
+      "item": 52,
+      "title": "the report: the recommended plateau with its centre and supported peak, every peak's standing, main effects, interaction heatmaps, sensitivity, clusters or their refusal",
+      "status": "PASS",
+      "detail": "plateau 1: 44 cells, median mar 0.8248, centre cell 94 {'long_side.indicators.donchian.length': 20.0, 'long_side.indicators.rsi.length': 21.0, 'short_side.indicators.ema.length': 10.0, 'short_side.indicators.sma.length': 30.0}; supported peak 13; 0 fragile of 8 peaks, each badge with its standing; 4 main-effect charts, 3 interaction heatmaps, sensitivity shares for 4 paths; clusters 2 groups, silhouette 0.63",
+      "ms": 187
+    },
+    {
+      "item": 53,
+      "title": "materialize the centre twice: the same result_hash, equal to a direct backtest of the pinned spec with those parameters",
+      "status": "PASS",
+      "detail": "centre cell 94 materialized twice \u2192 the same hash 61afce46ffb58d51a5bbb8cd672422862735bde746f2148257319342544bf2cd; a direct backtest of the pinned spec with {'long_side.indicators.donchian.length': 20.0, 'long_side.indicators.rsi.length': 21.0, 'short_side.indicators.ema.length': 10.0, 'short_side.indicators.sma.length': 30.0} \u2192 the same hash; the row shows hash 61afce46ffb5",
+      "ms": 2077
+    },
+    {
+      "item": 54,
+      "title": "use the centre in the workspace: the Charts page with unsaved edits, the side cards show its parameters, a backtest runs on them",
+      "status": "PASS",
+      "detail": "the Charts page with unsaved edits; long 'ENTRY: price.close crosses ABOVE DONCHIAN(20).upper AND RSI(21) < 70', short 'ENTRY: EMA(10) crosses BELOW SMA(30)'; backtest run bcf14a26 hash 61afce46ffb5\u2026 (equal to the materialized hash)",
+      "ms": 1450
+    },
+    {
+      "item": 55,
+      "title": "record the decision accepted with a note: shown on the experiment and in the list",
+      "status": "PASS",
+      "detail": "accepted at 2026-10-14T23:45:38.765435+00:00 with the note; shown on the experiment and in its list row",
+      "ms": 632
+    },
+    {
+      "item": 56,
+      "title": "refine: a queued child with the parent linked and ranges narrowed around the plateau, not started",
+      "status": "PASS",
+      "detail": "child breakout-surface-20261014t234319z-refined queued (not started), parent breakout-surface-20261014t234319z, plan exhaustive 216 runs; narrowed ['donchian']: donchian 10\u201335; rsi 7\u201328; ema 5\u201315; sma 20\u201340",
+      "ms": 245
+    },
+    {
+      "item": 57,
+      "title": "plan the over-budget experiment (step 1, budget 2,000): sampled with its fraction and the levers; freezing the two short-side parameters gives 682 cells, exhaustive",
+      "status": "PASS",
+      "detail": "plan '4 parameters \u00b7 157,542 cells \u00b7 sampled 1.3% (2,000 runs) \u00b7 \u2248 20 s on 10 workers at 78.2 ms per cell (measured on this host)'; API sampled 2,000 of 157,542 (1.27%), first pass 1334, refinement 666; 15 levers listed, e.g. freeze ema \u2192 14,322 cells, freeze sma \u2192 7,502; both frozen \u2192 '4 parameters \u00b7 682 cells \u00b7 exhaustive \u00b7 \u2248 6.7 s on 10 workers at 78.2 ms per cell (measured on this host)'",
+      "ms": 1873
+    },
+    {
+      "item": 58,
+      "title": "recompute the finished experiment's report with net P&L and tolerance 0.10 without rerunning: both reports kept",
+      "status": "PASS",
+      "detail": "report 2: net_pnl at tolerance 0.10 \u2192 1 plateau(s), 0 fragile of 3 peaks, 'Plateau 1: use cell 94 (long_side.indicators.donchian.length 20, long_side.indicators.rsi.length 21, short_side.indicators.ema.length 10, sh'; report 1 (mar, 0.15) kept; cells untouched (252 done, 2 chunks)",
+      "ms": 669
+    },
+    {
+      "item": 59,
+      "title": "every refusal is honest over HTTP: no parameters, eleven, a path on the wrong side, a fractional step, a budget of zero, a pause on a finished experiment, a delete of a running one",
+      "status": "PASS",
+      "detail": "no parameters \u2192 422 'a surface needs at least one parameter'; eleven parameters \u2192 422 'at most 10 parameters'; a path on the wrong side \u2192 422 \"unknown parameter path 'short_side.indicators.donchian.length'\"; a fractional step on a whole-number parameter \u2192 422 'ranges of whole-number parameters need integer start, stop and step'; a budget of zero \u2192 422 'runs must be positive'; pause on the finished experiment \u2192 409 'experiment breakout-surface-20261014t234319z is done, not running'; delete of the running child \u2192 409 'experiment breakout-surface-20261014t234319z-refined is running; cancel it first'; child left paused at 200 of 216 cells",
+      "ms": 4898
+    },
+    {
+      "item": 60,
+      "title": "governance unchanged, no file under Core, the platform host or Triad changed, and pyproject.toml changed by the one optional-extra line only",
+      "status": "PASS",
+      "detail": "aegis human_directed / CLOSED, kernel available; DailySchedule c99fa831 enabled=False; no change under app/trading_core, app/platform_host, app/products/triad since 5189e12; pyproject.toml over Mission 6 (5189e12..90e94d0): one added line 'aegis = [\"numba>=0.61,<0.69\"]', nothing removed",
+      "ms": 829
+    }
+  ],
+  "timings": {
+    "bars_per_timeframe": {
+      "1m": 1827,
+      "15m": 12974,
+      "30m": 6488,
+      "1h": 3493,
+      "1D": 502
+    },
+    "indicator_ms": 215,
+    "backtest_wall_ms": [
+      1071,
+      857,
+      524,
+      630,
+      1031,
+      525,
+      853
+    ],
+    "backtest_server_ms": [
+      507,
+      102,
+      99,
+      84,
+      164,
+      75,
+      86
+    ],
+    "optimize_plan": "271 valid cells \u00b7 1 skipped (fast \u2265 slow) \u00b7 502 bars \u00b7 \u2248 4.8 s estimated",
+    "optimizer_cell_ms_cancelled_job": 17.8,
+    "optimizer_cell_ms_completed_job": 17.5,
+    "identical_request_hashes": [
+      "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360",
+      "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
+    ],
+    "latency_ms_median_max": {
+      "gateway_aegis_status": [
+        288,
+        317
+      ],
+      "core_health": [
+        7,
+        9
+      ],
+      "aegis_worker_status": [
+        51,
+        106
+      ]
+    },
+    "walkforward_plan": "6 windows \u00b7 40 cells each \u00b7 246 units \u00b7 2 unused tail bars \u00b7 502 bars \u00b7 \u2248 1.8 s estimated",
+    "walkforward_cancelled_at": {
+      "done": 95,
+      "total": 246
+    },
+    "walkforward_seconds": 5.1,
+    "walkforward_cell_ms": 20.7,
+    "identical_walkforward_hashes": [
+      "5d9371614fc09596e6fb2c8b4a36a7182adc0c427d7d333dab88cf337763230a",
+      "5d9371614fc09596e6fb2c8b4a36a7182adc0c427d7d333dab88cf337763230a"
+    ],
+    "walkforward_hash_item28": "783f07c3146b71dad6cefdf77ca17a1454e1e1e0615f96a3a07a5cde16f0cc7b",
+    "experiment_plan": {
+      "mode": "exhaustive",
+      "valid_cells": 252,
+      "planned_runs": 252,
+      "estimate_seconds": 2.53040039136473,
+      "ms_per_cell_bar": 0.022997472417531025,
+      "workers": 10,
+      "bars": 3493
+    },
+    "experiment_status_latency_ms_max": 12,
+    "experiment_ms_per_cell_bar": 0.02238461703628139,
+    "experiment_ms_per_cell": 78.2,
+    "experiment_resume_seconds": 6.8,
+    "materialized_hash": "61afce46ffb58d51a5bbb8cd672422862735bde746f2148257319342544bf2cd",
+    "child_after_item59": {
+      "status": "paused",
+      "cells_done": 200
+    }
+  },
+  "result_hashes": [
+    "c9b6f8f821c0ce8d7b67732430b4ef358b41af1c53e228d5d68a382925cc24a6",
+    "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360",
+    "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360",
+    "76b1d4e20e59e2b404b53c29c713c1198cbfce3a8e33020835029a466855fd85",
+    "47b81013a2672843f4e7eb59aa91e0a0229a41ee1dbe011833ff7de126d3c1f5",
+    "47b81013a2672843f4e7eb59aa91e0a0229a41ee1dbe011833ff7de126d3c1f5",
+    "61afce46ffb58d51a5bbb8cd672422862735bde746f2148257319342544bf2cd",
+    "61afce46ffb58d51a5bbb8cd672422862735bde746f2148257319342544bf2cd"
+  ],
+  "experiment_id": "breakout-surface-20261014t234319z",
+  "refined_experiment_id": "breakout-surface-20261014t234319z-refined",
+  "page_errors": []
+}
