@@ -456,3 +456,8 @@ in the execution ledger and in `docs/MISSION6_EXPERIMENTS.md`.
 - **§7 clusters.** An outcome metric whose spread across cells is below 1e-6 or 1% of its mean
   magnitude is left out of the clustering; when none remains the clusters are refused with that
   reason.
+
+- **§4.4 realised (2026-10-14).** The follow-on was carried out by Mission 7 as dependency
+  isolation, not separate Core environments (operator correction 2026-10-13): one Core codebase
+  and runtime; `.venv`, `.venv-triad` and `.venv-aegis` built from lock files; numba only in
+  `.venv-aegis`; `tools/start_product.ps1` launches each worker on its own interpreter.

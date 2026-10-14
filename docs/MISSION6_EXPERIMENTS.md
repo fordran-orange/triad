@@ -279,7 +279,11 @@ it (item 60 confirms the frozen trees).
    mission" on 2026-10-12): a Core-governed follow-on mission gives each product its own virtual
    environment and dependency set, so a product's compiled dependency never touches the shared
    `pyproject.toml`; until then numba stays the optional extra `aegis`, installed only on hosts
-   that run the Aegis worker, and Core never imports it (architecture test).
+   that run the Aegis worker, and Core never imports it (architecture test). Realised by
+   Mission 7 (2026-10-14) as dependency isolation only, per the operator's 2026-10-13
+   correction: one Core codebase and runtime, three dependency environments (`.venv`,
+   `.venv-triad`, `.venv-aegis`) built from lock files; numba lives only in `.venv-aegis`
+   (`docs/MISSION7_DEPENDENCY_ENVIRONMENTS.md`).
 2. The wrong-side refusal reads "unknown parameter path '<path>'"; it names the path but not that
    the indicator lives on the other side.
 3. The acceptance pauses the experiment during its first chunk; a restart that interrupts a

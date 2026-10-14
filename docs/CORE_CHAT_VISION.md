@@ -182,3 +182,32 @@ Aegis is human-directed, exchange stays CLOSED, live trading stays disabled, Cor
 neither product, the Jarvis vision and the two acceptance scenarios above remain the goal.
 Record: `CORE_STATE_AUDIT.md`, `docs/MISSION1_QUIET_GREEN_BASELINE.md`,
 `docs/MISSION2_RECONCILE_AND_ADOPT.md`.
+
+### 2026-10-13 — Core stays the shared substrate; dependency isolation, not separate Core environments
+
+The operator corrected a drift on 2026-10-13: Core is the shared substrate and remains one
+codebase and one runtime.
+
+```
+Core
+├── providers
+├── memory / knowledge
+├── storage / provenance
+├── shared runtime
+└── product hosting / support
+      ├── Aegis
+      └── Triad — suspended
+```
+
+Product isolation is in code, contracts and dependencies, never in duplicate Core
+installations. Not to be created: a separate Aegis Core, duplicate Core databases, duplicate
+provider environments, a parallel runtime, a second orchestration stack, or separate
+infrastructure for cleanliness; any environment-level change needs a measured blocker surfaced
+before implementation. After reading the brief the operator approved three dependency
+environments (`.venv` for Core and the gateway, `.venv-triad`, `.venv-aegis`, built from lock
+files over the same `app/` tree) and `tools\verify.ps1`, with two requirements: every collected
+test has explicit ownership, and a wrong or default `pytest` cannot show a misleading partial
+green. Testing follows blast radius: ordinary Aegis edits run the Aegis, architecture and
+isolation tests and the checks for the touched code; milestones run everything; shared Core
+changes run the relevant Core tests immediately. The rule now lives in `AGENTS.md`. Record:
+`docs/MISSION7_DEPENDENCY_ENVIRONMENTS.md`.

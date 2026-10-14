@@ -23,6 +23,26 @@ Core owns generic intelligence, authority, memory/knowledge, provider integratio
 and shared runtime. Products consume Core; Core imports neither product. Preserve
 product-private knowledge and credentials.
 
+Core is the shared substrate and stays one codebase and one runtime: providers,
+memory/knowledge, storage/provenance, the shared runtime and product hosting (operator
+correction 2026-10-13). Product isolation lives in code, contracts and dependencies: each
+worker runs on its own dependency environment (`.venv` for Core and the gateway,
+`.venv-triad`, `.venv-aegis`), built by `tools/bootstrap.ps1` from its lock file and
+launched by `tools/start_product.ps1`. Never create a separate Core installation, Core
+database, provider environment, runtime or orchestration stack, or infrastructure for
+cleanliness; an environment-level change needs a measured blocker surfaced to the operator
+before implementation.
+
+Test by blast radius. Every test module is owned by `core`, `triad` or `aegis` and runs only
+on that owner's interpreter (`TRIAD_PYTEST_SCOPE`; a bare `pytest` refuses to run). Ordinary
+reversible Aegis changes run the Aegis tests, the architecture and isolation tests, the
+lint/type/build checks for the touched code and any directly related shared-contract tests.
+A milestone, before a vertical slice merges, runs `tools\verify.ps1` (all three scopes), the
+frontend tests, the browser acceptance and the lint/build checks. A change to
+`app/trading_core/`, the platform host, provider integration, memory/knowledge, governance,
+product isolation, shared schemas or contracts, migrations or credentials runs the relevant
+Core tests immediately and is shared-infrastructure work.
+
 Triad is intentionally suspended (operator decision 2026-10-09). Its autonomous
 improvement game does not run while Aegis is built; it resumes later with Aegis as a
 base to work with. Scheduled autonomy is disabled by `DailySchedule` record `c99fa831`
