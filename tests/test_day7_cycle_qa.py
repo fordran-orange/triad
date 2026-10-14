@@ -16,7 +16,7 @@ from trading_core.runtime import ProviderError
 from trading_core.store import Store
 from trading_core.work import State, WorkItem
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def scoped(engine):

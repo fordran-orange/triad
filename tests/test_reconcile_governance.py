@@ -8,6 +8,8 @@ from trading_core.governance import (
     normalize_repo_path,
 )
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.parametrize(
     "path",

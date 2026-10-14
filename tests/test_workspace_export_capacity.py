@@ -2,6 +2,8 @@ import pytest
 from trading_core.providers.isolation import OfflineSandbox
 from trading_core.providers.process import ManagedProcess
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.parametrize("limit", [True, 0, 131071, 8000001, 1.5, "200000"])
 def test_reject_unbounded_or_invalid_host_capture(limit, tmp_path):

@@ -9,6 +9,8 @@ from trading_core.providers.bounded_tools import BoundedTools
 from trading_core.providers.native_agents import NativeRun
 from trading_core.runtime import ProviderError
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.parametrize("claimed_hash", [None, "f" * 64])
 def test_native_finish_binds_original_hash_to_observed_bytes(claimed_hash):

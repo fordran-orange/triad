@@ -4,7 +4,10 @@ import ast
 import subprocess
 import sys
 
+import pytest
 from trading_core.settings import ROOT
+
+pytestmark = pytest.mark.core
 
 
 def test_dependency_directions():
@@ -149,3 +152,18 @@ def test_numba_is_imported_only_under_aegis():
                 if not relative.startswith("app/products/aegis/"):
                     offenders.append(relative)
     assert offenders == []
+
+
+def test_product_libraries_absent_from_core_and_triad():
+    """Mission 7: numba lives only in Aegis's environment; Core's and Triad's cannot import it."""
+    import importlib.util
+
+    assert importlib.util.find_spec("numba") is None, f"numba is installed in {sys.prefix}"
+    probe = "import importlib.util as u; print(u.find_spec('numba') is not None)"
+    for environment, expected in ((".venv-triad", "False"), (".venv-aegis", "True")):
+        python = ROOT / environment / "Scripts" / "python.exe"
+        assert python.is_file(), f"missing {environment}: run tools/bootstrap.ps1"
+        result = subprocess.run(
+            [str(python), "-c", probe], capture_output=True, text=True, timeout=60, check=False
+        )
+        assert result.stdout.strip() == expected, (environment, result.stdout, result.stderr)

@@ -10,6 +10,8 @@ from pydantic import SecretStr
 from trading_core import api as core_api
 from products.triad import daily_api, server
 
+pytestmark = pytest.mark.triad
+
 
 @pytest.fixture
 def client():

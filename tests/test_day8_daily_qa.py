@@ -15,7 +15,7 @@ from trading_core.ledger import Ledger, Stopped
 from trading_core.store import Store
 from trading_core.work import uid
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def reviewed(service):

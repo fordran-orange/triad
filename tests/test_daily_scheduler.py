@@ -10,6 +10,8 @@ from test_daily_lifecycle import daily
 from test_day3_integration import engine  # noqa: F401
 from test_day8_daily_qa import reviewed
 
+pytestmark = pytest.mark.triad
+
 
 def test_next_cycle_timezone_days_and_activation():
     config = {**DailySchedule(enabled=True).model_dump(), "effective_after": "2026-09-20"}

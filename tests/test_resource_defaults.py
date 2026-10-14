@@ -10,6 +10,8 @@ from trading_core.intelligence.records import Records
 from trading_core.resources import resource
 from trading_core.work import WorkItem
 
+pytestmark = pytest.mark.core
+
 
 def test_reasoning_and_output_are_independent_initial_allocations():
     work = WorkItem(title="Initial envelope", description="Separate allocations")

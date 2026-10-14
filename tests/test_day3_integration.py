@@ -23,7 +23,7 @@ from triad.settings import ROOT, Settings
 from triad.store import Store
 from triad.work import State
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 @pytest.fixture

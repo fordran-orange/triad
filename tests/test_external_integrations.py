@@ -11,6 +11,8 @@ from trading_core.integrations.registry import ExternalIntegrationRegistry
 from trading_core.intelligence.records import Records
 from trading_core.store import Store
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.parametrize("adapter", [SchwabBrokerAdapter, RobinhoodBrokerAdapter])
 def test_broker_shell_never_claims_account_access_or_live_orders(adapter):

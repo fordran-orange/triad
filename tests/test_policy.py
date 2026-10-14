@@ -5,6 +5,8 @@ from pydantic import ValidationError
 from triad.policy import AuthorityRequest, Intent, TrustedPrincipal, compile_policy
 from triad.settings import ROOT
 
+pytestmark = pytest.mark.triad
+
 
 def intent(**changes):
     source = json.loads((ROOT / "control-plane/intent.example.json").read_text())

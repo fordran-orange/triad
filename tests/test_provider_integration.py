@@ -13,7 +13,7 @@ from triad.day5a.contracts import ProviderPolicy
 from triad.day5a.control import ProviderControl, TransportRouter
 from triad.day5a.transports import HTTPTransport
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 @pytest.mark.parametrize(

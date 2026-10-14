@@ -20,6 +20,8 @@ from trading_core.intelligence.quality import Quality
 from trading_core.store import Store
 from trading_core.work import WorkItem
 
+pytestmark = pytest.mark.core
+
 
 def candidate(**values):
     return IntegrationCandidate(

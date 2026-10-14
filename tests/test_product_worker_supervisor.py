@@ -11,6 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytestmark = pytest.mark.core
+
 PRODUCTS = [("triad", 8101), ("aegis", 8102)]
 
 

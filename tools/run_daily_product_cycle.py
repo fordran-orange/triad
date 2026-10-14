@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 
 from products.triad.daily_development import DailyDevelopment
 from products.triad.daily_verification import verify
@@ -19,6 +20,9 @@ def main():
     parser.add_argument("--resume-qa-failure", action="store_true")
     parser.add_argument("--startup-attempt-id")
     args = parser.parse_args()
+    # The trusted post-merge verification runs pytest in a subprocess; its modules are owned by
+    # Triad and the scope guard (tests/conftest.py) refuses a run without a scope (Mission 7).
+    os.environ["TRIAD_PYTEST_SCOPE"] = "triad"
     result = DailyDevelopment().run_daily(
         cycle_id=args.cycle_id,
         verify=verify,

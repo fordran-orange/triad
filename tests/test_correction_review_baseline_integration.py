@@ -11,7 +11,7 @@ from test_candidate_correction_integration import engine, prepare, proof, seed_w
 from test_correction_renewal_integration import closed_read, healthy
 from trading_core.work import State, WorkItem
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 @pytest.fixture

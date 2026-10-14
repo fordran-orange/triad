@@ -15,7 +15,7 @@ from trading_core.resource_policy import (
 )
 from trading_core.store import Store
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def session(engine, billing="SUBSCRIPTION"):

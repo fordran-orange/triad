@@ -18,7 +18,7 @@ from trading_core.resource_policy import ResourceBlocked, ResourceType
 from trading_core.store import ConcurrentUpdate
 from trading_core.work import ComputeBudget, WorkItem
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def test_disabled_provider_cannot_create_specialist(engine):

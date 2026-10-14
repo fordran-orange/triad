@@ -6,6 +6,8 @@ import pytest
 from pydantic import ValidationError
 from triad.market import SCHEMA, Candle1m, write_candles
 
+pytestmark = pytest.mark.triad
+
 
 def candle(**changes):
     row = {

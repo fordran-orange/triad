@@ -1,9 +1,12 @@
 import json
 
+import pytest
 from products.aegis.backtest import BacktestRequest, markers, run_backtest
 from products.aegis.results import canonical_payload, result_hash
 from products.aegis.strategy import apply_parameters, default_strategy
 from test_aegis_backtest import bars
+
+pytestmark = pytest.mark.aegis
 
 DATA = {"symbol": "QQQ", "source": "test", "data_hash": "abc"}
 

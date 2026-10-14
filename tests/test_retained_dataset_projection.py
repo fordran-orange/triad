@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 from trading_core.brain import Brain
 
+pytestmark = pytest.mark.core
+
 
 class Transaction:
     def __init__(self):

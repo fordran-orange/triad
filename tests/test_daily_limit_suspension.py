@@ -3,6 +3,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from triad.day3.ledger import Ledger
 
+pytestmark = pytest.mark.triad
+
 
 def grant(at):
     return {

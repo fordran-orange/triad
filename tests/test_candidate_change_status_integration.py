@@ -9,7 +9,7 @@ from test_candidate_correction_integration import engine, prepare, proof, snapsh
 from test_correction_renewal_integration import healthy
 from trading_core.work import State
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def label(p, status, **extra):

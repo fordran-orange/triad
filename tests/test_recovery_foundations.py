@@ -6,6 +6,8 @@ from trading_core.intelligence.contracts import QARun
 from trading_core.intelligence.quality import Quality
 from trading_core.providers.codex_executor import observe_completed_read
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.parametrize(
     "command",

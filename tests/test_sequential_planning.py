@@ -15,6 +15,8 @@ from products.triad.sequential_planning import (
 )
 from pydantic import ValidationError
 
+pytestmark = pytest.mark.triad
+
 
 def plan():
     return {

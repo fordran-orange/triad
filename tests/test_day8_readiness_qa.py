@@ -11,6 +11,8 @@ from test_readiness import service
 from trading_core.integrations import readiness as module
 from trading_core.intelligence.contracts import ImplementationRun, QARun
 
+pytestmark = pytest.mark.core
+
 
 def attest(ready, request, manifest, *, mutate=None):
     payload = {

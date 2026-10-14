@@ -3,6 +3,10 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+pytestmark = pytest.mark.core
+
 
 def test_launcher_propagates_failure_without_a_console(tmp_path, monkeypatch):
     path = Path(__file__).resolve().parents[1] / "tools/run_core_supervisor.py"

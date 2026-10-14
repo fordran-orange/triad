@@ -5,6 +5,8 @@ import pytest
 from trading_core import provider_queue as module
 from trading_core.store import ConcurrentUpdate
 
+pytestmark = pytest.mark.core
+
 
 def test_waits_for_provider_and_never_replays_execution(monkeypatch):
     attempts = []

@@ -15,7 +15,7 @@ from trading_core.intelligence.records import Records
 from trading_core.store import Store
 from trading_core.work import now
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 MARKER = "engineering-role:CLAUDE:isolated_product_ui_edit"
 
 

@@ -1,5 +1,8 @@
+import pytest
 from fastapi.testclient import TestClient
 from platform_host.legacy import app
+
+pytestmark = pytest.mark.core
 
 client = TestClient(app)
 

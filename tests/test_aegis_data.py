@@ -15,6 +15,8 @@ from products.aegis.data import (
     to_records,
 )
 
+pytestmark = pytest.mark.aegis
+
 # 2026-10-30 is in EDT (UTC-4); 2026-11-02 is the first trading day in EST (UTC-5).
 DAYS = [date(2026, 10, 30), date(2026, 11, 2)]
 

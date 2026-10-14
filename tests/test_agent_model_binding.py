@@ -20,7 +20,7 @@ from trading_core.providers.control import ProviderControl
 from trading_core.store import Store
 from trading_core.work import ComputeBudget, WorkItem, now, uid
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def setup(engine):

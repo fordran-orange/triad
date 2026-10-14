@@ -23,7 +23,7 @@ from trading_core.resource_policy import scope_digest
 from trading_core.store import Store
 from trading_core.work import State, WorkItem
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def seed_work(store, w):

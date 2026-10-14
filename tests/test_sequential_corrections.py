@@ -7,6 +7,8 @@ import pytest
 from products.triad.daily import Daily, DailySchedule
 from products.triad.sequential_corrections import correct_until_pass
 
+pytestmark = pytest.mark.triad
+
 
 def test_correction_uses_fresh_build_and_qa_before_return(monkeypatch):
     events = []

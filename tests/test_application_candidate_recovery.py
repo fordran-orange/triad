@@ -17,7 +17,7 @@ from trading_core.product_workspace_grant import PROFILE
 from trading_core.resource_policy import scope_digest
 from trading_core.work import State, WorkItem
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 @pytest.fixture

@@ -8,6 +8,8 @@ from triad.lab.data import Archive
 from triad.lab.engine import run_engine
 from triad.lab.service import source_hash
 
+pytestmark = pytest.mark.triad
+
 
 def test_source_identity_ignores_checkout_line_endings(tmp_path):
     path = tmp_path / "engine.py"

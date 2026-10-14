@@ -8,6 +8,8 @@ from products.triad.sequential_application import (
     current_plan,
 )
 
+pytestmark = pytest.mark.triad
+
 
 def fixture_plan(ambiguous=False):
     data = current_plan().model_dump(mode="json")

@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 from trading_core.context import packet_for
 from trading_core.work import WorkItem, now
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.parametrize("kind", ["journals", "handoffs", "decisions"])
 def test_shared_nonproduct_records_do_not_break_private_context(kind):

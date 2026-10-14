@@ -19,6 +19,8 @@ from products.aegis.surface import (
 )
 from test_aegis_backtest import _breakout
 
+pytestmark = pytest.mark.aegis
+
 BARS = 3493
 WORKERS = 10
 

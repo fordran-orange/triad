@@ -8,6 +8,8 @@ import pytest
 
 from products.triad import daily_process
 
+pytestmark = pytest.mark.triad
+
 
 def fixture(monkeypatch, *, state="RUNNING", work_exists=False, date="2026-10-03"):
     rows = {

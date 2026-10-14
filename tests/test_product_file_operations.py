@@ -5,6 +5,8 @@ import pytest
 from pydantic import ValidationError
 from trading_core.product_changes import ProductFileChange, ProductGit
 
+pytestmark = pytest.mark.core
+
 OLD = "app/products/triad/old.py"
 NEW = "app/products/triad/new.py"
 

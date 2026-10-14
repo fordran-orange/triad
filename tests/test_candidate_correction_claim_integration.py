@@ -8,7 +8,7 @@ from psycopg.types.json import Jsonb
 from test_candidate_correction_integration import engine, prepare, proof, snapshot
 from trading_core.work import State
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 @pytest.mark.parametrize("tamper", ["bytes", "owner", "payload", "retained_slot"])

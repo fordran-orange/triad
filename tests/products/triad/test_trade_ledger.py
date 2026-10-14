@@ -7,6 +7,9 @@ from decimal import Decimal, getcontext
 from fastapi.testclient import TestClient
 from products.triad.product_app import app
 from products.triad.trade_ledger import COLUMNS, analyze_trade_ledger
+import pytest
+
+pytestmark = pytest.mark.triad
 
 def row(i="a", **changes):
     result = dict(zip(COLUMNS, [i, "ABC", "LONG", "10", "100", "111",

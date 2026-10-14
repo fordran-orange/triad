@@ -8,6 +8,8 @@ from trading_core.api import service
 from trading_core.integrations.api import access
 from trading_core.integrations.data import DataAccess
 
+pytestmark = pytest.mark.triad
+
 
 @pytest.mark.integration
 def test_integration_ui_readonly_and_changes_require_operator(engine, monkeypatch, tmp_path):

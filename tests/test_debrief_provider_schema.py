@@ -10,6 +10,8 @@ from trading_core.contracts import AgentRunResult
 from trading_core.runtime import strict_schema
 from trading_core.work import now
 
+pytestmark = pytest.mark.triad
+
 
 def document():
     return draft(SimpleNamespace(cycle_id="schema-regression", created_at=now()))

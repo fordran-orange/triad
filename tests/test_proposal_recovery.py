@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 from products.triad.sequential import Proposal, SequentialCycle
 
+pytestmark = pytest.mark.triad
+
 
 def proposal(title):
     return Proposal(

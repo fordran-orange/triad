@@ -8,6 +8,8 @@ from products.triad.development import Development
 from products.triad.sequential import Proposal, SequentialCycle
 from products.triad.sequential_correction_review import correction_context
 
+pytestmark = pytest.mark.triad
+
 
 def setup_flow(tmp_path, decision="APPROVE", changed=False):
     approved = "tests/products/triad/test_runner.py"

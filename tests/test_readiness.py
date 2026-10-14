@@ -8,6 +8,8 @@ from test_lab import END, START, dataset
 from trading_core.integrations.data import LocalCanonicalStore
 from trading_core.integrations.readiness import Readiness, ReadinessRequest, request_key
 
+pytestmark = pytest.mark.triad
+
 
 def service(tmp_path, monkeypatch):
     archive, _, manifest = dataset(tmp_path)

@@ -13,6 +13,8 @@ from trading_core.resource_policy import ResourceBlocked, ResourceType
 from trading_core.runtime import SimulatedProvider
 from trading_core.work import ComputeBudget, WorkItem
 
+pytestmark = pytest.mark.core
+
 
 def work_request(engine, *, timeout=10, context=None):
     work = engine.host.create(

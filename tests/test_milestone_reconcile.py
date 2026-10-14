@@ -9,6 +9,8 @@ import pytest
 from trading_core.contracts import Limits
 from trading_core.providers.autonomous_cli import AutonomousCLIRun
 
+pytestmark = pytest.mark.core
+
 SPEC = importlib.util.spec_from_file_location(
     "milestone_proof", Path(__file__).resolve().parents[1] / "tools/run_milestone1_rotation.py"
 )

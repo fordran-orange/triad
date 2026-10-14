@@ -10,6 +10,9 @@ from fastapi.testclient import TestClient
 
 from products.triad.bar_inspection import inspect_bars
 from products.triad.product_app import app
+import pytest
+
+pytestmark = pytest.mark.triad
 
 
 COLUMNS = ("timestamp", "symbol", "open", "high", "low", "close", "volume")

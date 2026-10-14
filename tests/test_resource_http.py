@@ -7,6 +7,8 @@ from test_day3 import request
 from trading_core.resources import resource
 from trading_core.runtime import HttpProvider, ProviderError
 
+pytestmark = pytest.mark.core
+
 
 def adapter(agent):
     config = json.loads(resource("config/core/runtime.json").read_text(encoding="utf-8"))[

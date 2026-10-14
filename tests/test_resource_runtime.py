@@ -10,7 +10,7 @@ from trading_core.providers.native_agents import NativeRun
 from trading_core.resource_policy import ResourceBlocked, ResourceType
 from trading_core.runtime import SimulatedProvider
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def test_runtime_continues_after_initial_time_with_progress(engine):

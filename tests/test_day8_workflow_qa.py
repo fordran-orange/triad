@@ -15,6 +15,8 @@ from trading_core.store import Store
 from products.triad import daily_development as module
 from products.triad import daily_verification
 
+pytestmark = pytest.mark.triad
+
 
 def wire(engine, monkeypatch, *, fail_build=False, reject_first=False, debrief_rejections=0):
     dev = module.DailyDevelopment(Store(engine.host.store.settings, scope="triad"), engine.git)
@@ -372,3 +374,30 @@ def test_postmerge_verification_uses_trusted_tests_and_honest_exit(monkeypatch, 
     verification_stubs(monkeypatch, test_exit=test_exit)
     result = daily_verification.verify({"merge_commit": "reviewed"})
     assert result["status"] == ("PASS" if test_exit == 0 else "FAILED")
+
+
+def test_daily_cycle_runner_scopes_its_trusted_verification_to_triad(monkeypatch):
+    """Mission 7: the runner's post-merge verification runs pytest in a subprocess; it must carry
+    the Triad scope, or the scope guard refuses it and the cycle blocks."""
+    import importlib.util
+    import os
+    import sys
+
+    from trading_core.settings import ROOT
+
+    path = ROOT / "tools" / "run_daily_product_cycle.py"
+    spec = importlib.util.spec_from_file_location("run_daily_product_cycle", path)
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    seen = {}
+
+    class Development:
+        def run_daily(self, **kwargs):
+            seen["scope"] = os.environ.get("TRIAD_PYTEST_SCOPE")
+            return {"status": "stub"}
+
+    monkeypatch.setattr(runner, "DailyDevelopment", Development)
+    monkeypatch.delenv("TRIAD_PYTEST_SCOPE", raising=False)
+    monkeypatch.setattr(sys, "argv", ["run_daily_product_cycle.py", "--operator-authorized"])
+    runner.main()
+    assert seen["scope"] == "triad"

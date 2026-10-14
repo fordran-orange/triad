@@ -6,6 +6,8 @@ from trading_core.runtime import ProviderError
 
 from products.triad import sequential_autorecovery as recovery
 
+pytestmark = pytest.mark.triad
+
 
 def stopped(error=None):
     error = error or ProviderError("DEGRADED", "CodexTurnFailed")

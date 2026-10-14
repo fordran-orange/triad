@@ -9,7 +9,7 @@ from trading_core.ledger import Ledger, Stopped
 from trading_core.store import Store
 from trading_core.work import WorkItem, uid
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def test_daily_late_append_failure_rolls_back_parent_records_events_and_outbox(engine, monkeypatch):

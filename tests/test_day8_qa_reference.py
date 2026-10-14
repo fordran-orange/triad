@@ -12,6 +12,8 @@ from trading_core.contracts import Limits
 
 from products.triad import qa_reference as module
 
+pytestmark = pytest.mark.triad
+
 ROOT = Path(__file__).resolve().parents[1]
 
 

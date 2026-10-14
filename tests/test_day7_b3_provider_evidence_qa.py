@@ -5,6 +5,8 @@ from test_day3 import request
 from test_resource_http import adapter
 from trading_core.runtime import ProviderError
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.parametrize("agent", ["CODEX", "CLAUDE", "GROK", "LOCAL_QWEN"])
 def test_all_http_response_shapes_retain_blocked_measurements(monkeypatch, agent):

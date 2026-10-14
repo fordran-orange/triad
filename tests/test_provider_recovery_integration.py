@@ -12,7 +12,7 @@ from trading_core.intelligence.quality import Quality
 from trading_core.providers.control import ProviderControl
 from trading_core.providers.recovery import SOURCE, activate, recover
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 IDENTITY = {

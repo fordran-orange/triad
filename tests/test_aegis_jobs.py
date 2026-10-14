@@ -3,8 +3,11 @@
 import threading
 import time
 
+import pytest
 from products.aegis.jobs import JobBusy, JobRunner
 from products.aegis.runs import JsonRunRepository
+
+pytestmark = pytest.mark.aegis
 
 
 def wait_for(predicate, timeout=20.0):

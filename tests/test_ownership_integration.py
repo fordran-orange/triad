@@ -11,7 +11,7 @@ from trading_core.research.service import Laboratory
 from trading_core.store import Store
 from trading_core.work import WorkItem
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def test_aegis_reads_legacy_owner_without_rewriting_history(engine):

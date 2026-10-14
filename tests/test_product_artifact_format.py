@@ -3,6 +3,8 @@ from products.triad.development import parse_product_artifact
 from pydantic import ValidationError
 from trading_core.product_changes import AcceptanceAssessment
 
+pytestmark = pytest.mark.triad
+
 BODY = '{"checks":[{"check_id":"exact_source","status":"VERIFIED","evidence_ids":["candidate:abc"],"reason":"Observed source"}]}'
 
 

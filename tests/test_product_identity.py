@@ -9,6 +9,8 @@ from trading_core.product_identity import (
     same_product,
 )
 
+pytestmark = pytest.mark.core
+
 
 def test_legacy_name_is_alias_of_preserved_product_only():
     assert CURRENT_PRODUCTS == {"core", "triad", "aegis"}

@@ -12,7 +12,7 @@ from trading_core.ledger import Stopped
 from trading_core.store import Store
 from trading_core.work import ComputeBudget, WorkItem
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def test_current_aegis_pause_blocks_promotion_of_legacy_p2p_specialist(engine):

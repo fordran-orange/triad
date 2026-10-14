@@ -23,7 +23,7 @@ from triad.work import (
     transition,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 @pytest.fixture

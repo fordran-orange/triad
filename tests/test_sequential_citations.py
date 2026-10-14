@@ -6,6 +6,8 @@ from products.triad.sequential_citations import citation_omission, correct_citat
 from trading_core.contracts import AgentRunResult
 from trading_core.product_changes import AcceptanceAssessment, RequiredCheck
 
+pytestmark = pytest.mark.triad
+
 
 def fixture():
     required = [

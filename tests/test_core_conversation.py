@@ -12,6 +12,8 @@ from trading_core.intake import Intake, IntakeRecord, Submission
 from trading_core.intelligence.records import Records
 from trading_core.store import ConcurrentUpdate, Store
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.integration
 def test_intake_authority_ownership_and_optional_disposition(engine):

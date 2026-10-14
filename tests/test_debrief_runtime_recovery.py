@@ -5,7 +5,7 @@ import pytest
 from test_daily_lifecycle import daily, to_debrief
 from test_day3_integration import engine  # noqa: F401
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def blocked(engine, monkeypatch, message="InvalidRuntimeResult"):

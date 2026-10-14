@@ -8,6 +8,8 @@ from trading_core.providers.control import ProviderControl
 from trading_core.runtime import ProviderError
 from trading_core.work import now
 
+pytestmark = pytest.mark.core
+
 
 class LocalFixture:
     transport_type = "LOCAL"

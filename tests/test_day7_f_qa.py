@@ -15,7 +15,7 @@ from trading_core.research.data import FixtureProvider
 from trading_core.store import Store
 from trading_core.work import WorkItem, uid
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def setup(engine, tmp_path):

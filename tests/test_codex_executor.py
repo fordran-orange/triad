@@ -3,6 +3,8 @@
 import pytest
 from triad.day5a.codex_executor import CodexExecutor
 
+pytestmark = pytest.mark.triad
+
 
 def request(argv, **extra):
     return {

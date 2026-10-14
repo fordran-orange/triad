@@ -8,7 +8,7 @@ from test_candidate_correction_integration import engine, proof, snapshot
 from test_correction_renewal_integration import healthy
 from trading_core.work import State
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def checkpoint(p, *, change=None, marker=True, owner="core", kind="ControlAction", failure=None):

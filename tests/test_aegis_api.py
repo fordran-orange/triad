@@ -19,6 +19,8 @@ from test_aegis_data import write_archive
 from test_aegis_optimize import small_strategy
 from test_aegis_walkforward import small_ranges
 
+pytestmark = pytest.mark.aegis
+
 RANGE = {"start": "2026-10-30", "end": "2026-11-02"}
 
 

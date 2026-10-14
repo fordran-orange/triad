@@ -8,6 +8,8 @@ from products.aegis.surface import apply_params
 from test_aegis_surface import pinned
 from test_aegis_walkforward import wave_bars
 
+pytestmark = pytest.mark.aegis
+
 ROWS = wave_bars(n=260, period=37.0, amplitude=10.0)
 
 

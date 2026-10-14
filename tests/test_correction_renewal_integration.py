@@ -9,7 +9,7 @@ from psycopg.types.json import Jsonb
 from test_candidate_correction_integration import engine, prepare, proof, seed_work, snapshot
 from trading_core.work import State, WorkItem
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def closed_read(p, agent, run, context, raw, paths=(), parent=None):

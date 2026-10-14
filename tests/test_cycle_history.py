@@ -7,7 +7,7 @@ from trading_core.ledger import Ledger
 from trading_core.store import Store
 from trading_core.work import WorkItem
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def test_historical_cycle_capture_preserves_failure_and_is_idempotent(engine):

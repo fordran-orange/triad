@@ -14,6 +14,8 @@ from products.aegis.strategy import (
 from products.aegis.temporal import entry_permitted, tags, validate
 from test_aegis_backtest import bars
 
+pytestmark = pytest.mark.aegis
+
 
 def et(hour, minute=0, day=5):
     # 2026-01-05 is a Monday in EST (UTC-5).

@@ -4,6 +4,10 @@ import gzip
 import importlib.util
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.core
+
 spec = importlib.util.spec_from_file_location(
     "hf_audit", Path(__file__).resolve().parents[1] / "tools/audit_hfdatalibrary.py"
 )

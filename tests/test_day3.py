@@ -15,6 +15,8 @@ from triad.day3.scheduler import tick
 from triad.day3.security import ensure_no_secret, redact
 from triad.settings import ROOT
 
+pytestmark = pytest.mark.triad
+
 
 def request(**changes):
     return AgentRunRequest(

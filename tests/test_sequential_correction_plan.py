@@ -9,6 +9,8 @@ from products.triad.sequential_correction_plan import (
     validate_steps,
 )
 
+pytestmark = pytest.mark.triad
+
 
 def plan(approach="Inject the engine failure after preflight", summary="Close actual QA"):
     return CorrectionPlan.model_validate(

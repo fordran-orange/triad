@@ -9,6 +9,8 @@ from trading_core.store import ConcurrentUpdate
 
 from products.triad import daily_startup, daily_wakeup
 
+pytestmark = pytest.mark.triad
+
 
 def service(failures=0):
     events, guards, leases = [], [], []

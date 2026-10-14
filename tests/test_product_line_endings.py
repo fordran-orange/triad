@@ -7,6 +7,8 @@ import pytest
 from trading_core.product_changes import ProductFileChange, ProductGit
 from trading_core.product_workspace import ProductWorkspace
 
+pytestmark = pytest.mark.core
+
 PATH = "app/products/triad/static/product.html"
 OTHER = "app/products/triad/other.py"
 

@@ -18,6 +18,8 @@ from trading_core.product_changes import acceptance_problems, product_path
 from trading_core.product_sdk import SDK_FILES
 from trading_core.providers.isolation import OfflineSandbox
 
+pytestmark = pytest.mark.triad
+
 
 def fixture_plan():
     """Fixed validator inputs; the autonomous product's evolving plan is not a fixture."""

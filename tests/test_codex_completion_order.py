@@ -7,6 +7,8 @@ from trading_core.contracts import AgentRunResult
 from trading_core.providers import codex_executor as codex
 from trading_core.runtime import ProviderError
 
+pytestmark = pytest.mark.core
+
 
 class Executor:
     def __init__(self, files, **kw):

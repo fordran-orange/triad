@@ -8,7 +8,7 @@ from triad.day5a.control import ProviderControl
 from triad.day5a.relay import relay_proven, run_relay
 from triad.work import State
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 @pytest.mark.parametrize("grok_verdict", ["APPROVE", "REQUEST_CHANGES"])

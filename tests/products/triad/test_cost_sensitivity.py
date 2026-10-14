@@ -3,9 +3,12 @@ import math
 import unittest
 from decimal import Decimal
 
+import pytest
 from fastapi.testclient import TestClient
 from products.triad.cost_sensitivity import calculate_cost_sensitivity
 from products.triad.product_app import app
+
+pytestmark = pytest.mark.triad
 
 EXAMPLE = dict(direction="LONG", quantity=10, entry_price=100, exit_price=110,
                commission_per_order=1, commission_per_share=0.01,

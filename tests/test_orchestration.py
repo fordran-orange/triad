@@ -8,6 +8,8 @@ from triad.gateway import ToolGateway
 from triad.providers import AUDIT_FILES, DocumentationReviewer, DocumentationWorker
 from triad.work import ComputeBudget, Handoff, Provenance, Review, State, WorkItem, transition
 
+pytestmark = pytest.mark.triad
+
 
 def work(**changes):
     return WorkItem(title="Test assignment", description="Bounded documentation work", **changes)

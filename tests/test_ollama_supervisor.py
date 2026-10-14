@@ -11,7 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PS = shutil.which("powershell.exe")
-pytestmark = pytest.mark.skipif(PS is None, reason="Windows supervisor")
+pytestmark = [pytest.mark.skipif(PS is None, reason="Windows supervisor"), pytest.mark.core]
 
 
 def run(tmp_path, script, setup="", args=(), env=None):

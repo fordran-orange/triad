@@ -3,6 +3,8 @@ from types import SimpleNamespace as NS
 import pytest
 from trading_core.ledger import Ledger
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.parametrize(
     "owner,mission,enabled,epoch,expected",

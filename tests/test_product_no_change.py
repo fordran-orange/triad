@@ -9,6 +9,8 @@ from products.triad.sequential import Proposal, SequentialCycle
 from pydantic import ValidationError
 from trading_core.product_changes import product_path
 
+pytestmark = pytest.mark.triad
+
 
 def proposal():
     return Proposal(

@@ -2,6 +2,8 @@ import pytest
 from trading_core.providers import native_agents as native
 from trading_core.runtime import ProviderError
 
+pytestmark = pytest.mark.core
+
 
 class App:
     def __init__(self, servers):

@@ -17,6 +17,8 @@ from trading_core.providers.bounded_tools import BoundedTools
 from trading_core.store import Store
 from trading_core.work import WorkItem
 
+pytestmark = pytest.mark.core
+
 
 def repository(tmp_path, *, existing=False, **updates):
     root = tmp_path / "repo"

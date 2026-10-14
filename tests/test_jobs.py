@@ -11,7 +11,7 @@ from triad.day3.scheduler import tick
 from triad.jobs import Jobs
 from triad.readiness import readiness
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 @pytest.fixture

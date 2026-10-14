@@ -4,7 +4,10 @@ never raising, and called first in every worker lifespan."""
 import inspect
 import sys
 
+import pytest
 from trading_core import process_power
+
+pytestmark = pytest.mark.triad
 
 
 def test_opt_out_applies_on_windows_and_declines_elsewhere():

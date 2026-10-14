@@ -9,6 +9,8 @@ from products.aegis.strategy import StrategySide, default_strategy
 from test_aegis_backtest import _breakout, _long_only, bars
 from test_aegis_walkforward import rsi_walkforward_request, run_sync, wave_bars
 
+pytestmark = pytest.mark.aegis
+
 IDENTITY = {"source": "supplied_bars"}
 
 

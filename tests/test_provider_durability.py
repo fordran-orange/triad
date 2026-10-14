@@ -9,6 +9,8 @@ from trading_core.providers.process import ManagedProcess
 from trading_core.providers.transports import CLITransport
 from trading_core.runtime import ProviderError
 
+pytestmark = pytest.mark.triad
+
 
 def test_broken_preferred_install_falls_back_and_operation_is_pinned(tmp_path, monkeypatch):
     bad, good, newer = [tmp_path / n for n in ("bad.exe", "good.exe", "new.exe")]

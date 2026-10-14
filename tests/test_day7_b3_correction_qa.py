@@ -12,6 +12,8 @@ from trading_core.providers.transports import HTTPTransport
 from trading_core.resource_policy import ResourceBlocked
 from trading_core.runtime import ProviderError
 
+pytestmark = pytest.mark.core
+
 
 def completed(req, **usage):
     result = AgentRunResult(run_id=req.run_id, status="NO_CHANGE_JUSTIFIED", summary="Checked")

@@ -5,6 +5,8 @@ import threading
 import pytest
 from triad.day5a.isolation import OfflineSandbox, safe_path
 
+pytestmark = pytest.mark.triad
+
 
 @pytest.mark.parametrize(
     "path", ["../secret", "/etc/passwd", "C:/Triad", ".env", "a/.git/x", "a//b", "a\\b", "."]

@@ -23,6 +23,8 @@ from triad.day5a.secrets import WindowsSecretStore
 from triad.day5a.transports import CLITransport, HTTPTransport, classify_failure
 from triad.work import now
 
+pytestmark = pytest.mark.triad
+
 
 def test_cli_first_no_paid_fallback_and_model_ownership():
     for agent, transport in PREFERRED.items():

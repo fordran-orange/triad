@@ -7,6 +7,8 @@ import pytest
 from test_day3_integration import active, engine  # noqa: F401
 from trading_core.work import Handoff, State, WorkItem, transition
 
+pytestmark = pytest.mark.core
+
 
 def test_utc_required_and_legacy_missing_times_remain_unknown():
     stamp = datetime(2026, 9, 19, 12, tzinfo=timezone(timedelta(hours=-5)))

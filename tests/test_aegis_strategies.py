@@ -13,6 +13,8 @@ from products.aegis.strategies import (
 )
 from products.aegis.strategy import default_strategy
 
+pytestmark = pytest.mark.aegis
+
 
 @pytest.fixture
 def library(tmp_path):

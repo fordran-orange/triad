@@ -19,7 +19,7 @@ from trading_core.intelligence.quality import Quality
 from trading_core.runtime import HttpProvider, ProviderError
 from trading_core.work import State, WorkItem, now
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def test_qwen_support_uses_compact_adapter_schema_and_256_generation_cap(engine, monkeypatch):

@@ -2,6 +2,8 @@ import pytest
 from pydantic import ValidationError
 from triad.research_review import MethodReview
 
+pytestmark = pytest.mark.triad
+
 
 @pytest.mark.parametrize(
     "decision",

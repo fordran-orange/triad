@@ -16,7 +16,7 @@ from trading_core.providers.contracts import PREFERRED, SPECS
 from trading_core.store import Store
 from trading_core.work import WorkItem, now
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 class Control:

@@ -3,6 +3,8 @@ import json
 import pytest
 from products.aegis.runs import JsonRunRepository
 
+pytestmark = pytest.mark.aegis
+
 
 def envelope(run_id, created_at, **extra):
     return {

@@ -8,6 +8,9 @@ from fastapi.testclient import TestClient
 from products.triad.product_app import app
 from trading_core.product_sdk import ResearchInput
 from trading_core.research.contracts import Bar
+import pytest
+
+pytestmark = pytest.mark.triad
 
 
 def core_input_dict(owner="triad"):

@@ -4,9 +4,12 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
+import pytest
 from products.triad.experiment_runner import preflight, run_experiment
 from trading_core.product_sdk import ResearchInput
 from trading_core.research.contracts import Bar
+
+pytestmark = pytest.mark.triad
 
 
 def core_input_dict():

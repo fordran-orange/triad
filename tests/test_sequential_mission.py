@@ -9,6 +9,8 @@ from pydantic import ValidationError
 from test_sequential_planning import plan, proposal
 from trading_core.product_changes import product_path
 
+pytestmark = pytest.mark.triad
+
 
 def test_canonical_mission_matches_local_charter_and_is_protected():
     root = Path(__file__).resolve().parents[1]

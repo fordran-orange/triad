@@ -8,6 +8,8 @@ from trading_core.contracts import AgentRunRequest, AgentRunResult
 from trading_core.providers import native_agents as native
 from trading_core.runtime import ProviderError
 
+pytestmark = pytest.mark.core
+
 
 def setup(monkeypatch, *, complete=True, invalid=False, stop=False, next_failure=None):
     request = AgentRunRequest(

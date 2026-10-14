@@ -9,6 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytestmark = pytest.mark.core
+
 
 @pytest.fixture
 def deployment(tmp_path, monkeypatch):

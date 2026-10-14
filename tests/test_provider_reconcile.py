@@ -12,6 +12,8 @@ from trading_core.providers.control import ProviderControl
 from trading_core.providers.transports import CLITransport
 from trading_core.runtime import ProviderError
 
+pytestmark = pytest.mark.core
+
 
 def adapter(agent="CODEX"):
     control = SimpleNamespace(

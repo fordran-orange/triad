@@ -14,7 +14,7 @@ from trading_core.work import now
 
 from products.triad import daily_startup, daily_wakeup
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 @pytest.mark.parametrize("scheduled", [False, True])

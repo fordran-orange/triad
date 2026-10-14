@@ -9,7 +9,7 @@ import pytest
 from test_day3_integration import engine  # noqa: F401
 
 upgrade_module = importlib.import_module("trading_core.upgrade")
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def test_upgrade_missing_precondition_does_not_apply_migration(engine):

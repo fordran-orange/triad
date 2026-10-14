@@ -6,7 +6,7 @@ from test_lab import END, START
 from triad.brain import Brain
 from triad.lab.service import Laboratory
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def test_research_pipeline_reproducibility_review_and_lineage(engine, tmp_path):  # noqa: F811

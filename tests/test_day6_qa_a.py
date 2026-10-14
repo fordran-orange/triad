@@ -9,7 +9,7 @@ from trading_core.intelligence.quality import Quality
 from trading_core.intelligence.records import Records
 from trading_core.store import Store
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def test_discovery_skips_real_unverified_null_workitem_shape(engine):

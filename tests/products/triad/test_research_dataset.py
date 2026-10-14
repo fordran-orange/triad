@@ -10,6 +10,9 @@ from products.triad.product_app import app
 from products.triad.research_dataset import DatasetRequest, prepare_dataset
 from products.triad.research_adapter import validate_research_input
 from trading_core.product_sdk import ProductResearch, ResearchInput
+import pytest
+
+pytestmark = pytest.mark.triad
 
 HEADER = "timestamp,symbol,open,high,low,close,volume"
 MARKET = dict(resolution="1m", exchange="XNYS", session="REGULAR", currency="USD",

@@ -9,6 +9,8 @@ from trading_core.providers.bounded_tools import BoundedTools
 from trading_core.providers.native_agents import NativeRun
 from trading_core.runtime import ProviderError
 
+pytestmark = pytest.mark.core
+
 PATH = "app/products/triad/features/probe.html"
 
 

@@ -17,6 +17,8 @@ from trading_core.resource_policy import ResourceBlocked, ResourceType
 from trading_core.resources import resource
 from trading_core.runtime import ProviderError, SimulatedProvider
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.integration
 def test_versioned_migration_keeps_custom_controls_and_is_immutable(engine):

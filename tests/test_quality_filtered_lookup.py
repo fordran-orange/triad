@@ -8,7 +8,7 @@ from trading_core.intelligence.quality import Quality
 from trading_core.intelligence.records import Records
 from trading_core.store import Store
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def test_filtered_records_keep_private_owners_and_legacy_aliases(engine):

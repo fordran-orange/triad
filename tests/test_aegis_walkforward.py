@@ -31,6 +31,8 @@ from products.aegis.walkforward import (
 )
 from test_aegis_backtest import bars
 
+pytestmark = pytest.mark.aegis
+
 DATA = DataReference(symbol="QQQ", timeframe="1h", start="2023-01-01", end="2024-12-31")
 PINNED = {"source": "raw_archive", "symbol": "QQQ", "vintage": "test", "research_eligible": False}
 

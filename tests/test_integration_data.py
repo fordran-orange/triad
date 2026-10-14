@@ -9,7 +9,7 @@ from trading_core.integrations.data import DataAccess
 from trading_core.research.data import FixtureProvider
 from trading_core.store import Store
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 class ReviewedFixtureAdapter(MarketDataAdapter):

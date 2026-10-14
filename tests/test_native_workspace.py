@@ -9,6 +9,8 @@ from trading_core.product_workspace import ProductWorkspace
 from trading_core.providers.native_agents import GrokSession, NativeRun, claude_arguments
 from trading_core.runtime import ProviderError
 
+pytestmark = pytest.mark.core
+
 
 def workspace():
     return ProductWorkspace({}, image="sha256:" + "a" * 64, guard=lambda: None)

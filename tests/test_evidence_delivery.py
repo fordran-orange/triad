@@ -8,6 +8,8 @@ import pytest
 from pydantic import BaseModel, ValidationError
 from trading_core.evidence_delivery import prepare
 
+pytestmark = pytest.mark.triad
+
 
 class Request:
     role = "REVIEW"

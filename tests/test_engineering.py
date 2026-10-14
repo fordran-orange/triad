@@ -14,6 +14,8 @@ from trading_core.git_tools import GitChanges
 from trading_core.providers.bounded_tools import BoundedTools
 from trading_core.providers.isolation import OfflineSandbox
 
+pytestmark = pytest.mark.core
+
 PATH = "app/products/triad/features/probe.html"
 SCRIPT = (
     "from pathlib import Path; assert Path('"

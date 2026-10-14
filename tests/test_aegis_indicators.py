@@ -5,6 +5,8 @@ import pytest
 from products.aegis.indicators import IndicatorCache, compute
 from products.aegis.strategy import IndicatorSpec
 
+pytestmark = pytest.mark.aegis
+
 
 def frame(closes):
     return pd.DataFrame({"close": closes, "open": closes, "high": closes, "low": closes})

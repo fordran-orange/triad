@@ -8,7 +8,7 @@ from trading_core.intelligence.contracts import ImplementationRun, QARun
 from trading_core.intelligence.quality import Quality
 from trading_core.store import Store
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def daily(engine):

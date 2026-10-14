@@ -6,7 +6,7 @@ import pytest
 from test_day3_integration import engine  # noqa: F401
 from trading_core.resources import resource
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.aegis]
 
 
 def test_lineage_migration_preserves_evidence_and_is_idempotent(engine):

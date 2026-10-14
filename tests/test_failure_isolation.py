@@ -10,7 +10,7 @@ import pytest
 from test_day3_integration import engine  # noqa: F401
 from trading_core.ledger import Stopped
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def free_port():

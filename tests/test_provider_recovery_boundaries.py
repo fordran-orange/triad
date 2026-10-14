@@ -13,7 +13,7 @@ from trading_core.providers.recovery import recover
 from trading_core.providers.recovery_probe import probe_write, validate_write
 from trading_core.runtime import Runtime
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def test_unverified_installation_cannot_execute_legacy_work(engine, monkeypatch):

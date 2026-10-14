@@ -10,6 +10,8 @@ from products.aegis.strategy import (
 )
 from pydantic import ValidationError
 
+pytestmark = pytest.mark.aegis
+
 
 def test_reference_strategy_is_9_ema_30_sma_cross_on_both_sides():
     strategy = default_strategy()

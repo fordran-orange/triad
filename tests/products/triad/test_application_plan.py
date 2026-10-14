@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Literal, Annotated
 import unittest
 from pydantic import BaseModel, ConfigDict, Field
+import pytest
+
+pytestmark = pytest.mark.triad
 
 Text = Annotated[str, Field(min_length=1)]
 Identifier = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")]

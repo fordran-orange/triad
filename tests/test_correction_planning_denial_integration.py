@@ -12,7 +12,7 @@ from psycopg.types.json import Jsonb
 from test_candidate_correction_integration import engine, proof, snapshot
 from test_correction_renewal_integration import healthy, stopped
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 @pytest.fixture

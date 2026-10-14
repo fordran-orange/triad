@@ -17,6 +17,8 @@ from trading_core.intelligence.records import Records
 from trading_core.ledger import Stopped
 from trading_core.work import WorkItem
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.integration
 def test_overlay_preserves_raw_definition_and_revalidates_qa_and_capability(engine):

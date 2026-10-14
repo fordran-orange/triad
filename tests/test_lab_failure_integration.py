@@ -9,7 +9,7 @@ from triad.lab.service import Laboratory
 from triad.research_review import MethodReview, record_method_review
 from triad.store import ConcurrentUpdate
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def prepare(cycles, tmp_path, training=False):

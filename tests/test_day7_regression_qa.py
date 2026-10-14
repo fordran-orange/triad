@@ -6,7 +6,7 @@ from test_day3_integration import engine  # noqa: F401
 from trading_core.intelligence.records import Records
 from trading_core.work import WorkItem
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 @pytest.mark.parametrize("grant", [512, 8192])

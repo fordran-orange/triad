@@ -8,6 +8,8 @@ from products.triad.sequential import ORDER, REVIEWERS, Proposal, SequentialCycl
 from trading_core.governance import assert_product_merge_allowed
 from trading_core.product_changes import ProductGit, product_path
 
+pytestmark = pytest.mark.triad
+
 
 @pytest.mark.parametrize(
     "path",

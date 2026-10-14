@@ -5,6 +5,8 @@ from products.aegis.backtest import BacktestRequest, run_backtest
 from products.aegis.indicators import IndicatorCache
 from products.aegis.strategy import apply_parameters, default_strategy
 
+pytestmark = pytest.mark.aegis
+
 
 def bars():
     start = datetime(2026, 1, 5, 14, 30, tzinfo=UTC)

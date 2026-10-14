@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 from trading_core.product_workspace import ProductWorkspace
 
+pytestmark = pytest.mark.core
+
 PATH = "app/products/triad/example.py"
 NEW = "app/products/triad/new.py"
 IMAGE = "sha256:" + "1" * 64

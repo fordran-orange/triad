@@ -14,7 +14,7 @@ from trading_core.intelligence.contracts import ImplementationRun
 from trading_core.store import Store
 from trading_core.work import WorkItem
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def service(engine):

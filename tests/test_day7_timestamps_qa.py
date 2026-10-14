@@ -14,6 +14,8 @@ from trading_core.intelligence.records import Records
 from trading_core.store import Store
 from trading_core.work import Handoff, HandoffLifecycle, Review, WorkItem
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.integration
 def test_historical_invalid_lifecycle_events_do_not_overlay_handoff(engine):

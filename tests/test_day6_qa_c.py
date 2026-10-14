@@ -16,7 +16,7 @@ from trading_core.intelligence.contracts import Capability
 from trading_core.intelligence.quality import Quality
 from trading_core.intelligence.records import Records
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def test_two_database_configured_agents_and_all_lineage_stay_separate(engine, tmp_path):

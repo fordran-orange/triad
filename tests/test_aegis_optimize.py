@@ -24,6 +24,8 @@ from products.aegis.runs import JsonRunRepository
 from products.aegis.strategy import OptimizationParameter, default_strategy
 from test_aegis_backtest import bars
 
+pytestmark = pytest.mark.aegis
+
 PINNED = {"source": "raw_archive", "symbol": "QQQ", "vintage": "test", "research_eligible": False}
 DATA = DataReference(symbol="QQQ", timeframe="30m", start="2026-01-05", end="2026-01-06")
 

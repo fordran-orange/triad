@@ -16,6 +16,8 @@ from test_day8_daily_qa import reviewed
 from trading_core.ledger import Stopped
 from trading_core.store import ConcurrentUpdate
 
+pytestmark = pytest.mark.triad
+
 
 def enabled(engine):
     service = daily(engine)

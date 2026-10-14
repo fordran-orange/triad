@@ -6,6 +6,8 @@ import pytest
 from products.triad.sequential import Proposal, SequentialCycle
 from products.triad.sequential_proposal_revisions import proposal_digest
 
+pytestmark = pytest.mark.triad
+
 
 def candidate(change="Correct current contract"):
     return Proposal(

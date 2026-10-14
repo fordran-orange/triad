@@ -12,7 +12,7 @@ from trading_core.intelligence.quality import Quality
 from trading_core.intelligence.records import Records
 from trading_core.research.data import FixtureProvider
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.core]
 
 
 def test_each_adoption_link_is_required(engine, tmp_path):

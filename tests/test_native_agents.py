@@ -14,6 +14,8 @@ from triad.day5a.bounded_tools import BoundedTools, ToolServer
 from triad.day5a.codex_executor import LineProcess
 from triad.day5a.isolation import OfflineSandbox
 
+pytestmark = pytest.mark.triad
+
 
 class Wire:
     def __init__(self, replies=()):

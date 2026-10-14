@@ -6,6 +6,8 @@ from triad.lab.contracts import Bar, Experiment, Partition
 from triad.lab.data import Archive, FixtureProvider, quality
 from triad.lab.engine import run_engine, sequence_analysis
 
+pytestmark = pytest.mark.triad
+
 START = datetime(2026, 9, 14, 13, 30, tzinfo=UTC)
 END = START + timedelta(hours=1)
 

@@ -7,7 +7,7 @@ from test_daily_lifecycle import daily, to_debrief
 from test_day3_integration import engine  # noqa: F401
 from trading_core.work import State, WorkItem
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.triad]
 
 
 def fixture(engine, monkeypatch, defect=None):

@@ -5,6 +5,9 @@ from html.parser import HTMLParser
 from pathlib import Path
 import unittest
 from urllib.parse import unquote
+import pytest
+
+pytestmark = pytest.mark.triad
 
 
 PRODUCT_HTML = (

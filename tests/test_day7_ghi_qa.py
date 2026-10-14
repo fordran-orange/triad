@@ -14,6 +14,8 @@ from trading_core.api import service
 from trading_core.integrations.api import access
 from trading_core.integrations.data import DataAccess
 
+pytestmark = pytest.mark.core
+
 
 @pytest.fixture
 def operator_client(engine, monkeypatch, tmp_path):

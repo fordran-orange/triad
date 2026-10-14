@@ -1,4 +1,7 @@
+import pytest
 from trading_core.governance import assert_product_merge_allowed, is_protected_core_path
+
+pytestmark = pytest.mark.core
 
 
 def test_core_governance_paths_are_machine_protected():

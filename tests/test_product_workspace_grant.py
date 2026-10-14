@@ -7,6 +7,8 @@ from test_day3_integration import engine  # noqa: F401
 from trading_core import product_workspace_grant as grants
 from trading_core.work import WorkItem
 
+pytestmark = pytest.mark.triad
+
 
 def work(**updates):
     values = {

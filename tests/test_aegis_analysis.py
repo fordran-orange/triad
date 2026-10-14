@@ -18,6 +18,8 @@ from products.aegis.analysis import (
 from products.aegis.surface import Parameter, Surface, build_grid
 from test_aegis_surface import pinned
 
+pytestmark = pytest.mark.aegis
+
 A = "long_side.indicators.donchian.length"
 B = "long_side.indicators.rsi.length"
 METRICS = (

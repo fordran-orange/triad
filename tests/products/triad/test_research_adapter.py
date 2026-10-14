@@ -3,9 +3,12 @@
 import unittest
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from products.triad.research_adapter import run_research, validate_research_input
 from trading_core.product_sdk import ResearchInput
 from trading_core.research.contracts import Bar, Experiment, Partition
+
+pytestmark = pytest.mark.triad
 
 
 def fixture():
