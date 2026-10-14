@@ -14,7 +14,8 @@ from trading_core.git_tools import GitChanges
 from trading_core.providers.bounded_tools import BoundedTools
 from trading_core.providers.isolation import OfflineSandbox
 
-pytestmark = pytest.mark.core
+# Owned by Triad (spec §2 item 4): it drives Triad's product workspace through Core.
+pytestmark = pytest.mark.triad
 
 PATH = "app/products/triad/features/probe.html"
 SCRIPT = (

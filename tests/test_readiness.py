@@ -8,6 +8,9 @@ from test_lab import END, START, dataset
 from trading_core.integrations.data import LocalCanonicalStore
 from trading_core.integrations.readiness import Readiness, ReadinessRequest, request_key
 
+# Owned by Triad: Triad's trusted post-merge gate (app/products/triad/daily_verification.py)
+# runs it under the Triad scope, so another owner would silently drop it from that gate;
+# tests/test_pytest_scope.py pins this.
 pytestmark = pytest.mark.triad
 
 

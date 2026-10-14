@@ -27,6 +27,14 @@ ENVIRONMENTS = {"core": ".venv", "triad": ".venv-triad", "aegis": ".venv-aegis"}
 PORTS = {"triad": 8101, "aegis": 8102}
 PROTECTED = ["app/trading_core", "app/platform_host", "app/products/triad", "app/products/aegis"]
 GREEN = "all three scopes green"
+CORE_LIVE = "http://127.0.0.1:8000/health/live"
+CORE_STATUS = "http://127.0.0.1:8000/api/status"
+# Owned by aegis, the last scope verify.ps1 runs, so the red run proves Review Focus 5 as
+# written: one red scope after the other two passed (review finding 4).
+INJECTED = (
+    "import pytest\n\npytestmark = pytest.mark.aegis\n\n\n"
+    "def test_fails():\n    assert False, 'injected by the acceptance'\n"
+)
 
 
 def python(scope: str) -> Path:
@@ -64,11 +72,63 @@ def get(url: str, timeout=5):
         return json.loads(response.read() or b"null")
 
 
-def core_up() -> bool:
+def services_down() -> list[str]:
+    """What is not up among Core and its databases. /health/live answers with only the API
+    process running (review finding 3); the supervisor's lease needs Postgres."""
     try:
-        return get("http://127.0.0.1:8000/health/live").get("status") == "ok"
+        if get(CORE_LIVE).get("status") != "ok":
+            return ["core"]
+        status = get(CORE_STATUS, timeout=20)
     except Exception:  # noqa: BLE001 - down is an answer
+        return ["core"]
+    return [
+        name for name in ("postgres", "neo4j") if (status.get(name) or {}).get("status") != "up"
+    ]
+
+
+def services_up() -> bool:
+    return not services_down()
+
+
+def red_run_is_honest(text: str, code: int) -> bool:
+    """Review Focus 5 as written: the run is red and never says green, the core and triad scopes
+    ran first and passed, and the injected aegis test is what failed."""
+    if code == 0 or GREEN in text:
         return False
+    parts = re.split(r"^== scope (core|triad|aegis) on \S+ ==\s*$", text, flags=re.MULTILINE)
+    bodies = dict(zip(parts[1::2], parts[2::2], strict=True))
+    if list(bodies) != ["core", "triad", "aegis"]:
+        return False
+    for scope in ("core", "triad"):
+        finals = re.findall(r"^.*\d+ passed.* in [\d.]+s.*$", bodies[scope], flags=re.MULTILINE)
+        if not finals or "failed" in finals[-1] or "error" in finals[-1]:
+            return False
+        if not re.search(rf"^scope {scope}: \d+ run, the full scope;", bodies[scope], re.MULTILINE):
+            return False
+    return "test_zz_injected_failure.py::test_fails" in bodies["aegis"]
+
+
+def only_the_branch_audit_failed(text: str, branch: str) -> bool:
+    """On a branch other than main, tools/audit_foundation.py stops verify.ps1 by design ("Wrong
+    Git branch"); everything before it, the three full scopes included, must have passed."""
+    if branch == "main" or "Foundation and secret audit failed" not in text:
+        return False
+    if "AssertionError: Wrong Git branch" not in text:
+        return False
+    return all(
+        re.search(rf"^scope {scope}: \d+ run, the full scope;", text, re.MULTILINE)
+        for scope in ENVIRONMENTS
+    )
+
+
+def launch(product: str) -> None:
+    """Relaunch a worker detached through the launcher, as the operator does."""
+    powershell(
+        "Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments "
+        "@{CommandLine='powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden "
+        f"-ExecutionPolicy Bypass -File {ROOT}\\tools\\start_product.ps1 -Product {product}'; "
+        f"CurrentDirectory='{ROOT}'}} | Out-Null"
+    )
 
 
 def listener(port: int) -> int | None:
@@ -199,12 +259,14 @@ class Acceptance:
                 [python(scope), "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"],
                 scoped(scope),
             ).stdout
-            selected, deselected = map(
-                int, re.search(r"scope \w+: (\d+) selected; (\d+) deselected", out).groups()
+            found = re.search(
+                rf"scope {scope}: (\d+) run, the full scope; (\d+) owned by other scopes", out
             )
-            assert selected == owned[scope] and selected + deselected == total, (scope, out[-200:])
+            assert found, (scope, out[-300:])
+            ran, elsewhere = map(int, found.groups())
+            assert ran == owned[scope] and ran + elsewhere == total, (scope, out[-300:])
         self.owned = owned
-        return f"{line}; collected {whole}; each scope selects exactly what it owns"
+        return f"{line}; collected {whole}; each scope runs exactly what it owns, in full"
 
     def verify(self, inject: bool = False):
         log = (
@@ -214,11 +276,7 @@ class Acceptance:
         )
         injected = ROOT / "tests" / "test_zz_injected_failure.py"
         if inject:
-            injected.write_text(
-                "import pytest\n\npytestmark = pytest.mark.core\n\n\n"
-                "def test_fails():\n    assert False, 'injected by the acceptance'\n",
-                encoding="utf-8",
-            )
+            injected.write_text(INJECTED, encoding="utf-8")
         try:
             with log.open("w", encoding="utf-8", errors="replace") as out:
                 code = subprocess.run(
@@ -244,12 +302,19 @@ class Acceptance:
         text = log.read_text(encoding="utf-8", errors="replace")
         last = [line for line in text.splitlines() if line.strip()][-1] if text.strip() else ""
         if inject:
-            assert code != 0 and GREEN not in text, (code, last)
-            assert "test_zz_injected_failure.py::test_fails" in text, last
+            assert red_run_is_honest(text, code), (code, last[-300:])
             status = run(["git", "status", "--porcelain", "tests"]).stdout.strip()
             assert status == "", status
             return (
-                f"one red module -> exit {code}, no '{GREEN}' line, module removed; log {log.name}"
+                f"core and triad passed in full, the injected aegis test failed -> exit {code}, "
+                f"no '{GREEN}' line, module removed; log {log.name}"
+            )
+        branch = run(["git", "branch", "--show-current"]).stdout.strip()
+        if code != 0 and only_the_branch_audit_failed(text, branch):
+            return (
+                "the three scopes ran in full and passed, the database health check passed; the "
+                f"foundation audit then refused branch {branch} (it guards main only), so the "
+                f"closing '{GREEN}' line comes from the run on main after the merge; log {log.name}"
             )
         assert code == 0 and last.endswith(GREEN), (code, last[-300:])
         return f"{last}; log {log.name}"
@@ -258,12 +323,7 @@ class Acceptance:
         notes = []
         for product, port in PORTS.items():
             old = listener(port)
-            powershell(
-                "Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments "
-                "@{CommandLine='powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden "
-                f"-ExecutionPolicy Bypass -File {ROOT}\\tools\\start_product.ps1 -Product {product}'; "
-                f"CurrentDirectory='{ROOT}'}} | Out-Null"
-            )
+            launch(product)
             new = wait_for_listener(port, old)
             evidence = process_evidence(new)
             assert_environment(product, evidence)
@@ -274,10 +334,11 @@ class Acceptance:
         return "; ".join(notes)
 
     def supervisor(self):
-        if not core_up():
+        down = services_down()
+        if down:
             raise AssertionError(
-                "Core (8000) is not healthy, so the supervisor defers product recovery; no worker "
-                "was stopped (Docker Desktop, which runs Core's databases, is down on this host)"
+                f"Core's services are not up ({', '.join(down)} down), so the supervisor cannot "
+                "take its lease and recover a worker; no worker was stopped"
             )
         notes = []
         for product, port in PORTS.items():
@@ -291,20 +352,30 @@ class Acceptance:
             deadline = time.monotonic() + 30
             while listener(port) is not None and time.monotonic() < deadline:
                 time.sleep(1)
-            recovered = run(
-                [python("core"), ROOT / "tools" / "ensure_product_worker.py", "--product", product],
-                timeout=180,
-            )
-            log = (ROOT / "logs" / f"{product}-supervisor.log").read_text(encoding="utf-8")
-            event = json.loads(log.strip().splitlines()[-1])
-            assert recovered.returncode == 0 and event["status"] == "RECOVERED", event
-            new = wait_for_listener(port, old, seconds=30)
-            evidence = process_evidence(new)
-            assert_environment(product, evidence)
-            notes.append(
-                f"{product}: stopped {old} (parent {stub['parent']}), supervisor {event['status']}, "
-                f"new listener {new} on {evidence['parent']}"
-            )
+            try:
+                recovered = run(
+                    [
+                        python("core"),
+                        ROOT / "tools" / "ensure_product_worker.py",
+                        "--product",
+                        product,
+                    ],
+                    timeout=180,
+                )
+                log = (ROOT / "logs" / f"{product}-supervisor.log").read_text(encoding="utf-8")
+                event = json.loads(log.strip().splitlines()[-1])
+                assert recovered.returncode == 0 and event["status"] == "RECOVERED", event
+                new = wait_for_listener(port, old, seconds=30)
+                evidence = process_evidence(new)
+                assert_environment(product, evidence)
+                notes.append(
+                    f"{product}: stopped {old} (parent {stub['parent']}), supervisor "
+                    f"{event['status']}, new listener {new} on {evidence['parent']}"
+                )
+            finally:
+                if listener(port) is None:  # never leave a worker down (review finding 3)
+                    launch(product)
+                    wait_for_listener(port, None)
         return "; ".join(notes)
 
     def governance(self):
@@ -315,10 +386,11 @@ class Acceptance:
             pending.stdout,
         )
         notes = [f"no change under {', '.join(PROTECTED)} since {MISSION7_BASE}"]
-        if not core_up():
+        down = services_down()
+        if down:
             raise AssertionError(
-                notes[0] + "; but Core (8000) is down, so the governance status and the schedule "
-                "record cannot be read (Docker Desktop is down on this host)"
+                notes[0] + f"; but Core's services are not up ({', '.join(down)} down), so the "
+                "governance status and the schedule record cannot be read"
             )
         status = get("http://127.0.0.1:8000/aegis/api/status", timeout=30)
         schedule = get("http://127.0.0.1:8000/triad/api/daily-schedule", timeout=30)
@@ -344,18 +416,25 @@ class Acceptance:
             ],
             scoped("triad"),
         )
-        summary = re.search(r"scope triad: (\d+) selected; (\d+) deselected", result.stdout)
-        assert result.returncode == 0 and summary and summary.group(2) == "0", result.stdout[-400:]
+        summary = re.search(
+            r"scope triad: (\d+) run of (\d+) owned here, PARTIAL \(narrowed by paths [^)]*\); "
+            r"(\d+) owned by other scopes deselected",
+            result.stdout,
+        )
+        assert result.returncode == 0 and summary, result.stdout[-400:]
+        ran, owned, elsewhere = map(int, summary.groups())
+        assert ran == owned and elsewhere == 0, result.stdout[-400:]
         return (
-            f"Triad's trusted post-merge command under the Triad scope: {summary.group(1)} selected, "
-            "0 deselected, passed"
+            f"Triad's trusted post-merge command under the Triad scope: {ran} run of the {owned} "
+            "its two modules hold, none owned elsewhere, passed"
         )
 
     def browser(self):
-        if not core_up():
+        down = services_down()
+        if down:
             raise AssertionError(
-                "Core (8000) is down; the Mission 6 walk reads the gateway (items 23, 36, 47, 60), "
-                "so it was not started (Docker Desktop is down on this host)"
+                f"Core's services are not up ({', '.join(down)} down); the Mission 6 walk reads "
+                "the gateway (items 23, 36, 47, 60), so it was not started"
             )
         result = run(
             [python("core"), ROOT / "tests" / "products" / "aegis" / "browser_workstation.py"],

@@ -25,6 +25,12 @@ def tree(pytester):
     )
 
 
+def aegis_scope(monkeypatch):
+    monkeypatch.setenv("TRIAD_PYTEST_SCOPE", "aegis")
+    monkeypatch.setenv("TRIAD_PYTEST_INTERPRETER_SCOPE", "aegis")
+    monkeypatch.delenv("PYTEST_ADDOPTS", raising=False)
+
+
 def test_unset_scope_is_a_usage_error(pytester, monkeypatch):
     monkeypatch.delenv("TRIAD_PYTEST_SCOPE", raising=False)
     tree(pytester)
@@ -32,6 +38,16 @@ def test_unset_scope_is_a_usage_error(pytester, monkeypatch):
     assert result.ret == 4
     result.stderr.fnmatch_lines(["*TRIAD_PYTEST_SCOPE is not set*", "*tools\\verify.ps1*"])
     assert "passed" not in result.stdout.str()
+
+
+def test_the_hint_runs_in_powershell(pytester, monkeypatch):
+    """The refusal's example must work in the shell this host uses (review: POSIX VAR=x cmd
+    does not run in PowerShell or cmd)."""
+    monkeypatch.delenv("TRIAD_PYTEST_SCOPE", raising=False)
+    tree(pytester)
+    stderr = pytester.runpytest_subprocess().stderr.str()
+    assert "$env:TRIAD_PYTEST_SCOPE = 'aegis'; .venv-aegis\\Scripts\\python.exe -m pytest" in stderr
+    assert "TRIAD_PYTEST_SCOPE=aegis .venv-aegis" not in stderr
 
 
 def test_scope_must_match_the_interpreter(pytester, monkeypatch):
@@ -53,13 +69,51 @@ def test_an_unknown_scope_is_a_usage_error(pytester, monkeypatch):
 
 
 def test_matching_scope_runs_only_its_owner_and_says_so(pytester, monkeypatch):
-    monkeypatch.setenv("TRIAD_PYTEST_SCOPE", "aegis")
-    monkeypatch.setenv("TRIAD_PYTEST_INTERPRETER_SCOPE", "aegis")
+    aegis_scope(monkeypatch)
     tree(pytester)
     result = pytester.runpytest_subprocess("-q")
     result.assert_outcomes(passed=2, deselected=2)
     result.stdout.fnmatch_lines(
-        ["*scope aegis: 2 selected; 2 deselected (core 1, triad 1); this is one scope of three*"]
+        [
+            (
+                "*scope aegis: 2 run, the full scope; 2 owned by other scopes deselected"
+                " (core 1, triad 1); one scope of three*"
+            )
+        ]
+    )
+    assert "PARTIAL" not in result.stdout.str()
+
+
+def test_a_keyword_filter_reports_a_partial_run(pytester, monkeypatch):
+    """Review finding 1: pytest's own -k runs after the guard; the count must be the final one."""
+    aegis_scope(monkeypatch)
+    tree(pytester)
+    result = pytester.runpytest_subprocess("-q", "-k", "test_b")
+    result.assert_outcomes(passed=1, deselected=3)
+    result.stdout.fnmatch_lines(
+        ["*scope aegis: 1 run of 2 owned here, PARTIAL (narrowed by -k test_b)*"]
+    )
+    assert "the full scope" not in result.stdout.str()
+
+
+def test_inherited_addopts_are_reported_as_partial(pytester, monkeypatch):
+    aegis_scope(monkeypatch)
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-k 'not test_b'")
+    tree(pytester)
+    result = pytester.runpytest_subprocess("-q")
+    result.assert_outcomes(passed=1, deselected=3)
+    result.stdout.fnmatch_lines(
+        ["*scope aegis: 1 run of 2 owned here, PARTIAL (narrowed by -k not test_b)*"]
+    )
+
+
+def test_explicit_paths_are_reported_as_partial(pytester, monkeypatch):
+    aegis_scope(monkeypatch)
+    tree(pytester)
+    result = pytester.runpytest_subprocess("-q", "test_aegis_owned.py")
+    result.assert_outcomes(passed=2)
+    result.stdout.fnmatch_lines(
+        ["*scope aegis: 2 run of 2 owned here, PARTIAL (narrowed by paths test_aegis_owned.py)*"]
     )
 
 
@@ -118,3 +172,40 @@ def test_every_module_in_this_repository_declares_one_owner():
         str(p.relative_to(ROOT)): owners for p in modules if len(owners := module_owners(p)) != 1
     }
     assert len(modules) >= 170 and not wrong, wrong
+
+
+def test_triads_trusted_gate_runs_only_triad_owned_modules():
+    """Review finding 5: Triad's post-merge verification runs under the Triad scope; a module it
+    names that another owner holds would be deselected while the gate still reports PASS."""
+    source = ROOT / "app" / "products" / "triad" / "daily_verification.py"
+    named = [
+        node.value
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node.value.startswith("tests/")
+        and node.value.endswith(".py")
+    ]
+    assert named == ["tests/test_readiness.py", "tests/test_day8_daily_ui_qa.py"], named
+    assert {name: module_owners(ROOT / name) for name in named} == {
+        name: ["triad"] for name in named
+    }
+
+
+@pytest.mark.parametrize(
+    ("module", "owner"),
+    [
+        # spec §2 item 4, by name
+        ("tests/test_engineering.py", "triad"),
+        ("tests/test_application_plan_validator.py", "triad"),
+        ("tests/test_architecture.py", "core"),
+        ("tests/test_day7_a2_qa.py", "core"),
+        ("tests/test_governance.py", "core"),
+        ("tests/test_ownership_integration.py", "core"),
+        ("tests/test_product_worker_supervisor.py", "core"),
+        # Triad's trusted post-merge gate runs it (ledger ruling, Task 2)
+        ("tests/test_readiness.py", "triad"),
+    ],
+)
+def test_owners_the_spec_and_the_rulings_assign(module, owner):
+    assert module_owners(ROOT / module) == [owner]
