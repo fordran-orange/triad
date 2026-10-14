@@ -101,6 +101,9 @@ RECORDED_LAB_WALKFORWARD_PREFIX = "783f07c3146b"  # item 28's hash as the Missio
 MISSION6_BASE = (
     "5189e12"  # the Mission 6 plan commit; Core, platform host and Triad are frozen since
 )
+# Mission 6's merged head. Item 60 checks Mission 6's own pyproject.toml change over its own range;
+# later missions may change pyproject.toml (Mission 7 added the triad extra and owner markers).
+MISSION6_END = "90e94d0"
 EXPERIMENT_SURFACE = [  # spec §2 item 2: 7 × 4 × 3 × 3 = 252 cells across both sides
     ("long_side.indicators.donchian.length", 10, 40, 5),
     ("long_side.indicators.rsi.length", 7, 28, 7),
@@ -1911,14 +1914,15 @@ class Acceptance:
             committed = git("diff", "--name-only", MISSION6_BASE, "HEAD", "--", *paths).strip()
             pending = git("status", "--porcelain", "--", *paths).strip()
             assert committed == "" and pending == "", (committed, pending)
-            diff = git("diff", MISSION6_BASE, "HEAD", "--", "pyproject.toml").splitlines()
+            diff = git("diff", MISSION6_BASE, MISSION6_END, "--", "pyproject.toml").splitlines()
             added = [line for line in diff if line.startswith("+") and not line.startswith("+++")]
             removed = [line for line in diff if line.startswith("-") and not line.startswith("---")]
             assert added == ['+aegis = ["numba>=0.61,<0.69"]'] and removed == [], (added, removed)
             return (
                 f"aegis {status['mode']} / {status['exchange']}, kernel available; DailySchedule "
                 f"{schedule['id'][:8]} enabled={schedule['enabled']}; no change under {', '.join(paths)} "
-                f"since {MISSION6_BASE}; pyproject.toml: one added line {added[0][1:]!r}, nothing removed"
+                f"since {MISSION6_BASE}; pyproject.toml over Mission 6 ({MISSION6_BASE}..{MISSION6_END}): "
+                f"one added line {added[0][1:]!r}, nothing removed"
             )
 
         self.item(60, item60)
