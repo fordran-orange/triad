@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "httpx>=0.28,<1", "ruff>=0.11,<1", "playwright>=1.63,<2"]
+triad = []
 aegis = ["numba>=0.61,<0.69"]
 
 [tool.setuptools.packages.find]
@@ -29,7 +30,12 @@ trading_core = ["static/*.html", "static/*.js", "static/*.css", "resources/**/*"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
-markers = ["integration: requires the local PostgreSQL and Neo4j services"]
+markers = [
+  "integration: requires the local PostgreSQL and Neo4j services",
+  "core: owned by Core's environment (.venv)",
+  "triad: owned by Triad's environment (.venv-triad)",
+  "aegis: owned by Aegis's environment (.venv-aegis)",
+]
 
 [tool.ruff]
 line-length = 100
