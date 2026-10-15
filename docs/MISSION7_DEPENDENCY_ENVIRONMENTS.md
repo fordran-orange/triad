@@ -53,7 +53,9 @@ so a fresh bootstrap would not have reproduced the Aegis worker.
 | `da26c91` | `tools/accept_environments.py`, the acceptance |
 | `14f6e74` | the fix pass (below) |
 | `fe25d3c` | the Mission 6 walk's item 60 checks Mission 6's own pyproject range |
-| this commit | this record and the evidence |
+| `2e1fb38` | this record and the first 11/11 evidence |
+| `155c2bf` | the QA's defect D1: "the full scope" only when nothing could have collected less |
+| this commit | the record after the QA, the evidence at `155c2bf` |
 
 ### How it behaves
 
@@ -62,9 +64,12 @@ so a fresh bootstrap would not have reproduced the Aegis worker.
   `$env:TRIAD_PYTEST_SCOPE = 'aegis'; .venv-aegis\Scripts\python.exe -m pytest ...`.
 - A scope on another environment's interpreter stops the same way, naming the one it needs.
 - A matching scope runs only the modules it owns and ends with
-  `scope aegis: 298 run, the full scope; 1608 owned by other scopes deselected (...)`; anything
-  narrower — paths, `-k`, `-m`, `--deselect`, `--ignore`, `--last-failed`, an inherited
-  `PYTEST_ADDOPTS` — prints `N run of M owned here, PARTIAL (narrowed by ...)` instead.
+  `scope aegis: 298 run, the full scope; … owned by other scopes deselected (...)`, but only for a
+  run from the rootdir on the configured testpaths with nothing that selects or collects less.
+  Anything else — paths, `-k`, `-m`, `--deselect`, `--ignore`, `--last-failed`, an `-o` override,
+  a `-p no:<plugin>` other than the cache, another config file (`-c`), a run from below the
+  rootdir, typed or inherited through `PYTEST_ADDOPTS` — prints `N run of M owned here, PARTIAL
+  (narrowed by ...)` and names the reason.
 - A module with no owner marker, or two, fails collection in every scope.
 - `tools\verify.ps1` checks each environment against its lock, lints the touched files, takes the
   inventory, runs the three scopes on their interpreters, accepts a scope only on its full-scope
@@ -75,10 +80,10 @@ so a fresh bootstrap would not have reproduced the Aegis worker.
 
 | Owner | Modules | Tests (inventory at the final commit) |
 |---|---|---|
-| core | 70 | 550 |
+| core | 70 | 556 |
 | triad | 72 + 9 under `tests/products/triad` | 1,058 |
 | aegis | 19 | 298 |
-| total | 170 | 1,906 (1,871 before the mission + 35 new) |
+| total | 170 | 1,912 (1,871 before the mission + 41 new) |
 
 Ownership is each module's own imports (AST, nested and `importlib` imports included): Aegis by
 name, Triad when the module imports `products.triad` or the `triad` package, Core otherwise.
@@ -91,20 +96,20 @@ four Core modules that name the product without needing its libraries: `test_day
 
 ## Acceptance evidence
 
-Final run `20261014T233145Z` on the fix-pass tree (`fe25d3c`), with Docker, Postgres, Neo4j and Core up: **11/11 PASS** in 849 s. Evidence: `docs/evidence/environments-acceptance-20261014T233145Z.json` and the Mission 6 walk it ran, `docs/evidence/aegis-acceptance-20261014T234319Z.json` (60/60). Earlier runs: `20261014T120100Z` 7/11 with Docker down (the four failures were the Docker-dependent items); `20261014T231555Z` 10/11, failing only the Mission 6 walk's item 60, whose pyproject check read HEAD instead of Mission 6's own range (fixed in `fe25d3c`).
+Final run `20261015T003337Z` at `155c2bf` (after the QA's fix), with Docker, Postgres, Neo4j and Core up: **11/11 PASS** in 876 s. Evidence: `docs/evidence/environments-acceptance-20261015T003337Z.json` and the Mission 6 walk it ran, `docs/evidence/aegis-acceptance-20261015T004530Z.json`. Earlier runs: `20261014T120100Z` 7/11 with Docker down (the four failures were the Docker-dependent items); `20261014T231555Z` 10/11, failing only the Mission 6 walk's item 60, whose pyproject check read HEAD instead of Mission 6's own range (fixed in `fe25d3c`); `20261014T233145Z` 11/11 at `fe25d3c`, before the QA.
 
 | Item | Check | Result | Evidence |
 |---|---|---|---|
 | 1 | three environments built from their locks, pip check clean | PASS | requirements.lock matches .venv (41 pins); requirements-triad.lock matches .venv-triad (41 pins); requirements-aegis.lock matches .venv-aegis (43 pins); pip check clean in all three |
 | 2 | numba only in .venv-aegis | PASS | numba importable: {'core': 'False', 'triad': 'False', 'aegis': 'True'}; .venv-aegis has numba 0.68.0 |
 | 3 | a bare or mismatched pytest refuses before running anything | PASS | bare pytest on .venv -> exit 4; bare pytest on .venv-triad -> exit 4; bare pytest on .venv-aegis -> exit 4; scope aegis on .venv -> exit 4 'it needs .venv-aegis' |
-| 4 | every collected test owned; each scope selects exactly its own | PASS | inventory: core 550, triad 1058, aegis 298, total 1906; collected 1906; each scope runs exactly what it owns, in full |
-| 5 | tools\verify.ps1 green across the three scopes | PASS | the three scopes ran in full and passed, the database health check passed; the foundation audit then refused branch core/dependency-environments (it guards main only), so the closing 'all three scopes green' line comes from the run on main after the merge; log environments-acceptance-20261014T233145Z-verify.log |
-| 6 | both workers relaunched on their own interpreters | PASS | triad: listener 26892 -> 27260, parent C:\Triad\.venv-triad\Scripts\python.exe, site-packages C:\Triad\.venv-triad, llvmlite False; aegis: listener 21900 -> 22880, parent C:\Triad\.venv-aegis\Scripts\python.exe, site-packages C:\Triad\.venv-aegis, llvmlite True |
-| 7 | the supervisor's recovery path relaunches each on its interpreter | PASS | triad: stopped 27260 (parent C:\Triad\.venv-triad\Scripts\python.exe), supervisor RECOVERED, new listener 33736 on C:\Triad\.venv-triad\Scripts\python.exe; aegis: stopped 22880 (parent C:\Triad\.venv-aegis\Scripts\python.exe), supervisor RECOVERED, new listener 26160 on C:\Triad\.venv-aegis\Scripts\python.exe |
-| 8 | one red scope cannot end green (Review Focus 5) | PASS | core and triad passed in full, the injected aegis test failed -> exit 1, no 'all three scopes green' line, module removed; log environments-acceptance-20261014T233145Z-verify-red.log |
+| 4 | every collected test owned; each scope selects exactly its own | PASS | inventory: core 556, triad 1058, aegis 298, total 1912; collected 1912; each scope runs exactly what it owns, in full |
+| 5 | tools\verify.ps1 green across the three scopes | PASS | the three scopes ran in full and passed, the database health check passed; the foundation audit then refused branch core/dependency-environments (it guards main only), so the closing 'all three scopes green' line comes from the run on main after the merge; log environments-acceptance-20261015T003337Z-verify.log |
+| 6 | both workers relaunched on their own interpreters | PASS | triad: listener 33736 -> 24656, parent C:\Triad\.venv-triad\Scripts\python.exe, site-packages C:\Triad\.venv-triad, llvmlite False; aegis: listener 27140 -> 24344, parent C:\Triad\.venv-aegis\Scripts\python.exe, site-packages C:\Triad\.venv-aegis, llvmlite True |
+| 7 | the supervisor's recovery path relaunches each on its interpreter | PASS | triad: stopped 24656 (parent C:\Triad\.venv-triad\Scripts\python.exe), supervisor RECOVERED, new listener 26924 on C:\Triad\.venv-triad\Scripts\python.exe; aegis: stopped 24344 (parent C:\Triad\.venv-aegis\Scripts\python.exe), supervisor RECOVERED, new listener 10400 on C:\Triad\.venv-aegis\Scripts\python.exe |
+| 8 | one red scope cannot end green (Review Focus 5) | PASS | core and triad passed in full, the injected aegis test failed -> exit 1, no 'all three scopes green' line, module removed; log environments-acceptance-20261015T003337Z-verify-red.log |
 | 9 | governance and the frozen trees | PASS | no change under app/trading_core, app/platform_host, app/products/triad, app/products/aegis since 9fb3d2f; aegis human_directed / CLOSED, kernel True; DailySchedule c99fa831 enabled=False |
-| 10 | the Mission 6 browser acceptance on .venv-aegis | PASS | 60/60 PASS, 0 FAIL, page errors 0 -> C:\Triad\logs\aegis-acceptance-20261014T234319Z.json |
+| 10 | the Mission 6 browser acceptance on .venv-aegis | PASS | 60/60 PASS, 0 FAIL, page errors 0 -> C:\Triad\logs\aegis-acceptance-20261015T004530Z.json |
 | 11 | Triad's trusted verification runs whole under its scope | PASS | Triad's trusted post-merge command under the Triad scope: 17 run of the 17 its two modules hold, none owned elsewhere, passed |
 
 ## Measurements
@@ -113,17 +118,17 @@ Final run `20261014T233145Z` on the fix-pass tree (`fe25d3c`), with Docker, Post
 |---|---|
 | Build one environment from the pip cache (pip 25.0.1) | ≈ 230 s |
 | Disk | `.venv` 433 MB, `.venv-triad` 427 MB, `.venv-aegis` 574 MB |
-| `tools\verify.ps1` scopes (fix-pass tree) | core 378 passed, 171 skipped (79 s); triad 634 passed, 424 skipped, 209 subtests (73 s); aegis 297 passed, 1 skipped (112 s) |
+| `tools\verify.ps1` scopes (final commit, acceptance run `20261015T003337Z`) | core 385 passed, 171 skipped, 1356 deselected, 5 warnings (93 s); triad 634 passed, 424 skipped, 854 deselected, 2 warnings, 209 subtests passed (75 s); aegis 297 passed, 1 skipped, 1614 deselected, 5 warnings (101 s) |
 | Repo-wide ruff (reported, not a gate) | 46 findings, all predating the mission |
 
 ## Verification
 
 | Check | Result |
 |---|---|
-| `tools\verify.ps1` on the branch | locks match all three environments; lint gate clean; inventory core 550, triad 1,058, aegis 298, total 1,906; every scope in full and green; database health passed; the foundation audit refuses a branch other than `main` (acceptance item 5) |
+| `tools\verify.ps1` on the branch | locks match all three environments; lint gate clean; inventory core 556, triad 1,058, aegis 298, total 1,912; every scope in full and green; database health passed; the foundation audit refuses a branch other than `main` (acceptance item 5) |
 | `tools\verify.ps1` on `main` after the merge | pending: run on `main` after the merge, before any push (the audit guards `main` only) |
 | Ruff (Aegis scope and the mission's files) | clean; repo-wide 46 findings reported, all predating the mission |
-| Acceptance | 11/11 (run `20261014T233145Z`) |
+| Acceptance | 11/11 (run `20261015T003337Z`) |
 
 ## Whole-branch review (Opus 5.5, `9fb3d2f..da26c91`) and fix pass
 
@@ -149,9 +154,42 @@ Raised from Minor by effect: `verify.ps1` now runs `lock.ps1 -Check` (lock drift
 mission exists to stop); the refusal's example runs in PowerShell; the lint gate covers every
 Python file the mission touched. `test_engineering.py` returned to Triad as the spec names it.
 
-## Independent QA (Opus 5.5)
+## Independent QA (Opus 5.5, read-only, at `2e1fb38`) and its fix
 
-Runs at the commit that adds this record; its result is added here.
+Verdict **FAIL** on one defect, every other item PASS. Artefacts under `logs/qa_m7/` (git-ignored).
+
+- The three environments rebuilt from their locks in fresh temporary venvs freeze identically
+  (core 41, triad 41, aegis 43 pins; 171–238 s each); `lock.ps1 -Check` matches all three.
+- numba only in `.venv-aegis` (0.68.0, llvmlite 0.50.0); the architecture test passes.
+- Every bare or mismatched `pytest` (both `python -m pytest` and `pytest.exe`, other working
+  directories, `--rootdir`, `-c` outside the tree) exits 4 before collecting; `-k`, `-m`, paths,
+  `--deselect`, `--ignore`, `--lf` and an inherited `PYTEST_ADDOPTS=-k …` print PARTIAL.
+- Inventory 1,906 owned, 0 disagreements against an independent AST reading of the ownership
+  rule; the pre-mission tree collects 1,871.
+- The three scopes pass in full (379 / 634 / 297); `verify.ps1` cleared an inherited
+  `PYTEST_ADDOPTS` and still ran every scope in full.
+- Listeners: 8000 under `.venv`, 8101 under `.venv-triad`, 8102 under `.venv-aegis` (llvmlite only
+  there); `ensure_product_worker.py` HEALTHY without a restart; the supervisor task on `.venv`'s
+  `pythonw.exe`; every launch path goes through `start_product.ps1`.
+- Triad's gate: 17 run, nothing deselected. `app/` untouched; governance and schedule as before.
+- The record's numbers, the evidence and both image digests (`f14afa20b399b07a` at `9fb3d2f`,
+  `d0ac3ff6cd7d50b3` at `2e1fb38`, only `requirements.lock` changed) confirmed.
+
+**D1 (defect).** "The full scope" was judged against what the run collected, so options that
+shrink collection itself — `-o python_files`, `-o testpaths`, `-o python_functions`,
+`-o norecursedirs`, `-p no:unittest`, typed or inherited — and a run from a subdirectory of
+`tests` printed "N run, the full scope" with exit 0. Fixed test-first in `155c2bf`:
+`test_collection_narrowing_options_report_a_partial_run` (4 cases),
+`test_a_run_from_a_subdirectory_reports_a_partial_run` and
+`test_another_config_file_reports_a_partial_run` failed, then passed; the guard now claims the full
+scope only from the rootdir on the configured testpaths with nothing that selects or collects
+less. `verify.ps1` was not affected (it runs from the root and clears inherited options).
+
+Observations: `-c` with a file inside a `tests` subdirectory skips the guard (added to the known
+limits); `--collect-only` and `--setup-plan` say "run" although nothing ran; no test drives the
+supervisor's `ensure()` with a refusing launcher; `TRIAD_PYTEST_INTERPRETER_SCOPE` inside the
+repository (the Aegis scope still cannot go green on `.venv` with it); two cosmetic slips in this
+record, corrected.
 
 ### Deferred minors
 
@@ -167,18 +205,20 @@ Runs at the commit that adds this record; its result is added here.
 - `tools/lock.ps1` ignores `pip freeze` lines without `==` (direct-URL installs).
 - `tools/audit_foundation.py`'s "nothing under `.venv/` is tracked" does not name `.venv-triad/`
   or `.venv-aegis/` (both are git-ignored).
+- `--collect-only` and `--setup-plan` say "N run" although nothing ran (QA O3).
+- No test drives `ensure_product_worker.ensure()` with a refusing launcher; NEEDS_ATTENTION holds
+  by reading (QA O4).
 
 ## Rulings
 
 Plan rulings P1–P11 are in the plan. Rulings made during execution and review (ledger), in order:
 
-- - T1→T3: Task 1 freezes requirements-triad.lock from .venv-triad and expects it equal to requirements.lock; Task 3 regenerates requirements.lock after removing numba and adding nothing — so after Task 3 the core lock gains playwright/greenlet/pyee (P1) while the triad lock was frozen from an environment installed from the *old* core lock (no playwright). Conflict: Task 1's test `triad == core` would fail after Task 3. Ruling below.
 - the playwright/greenlet/pyee drift is resolved in Task 1, not Task 3 — `.venv-triad` and `.venv-aegis` are built from the *current* `.venv` freeze minus numba/llvmlite (which includes playwright, greenlet, pyee, so the browser acceptance and verify.ps1 can run from any environment), requirements.lock is regenerated in Task 1 from that same set, and Task 3's regeneration then only confirms numba is gone (no diff expected) — so the three locks agree from the first commit and Task 1's `triad == core` test holds through Task 3 — cost if wrong: requirements.lock changes one task earlier than the plan said (3 added lines).
 - the brief's test code exceeded the 100-column limit and asserted `sorted(lines)` (case-sensitive) against a lock.ps1 that sorts OrdinalIgnoreCase; the test was reformatted and sorts with key=str.upper, which is the same ordinal order over uppercased ASCII — cost if wrong: none (lock.ps1 -Check is the authority and agreed).
 - .gitignore gains `.venv-triad/` and `.venv-aegis/` (it ignored only `.venv/`); the plan's file list omitted it — cost if wrong: none.
 - the brief's Step 6 installed numba with a range (`numba>=0.61,<0.69`); it was installed pinned (`numba==0.68.0 llvmlite==0.50.0`) so the frozen lock reproduces today's worker exactly — cost if wrong: none.
 - ownership is decided from each module's own imports through the AST (nested imports and importlib calls included), not a text search — the text rule put test_architecture.py under Triad (its rules table names products.triad) while the spec assigns it to Core; overrides: test_architecture.py → core, test_readiness.py → triad — cost if wrong: a module's owner is wrong and it runs in another environment, which all three can host except for numba.
-- test_engineering.py is owned by Core, not Triad as the spec's example said — it imports only Core (trading_core.engineering); the spec's own rule ("imports products.triad → triad") decides and its premise for this file was false — cost if wrong: none (Core's environment has every module's code).
+- (withdrawn in the fix pass, below) test_engineering.py is owned by Core, not Triad as the spec's example said — it imports only Core (trading_core.engineering); the spec's own rule ("imports products.triad → triad") decides and its premise for this file was false — cost if wrong: none (Core's environment has every module's code).
 - no transitive ownership through imported test modules — test_day3_integration (Triad) is imported by dozens of Core modules and by test_aegis_lineage_migration; each module is owned by its own imports — cost if wrong: none.
 - Triad's trusted post-merge verification (app/products/triad/daily_verification.py, called only by tools/run_daily_product_cycle.py, which the Triad worker launches with its own interpreter) runs `python -m pytest tests/test_readiness.py tests/test_day8_daily_ui_qa.py` without a scope; under the guard that exits 4 and the cycle would block, and the two modules had different owners — test_readiness.py is owned by Triad (Triad's post-merge gate runs it; it depends on triad.lab through test_lab) and the cycle runner sets TRIAD_PYTEST_SCOPE=triad before running the cycle (test_daily_cycle_runner_scopes_its_trusted_verification_to_triad RED "None == 'triad'" → GREEN); the exact verification command under .venv-triad runs 17 tests with 0 deselected and passes; no file under app/ changed — cost if wrong: an operator running the cycle runner by hand with .venv's python gets a usage error (a closed failure, never a partial green).
 - existing module-level pytestmark assignments (58: 57 `integration`, 1 `skipif`) became lists with the owner appended; the repository ownership test reads the owner marks from the AST so both forms count — cost if wrong: none.
@@ -220,6 +260,8 @@ Plan rulings P1–P11 are in the plan. Rulings made during execution and review 
 
 ## Known limits
 
+- `--noconftest`, `--confcutdir` and `-c <file inside a tests subdirectory>` keep
+  `tests/conftest.py` from loading, so the guard does not run; they are explicit flags.
 - The guard's interpreter check reads the environment directory's name (`.venv`, `.venv-triad`,
   `.venv-aegis`); the editable install binds every environment to this checkout's `app/`.
 - On Windows a venv's `Scripts\python.exe` is a launcher stub; the listening worker is the base
