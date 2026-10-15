@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import type { StrategySide } from '../contracts';
-import { DASH, money, num, pct } from '../format';
+import { money, num, pct } from '../format';
 import { METRICS, METRIC_LABELS, TERMINAL_JOB_STATES, type Cell, type JobStatus, type Metric } from '../results';
 import { useRunBacktest } from '../state/run';
-import { applyConfigs, SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
+import { applyConfigs, selectionText, SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
 import { formatSeconds } from './OptimizePopover';
 import { Heatmap } from './Heatmap';
 
@@ -48,7 +48,8 @@ function JobView({ side, job }: { side: Side; job: JobStatus }) {
   const [metric, setMetric] = useState<Metric>(job.objective);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const live = !TERMINAL_JOB_STATES.has(job.status);
-  const selected = selectedConfigs[side];
+  const pickedSelection = selectedConfigs[side];
+  const selected = pickedSelection && pickedSelection !== 'none' ? pickedSelection : null;
   const planned = job.strategy[SIDE_KEY[side]];
   const matrix = job.matrices[metric]?.[side] ?? null;
   const selectedCell = selected ? { fast: selected[job.fast_path], slow: selected[job.slow_path] } : null;
@@ -164,7 +165,7 @@ export function OptimizationTab() {
 
   const apply = () => {
     if (!strategy) return;
-    const applied = applyConfigs(strategy, selectedConfigs);
+    const applied = applyConfigs(strategy, selectedConfigs, { enablePicked: true });
     dispatch({ type: 'SET_STRATEGY', strategy: applied });
     dispatch({ type: 'SET_LINK_SIDES', linked: false }); // the sides were chosen independently; the panel must show both
     dispatch({ type: 'SET_RESULTS_TAB', tab: 'summary' });
@@ -184,9 +185,22 @@ export function OptimizationTab() {
             );
           })}
           <span className="muted" style={{ marginLeft: 'auto' }}>
-            Selected: LONG {selectedConfigs.long ? describeParams(selectedConfigs.long, optimization.long?.strategy.long_side) : DASH} · SHORT{' '}
-            {selectedConfigs.short ? describeParams(selectedConfigs.short, optimization.short?.strategy.short_side) : DASH}
+            Selected: LONG {selectionText(selectedConfigs.long, (p) => describeParams(p, optimization.long?.strategy.long_side))} · SHORT{' '}
+            {selectionText(selectedConfigs.short, (p) => describeParams(p, optimization.short?.strategy.short_side))}
           </span>
+          {SIDES.map((s) => (
+            <button
+              key={`none-${s}`}
+              id={`none-${s}`}
+              type="button"
+              className={'chip' + (selectedConfigs[s] === 'none' ? ' active' : '')}
+              aria-pressed={selectedConfigs[s] === 'none'}
+              title={`Apply turns the ${s.toUpperCase()} side off`}
+              onClick={() => dispatch({ type: 'SELECT_CONFIG', side: s, params: selectedConfigs[s] === 'none' ? null : 'none' })}
+            >
+              {s.toUpperCase()} none
+            </button>
+          ))}
           <button id="apply-configs" type="button" className="btn btn-primary" disabled={!anySelected || !strategy || running} onClick={apply} title="Write the selected configurations into the strategy and rerun the combined backtest">
             Apply selected long + short
           </button>

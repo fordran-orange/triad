@@ -2,6 +2,7 @@ import { createContext, useContext, useReducer, type Dispatch, type ReactNode } 
 import type { SymbolInfo } from '../api/client';
 import { INDICATOR_KINDS, type IndicatorSpec, type OptimizationParameter, type StrategyDocument, type StrategySpec, type WindowMode } from '../contracts';
 import { ruleReferences, type Rule } from '../rules';
+import { DASH } from '../format';
 import type { JobStatus, RunEnvelope, WalkForwardStatus } from '../results';
 
 export const TIMEFRAMES = ['1m', '15m', '30m', '1h', '1D'] as const;
@@ -39,7 +40,10 @@ export interface ApiStatus {
 export type ExecutionField = 'commission_per_side' | 'slippage_bps';
 export type RangeField = 'start' | 'stop' | 'step' | 'enabled';
 export type ResultsTab = 'summary' | 'trades' | 'optimization' | 'walkforward' | 'equity';
-export type SelectedConfigs = { long: Record<string, number> | null; short: Record<string, number> | null };
+/** A side's pick in the Optimization tab: a cell's parameters, 'none' (turn the side off), or
+ *  null (leave the side as it is). */
+export type SideSelection = Record<string, number> | 'none' | null;
+export type SelectedConfigs = { long: SideSelection; short: SideSelection };
 
 export interface WorkspaceState {
   strategy: StrategySpec | null;
@@ -84,7 +88,7 @@ export type Action =
   | { type: 'JOB_LOST'; side: Side; job_id: string }
   | { type: 'WALKFORWARD_UPDATED'; side: Side; job: WalkForwardStatus }
   | { type: 'WALKFORWARD_LOST'; side: Side; job_id: string }
-  | { type: 'SELECT_CONFIG'; side: Side; params: Record<string, number> | null }
+  | { type: 'SELECT_CONFIG'; side: Side; params: SideSelection }
   | { type: 'SET_FOCUS_SIDE'; side: Side }
   | { type: 'SET_LATEST'; key: string; values: Record<string, number | null> }
   | { type: 'SET_RIGHT_TAB'; tab: 'strategy' | 'indicators' }
@@ -185,17 +189,30 @@ export function setPath<T>(target: T, path: string, value: unknown): T {
 }
 
 /** The strategy with each side's selected optimizer configuration applied; sides stay independent. */
-export function applyConfigs(strategy: StrategySpec, configs: SelectedConfigs): StrategySpec {
+/** Write each side's pick into the strategy. 'none' turns the side off; with `enablePicked` (the
+ *  Optimization tab's Apply) a picked cell also turns its side on; null leaves the side alone. */
+export function applyConfigs(strategy: StrategySpec, configs: SelectedConfigs, options: { enablePicked?: boolean } = {}): StrategySpec {
   let next = strategy;
   for (const side of SIDES) {
     const params = configs[side];
     if (!params) continue;
     const key = SIDE_KEY[side];
+    if (params === 'none') {
+      next = { ...next, [key]: { ...next[key], enabled: false } };
+      continue;
+    }
     let spec = next[key];
     for (const [path, value] of Object.entries(params)) spec = setPath(spec, path, value);
+    if (options.enablePicked) spec = { ...spec, enabled: true };
     next = { ...next, [key]: spec };
   }
   return next;
+}
+
+/** How a side's pick reads on the "Selected:" line. */
+export function selectionText(selection: SideSelection, describe: (params: Record<string, number>) => string): string {
+  if (selection === 'none') return 'none (side off)';
+  return selection ? describe(selection) : DASH;
 }
 
 function isTimeframe(value: unknown): value is Timeframe {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StrategySpec } from '../contracts';
 import { ruleReferences } from '../rules';
-import { applyConfigs, canonical, chartKey, currentLatest, initialState, reducer, runStaleness, unsavedEdits, type RunRecord, type WorkspaceState } from './workspace';
+import { applyConfigs, canonical, chartKey, currentLatest, initialState, reducer, runStaleness, selectionText, unsavedEdits, type RunRecord, type WorkspaceState } from './workspace';
 
 // Side-owned indicator parameters (the shape Task 3 makes canonical); typed loosely until then.
 function strategy(): StrategySpec {
@@ -108,6 +108,32 @@ describe('workspace reducer', () => {
     expect(state.lastRun?.state).toBe('source_unavailable');
     expect(state.running).toBe(false);
     expect(state.runError).toBeNull();
+  });
+
+  it('applyConfigs: None turns a side off; a picked cell sets it and turns it on (operator, 2026-10-15)', () => {
+    const base = strategy();
+    const shortOff = { ...base, short_side: { ...base.short_side, enabled: false } };
+    const applied = applyConfigs(shortOff, { long: 'none', short: { 'indicators.ema.length': 6 } }, { enablePicked: true });
+    expect(applied.long_side.enabled).toBe(false);
+    expect(applied.long_side.indicators).toEqual(base.long_side.indicators);
+    expect(applied.short_side.enabled).toBe(true);
+    expect(applied.short_side.indicators!.map((i) => i.length)).toEqual([6, 30]);
+    expect(applyConfigs(base, { long: null, short: 'none' }).long_side).toEqual(base.long_side);
+    // Without the option (the walk-forward tab's Apply) a picked cell leaves a side's switch alone.
+    expect(applyConfigs(shortOff, { long: null, short: { 'indicators.ema.length': 6 } }).short_side.enabled).toBe(false);
+  });
+
+  it('SELECT_CONFIG accepts None for one side and leaves the other', () => {
+    const none = reducer(initialState, { type: 'SELECT_CONFIG', side: 'short', params: 'none' });
+    expect(none.selectedConfigs).toEqual({ long: null, short: 'none' });
+    const back = reducer(none, { type: 'SELECT_CONFIG', side: 'short', params: null });
+    expect(back.selectedConfigs).toEqual({ long: null, short: null });
+  });
+
+  it('selectionText names None as the side being off', () => {
+    expect(selectionText('none', () => 'x')).toBe('none (side off)');
+    expect(selectionText(null, () => 'x')).toBe('—');
+    expect(selectionText({ 'indicators.ema.length': 11 }, (p) => `EMA ${p['indicators.ema.length']}`)).toBe('EMA 11');
   });
 
   it('applyConfigs sets each side from its selected configuration independently', () => {
