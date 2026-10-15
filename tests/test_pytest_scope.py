@@ -9,7 +9,7 @@ from trading_core.settings import ROOT
 pytestmark = pytest.mark.core
 pytest_plugins = ["pytester"]
 CONFTEST = (ROOT / "tests" / "conftest.py").read_text(encoding="utf-8")
-INI = "[pytest]\nmarkers =\n    core: c\n    triad: t\n    aegis: a\n"
+INI = "[pytest]\ntestpaths = .\nmarkers =\n    core: c\n    triad: t\n    aegis: a\n"
 
 
 def tree(pytester):
@@ -209,3 +209,53 @@ def test_triads_trusted_gate_runs_only_triad_owned_modules():
 )
 def test_owners_the_spec_and_the_rulings_assign(module, owner):
     assert module_owners(ROOT / module) == [owner]
+
+
+@pytest.mark.parametrize(
+    ("addopts", "args", "reason"),
+    [
+        # QA defect D1: options that shrink collection itself, typed or inherited
+        ("-o python_files=test_aegis_owned.py", (), "-o python_files=test_aegis_owned.py"),
+        ("", ("-o", "python_functions=test_a"), "-o python_functions=test_a"),
+        ("", ("-o", "testpaths=nowhere"), "-o testpaths=nowhere"),
+        ("", ("-p", "no:unittest"), "-p no:unittest"),
+    ],
+)
+def test_collection_narrowing_options_report_a_partial_run(
+    pytester, monkeypatch, addopts, args, reason
+):
+    aegis_scope(monkeypatch)
+    if addopts:
+        monkeypatch.setenv("PYTEST_ADDOPTS", addopts)
+    tree(pytester)
+    result = pytester.runpytest_subprocess("-q", *args)
+    out = result.stdout.str()
+    assert "the full scope" not in out, out
+    result.stdout.fnmatch_lines([f"*scope aegis: * PARTIAL (narrowed by*{reason}*"])
+
+
+def test_a_run_from_a_subdirectory_reports_a_partial_run(pytester, monkeypatch):
+    aegis_scope(monkeypatch)
+    tree(pytester)
+    sub = pytester.mkdir("sub")
+    (sub / "test_sub_owned.py").write_text(
+        "import pytest\npytestmark = pytest.mark.aegis\ndef test_s(): pass\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(sub)
+    result = pytester.runpytest_subprocess("-q")
+    out = result.stdout.str()
+    assert "the full scope" not in out, out
+    result.stdout.fnmatch_lines(
+        ["*scope aegis: 1 run of 1 owned here, PARTIAL (narrowed by*run from*"]
+    )
+
+
+def test_another_config_file_reports_a_partial_run(pytester, monkeypatch):
+    aegis_scope(monkeypatch)
+    tree(pytester)
+    other = pytester.path / "other.ini"
+    other.write_text(INI, encoding="utf-8")
+    result = pytester.runpytest_subprocess("-q", "-c", str(other))
+    out = result.stdout.str()
+    assert "the full scope" not in out, out
+    result.stdout.fnmatch_lines(["*PARTIAL (narrowed by*-c *other.ini*"])

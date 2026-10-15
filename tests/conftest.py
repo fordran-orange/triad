@@ -91,10 +91,25 @@ def pytest_collection_finish(session):
 
 
 def _narrowed(config) -> list[str]:
-    """What made this run smaller than the whole scope, as the operator would name it."""
+    """Why this run may hold less than the whole scope, as the operator would name it. "The full
+    scope" is claimed only for a run from the rootdir on the configured testpaths with nothing
+    that selects or collects less (QA defect D1: -o, -p no:, -c and a subdirectory narrowed
+    collection itself and still read as the full scope)."""
     reasons = []
+    here = Path(config.invocation_params.dir)
+    if here != Path(config.rootpath):
+        reasons.append(f"run from {here}, not the rootdir {config.rootpath}")
     if config.args_source == pytest.Config.ArgsSource.ARGS:
         reasons.append("paths " + " ".join(config.args))
+    elif config.args_source != pytest.Config.ArgsSource.TESTPATHS:
+        reasons.append("not the configured testpaths")
+    for override in getattr(config.option, "override_ini", None) or []:
+        reasons.append(f"-o {override}")
+    for plugin in getattr(config.option, "plugins", None) or []:
+        if plugin.startswith("no:") and plugin != "no:cacheprovider":
+            reasons.append(f"-p {plugin}")
+    if getattr(config.option, "inifilename", None):
+        reasons.append(f"-c {config.option.inifilename}")
     for name, flag in (("keyword", "-k"), ("markexpr", "-m")):
         value = getattr(config.option, name, "")
         if value:
