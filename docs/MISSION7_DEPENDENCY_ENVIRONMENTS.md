@@ -126,7 +126,7 @@ Final run `20261015T003337Z` at `155c2bf` (after the QA's fix), with Docker, Pos
 | Check | Result |
 |---|---|
 | `tools\verify.ps1` on the branch | locks match all three environments; lint gate clean; inventory core 556, triad 1,058, aegis 298, total 1,912; every scope in full and green; database health passed; the foundation audit refuses a branch other than `main` (acceptance item 5) |
-| `tools\verify.ps1` on `main` after the merge | pending: run on `main` after the merge, before any push (the audit guards `main` only) |
+| `tools\verify.ps1` on `main` after the merge | run `logs/verify-main-20261015T070526.log` on `main` at `5c67388`, before the push: exit 0, all three locks match, inventory core 556, triad 1,058, aegis 298, total 1,912, every scope in full (core 385 passed, 171 skipped; triad 634 passed, 424 skipped, 209 subtests; aegis 297 passed, 1 skipped), database health and the foundation audit passed, closing line "... all three scopes green" |
 | Ruff (Aegis scope and the mission's files) | clean; repo-wide 46 findings reported, all predating the mission |
 | Acceptance | 11/11 (run `20261015T003337Z`) |
 
