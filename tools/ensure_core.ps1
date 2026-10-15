@@ -4,6 +4,9 @@ param(
     [switch]$Restart
 )
 $ErrorActionPreference = 'Stop'
+# Core's cold start took 33 s on this laptop (2026-10-14); a 30 s wait logged a false recovery
+# failure on every boot until the next pass five minutes later.
+$CoreStartSeconds = 90
 $TriadRoot = Split-Path $PSScriptRoot -Parent
 if (-not $LogPath) { $LogPath = Join-Path $TriadRoot 'logs/core-supervisor.log' }
 $LogDir = Split-Path $LogPath -Parent
@@ -42,7 +45,7 @@ try {
     & (Join-Path $PSScriptRoot 'start_backend.ps1') -Port $Port -CoreOnly
     if ($LASTEXITCODE -ne 0) { throw "Core launch failed ($LASTEXITCODE)" }
 
-    $deadline = (Get-Date).AddSeconds(30)
+    $deadline = (Get-Date).AddSeconds($CoreStartSeconds)
     do {
         Start-Sleep -Milliseconds 500
         if (Test-CoreLive) {
@@ -51,7 +54,7 @@ try {
         }
     } while ((Get-Date) -lt $deadline)
 
-    throw 'Core did not become healthy within 30 seconds'
+    throw "Core did not become healthy within $CoreStartSeconds seconds"
 } catch {
     Write-SupervisorLog "Core recovery failed: $($_.Exception.Message)"
     exit 1

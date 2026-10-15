@@ -30,3 +30,15 @@ def test_launcher_propagates_failure_without_a_console(tmp_path, monkeypatch):
     assert options["creationflags"] == 0x08000000
     assert options["stdin"] == subprocess.DEVNULL
     assert options["cwd"] == tmp_path
+
+
+def test_supervisor_waits_long_enough_for_cores_cold_start():
+    """Core's cold start took 33 s on 2026-10-14 while the supervisor waited 30 s, so every boot
+    logged a false recovery failure until the next pass five minutes later."""
+    script = (Path(__file__).resolve().parents[1] / "tools" / "ensure_core.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert "$CoreStartSeconds = 90" in script
+    assert "AddSeconds($CoreStartSeconds)" in script
+    assert "within $CoreStartSeconds seconds" in script
+    assert "AddSeconds(30)" not in script
