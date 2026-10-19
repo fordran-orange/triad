@@ -398,3 +398,14 @@ def test_window_choice_names_the_centre_plainly():
         "plateau 1 (9 cells), centre long_side.indicators.ema.length 4"
     )
     assert "{" not in render_study_markdown(report)
+
+
+def test_a_two_decimal_tie_is_written_with_three():
+    """0.133 against 0.129 must not read "0.13 against 0.13" beside a line counting it ahead."""
+    doc, per_symbol = three()
+    per_symbol["SPY"]["rules"]["plateau"]["metrics"]["mar"] = 0.1331
+    per_symbol["SPY"]["rules"]["peak"]["metrics"]["mar"] = 0.1294
+    assert study_report(doc, per_symbol)["symbols"]["SPY"]["comparison"] == (
+        "On SPY the plateau rule's out-of-sample MAR was 0.133, against 0.129 for the peak rule "
+        "and 0.550 for the frozen centre."
+    )

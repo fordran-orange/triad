@@ -301,10 +301,23 @@ def _oriented(objective: str, value) -> float | None:
 
 
 def _comparison(symbol: str, objective: str, rules: dict) -> str:
+    """One sentence by the objective; two decimals, or three when the plateau and peak rules
+    would otherwise read as a tie beside a line that counts one of them ahead."""
     name = OBJECTIVE_NAMES.get(objective, objective)
+    plateau = rules["plateau"].get("metrics", {}).get(objective)
+    peak = rules["peak"].get("metrics", {}).get(objective)
+    digits = 2
+    if (
+        plateau is not None
+        and peak is not None
+        and plateau != peak
+        and f"{float(plateau):.2f}" == f"{float(peak):.2f}"
+    ):
+        digits = 3
 
     def value(rule: str) -> str:
-        return _two(rules[rule].get("metrics", {}).get(objective))
+        found = rules[rule].get("metrics", {}).get(objective)
+        return "—" if found is None else f"{float(found):.{digits}f}"
 
     sentence = (
         f"On {symbol} the plateau rule's out-of-sample {name} was {value('plateau')}, "

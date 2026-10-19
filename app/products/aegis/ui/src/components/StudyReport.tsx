@@ -32,7 +32,7 @@ export function StudyReportView({ study, report }: { study: StudyStatus; report:
           </a>
         </div>
       </div>
-      {Object.keys(report.symbols).map((symbol) => (
+      {study.symbols.filter((symbol) => symbol in report.symbols).map((symbol) => (
         <SymbolSection key={symbol} study={study} report={report} symbol={symbol} />
       ))}
     </div>
