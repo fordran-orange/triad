@@ -190,7 +190,7 @@ tr.muted td{color:#4f6b80}
 .results-resizer{position:absolute;top:-4px;left:0;right:0;height:8px;cursor:row-resize;z-index:4}
 .results-resizer:hover,.results-resizer:focus-visible{background:linear-gradient(transparent 3px,#2da7ff 3px,#2da7ff 5px,transparent 5px);outline:none}
 .result-tabs{flex:none}
-.results-maximize{margin-left:auto;align-self:center;height:26px;margin-right:8px;padding:0 10px!important;border:1px solid var(--line)!important;border-radius:4px;color:#9ab0be!important}
+.results-maximize{margin-left:14px;align-self:center;height:26px;margin-right:8px;padding:0 10px!important;border:1px solid var(--line)!important;border-radius:4px;color:#9ab0be!important}
 .opt-tab{display:flex;flex-direction:column}
 .opt-tab > .results-table{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .result-body.opt{flex:1;min-height:0;grid-template-columns:minmax(0,3fr) minmax(300px,2fr)}
