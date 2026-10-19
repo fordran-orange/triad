@@ -475,9 +475,12 @@ def render_study_markdown(report: dict) -> str:
         stability = entry["stability"]
         lines += [
             "",
-            f"Plateau rule {entry['flat_line']}. Plateau found in {_two(stability['plateau_share'])} "
-            "of windows; centre inside the previous plateau in "
-            f"{_two(stability['centre_kept_share'])}; median move {_two(stability['median_move'])}.",
+            (
+                f"Plateau rule {entry['flat_line']}. Plateau found in "
+                f"{_two(stability['plateau_share'])} of windows; centre inside the previous "
+                f"plateau in {_two(stability['centre_kept_share'])}; median move "
+                f"{_two(stability['median_move'])}."
+            ),
             "",
             "| window | out of sample | choice | plateau | peak | frozen | flat |",
             "|---|---|---|---|---|---|---|",

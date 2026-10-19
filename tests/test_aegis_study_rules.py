@@ -269,16 +269,19 @@ def window_record(index, centre=None, inside=None, moved=None, reason=None):
     }
 
 
-class Doc:
+def Doc():
     """The study document fields the report reads."""
+    from types import SimpleNamespace
 
-    objective = "mar"
-    symbols = ["QQQ", "SPY", "ITOT"]
-    timeframe = "1h"
-    start = "2016-09-19"
-    end = "2026-09-18"
-    frozen_absent = None
-    name = "walk breakout"
+    return SimpleNamespace(
+        objective="mar",
+        symbols=["QQQ", "SPY", "ITOT"],
+        timeframe="1h",
+        start="2016-09-19",
+        end="2026-09-18",
+        frozen_absent=None,
+        name="walk breakout",
+    )
 
 
 def three(frozen_absent=None):
