@@ -2268,6 +2268,7 @@ class Acceptance:
                         "allocation_fraction": doc["settings"]["allocation_fraction"],
                         "evaluate_from": window["oos_start"],
                         "initial_position": chain["carry"],
+                        "initial_entry": chain.get("pending"),  # an entry carried across the join
                         "close_at_end": last,
                     },
                 }

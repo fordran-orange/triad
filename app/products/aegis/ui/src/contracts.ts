@@ -5,6 +5,7 @@ export interface BacktestSettings {
   allocation_fraction?: number;
   evaluate_from?: string | null;
   initial_position?: OpenPosition | null;
+  initial_entry?: PendingEntry | null;
   close_at_end?: boolean;
 }
 
@@ -110,6 +111,12 @@ export interface Parameter {
   start: number;
   stop: number;
   step: number;
+}
+
+export interface PendingEntry {
+  side: 'LONG' | 'SHORT';
+  signal_time: string;
+  entry_tags?: string[];
 }
 
 export interface RuleGroup {

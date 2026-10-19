@@ -492,6 +492,9 @@ export interface StudyWindowRow {
   best?: { cell: number; params: Record<string, number>; objective: number | null } | null;
   net_pnl?: Partial<Record<StudyRule, number | null>>;
   flat: boolean;
+  flat_rules?: Partial<Record<StudyRule, boolean>>;
+  peaks?: number | null;
+  fragile?: number | null;
   centre_inside?: boolean | null;
   moved?: number | null;
 }

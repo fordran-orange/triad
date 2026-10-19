@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StudyPlan } from './contracts';
 import type { StudyReport } from './results';
-import { equityPaths, flatShading, planLine, ruleRows, windowMarks } from './studies';
+import { bestCells, equityPaths, flatShading, planLine, ruleRows, windowMarks } from './studies';
 
 function plan(overrides: Partial<StudyPlan> = {}): StudyPlan {
   const symbol = (name: string) => ({
@@ -112,5 +112,25 @@ describe('study helpers', () => {
     expect(bands[0].x0).toBeCloseTo(200);
     expect(bands[0].x1).toBeCloseTo(300);
     expect(windowMarks(rows, domain, 400).map((m) => Math.round(m.x))).toEqual([0, 200, 300]);
+  });
+});
+
+describe('the window cells, best first by the objective (review finding)', () => {
+  const rows = [
+    { cell: 0, valid: true, 'combined.max_drawdown': 0.3 },
+    { cell: 1, valid: true, 'combined.max_drawdown': 0.1 },
+    { cell: 2, valid: false, 'combined.max_drawdown': null },
+    { cell: 3, valid: true, 'combined.max_drawdown': 0.2 },
+  ];
+  it('ranks lower drawdown first and drops invalid cells', () => {
+    expect(bestCells(rows, 'max_drawdown', 2).map((r) => r.cell)).toEqual([1, 3]);
+  });
+  it('ranks higher first for every other objective, nulls last', () => {
+    const mar = [
+      { cell: 0, valid: true, 'combined.mar': 0.5 },
+      { cell: 1, valid: true, 'combined.mar': null },
+      { cell: 2, valid: true, 'combined.mar': 0.9 },
+    ];
+    expect(bestCells(mar, 'mar', 20).map((r) => r.cell)).toEqual([2, 0, 1]);
   });
 });

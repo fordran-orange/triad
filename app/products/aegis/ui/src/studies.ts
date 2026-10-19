@@ -102,3 +102,28 @@ export function windowMarks(windows: WindowSpan[], domain: [number, number], wid
   const x = scaler(domain, width);
   return windows.map((w) => ({ index: w.index, x: x(w.oos_start) }));
 }
+
+/** A window's in-sample cells, best first by the objective (lower first for max drawdown), invalid
+ *  cells dropped and cells without a value last (review finding: the list was always descending). */
+export function bestCells<T extends Record<string, unknown>>(rows: T[], objective: string, limit: number): T[] {
+  const key = `combined.${objective}`;
+  const lowerIsBetter = objective === 'max_drawdown';
+  const value = (row: T): number | null => {
+    const v = row[key];
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  };
+  return rows
+    .filter((row) => row.valid === true)
+    .sort((a, b) => {
+      const x = value(a);
+      const y = value(b);
+      if (x === null || y === null || x === y) {
+        if (x === null && y !== null) return 1;
+        if (y === null && x !== null) return -1;
+        return Number(a.cell) - Number(b.cell);
+      }
+      return lowerIsBetter ? x - y : y - x;
+    })
+    .slice(0, limit);
+}
+

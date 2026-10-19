@@ -54,6 +54,7 @@ SCALARS = (
     "open_entry_fee",
     "open_capital_at_entry",
     "open_exit_signal_index",
+    "entry_carry_index",  # an entry signalled on the last bar with close_at_end off, or -1
 )
 ERROR_TRADES_FULL = 1
 
@@ -91,7 +92,7 @@ def _simulate(
     drawdown = np.zeros(n)
     in_position = np.zeros(n, dtype=np.uint8)
     n_points = 0
-    scalars = np.zeros(10)
+    scalars = np.zeros(11)
     error = 0
 
     cash = initial_capital
@@ -117,8 +118,14 @@ def _simulate(
             pending = 2
             pending_signal_index = -1
             pending_carried = True
+    elif carried.shape[0] > 6 and carried[6] > 0.0:
+        # An entry signalled on the previous run's last bar fills at the first evaluated bar.
+        pending = 1
+        pending_signal_index = -1
+        pending_carried = True
     peak = initial_capital
     exit_carry_index = -1
+    entry_carry_index = -1
 
     for i in range(n):
         ev = evaluating[i]
@@ -179,6 +186,10 @@ def _simulate(
         if i >= n - 1:
             if (not close_at_end) and has_position and warm[i] and exit_[i]:
                 exit_carry_index = i
+            elif (
+                (not close_at_end) and (not has_position) and warm[i] and entry[i] and permitted[i]
+            ):
+                entry_carry_index = i
             continue
         if not warm[i]:
             continue
@@ -230,6 +241,7 @@ def _simulate(
         scalars[1] = initial_capital
     if scalars[9] == 0.0 and scalars[2] == 0.0:
         scalars[9] = -1.0
+    scalars[10] = float(entry_carry_index)
     return trades, n_trades, equity, drawdown, in_position, n_points, scalars, error
 
 

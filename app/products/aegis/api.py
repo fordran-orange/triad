@@ -1044,6 +1044,14 @@ def decide_study(
     study_id: str, request: DecisionRequest, studies: studies_module.StudyStore = STUDIES
 ):
     document = _study(studies, study_id)
+    if document.status in ("queued", "running"):
+        # The running job saves its own copy of the document after every window; a decision
+        # written now would be overwritten (review finding). Paused studies resume from disk.
+        raise HTTPException(
+            409,
+            f"study {study_id} is {document.status}; decide when it has finished, been cancelled "
+            "or been paused",
+        )
     decided = studies_module.decide_study(studies, document, request.verdict, request.notes)
     return decided.model_dump(mode="json")
 

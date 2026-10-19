@@ -3,7 +3,13 @@ engine on every fixture, honest when numba is absent, and never silently wrong w
 
 import pytest
 from products.aegis import kernel
-from products.aegis.backtest import BacktestRequest, BacktestSettings, OpenPosition, run_backtest
+from products.aegis.backtest import (
+    BacktestRequest,
+    BacktestSettings,
+    OpenPosition,
+    PendingEntry,
+    run_backtest,
+)
 from products.aegis.results import canonical_payload, result_hash
 from products.aegis.strategy import StrategySide, default_strategy
 from test_aegis_backtest import _breakout, _long_only, bars
@@ -34,7 +40,7 @@ def _assert_identical(strategy, rows, **settings):
     assert reference["engine"] == "reference" and compiled["engine"] == "kernel"
     assert _hash(reference, strategy, rows) == _hash(compiled, strategy, rows)
     for side in ("long", "short"):
-        for key in ("open_position", "ending_cash", "ending_equity"):
+        for key in ("open_position", "pending_entry", "ending_cash", "ending_equity"):
             assert reference[side][key] == compiled[side][key], (side, key)
     return reference, compiled
 
@@ -111,6 +117,68 @@ def test_kernel_matches_reference_on_a_travelling_exit():
         evaluate_from=rows[cut + 1]["timestamp"],
     )
     assert second["long"]["trades"][0]["exit_time"] == rows[cut + 1]["timestamp"].isoformat()
+
+
+def test_kernel_matches_reference_on_a_travelling_entry():
+    """Mission 8 QA D1: an entry signalled on a run's last bar travels to the next run and fills
+    at its first evaluated bar's open, as a continuous run fills it (it used to be dropped)."""
+    rows = bars()
+    strategy = _long_only()
+    continuous = run_backtest(BacktestRequest(strategy=strategy, bars=rows))["long"]["trades"]
+    stamps = [r["timestamp"].isoformat() for r in rows]
+    trade = next(t for t in continuous if stamps.index(t["signal_time"]) > 40)
+    cut = stamps.index(trade["signal_time"])
+    _, first = _assert_identical(strategy, rows[: cut + 1], close_at_end=False)
+    assert first["long"]["open_position"] is None
+    pending = first["long"]["pending_entry"]
+    assert pending["side"] == "LONG" and pending["signal_time"] == trade["signal_time"]
+    _, second = _assert_identical(
+        strategy,
+        rows[cut + 1 - 35 :],
+        initial_capital=first["long"]["ending_cash"],
+        initial_entry=PendingEntry(**pending),
+        evaluate_from=rows[cut + 1]["timestamp"],
+    )
+    filled = second["long"]["trades"][0]
+    for key in ("signal_time", "entry_time", "entry_price", "quantity", "exit_time", "net_pnl"):
+        assert filled[key] == trade[key], key
+
+
+def test_a_carried_entry_needs_its_side_enabled_and_no_position_on_it():
+    rows = bars()
+    strategy = _long_only()
+    stamp = rows[60]["timestamp"].isoformat()
+    with pytest.raises(ValueError, match="initial_entry side SHORT"):
+        run_backtest(
+            BacktestRequest(
+                strategy=strategy,
+                bars=rows,
+                settings=BacktestSettings(
+                    initial_entry=PendingEntry(side="SHORT", signal_time=stamp)
+                ),
+            )
+        )
+    position = OpenPosition(
+        side="LONG",
+        entry_time=stamp,
+        signal_time=stamp,
+        entry_price=100.0,
+        quantity=10,
+        entry_fee=0.0,
+        capital_at_entry=100_000.0,
+        entry_tags=[],
+    )
+    with pytest.raises(ValueError, match="both a carried position and a carried entry"):
+        run_backtest(
+            BacktestRequest(
+                strategy=strategy,
+                bars=rows,
+                settings=BacktestSettings(
+                    initial_position=position,
+                    initial_entry=PendingEntry(side="LONG", signal_time=stamp),
+                ),
+            )
+        )
 
 
 def test_kernel_matches_reference_on_carried_windows(monkeypatch):

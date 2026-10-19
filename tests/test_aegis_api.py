@@ -1237,3 +1237,40 @@ def test_a_study_of_an_unfinished_experiment_is_refused(client, monkeypatch):
     refused = c.post("/aegis/api/studies/plan", json={**STUDY_BODY, "symbols": ["QQQ"]})
     assert refused.status_code == 422
     assert "a study needs a finished experiment with a report" in refused.text
+
+
+def test_a_decision_waits_until_the_study_has_stopped(client, tmp_path, monkeypatch):
+    """Review finding: a decision saved on a running study was overwritten by the runner's next
+    save of its own copy of the document; it is refused until the study stops."""
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    write_archive(tmp_path, "20260301T000000000000Z", "SPY", price=400.0)
+    c, _, repository = client
+    gate = threading.Event()
+
+    def hold(done):
+        if done == 1:
+            gate.wait(30)
+
+    _runner(repository, after_unit=hold)
+    _finished_experiment(repository)
+    try:
+        created = c.post("/aegis/api/studies", json=STUDY_BODY)
+        assert created.status_code == 202, created.text
+        study_id = created.json()["study_id"]
+        deadline = time.monotonic() + 60
+        while c.get(f"/aegis/api/studies/{study_id}").json()["progress"]["windows_done"] < 1:
+            assert time.monotonic() < deadline
+            time.sleep(0.05)
+        refused = c.put(
+            f"/aegis/api/studies/{study_id}/decision",
+            json={"verdict": "accepted", "notes": "early"},
+        )
+        assert refused.status_code == 409 and "is running" in refused.text
+    finally:
+        gate.set()
+    _wait_study(c, study_id, ("done", "failed"))
+    decided = c.put(
+        f"/aegis/api/studies/{study_id}/decision", json={"verdict": "accepted", "notes": "after"}
+    )
+    assert decided.status_code == 200
+    assert c.get(f"/aegis/api/studies/{study_id}").json()["decision"]["notes"] == "after"

@@ -21,6 +21,7 @@ from products.aegis.backtest import (
     BacktestRequest,
     BacktestSettings,
     OpenPosition,
+    PendingEntry,
     _combine,
     _metrics,
     run_backtest,
@@ -54,22 +55,34 @@ REPORT_METRICS = ("net_pnl", "net_return", "cagr", "max_drawdown", "mar", "trade
 @dataclass
 class SideChain:
     """One side of one rule between windows: realized cash, the open position carried into the
-    next window (if any) and the marked equity the next window is measured from."""
+    next window (if any), the marked equity the next window is measured from, and an entry
+    signalled on the window's last bar that fills at the next window's first bar (QA D1)."""
 
     cash: float
     carry: dict | None = None
     equity: float | None = None
+    pending: dict | None = None
 
     def __post_init__(self) -> None:
         if self.equity is None:
             self.equity = self.cash
 
     def as_dict(self) -> dict:
-        return {"cash": self.cash, "carry": self.carry, "equity": self.equity}
+        return {
+            "cash": self.cash,
+            "carry": self.carry,
+            "equity": self.equity,
+            "pending": self.pending,
+        }
 
     @classmethod
     def of(cls, data: dict) -> SideChain:
-        return cls(cash=float(data["cash"]), carry=data.get("carry"), equity=data.get("equity"))
+        return cls(
+            cash=float(data["cash"]),
+            carry=data.get("carry"),
+            equity=data.get("equity"),
+            pending=data.get("pending"),
+        )
 
 
 def enabled_sides(spec: StrategySpec) -> list[str]:
@@ -129,6 +142,8 @@ def _side_run(
     cache: IndicatorCache | None,
 ) -> dict:
     carry = chain.carry
+    # A flat window opens nothing, so an entry carried into it is dropped.
+    waiting = None if flat or chain.pending is None else PendingEntry(**chain.pending)
     if flat and carry is None:  # nothing to close and nothing may open: the side holds its cash
         return {
             "trades": [],
@@ -136,7 +151,9 @@ def _side_run(
             "ending_cash": chain.cash,
             "ending_equity": chain.cash,
             "carried_in": False,
+            "entry_carried_in": False,
             "open_position": None,
+            "pending_entry": None,
             "flat": True,
             "run_hash": None,
             "held": set(),
@@ -156,6 +173,7 @@ def _side_run(
             "evaluate_from": _moment(rows[window.oos_start]["timestamp"]),
             "initial_capital": chain.cash,
             "initial_position": OpenPosition(**carry) if carry is not None else None,
+            "initial_entry": waiting,
             "close_at_end": last and not flat,
         }
     )
@@ -179,7 +197,9 @@ def _side_run(
         "ending_cash": float(result["ending_cash"]),
         "ending_equity": ending_equity,
         "carried_in": chain.carry is not None,
+        "entry_carried_in": waiting is not None,
         "open_position": open_position,
+        "pending_entry": None if flat else result.get("pending_entry"),
         "flat": flat,
         "run_hash": result_hash(_clean({"trades": result["trades"], "metrics": result["metrics"]})),
         "held": None,  # filled by run_window, which knows the window's bars
@@ -231,6 +251,7 @@ def run_window(
                 cash=record["ending_cash"],
                 carry=record["open_position"],
                 equity=record["ending_equity"],
+                pending=record["pending_entry"],
             )
             for side, record in sides.items()
         },
@@ -380,6 +401,13 @@ def _window_rows(windows: list[dict]) -> list[dict]:
                     if "absent" not in record
                 },
                 "flat": bool((rules.get("plateau") or {}).get("flat")),
+                "flat_rules": {
+                    rule: bool(record.get("flat"))
+                    for rule, record in rules.items()
+                    if "absent" not in record
+                },
+                "peaks": w.get("peaks"),
+                "fragile": w.get("fragile"),
                 "centre_inside": w.get("centre_inside"),
                 "moved": w.get("moved"),
             }
@@ -499,15 +527,19 @@ def render_study_markdown(report: dict) -> str:
                 f"{_two(stability['median_move'])}."
             ),
             "",
-            "| window | out of sample | choice | plateau | peak | frozen | flat |",
+            "| window | out of sample | choice | peaks (fragile) | plateau | peak | frozen |",
             "|---|---|---|---|---|---|---|",
         ]
         for row in entry["window_rows"]:
-            nets = row["net_pnl"]
+            nets, flats = row["net_pnl"], row.get("flat_rules") or {}
+
+            def net(rule: str, nets=nets, flats=flats) -> str:
+                return ("flat · " if flats.get(rule) else "") + _two(nets.get(rule))
+
+            peaks = "—" if row.get("peaks") is None else f"{row['peaks']} ({row.get('fragile', 0)})"
             lines.append(
                 f"| {row['index']} | {row['oos_start']} → {row['oos_end']} | {row['choice']} | "
-                f"{_two(nets.get('plateau'))} | {_two(nets.get('peak'))} | "
-                f"{_two(nets.get('frozen'))} | {'yes' if row['flat'] else 'no'} |"
+                f"{peaks} | {net('plateau')} | {net('peak')} | {net('frozen')} |"
             )
     return "\n".join(lines) + "\n"
 

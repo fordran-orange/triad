@@ -3,7 +3,7 @@ import { api, errorMessage, type StudyCellsPage, type StudyStatus } from '../api
 import { paramsText } from '../experiments';
 import { DASH, money, num, pct, shortHash, timeLabel } from '../format';
 import { STUDY_RULES, type StudyReport, type StudyRule } from '../results';
-import { equityPaths, flatShading, ruleRows, windowMarks } from '../studies';
+import { bestCells, equityPaths, flatShading, ruleRows, windowMarks } from '../studies';
 
 const WIDTH = 640;
 const HEIGHT = 180;
@@ -124,6 +124,7 @@ function SymbolSection({ study, report, symbol }: { study: StudyStatus; report: 
             <th>#</th>
             <th>Out of sample</th>
             <th>In-sample choice</th>
+            <th>Peaks (fragile)</th>
             <th>Plateau rule</th>
             <th>Peak rule</th>
             <th>Frozen</th>
@@ -170,7 +171,7 @@ function WindowRow({
   const nets = row.net_pnl ?? {};
   const paths = study.surface.parameters.map((p) => p.path);
   const key = `combined.${objective}`;
-  const ranked = cells ? [...cells.rows].filter((r) => r.valid).sort((a, b) => Number(b[key] ?? -Infinity) - Number(a[key] ?? -Infinity)).slice(0, 20) : [];
+  const ranked = cells ? bestCells(cells.rows, objective, 20) : [];
   return (
     <>
       <tr id={`study-window-${symbol}-${row.index}`} className={(row.flat ? 'flat ' : '') + (open ? 'selected' : '')} onClick={toggle} style={{ cursor: 'pointer' }}>
@@ -179,15 +180,16 @@ function WindowRow({
           {timeLabel(row.oos_start)} → {timeLabel(row.oos_end)}
         </td>
         <td>{row.choice ?? DASH}</td>
-        <td>{row.flat ? `flat · ${money(nets.plateau ?? null)}` : money(nets.plateau ?? null)}</td>
-        <td>{money(nets.peak ?? null)}</td>
-        <td>{'frozen' in nets ? money(nets.frozen ?? null) : DASH}</td>
+        <td>{row.peaks === null || row.peaks === undefined ? DASH : `${row.peaks} (${row.fragile ?? 0})`}</td>
+        <td>{flatNet(row, 'plateau')}</td>
+        <td>{flatNet(row, 'peak')}</td>
+        <td>{'frozen' in nets ? flatNet(row, 'frozen') : DASH}</td>
         <td>{row.centre_inside === null || row.centre_inside === undefined ? DASH : row.centre_inside ? 'yes' : 'no'}</td>
         <td>{num(row.moved ?? null, 2)}</td>
       </tr>
       {open && (
         <tr id={`study-cells-${symbol}-${row.index}`}>
-          <td colSpan={8}>
+          <td colSpan={9}>
             {error && <div className="notice warn">{error}</div>}
             {!cells && !error && <span className="muted">loading the window's in-sample cells…</span>}
             {cells && (
@@ -227,5 +229,12 @@ function WindowRow({
       )}
     </>
   );
+}
+
+/** A rule's window net P&L, marked when the rule stood flat in that window. */
+function flatNet(row: StudyReport['symbols'][string]['window_rows'][number], rule: StudyRule): string {
+  const value = money(row.net_pnl?.[rule] ?? null);
+  const flat = row.flat_rules ? row.flat_rules[rule] : rule === 'plateau' && row.flat;
+  return flat ? `flat · ${value}` : value;
 }
 

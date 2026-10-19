@@ -76,6 +76,54 @@ def test_frozen_chain_equals_one_continuous_run():
     )
 
 
+def test_an_entry_signalled_on_a_window_last_bar_fills_at_the_next_window_first_bar():
+    """Mission 8 QA D1: windows cut so that one ends on an entry signal still chain to one
+    continuous run (the entry used to be dropped at the join)."""
+    from products.aegis.walkforward import Window
+
+    start = datetime.fromisoformat(ROWS[200]["timestamp"])
+    continuous = run_backtest(
+        BacktestRequest(
+            strategy=SPEC, bars=ROWS, settings=SETTINGS.model_copy(update={"evaluate_from": start})
+        )
+    )
+    stamps = [r["timestamp"] for r in ROWS]
+    signal = next(
+        stamps.index(t["signal_time"])
+        for t in continuous["long"]["trades"]
+        if 260 < stamps.index(t["signal_time"]) < 500
+    )
+    windows = [Window(0, 0, 200, 200, signal + 1), Window(1, 0, 200, signal + 1, len(ROWS))]
+    chains = start_chains(SPEC, SETTINGS.initial_capital)
+    results = []
+    for window in windows:
+        result = run_window(SPEC, ROWS, window, chains, SETTINGS, last=window is windows[-1])
+        results.append(result)
+        chains = result["chains"]
+    assert results[0]["chains"]["long"].pending is not None  # the signal travels in the chain
+    stitched = stitch_rule(results, SETTINGS.initial_capital)
+    assert [core(t) for t in stitched["trades"]] == [
+        core(t) for t in continuous["combined"]["trades"]
+    ]
+    assert stitched["metrics"]["net_pnl"] == pytest.approx(
+        continuous["combined"]["metrics"]["net_pnl"]
+    )
+
+
+def test_a_flat_window_drops_a_carried_entry():
+    from products.aegis.study_rules import SideChain
+
+    chains = {
+        "long": SideChain(
+            cash=100_000.0,
+            pending={"side": "LONG", "signal_time": ROWS[299]["timestamp"], "entry_tags": []},
+        ),
+        "short": SideChain(cash=100_000.0),
+    }
+    flat = run_window(SPEC, ROWS, WINDOWS[1], chains, SETTINGS, last=False, flat=True)
+    assert flat["sides"]["long"]["trades"] == [] and flat["chains"]["long"].pending is None
+
+
 def test_each_side_keeps_its_own_chain_and_carries_across_joins():
     results = walk()
     carried = [
@@ -409,3 +457,21 @@ def test_a_two_decimal_tie_is_written_with_three():
         "On SPY the plateau rule's out-of-sample MAR was 0.133, against 0.129 for the peak rule "
         "and 0.550 for the frozen centre."
     )
+
+
+def test_the_window_table_names_peaks_fragile_and_each_rule_flat():  # review finding (spec §7 → §5.5)
+    doc, per_symbol = three()
+    window = per_symbol["QQQ"]["windows"][2]  # the no-plateau window
+    window["peaks"], window["fragile"] = 5, 5
+    window["rules"]["peak"]["flat"] = True
+    report = study_report(doc, per_symbol)
+    row = report["symbols"]["QQQ"]["window_rows"][2]
+    assert (row["peaks"], row["fragile"]) == (5, 5)
+    assert row["flat_rules"] == {"plateau": True, "peak": True, "frozen": False}
+    markdown = render_study_markdown(report)
+    assert (
+        "| window | out of sample | choice | peaks (fragile) | plateau | peak | frozen |"
+        in markdown
+    )
+    line = next(text for text in markdown.splitlines() if text.startswith("| 2 |"))
+    assert "| 5 (5) |" in line and line.count("flat ·") == 2

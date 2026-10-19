@@ -549,9 +549,14 @@ def compact(record: dict) -> dict:
             "combined": {k: v for k, v in result["combined"].items() if k != "trades"},
             "sides": {
                 side: {
-                    **{k: v for k, v in entry.items() if k not in ("trades", "open_position")},
+                    **{
+                        k: v
+                        for k, v in entry.items()
+                        if k not in ("trades", "open_position", "pending_entry")
+                    },
                     "trade_count": len(entry["trades"]),
                     "open_at_end": entry["open_position"] is not None,
+                    "entry_at_end": entry.get("pending_entry") is not None,
                 }
                 for side, entry in result["sides"].items()
             },

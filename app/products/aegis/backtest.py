@@ -69,6 +69,16 @@ class OpenPosition(BaseModel):
     exit_tags: list[str] = Field(default_factory=list)
 
 
+class PendingEntry(BaseModel):
+    """An entry signalled on one run's last bar, carried into the next run (Mission 8 QA D1): it
+    fills at the next run's first evaluated bar open, as a continuous run would fill it."""
+
+    model_config = ConfigDict(extra="forbid")
+    side: Literal["LONG", "SHORT"]
+    signal_time: str
+    entry_tags: list[str] = Field(default_factory=list)
+
+
 class BacktestSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     initial_capital: float = Field(default=100_000, gt=0)
@@ -79,6 +89,8 @@ class BacktestSettings(BaseModel):
     # Carry-over (walk-forward): start holding this position; and, when close_at_end is false,
     # report a position still open at the last bar instead of closing it there.
     initial_position: OpenPosition | None = None
+    # Carry-over of an entry signalled on the previous run's last bar (no position on that side).
+    initial_entry: PendingEntry | None = None
     close_at_end: bool = True
 
     @field_validator("evaluate_from")
@@ -137,11 +149,21 @@ def _check_warmup(frame: pd.DataFrame, strategy: StrategySpec) -> None:
 
 
 def _check_initial_position(request: BacktestRequest) -> None:
-    """A carried position belongs to the side of its direction, which must be simulated."""
+    """A carried position or entry belongs to the side of its direction, which must be simulated;
+    one side never carries both."""
     position = request.settings.initial_position
+    pending = request.settings.initial_entry
+    strategy = request.strategy
+    if pending is not None:
+        owner = strategy.long_side if pending.side == "LONG" else strategy.short_side
+        if not owner.enabled:
+            raise ValueError(f"initial_entry side {pending.side} is not an enabled side")
+        if position is not None and position.side == pending.side:
+            raise ValueError(
+                f"side {pending.side} cannot start with both a carried position and a carried entry"
+            )
     if position is None:
         return
-    strategy = request.strategy
     owner = strategy.long_side if position.side == "LONG" else strategy.short_side
     if not owner.enabled:
         enabled = [
@@ -286,6 +308,7 @@ def _simulate_side(
             "equity": [],
             "metrics": _metrics([], [], settings.initial_capital),
             "open_position": None,
+            "pending_entry": None,
             "ending_cash": settings.initial_capital,
             "ending_equity": settings.initial_capital,
             "_in_position": [],
@@ -318,11 +341,23 @@ def _simulate_side(
                 "tags": tuple(carried.exit_tags),
                 "carried": True,
             }
+    entry_waiting = settings.initial_entry
+    if position is None and entry_waiting is not None and entry_waiting.side == side:
+        # An entry signalled on the previous run's last bar fills at this run's first evaluated
+        # bar open (Mission 8 QA D1), exactly as a continuous run fills it.
+        pending = {
+            "action": "ENTER",
+            "signal_index": -1,
+            "signal_time": entry_waiting.signal_time,
+            "tags": tuple(entry_waiting.entry_tags),
+            "carried": True,
+        }
     trades = []
     curve = []
     in_position = []
     peak = settings.initial_capital
     exit_carry: dict = {}
+    entry_carry: dict | None = None
     commission = strategy.execution.commission_per_side
     slippage = strategy.execution.slippage_bps
 
@@ -413,6 +448,19 @@ def _simulate_side(
                     "exit_signal_time": timestamp.isoformat(),
                     "exit_tags": list(_trade_tags(timestamp, strategy, events, symbol)),
                 }
+            elif (
+                not settings.close_at_end
+                and position is None
+                and bool(row.warm)
+                and bool(row[entry_signal])
+                and entry_permitted(timestamp, strategy.temporal)
+            ):
+                # No next bar here to fill on: the entry signal travels to the next run.
+                entry_carry = {
+                    "side": side,
+                    "signal_time": timestamp.isoformat(),
+                    "entry_tags": list(_trade_tags(timestamp, strategy, events, symbol)),
+                }
             continue
         if not bool(row.warm):
             continue
@@ -494,6 +542,7 @@ def _simulate_side(
         "equity": curve,
         "metrics": _metrics(trades, curve, settings.initial_capital, _fraction(in_position)),
         "open_position": open_position,
+        "pending_entry": entry_carry,
         "ending_cash": float(cash),
         "ending_equity": float(curve[-1]["equity"]) if curve else float(settings.initial_capital),
         "_in_position": in_position,
@@ -548,9 +597,9 @@ def _simulate_side_kernel(
     else:
         evaluating = (timestamps >= settings.evaluate_from).to_numpy(dtype=np.bool_)
     carried = settings.initial_position
-    carried_array = np.zeros(6)
+    carried_array = np.zeros(7)
     if carried is not None and carried.side == side:
-        carried_array[:] = (
+        carried_array[:6] = (
             1.0,
             carried.entry_price,
             float(carried.quantity),
@@ -560,6 +609,11 @@ def _simulate_side_kernel(
         )
     else:
         carried = None
+    waiting = settings.initial_entry
+    if carried is None and waiting is not None and waiting.side == side:
+        carried_array[6] = 1.0  # an entry carried in fills at the first evaluated bar
+    else:
+        waiting = None
     sign = _side_sign(side)
     trades_array, n_trades, equity, drawdown, in_flags, n_points, scalars, _ = (
         kernel.simulate_arrays(
@@ -594,6 +648,9 @@ def _simulate_side_kernel(
         if carried_in:
             entry_time, signal_time = carried.entry_time, carried.signal_time
             entry_tags = set(carried.entry_tags)
+        elif signal_index < 0:  # filled from the entry carried in
+            entry_time, signal_time = iso[entry_index], waiting.signal_time
+            entry_tags = set(waiting.entry_tags)
         else:
             entry_time, signal_time = iso[entry_index], iso[signal_index]
             entry_tags = set(tags_at(signal_index))
@@ -629,21 +686,34 @@ def _simulate_side_kernel(
     open_position = None
     if scalars[2] > 0.0:
         new_position = scalars[4] >= 0.0
+        from_waiting = new_position and scalars[3] < 0.0  # filled from the entry carried in
         exit_index = int(scalars[9])
+        if from_waiting:
+            signal_time, entry_tags = waiting.signal_time, list(waiting.entry_tags)
+        elif new_position:
+            signal_time, entry_tags = iso[int(scalars[3])], list(tags_at(int(scalars[3])))
+        else:
+            signal_time, entry_tags = carried.signal_time, list(carried.entry_tags)
         open_position = {
             "side": side,
             "entry_time": iso[int(scalars[4])] if new_position else carried.entry_time,
-            "signal_time": iso[int(scalars[3])] if new_position else carried.signal_time,
+            "signal_time": signal_time,
             "entry_price": float(scalars[5]),
             "quantity": int(scalars[6]),
             "entry_fee": float(scalars[7]),
             "capital_at_entry": float(scalars[8]),
-            "entry_tags": list(tags_at(int(scalars[3])) if new_position else carried.entry_tags),
+            "entry_tags": entry_tags,
             "origin_window": None if new_position else carried.origin_window,
             "exit_signal_time": iso[exit_index] if exit_index >= 0 else None,
             "exit_tags": list(tags_at(exit_index)) if exit_index >= 0 else [],
         }
 
+    entry_index = int(scalars[10])
+    pending_entry = (
+        {"side": side, "signal_time": iso[entry_index], "entry_tags": list(tags_at(entry_index))}
+        if entry_index >= 0
+        else None
+    )
     return {
         "enabled": True,
         "series": _series(data, spec),
@@ -651,6 +721,7 @@ def _simulate_side_kernel(
         "equity": curve,
         "metrics": _metrics(trades, curve, settings.initial_capital, _fraction(in_position)),
         "open_position": open_position,
+        "pending_entry": pending_entry,
         "ending_cash": float(scalars[0]),
         "ending_equity": float(scalars[1]),
         "_in_position": in_position,
@@ -723,7 +794,7 @@ def _side_metrics(
             strategy.execution.commission_per_side,
             strategy.execution.slippage_bps,
             True,
-            np.zeros(6),
+            np.zeros(7),
         )
     )
     timestamps = data["timestamp"]

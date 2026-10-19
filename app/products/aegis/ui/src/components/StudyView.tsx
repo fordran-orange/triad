@@ -138,13 +138,20 @@ export function StudyView({ studyId, onChanged, onDeleted }: Props) {
           </div>
         )}
         <div style={{ display: 'flex', gap: 6 }}>
-          <select id="study-decision-verdict" value={verdict} onChange={(e) => setVerdict(e.target.value as Verdict)}>
+          <select id="study-decision-verdict" value={verdict} disabled={live} onChange={(e) => setVerdict(e.target.value as Verdict)}>
             <option value="accepted">accepted</option>
             <option value="rejected">rejected</option>
             <option value="deferred">deferred</option>
           </select>
-          <input id="study-decision-notes" value={notes} placeholder="notes" onChange={(e) => setNotes(e.target.value)} style={{ flex: 1 }} />
-          <button type="button" className="btn btn-green" id="study-decision-save" disabled={busy} onClick={() => act(() => api.decideStudy(study.id, { verdict, notes }))}>
+          <input id="study-decision-notes" value={notes} placeholder="notes" disabled={live} onChange={(e) => setNotes(e.target.value)} style={{ flex: 1 }} />
+          <button
+            type="button"
+            className="btn btn-green"
+            id="study-decision-save"
+            disabled={busy || live}
+            title={live ? 'Decide when the study has finished, been cancelled or been paused' : undefined}
+            onClick={() => act(() => api.decideStudy(study.id, { verdict, notes }))}
+          >
             Save decision
           </button>
         </div>
