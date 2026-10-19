@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cells } from './Heatmap';
+import { cells, profitKind } from './Heatmap';
 
 describe('heatmap mapping', () => {
   it('matrix maps to cells with fast rows and slow columns', () => {
@@ -31,5 +31,29 @@ describe('heatmap orientation', () => {
     const grid = cells([5], [8, 9, 10], [[1, 5, 9]], true);
     expect(grid[0].map((c) => c.tone)).toEqual(['hot', 'mid', 'cool']);
     expect(cells([5], [8, 9, 10], [[1, 5, 9]])[0].map((c) => c.tone)).toEqual(['cool', 'mid', 'hot']);
+  });
+});
+
+describe('losing money is red, always (operator, 2026-10-19)', () => {
+  it('a negative profit value is a loss whatever its rank', () => {
+    expect(cells([5], [8, 9, 10, 11], [[-50, -10, -1, 20]], false, 'sign')[0].map((c) => c.tone)).toEqual(['loss', 'loss', 'loss', 'hot']);
+  });
+
+  it('when every cell loses, none is green', () => {
+    expect(cells([5], [8, 9, 10], [[-30, -20, -10]], false, 'sign')[0].map((c) => c.tone)).toEqual(['loss', 'loss', 'loss']);
+  });
+
+  it('gains rank among themselves and zero is neutral', () => {
+    expect(cells([5], [8, 9, 10, 11], [[0, 10, 50, 100]], false, 'sign')[0].map((c) => c.tone)).toEqual(['mid', 'gain', 'gain', 'hot']);
+  });
+
+  it('a profit factor below 1 loses money', () => {
+    expect(cells([5], [8, 9, 10, 11], [[0.5, 0.99, 1.2, 2.0]], false, 'ratio')[0].map((c) => c.tone)).toEqual(['loss', 'loss', 'gain', 'hot']);
+  });
+
+  it('profitKind names the metrics whose sign is money', () => {
+    expect(['net_pnl', 'net_return', 'cagr', 'mar', 'expectancy'].map(profitKind)).toEqual(['sign', 'sign', 'sign', 'sign', 'sign']);
+    expect(profitKind('profit_factor')).toBe('ratio');
+    expect(['max_drawdown', 'trade_count', 'win_rate', 'exposure'].map(profitKind)).toEqual([null, null, null, null]);
   });
 });

@@ -6,7 +6,7 @@ import { METRICS, METRIC_LABELS, TERMINAL_JOB_STATES, type Cell, type JobStatus,
 import { useRunBacktest } from '../state/run';
 import { applyConfigs, selectionText, SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
 import { formatSeconds } from './OptimizePopover';
-import { Heatmap } from './Heatmap';
+import { Heatmap, profitKind } from './Heatmap';
 
 const FORMAT: Record<Metric, (v: number) => string> = {
   net_pnl: money,
@@ -104,6 +104,7 @@ function JobView({ side, job }: { side: Side; job: JobStatus }) {
           slow={job.slow_values}
           matrix={matrix}
           format={FORMAT[metric]}
+          profit={profitKind(metric)}
           rowLabel={describeParams({ [job.fast_path]: NaN }, planned).replace(' NaN', '') + '↓'}
           colLabel={describeParams({ [job.slow_path]: NaN }, planned).replace(' NaN', '') + '→'}
           selected={selectedCell && selectedCell.fast !== undefined && selectedCell.slow !== undefined ? selectedCell : null}

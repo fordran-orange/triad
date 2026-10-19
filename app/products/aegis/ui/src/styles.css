@@ -85,8 +85,10 @@ background-size:100% 48px,74px 100%}
 .result-body.single{grid-template-columns:1fr}
 .heatmap{border-right:1px solid var(--line);padding:12px;overflow:auto}
 .heat-grid{display:grid;gap:3px;margin-top:9px}
-.cell{height:25px;border-radius:3px;background:#143125;display:flex;align-items:center;justify-content:center;font-size:10px;color:#9fdcbd}
-.cell.h{background:transparent;color:#698396}.cell.hot{background:#1b5c42;color:#d9ffe9}.cell.cool{background:#35232a;color:#dd98a0}
+/* Green only ever marks a winning value; a losing one is red whatever its rank (operator, 2026-10-19). */
+.cell{height:25px;border-radius:3px;background:#16222e;display:flex;align-items:center;justify-content:center;font-size:10px;color:#9fb3c2}
+.cell.h{background:transparent;color:#698396}.cell.hot{background:#1b5c42;color:#d9ffe9}.cell.gain{background:#143125;color:#9fdcbd}
+.cell.cool{background:#35232a;color:#dd98a0}.cell.loss{background:#4a1f27;color:#ffb3bb}
 .cell.empty{background:#0f1a24;color:#4f6b80}
 .results-table{padding:12px;overflow:auto}
 table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:6px 8px;border-bottom:1px solid #152430;color:#9fb2c0}

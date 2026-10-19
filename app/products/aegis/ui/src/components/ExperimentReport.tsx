@@ -6,7 +6,7 @@ import { DASH, num, pct, timeLabel } from '../format';
 import { OBJECTIVE_LABELS, OBJECTIVES, PERCENT_OBJECTIVES, type ExperimentReport, type Objective } from '../results';
 import { CellsTable } from './CellsTable';
 import { ExperimentStudies } from './ExperimentStudies';
-import { Heatmap } from './Heatmap';
+import { Heatmap, profitKind } from './Heatmap';
 import { MainEffects } from './MainEffects';
 
 interface Props {
@@ -161,6 +161,7 @@ export function ExperimentReportView({ experiment, report, onUse, onChanged, onR
                 colLabel={pair.paths[1]}
                 format={(v) => num(v, 2)}
                 lowerIsBetter={report.objective === 'max_drawdown'}
+                profit={profitKind(report.objective)}
               />
             ))}
           </div>
