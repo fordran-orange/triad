@@ -158,3 +158,36 @@ def test_experiments_kind_saves_lists_and_deletes_its_files(tmp_path):
     assert repo.list_experiments() == [] and not cells.exists() and not reports.exists()
     with pytest.raises(KeyError):
         repo.delete_experiment("twelve")
+
+
+def test_studies_kind_round_trips_and_deletes_its_windows(tmp_path):
+    repo = JsonRunRepository(tmp_path / "aegis")
+    document = {
+        "id": "walk-qqq",
+        "name": "walk QQQ",
+        "experiment_id": "twelve",
+        "status": "done",
+        "objective": "mar",
+        "symbols": ["QQQ", "SPY"],
+        "progress": {"windows_done": 3, "windows_total": 3},
+        "decision": None,
+        "windows": {"QQQ": [{"index": 0}]},
+        "report": {"summary": "x"},
+        "created_at": "2026-10-16T01:00:00+00:00",
+        "updated_at": "2026-10-16T01:00:00+00:00",
+    }
+    assert repo.save_study(document) == "walk-qqq"
+    assert repo.get_study("walk-qqq") == document
+    [summary] = repo.list_studies()
+    assert summary["id"] == "walk-qqq" and summary["experiment_id"] == "twelve"
+    assert summary["symbols"] == ["QQQ", "SPY"] and summary["status"] == "done"
+    assert "windows" not in summary and "report" not in summary
+    windows = repo.study_dir("walk-qqq")
+    (windows / "QQQ").mkdir(parents=True)
+    (windows / "QQQ" / "0.json").write_text("{}", encoding="utf-8")
+    (windows / "QQQ" / "0.parquet").write_bytes(b"x")
+    assert [s["id"] for s in repo.list_studies()] == ["walk-qqq"]  # never a window file
+    repo.delete_study("walk-qqq")
+    assert repo.list_studies() == [] and not windows.exists()
+    with pytest.raises(KeyError):
+        repo.delete_study("walk-qqq")

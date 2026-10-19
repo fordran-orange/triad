@@ -63,6 +63,20 @@ EXPERIMENT_SUMMARY_KEYS = (
     "ms_per_cell_bar",
     "error",
 )
+STUDY_SUMMARY_KEYS = (
+    "id",
+    "name",
+    "experiment_id",
+    "status",
+    "progress",
+    "symbols",
+    "objective",
+    "created_at",
+    "updated_at",
+    "decision",
+    "job_id",
+    "error",
+)
 STRATEGY_SUMMARY_KEYS = (
     "id",
     "name",
@@ -93,6 +107,11 @@ class RunRepository(Protocol):
     def list_experiments(self) -> list[dict]: ...
     def delete_experiment(self, experiment_id: str) -> None: ...
     def experiment_dir(self, experiment_id: str, kind: str) -> Path: ...
+    def save_study(self, document: dict) -> str: ...
+    def get_study(self, study_id: str) -> dict: ...
+    def list_studies(self) -> list[dict]: ...
+    def delete_study(self, study_id: str) -> None: ...
+    def study_dir(self, study_id: str) -> Path: ...
 
 
 def _check_id(identifier: str) -> str:
@@ -120,6 +139,12 @@ def _experiment_summary(document: dict) -> dict:
         "parameters": len(parameters),
         "paths": [p.get("path") for p in parameters],
     }
+
+
+def _study_summary(document: dict) -> dict:
+    """A study's listing entry: identity, parent, status and progress, never its windows or
+    report."""
+    return {key: document[key] for key in STUDY_SUMMARY_KEYS if key in document}
 
 
 def _strategy_summary(document: dict) -> dict:
@@ -272,6 +297,34 @@ class JsonRunRepository:
             tree = folder / f"{identifier}.{kind}"
             if tree.is_dir():
                 shutil.rmtree(tree, ignore_errors=True)
+
+    # Studies (Mission 8 spec §6): the document on the repository, each window's files under
+    # `studies/<id>.windows/<symbol>/`.
+    def save_study(self, document: dict) -> str:
+        return self._save("studies", "id", document, _study_summary)
+
+    def get_study(self, study_id: str) -> dict:
+        return self._get("studies", study_id)
+
+    def list_studies(self) -> list[dict]:
+        return self._list("studies", _study_summary)
+
+    def study_dir(self, study_id: str) -> Path:
+        return self._folder("studies") / f"{_check_id(study_id)}.windows"
+
+    def delete_study(self, study_id: str) -> None:
+        folder = self._folder("studies")
+        identifier = _check_id(study_id)
+        path = folder / f"{identifier}.json"
+        if not path.is_file():
+            raise KeyError(study_id)
+        _retry(path.unlink)
+        sidecar = folder / f"{identifier}.summary.json"
+        if sidecar.is_file():
+            _retry(sidecar.unlink)
+        tree = folder / f"{identifier}.windows"
+        if tree.is_dir():
+            shutil.rmtree(tree, ignore_errors=True)
 
     def delete_strategy(self, strategy_id: str) -> None:
         folder = self._folder("strategies")
