@@ -187,3 +187,29 @@ def test_a_failing_finalize_is_persisted_as_failed(tmp_path):
     persisted = repository.get_optimization(job_id)
     assert persisted["status"] == "failed"
     assert "RuntimeError: report blew up" in persisted["error"]
+
+
+class StudyLike(Counting):
+    """A resumable kind persisted by its own id under the repository's `studies`."""
+
+    name = "study"
+    side = "both"
+    resumable = True
+    bars_per_unit = 0
+
+    def snapshot(self):
+        return {"id": "walk-one", "name": "walk one", "seen": list(self.seen)}
+
+
+def test_the_study_kind_is_listed_by_its_plural_and_resumes_after_a_restart(tmp_path):
+    repository = JsonRunRepository(tmp_path / "aegis")
+    runner = JobRunner(repository)
+    job_id = runner.start(StudyLike())
+    assert wait_for(lambda: runner.status(job_id)["status"] == "done")
+    [listed] = runner.list_jobs("study")
+    assert listed["id"] == "walk-one" and listed["status"] == "done"
+    document = repository.get_study("walk-one")
+    document["status"] = "running"
+    repository.save_study(document)
+    assert JobRunner(repository).mark_lost_on_startup() == ["walk-one"]
+    assert repository.get_study("walk-one")["status"] == "paused"

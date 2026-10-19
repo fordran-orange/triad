@@ -12,6 +12,7 @@ import logging
 import math
 import threading
 import time
+from datetime import date
 from functools import lru_cache
 from typing import Literal
 
@@ -20,6 +21,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from products.aegis import experiments as experiments_module
+from products.aegis import studies as studies_module
 from products.aegis.backtest import BacktestRequest, DataReference, run_backtest
 from products.aegis.data import (
     TIMEFRAMES,
@@ -38,6 +40,7 @@ from products.aegis.results import envelope
 from products.aegis.runs import JsonRunRepository, RunRepository
 from products.aegis.strategies import BuiltinRefused, StrategyLibrary, StrategyReferenced
 from products.aegis.strategy import IndicatorSpec, StrategySpec
+from products.aegis.study_rules import render_study_markdown
 from products.aegis.walkforward import WalkForwardJob, WalkForwardRequest
 from products.aegis.walkforward import plan as walkforward_plan
 
@@ -829,17 +832,249 @@ def refine_experiment(
     return child.model_dump(mode="json")
 
 
+def get_study_store(repository: RunRepository = REPOSITORY) -> studies_module.StudyStore:
+    return studies_module.StudyStore(repository)
+
+
+STUDIES = Depends(get_study_store)
+
+
 @router.delete("/experiments/{experiment_id}")
 def delete_experiment(
-    experiment_id: str, experiments: experiments_module.ExperimentStore = EXPERIMENTS
+    experiment_id: str,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+    studies: studies_module.StudyStore = STUDIES,
 ):
     document = _experiment(experiments, experiment_id)
     if document.status in experiments_module.UNFINISHED:
         raise HTTPException(
             409, f"experiment {experiment_id} is {document.status}; cancel it first"
         )
+    children = [s["id"] for s in studies.list() if s.get("experiment_id") == experiment_id]
+    if children:  # plan ruling P7: a study's parent is part of its evidence
+        raise HTTPException(
+            409,
+            f"experiment {experiment_id} has studies: {', '.join(children)}; delete them first",
+        )
     experiments.delete(experiment_id)
     return {"deleted": experiment_id}
+
+
+# --- studies (Mission 8 spec §6) -------------------------------------------------------------
+
+
+def _study(store: studies_module.StudyStore, study_id: str):
+    try:
+        return store.get(study_id)
+    except KeyError as exc:
+        raise HTTPException(404, f"unknown study {study_id!r}") from exc
+
+
+def _study_range(store: ArchiveStore, symbols: list[str], start, end) -> tuple:
+    """The requested range, or the chosen archives' whole span (spec §4)."""
+    known = [s for s in store.symbols() if s.symbol in symbols]
+    if not known:
+        return start, end
+    first = start or min(date.fromisoformat(s.first_bar[:10]) for s in known)
+    last = end or max(date.fromisoformat(s.last_bar[:10]) for s in known)
+    return first, last
+
+
+def _study_bars(store: ArchiveStore, symbols: list[str], timeframe: str, start, end):
+    """Engine rows and provenance per known symbol; an unknown one is left for the plan to name."""
+    known = {s.symbol for s in store.symbols()}
+    rows: dict[str, list[dict]] = {}
+    pinned: dict[str, PinnedSource] = {}
+    if start is None or end is None:
+        return rows, pinned
+    for symbol in symbols:
+        if symbol not in known:
+            continue
+        frame, source = _select(store, symbol, timeframe, start, end)
+        rows[symbol] = engine_rows(frame, symbol)
+        pinned[symbol] = source
+    return rows, pinned
+
+
+def _timestamps(rows: dict[str, list[dict]]) -> dict[str, list[str]]:
+    return {symbol: [r["timestamp"] for r in values] for symbol, values in rows.items()}
+
+
+@router.post("/studies/plan")
+def study_plan(
+    request: studies_module.StudyRequest,
+    store: ArchiveStore = STORE,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    """What a start would do on each symbol: windows, cells per window, runs and an estimate."""
+    experiment = _experiment(experiments, request.experiment_id)
+    start, end = _study_range(store, request.symbols, request.start, request.end)
+    rows, _ = _study_bars(store, request.symbols, experiment.data.timeframe, start, end)
+    try:
+        planned = studies_module.plan_study(
+            request,
+            experiment,
+            _timestamps(rows),
+            experiments.last_ms_per_cell_bar(),
+            default_workers(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return planned.model_dump(mode="json")
+
+
+@router.post("/studies", status_code=202)
+def create_study(
+    request: studies_module.StudyRequest,
+    store: ArchiveStore = STORE,
+    runner: JobRunner = RUNNER,
+    repository: RunRepository = REPOSITORY,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+    studies: studies_module.StudyStore = STUDIES,
+):
+    experiment = _experiment(experiments, request.experiment_id)
+    start, end = _study_range(store, request.symbols, request.start, request.end)
+    rows, pinned = _study_bars(store, request.symbols, experiment.data.timeframe, start, end)
+    try:
+        document = studies_module.create_study(
+            studies,
+            experiments,
+            request,
+            _timestamps(rows),
+            default_workers(),
+            start,
+            end,
+            data={symbol: _provenance(source) for symbol, source in pinned.items()},
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    job = studies_module.StudyJob(document, rows, pinned, repository)
+    try:
+        job_id = runner.start(job)
+    except JobBusy as exc:
+        studies.delete(document.id)  # nothing is left queued behind a refusal
+        raise HTTPException(
+            409, "another job is running; start the study when the runner is free"
+        ) from exc
+    return {"study_id": document.id, "job_id": job_id, "status": "running", "plan": document.plan}
+
+
+@router.get("/studies")
+def list_studies(experiment_id: str | None = None, studies: studies_module.StudyStore = STUDIES):
+    listed = studies.list()
+    if experiment_id is not None:
+        listed = [s for s in listed if s.get("experiment_id") == experiment_id]
+    return listed
+
+
+@router.get("/studies/{study_id}")
+def study_document(study_id: str, studies: studies_module.StudyStore = STUDIES):
+    """The persisted study as the runner last saved it, with its progress and estimate."""
+    _study(studies, study_id)
+    return studies.repository.get_study(study_id)
+
+
+@router.post("/studies/{study_id}/pause")
+def pause_study(
+    study_id: str, runner: JobRunner = RUNNER, studies: studies_module.StudyStore = STUDIES
+):
+    document = _study(studies, study_id)
+    if document.status != "running" or not document.job_id:
+        raise HTTPException(409, f"study {study_id} is {document.status}, not running")
+    job = runner.job_kind(document.job_id)
+    if job is None:
+        raise HTTPException(409, f"study {study_id} has no running job on this worker")
+    job.pause_requested = True
+    runner.cancel(document.job_id)
+    return {"paused": study_id}
+
+
+@router.post("/studies/{study_id}/resume", status_code=202)
+def resume_study(
+    study_id: str,
+    store: ArchiveStore = STORE,
+    runner: JobRunner = RUNNER,
+    repository: RunRepository = REPOSITORY,
+    studies: studies_module.StudyStore = STUDIES,
+):
+    document = _study(studies, study_id)
+    if document.status not in ("queued", "paused", "failed"):
+        raise HTTPException(
+            409,
+            f"study {study_id} is {document.status}; only queued, paused or failed studies resume",
+        )
+    rows, pinned = _study_bars(
+        store, document.symbols, document.timeframe, document.start, document.end
+    )
+    job = studies_module.StudyJob(document, rows, pinned, repository)
+    try:
+        job_id = runner.start(job)
+    except JobBusy as exc:
+        raise HTTPException(409, "another job is running") from exc
+    return {"study_id": study_id, "job_id": job_id, "status": "running"}
+
+
+@router.post("/studies/{study_id}/cancel")
+def cancel_study(
+    study_id: str, runner: JobRunner = RUNNER, studies: studies_module.StudyStore = STUDIES
+):
+    document = _study(studies, study_id)
+    if document.status not in studies_module.UNFINISHED:
+        raise HTTPException(409, f"study {study_id} is {document.status}, not running")
+    live = runner.job_kind(document.job_id) if document.job_id else None
+    if live is not None:  # a job on this worker: it finalizes itself
+        return {"cancelled": runner.cancel(document.job_id)}
+    if document.status == "running":
+        raise HTTPException(409, f"study {study_id} has no running job on this worker")
+    studies_module.cancel_idle_study(studies, document)
+    return {"cancelled": True}
+
+
+@router.delete("/studies/{study_id}")
+def delete_study(study_id: str, studies: studies_module.StudyStore = STUDIES):
+    document = _study(studies, study_id)
+    if document.status in studies_module.UNFINISHED:
+        raise HTTPException(409, f"study {study_id} is {document.status}; cancel it first")
+    studies.delete(study_id)
+    return {"deleted": study_id}
+
+
+@router.put("/studies/{study_id}/decision")
+def decide_study(
+    study_id: str, request: DecisionRequest, studies: studies_module.StudyStore = STUDIES
+):
+    document = _study(studies, study_id)
+    decided = studies_module.decide_study(studies, document, request.verdict, request.notes)
+    return decided.model_dump(mode="json")
+
+
+@router.get("/studies/{study_id}/windows/{symbol}/{w}/cells")
+def study_window_cells(
+    study_id: str,
+    symbol: str,
+    w: int,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=5000),
+    studies: studies_module.StudyStore = STUDIES,
+):
+    document = _study(studies, study_id)
+    if symbol not in document.symbols:
+        raise HTTPException(404, f"study {study_id} has no symbol {symbol!r}")
+    table = studies.cells(study_id, symbol, w)
+    if table is None:
+        raise HTTPException(404, f"study {study_id} has no window {symbol}/{w}")
+    page = table.slice(offset, limit)
+    return {"total": len(table), "rows": page.to_pylist(), "columns": table.column_names}
+
+
+@router.get("/studies/{study_id}/report.md")
+def study_report_markdown(study_id: str, studies: studies_module.StudyStore = STUDIES):
+    document = _study(studies, study_id)
+    if document.report is None:
+        raise HTTPException(404, f"study {study_id} has no report yet")
+    return PlainTextResponse(
+        render_study_markdown(document.report), media_type="text/markdown; charset=utf-8"
+    )
 
 
 __all__ = [

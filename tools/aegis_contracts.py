@@ -23,6 +23,7 @@ def models():
     from products.aegis.optimize import OptimizeRequest
     from products.aegis.strategies import StrategyDocument
     from products.aegis.strategy import StrategySpec
+    from products.aegis.studies import StudyDocument, StudyPlan, StudyRequest
     from products.aegis.surface import Plan
     from products.aegis.walkforward import WalkForwardRequest
 
@@ -35,6 +36,9 @@ def models():
         ExperimentRequest,
         ExperimentDocument,
         Plan,
+        StudyRequest,
+        StudyPlan,
+        StudyDocument,
     ]
 
 

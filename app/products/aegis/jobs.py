@@ -30,9 +30,11 @@ from products.aegis.runs import RunRepository
 # runner replaces it with the measured figure of the last completed job (persisted with it).
 MS_PER_BAR = 0.7
 UNFINISHED = ("queued", "running")
-KINDS = ("optimization", "walkforward", "experiment")
+KINDS = ("optimization", "walkforward", "experiment", "study")
 # Kinds persisted by their own id that survive a worker death as "paused", not "lost".
-RESUMABLE = ("experiment",)
+RESUMABLE = ("experiment", "study")
+# Repository listing names that are not "<kind>s".
+PLURALS = {"study": "studies"}
 log = logging.getLogger("aegis")
 
 
@@ -81,7 +83,7 @@ class JobRunner:
         return getattr(self._repository, f"get_{name}")(job_id)
 
     def _list(self, name: str) -> list[dict]:
-        lister = getattr(self._repository, f"list_{name}s", None)
+        lister = getattr(self._repository, f"list_{PLURALS.get(name, name + 's')}", None)
         return lister() if lister is not None else []
 
     def _learned_ms_per_bar(self) -> float:

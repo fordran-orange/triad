@@ -70,3 +70,9 @@ def test_indicator_kinds_constant_matches_python():
 def test_parameter_maps_are_typed_as_number_records():
     text = load_generator().render()
     assert "params?: Record<string, number>" in text
+
+
+def test_generated_contracts_cover_the_study_models():
+    text = load_generator().render()
+    for name in ("StudyRequest", "StudyPlan", "SymbolPlan", "StudyDocument"):
+        assert f"export interface {name} " in text, name

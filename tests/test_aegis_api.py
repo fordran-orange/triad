@@ -1061,3 +1061,179 @@ def test_resume_continues_a_failed_experiment(client, monkeypatch):
     finished = _wait_experiment(c, doc.id, ("done", "failed"))
     assert finished["status"] == "done", finished.get("error")
     assert finished["progress"]["cells_done"] == 4 and finished["error"] is None
+
+
+# --- studies (Mission 8 spec §6) ---------------------------------------------------------------
+
+
+def _finished_experiment(repository, recommendation=True, status="done"):
+    """A finished 4-cell experiment on the synthetic 1m archive (780 bars), saved directly."""
+    from products.aegis.experiments import ExperimentDocument, ExperimentStore
+    from products.aegis.surface import Budget, Parameter, Surface
+    from products.aegis.surface import plan as plan_surface
+    from test_aegis_surface import pinned
+
+    surface = Surface(
+        parameters=[
+            Parameter(path="long_side.indicators.donchian.length", start=10, stop=15, step=5),
+            Parameter(path="long_side.indicators.rsi.length", start=7, stop=14, step=7),
+        ]
+    )
+    planned = plan_surface(pinned(), surface, Budget(runs=100), 300, 0.01, 2, "1m")
+    document = ExperimentDocument(
+        id="four-cells",
+        name="four cells",
+        strategy_id="breakout",
+        strategy_hash="0" * 64,
+        spec=pinned(),
+        data={"symbol": "QQQ", "timeframe": "1m", **RANGE},
+        settings={"initial_capital": 100_000, "allocation_fraction": 1},
+        objective="net_pnl",
+        surface=surface,
+        budget=Budget(runs=100),
+        tolerance=0.15,
+        seed=1,
+        plan=planned.model_dump(mode="json"),
+        status=status,
+        progress={"cells_done": 4, "cells_planned": 4, "chunks_done": 1, "chunks_total": 1},
+        created_at="2026-10-15T00:00:00+00:00",
+        updated_at="2026-10-15T00:00:00+00:00",
+        latest_report=1,
+    )
+    store = ExperimentStore(repository)
+    store.save(document)
+    centre = {
+        "cell": 1,
+        "params": {
+            "long_side.indicators.donchian.length": 10.0,
+            "long_side.indicators.rsi.length": 14.0,
+        },
+    }
+    store.write_report(
+        document.id, 1, {"recommendation": {"centre": centre} if recommendation else None}, "# r"
+    )
+    return document
+
+
+STUDY_BODY = {
+    "experiment_id": "four-cells",
+    "symbols": ["QQQ", "SPY"],
+    "in_sample_bars": 300,
+    "out_of_sample_bars": 150,
+}
+
+
+def _wait_study(c, study_id, statuses, timeout=180.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        body = c.get(f"/aegis/api/studies/{study_id}").json()
+        if body["status"] in statuses:
+            return body
+        time.sleep(0.05)
+    raise AssertionError(f"study {study_id} never reached {statuses}")
+
+
+def test_study_routes_plan_create_get_decide_delete(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    write_archive(tmp_path, "20260301T000000000000Z", "SPY", price=400.0)
+    c, _, repository = client
+    _runner(repository)
+    _finished_experiment(repository)
+    plan = c.post("/aegis/api/studies/plan", json=STUDY_BODY)
+    assert plan.status_code == 200, plan.text
+    body = plan.json()
+    assert [s["symbol"] for s in body["symbols"]] == ["QQQ", "SPY"]
+    assert [s["windows"] for s in body["symbols"]] == [3, 3]  # (780 - 300) // 150
+    assert body["symbols"][0]["cells_per_window"] == 4 and body["total_runs"] == 24
+    created = c.post("/aegis/api/studies", json={**STUDY_BODY, "name": "walk four"})
+    assert created.status_code == 202, created.text
+    study_id = created.json()["study_id"]
+    assert created.json()["job_id"] and created.json()["status"] == "running"
+    started = time.perf_counter()
+    c.get(f"/aegis/api/studies/{study_id}")
+    assert time.perf_counter() - started < 0.5  # the status route answers while it runs
+    done = _wait_study(c, study_id, ("done", "failed"))
+    assert done["status"] == "done", done.get("error")
+    assert done["report"]["raw_archive"] is True and set(done["windows"]) == {"QQQ", "SPY"}
+    listed = c.get("/aegis/api/studies").json()
+    assert [s["id"] for s in listed] == [study_id]
+    assert c.get("/aegis/api/studies?experiment_id=four-cells").json()[0]["id"] == study_id
+    assert c.get("/aegis/api/studies?experiment_id=other").json() == []
+    cells = c.get(f"/aegis/api/studies/{study_id}/windows/QQQ/0/cells?limit=2").json()
+    assert cells["total"] == 4 and len(cells["rows"]) == 2
+    assert c.get(f"/aegis/api/studies/{study_id}/windows/QQQ/9/cells").status_code == 404
+    assert c.get(f"/aegis/api/studies/{study_id}/windows/ZZZ/0/cells").status_code == 404
+    markdown = c.get(f"/aegis/api/studies/{study_id}/report.md")
+    assert markdown.status_code == 200 and markdown.text.startswith("# Plateau walk-forward:")
+    assert "RAW ARCHIVE · NOT RESEARCH-ELIGIBLE" in markdown.text
+    decided = c.put(
+        f"/aegis/api/studies/{study_id}/decision",
+        json={"verdict": "accepted", "notes": "walk it on more symbols"},
+    )
+    assert decided.status_code == 200 and decided.json()["decision"]["verdict"] == "accepted"
+    assert c.get("/aegis/api/studies").json()[0]["decision"]["notes"] == "walk it on more symbols"
+    # Review Focus 4: a study's parent is part of its evidence.
+    refused = c.delete("/aegis/api/experiments/four-cells")
+    assert refused.status_code == 409 and study_id in refused.json()["detail"]
+    assert c.delete(f"/aegis/api/studies/{study_id}").json() == {"deleted": study_id}
+    assert c.get(f"/aegis/api/studies/{study_id}").status_code == 404
+    assert c.delete("/aegis/api/experiments/four-cells").status_code == 200
+
+
+def test_study_route_refusals(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    write_archive(tmp_path, "20260301T000000000000Z", "SPY", price=400.0)
+    c, _, repository = client
+    _finished_experiment(repository)
+    assert (
+        c.post("/aegis/api/studies/plan", json={**STUDY_BODY, "experiment_id": "nope"}).status_code
+        == 404
+    )
+    unknown = c.post("/aegis/api/studies/plan", json={**STUDY_BODY, "symbols": ["ZZZ"]})
+    assert unknown.status_code == 422 and "unknown symbol 'ZZZ'" in unknown.text
+    floor = c.post("/aegis/api/studies/plan", json={**STUDY_BODY, "in_sample_bars": 30})
+    assert floor.status_code == 422 and "in_sample_bars 30 below 35" in floor.text
+    short = c.post("/aegis/api/studies/plan", json={**STUDY_BODY, "in_sample_bars": 700})
+    assert short.status_code == 422 and "range too short" in short.text
+    assert c.post("/aegis/api/studies/plan", json={**STUDY_BODY, "symbols": []}).status_code == 422
+
+    _held, gate = _held_runner(repository)
+    try:
+        started = c.post("/aegis/api/optimize", json=_optimize_payload())
+        assert started.status_code == 202
+        busy = c.post("/aegis/api/studies", json=STUDY_BODY)
+        assert busy.status_code == 409 and "another job is running" in busy.text
+        assert c.get("/aegis/api/studies").json() == []  # nothing left queued behind the refusal
+    finally:
+        gate.set()
+    _wait(c, started.json()["job_id"], "done")
+
+    _runner(repository)
+    from products.aegis.studies import StudyStore
+
+    created = c.post("/aegis/api/studies", json=STUDY_BODY).json()
+    study_id = created["study_id"]
+    _wait_study(c, study_id, ("done", "failed"))
+    assert c.post(f"/aegis/api/studies/{study_id}/pause").status_code == 409
+    assert c.post(f"/aegis/api/studies/{study_id}/resume").status_code == 409
+    assert (
+        c.put(f"/aegis/api/studies/{study_id}/decision", json={"verdict": "maybe"}).status_code
+        == 422
+    )
+    store = StudyStore(repository)
+    paused = store.get(study_id).model_copy(update={"status": "paused"})
+    store.save(paused)
+    gone = c.delete(f"/aegis/api/studies/{study_id}")
+    assert gone.status_code == 409 and "cancel it first" in gone.text
+    assert c.post(f"/aegis/api/studies/{study_id}/cancel").json() == {"cancelled": True}
+    assert c.get(f"/aegis/api/studies/{study_id}").json()["status"] == "cancelled"
+    assert c.delete(f"/aegis/api/studies/{study_id}").status_code == 200
+    assert c.post("/aegis/api/studies/nope/pause").status_code == 404
+
+
+def test_a_study_of_an_unfinished_experiment_is_refused(client, monkeypatch):
+    c, _, repository = client
+    _finished_experiment(repository, status="running")
+    refused = c.post("/aegis/api/studies/plan", json={**STUDY_BODY, "symbols": ["QQQ"]})
+    assert refused.status_code == 422
+    assert "a study needs a finished experiment with a report" in refused.text

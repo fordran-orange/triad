@@ -148,6 +148,19 @@ export interface Surface {
   parameters: Parameter[];
 }
 
+export interface SymbolPlan {
+  symbol: string;
+  bars: number;
+  windows: number;
+  unused_tail_bars: number;
+  first_window: Record<string, unknown>;
+  mode: 'exhaustive' | 'sampled';
+  cells_per_window: number;
+  first_pass: number;
+  refinement: number;
+  runs: number;
+}
+
 export interface TemporalContext {
   timezone?: string;
   regular_session_only?: boolean;
@@ -267,6 +280,67 @@ export interface Plan {
   bars: number;
   levers?: Lever[];
   price_source?: 'measured' | 'starting_guess';
+}
+
+export interface StudyRequest {
+  experiment_id: string;
+  name?: string | null;
+  symbols?: string[];
+  start?: string | null;
+  end?: string | null;
+  in_sample_bars?: number | null;
+  out_of_sample_bars?: number | null;
+}
+
+export interface StudyPlan {
+  experiment_id: string;
+  timeframe: string;
+  in_sample_bars: number;
+  out_of_sample_bars: number;
+  symbols: SymbolPlan[];
+  total_runs: number;
+  valid_cells: number;
+  skipped: number;
+  skip_reasons: Record<string, number>;
+  estimate_seconds: number;
+  ms_per_cell_bar: number;
+  price_source: 'measured' | 'starting_guess';
+  workers: number;
+  levers?: Lever[];
+}
+
+export interface StudyDocument {
+  id: string;
+  name: string;
+  experiment_id: string;
+  strategy_id: string;
+  spec: StrategySpec;
+  surface: Surface;
+  objective: string;
+  tolerance: number;
+  budget: Budget;
+  seed: number;
+  timeframe: string;
+  settings: BacktestSettings;
+  symbols: string[];
+  start: string;
+  end: string;
+  in_sample_bars: number;
+  out_of_sample_bars: number;
+  frozen_centre?: Record<string, unknown> | null;
+  frozen_absent?: string | null;
+  data?: Record<string, unknown>;
+  plan: Record<string, unknown>;
+  status: 'queued' | 'running' | 'paused' | 'done' | 'cancelled' | 'failed';
+  progress: Record<string, unknown>;
+  windows?: Record<string, Record<string, unknown>[]>;
+  report?: Record<string, unknown> | null;
+  decision?: Record<string, unknown> | null;
+  ms_per_cell_bar?: number | null;
+  job_id?: string | null;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface IndicatorKind {

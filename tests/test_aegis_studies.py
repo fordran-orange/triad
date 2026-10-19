@@ -288,3 +288,265 @@ def test_map_window_sampled_stays_within_budget(window_pool):
         window_pool, grid, "sampled", 20, 10, "net_pnl", 0.15, 7, (100, 300), "QQQ w0"
     )
     assert again.column("cell").to_pylist() == cells
+
+
+# --- Task 5: the study job kind, its window files and resume ---------------------------------
+
+NINE = Surface(
+    parameters=[
+        Parameter(path="long_side.indicators.donchian.length", start=10, stop=20, step=5),
+        Parameter(path="long_side.indicators.rsi.length", start=7, stop=21, step=7),
+    ]
+)
+PINNED_DATA = {"source": "raw_archive", "vintage": "test", "research_eligible": False}
+LENGTHS = {"QQQ": 400, "SPY": 340}  # 4 and 3 windows of 120 + 60 bars
+
+
+def symbol_rows(symbol: str, n: int) -> list[dict]:
+    from test_aegis_walkforward import wave_bars
+
+    amplitude = 10.0 if symbol == "QQQ" else 7.0
+    return [
+        {**row, "timestamp": row["timestamp"].isoformat(), "symbol": symbol}
+        for row in wave_bars(n=n, period=37.0, amplitude=amplitude)
+    ]
+
+
+ROWS_BY_SYMBOL = {symbol: symbol_rows(symbol, n) for symbol, n in LENGTHS.items()}
+
+
+def make_parent(repository, recommendation=True):
+    from products.aegis.experiments import ExperimentStore
+
+    store = ExperimentStore(repository)
+    parent = experiment(bars=120, objective="net_pnl", surface=NINE, budget=Budget(runs=100))
+    parent = parent.model_copy(update={"id": "nine-cells"})
+    store.save(parent)
+    grid_values = {
+        "long_side.indicators.donchian.length": 15.0,
+        "long_side.indicators.rsi.length": 14.0,
+    }
+    report = (
+        {"recommendation": {"centre": {"cell": 4, "params": grid_values}}}
+        if recommendation
+        else {"recommendation": None}
+    )
+    store.write_report(parent.id, 1, report, "# report")
+    return store, parent
+
+
+def new_study(repository, name="walk nine", recommendation=True):
+    from datetime import date
+
+    from products.aegis.studies import StudyStore, create_study
+
+    experiments, parent = make_parent(repository, recommendation)
+    request = StudyRequest(
+        experiment_id=parent.id,
+        name=name,
+        symbols=list(LENGTHS),
+        in_sample_bars=120,
+        out_of_sample_bars=60,
+    )
+    bars = {s: [r["timestamp"] for r in rows] for s, rows in ROWS_BY_SYMBOL.items()}
+    document = create_study(
+        StudyStore(repository), experiments, request, bars, 2, date(2026, 1, 5), date(2026, 1, 31)
+    )
+    return document
+
+
+def job_for(repository, document):
+    from products.aegis.studies import StudyJob
+
+    return StudyJob(
+        document,
+        ROWS_BY_SYMBOL,
+        {s: {**PINNED_DATA, "symbol": s} for s in LENGTHS},
+        repository,
+        max_workers=2,
+    )
+
+
+def stored(repository, study_id):
+    from products.aegis.studies import StudyStore
+
+    return StudyStore(repository).get(study_id)
+
+
+def run_to(repository, document, statuses=("done", "failed"), after_unit=None):
+    from products.aegis.jobs import JobRunner
+    from test_aegis_experiments import wait_for
+
+    runner = JobRunner(repository, after_unit=after_unit)
+    job = job_for(repository, document)
+    job_id = runner.start(job)
+    assert wait_for(lambda: stored(repository, document.id).status in statuses, timeout=240)
+    assert wait_for(lambda: runner.status(job_id)["status"] not in ("queued", "running"))
+    return runner, job, job_id, stored(repository, document.id)
+
+
+def hashes(document):
+    return {
+        symbol: {
+            rule: entry["rules"][rule].get("result_hash") for rule in ("plateau", "peak", "frozen")
+        }
+        for symbol, entry in document.report["symbols"].items()
+    }
+
+
+@pytest.fixture(scope="module")
+def reference(tmp_path_factory):
+    from products.aegis.runs import JsonRunRepository
+
+    repository = JsonRunRepository(tmp_path_factory.mktemp("reference") / "aegis")
+    document = new_study(repository)
+    _, job, _, done = run_to(repository, document)
+    assert done.status == "done", done.error
+    return repository, done, job
+
+
+def test_study_runs_to_done_with_every_window_once(reference):
+    from products.aegis.studies import StudyStore
+
+    repository, done, job = reference
+    assert job.name == "study" and job.resumable and job.bars_per_unit == 0
+    assert StudyStore(repository).done_windows(done.id) == {"QQQ": {0, 1, 2, 3}, "SPY": {0, 1, 2}}
+    assert [w["index"] for w in done.windows["QQQ"]] == [0, 1, 2, 3]
+    assert [w["index"] for w in done.windows["SPY"]] == [0, 1, 2]
+    assert done.progress["windows_done"] == done.progress["windows_total"] == 7
+    for symbol in LENGTHS:
+        for rule, value in hashes(done)[symbol].items():
+            assert value is not None and len(value) == 64, (symbol, rule)
+    compact = done.windows["QQQ"][1]["rules"]["plateau"]
+    assert "trades" not in compact["combined"]
+    full = StudyStore(repository).read_window(done.id, "QQQ", 1)
+    assert "trades" in full["rules"]["plateau"]["combined"] and full["chains_out"]["plateau"]
+    assert full["mode"] == "exhaustive" and full["cells_run"] == 9
+    cells = StudyStore(repository).cells(done.id, "QQQ", 1)
+    assert sorted(cells.column("cell").to_pylist()) == list(range(9))
+    assert done.report["raw_archive"] is True and done.report["summary"].startswith("plateau rule")
+
+
+def test_window_records_name_the_choice_and_the_previous_plateau(reference):
+    _, done, _ = reference
+    for symbol, windows in done.windows.items():
+        first = windows[0]
+        assert first["centre_inside"] is None and first["moved"] is None
+        for window in windows:
+            assert (window["plateau"] is None) == (window["no_plateau"] is not None), symbol
+            assert window["rules"]["frozen"]["params"] == {
+                "long_side.indicators.donchian.length": 15.0,
+                "long_side.indicators.rsi.length": 14.0,
+            }
+            if window["plateau"] is None:
+                assert window["rules"]["plateau"]["flat"] is True
+
+
+def test_identical_study_reproduces_every_hash(reference, tmp_path):
+    from products.aegis.runs import JsonRunRepository
+
+    _, done, _ = reference
+    repository = JsonRunRepository(tmp_path / "aegis")
+    _, _, _, again = run_to(repository, new_study(repository))
+    assert again.status == "done", again.error
+    assert hashes(again) == hashes(done)
+
+
+def pause_after(units: int):
+    state: dict = {}
+
+    def hook(done):
+        if done == units:
+            job = state["runner"].job_kind(state["job_id"])
+            job.pause_requested = True
+            state["runner"].cancel(state["job_id"])
+
+    return state, hook
+
+
+def test_pause_lands_at_a_window_boundary_then_resumes(reference, tmp_path):
+    from products.aegis.jobs import JobRunner
+    from products.aegis.runs import JsonRunRepository
+    from test_aegis_experiments import wait_for
+
+    _, done, _ = reference
+    repository = JsonRunRepository(tmp_path / "aegis")
+    document = new_study(repository)
+    state, hook = pause_after(2)
+    runner = JobRunner(repository, after_unit=hook)
+    state["runner"] = runner
+    state["job_id"] = runner.start(job_for(repository, document))
+    assert wait_for(lambda: stored(repository, document.id).status == "paused", timeout=240)
+    paused = stored(repository, document.id)
+    assert [w["index"] for w in paused.windows["QQQ"]] == [0, 1] and "SPY" not in paused.windows
+    resumed = job_for(repository, paused)
+    assert resumed.units == [("QQQ", 2), ("QQQ", 3), ("SPY", 0), ("SPY", 1), ("SPY", 2)]
+    _, _, _, finished = run_to(repository, paused)
+    assert finished.status == "done", finished.error
+    assert [w["index"] for w in finished.windows["QQQ"]] == [0, 1, 2, 3]
+    assert hashes(finished) == hashes(done)
+
+
+def test_resume_restores_the_chains_from_the_last_window_file(
+    reference, tmp_path
+):  # Review Focus 3
+    from products.aegis.jobs import JobRunner
+    from products.aegis.runs import JsonRunRepository
+    from products.aegis.studies import StudyStore
+    from test_aegis_experiments import wait_for
+
+    _, done, _ = reference
+    repository = JsonRunRepository(tmp_path / "aegis")
+    document = new_study(repository)
+    state, hook = pause_after(6)  # QQQ 0-3 and SPY 0-1
+    runner = JobRunner(repository, after_unit=hook)
+    state["runner"] = runner
+    state["job_id"] = runner.start(job_for(repository, document))
+    assert wait_for(lambda: stored(repository, document.id).status == "paused", timeout=240)
+    # A worker that died mid-run leaves the document running; the next worker pauses it.
+    dead = repository.get_study(document.id)
+    dead["status"] = "running"
+    repository.save_study(dead)
+    assert JobRunner(repository).mark_lost_on_startup() == [document.id]
+    assert stored(repository, document.id).status == "paused"
+    store = StudyStore(repository)
+    before = {w: store.window_paths(document.id, "SPY", w)[0].stat().st_mtime_ns for w in (0, 1)}
+    resumed = job_for(repository, stored(repository, document.id))
+    assert resumed.units == [("SPY", 2)]
+    last = store.read_window(document.id, "SPY", 1)
+    for rule, sides in last["chains_out"].items():
+        for side, chain in sides.items():
+            assert resumed.chains["SPY"][rule][side].as_dict() == chain, (rule, side)
+    _, _, _, finished = run_to(repository, stored(repository, document.id))
+    assert finished.status == "done", finished.error
+    assert hashes(finished) == hashes(done)
+    assert {
+        w: store.window_paths(document.id, "SPY", w)[0].stat().st_mtime_ns for w in (0, 1)
+    } == before
+
+
+def test_a_torn_window_file_reruns_that_window_and_every_later_one(reference, tmp_path):
+    import shutil
+
+    from products.aegis.runs import JsonRunRepository
+    from products.aegis.studies import StudyStore
+
+    source_repository, done, _ = reference
+    repository = JsonRunRepository(tmp_path / "aegis")
+    repository.save_study(source_repository.get_study(done.id))
+    shutil.copytree(source_repository.study_dir(done.id), repository.study_dir(done.id))
+    store = StudyStore(repository)
+    json_path, _ = store.window_paths(done.id, "QQQ", 2)
+    json_path.write_text("{torn", encoding="utf-8")
+    assert store.done_windows(done.id)["QQQ"] == {0, 1, 3}
+    job = job_for(repository, stored(repository, done.id).model_copy(update={"status": "paused"}))
+    assert job.units == [("QQQ", 2), ("QQQ", 3)]
+
+
+def test_frozen_column_is_absent_when_the_parent_has_no_recommendation(tmp_path):
+    from products.aegis.runs import JsonRunRepository
+
+    document = new_study(JsonRunRepository(tmp_path / "aegis"), recommendation=False)
+    assert document.frozen_centre is None
+    assert document.frozen_absent == "the parent report has no recommendation"
+    assert document.status == "queued" and document.progress["windows_total"] == 7
