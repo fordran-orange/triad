@@ -196,8 +196,10 @@ tr.muted td{color:#4f6b80}
 .result-body.opt{flex:1;min-height:0;grid-template-columns:minmax(0,3fr) minmax(300px,2fr)}
 .result-body.opt > .heatmap,.result-body.opt > .results-table{min-height:0;overflow:auto}
 .heat-axes{margin-top:2px}
-.heat-grid .cell.colhead{position:sticky;top:0;z-index:2;background:#0b1520}
-.heat-grid .cell.rowhead{position:sticky;left:0;z-index:1;background:#0b1520}
-.heat-grid .cell.corner{position:sticky;top:0;left:0;z-index:3;background:#0b1520}
+/* Pinned at the scroll edge (the matrix's 12 px padding would otherwise let values show above and
+   beside them); the outline covers the 3 px gaps between pinned cells. */
+.heat-grid .cell.colhead{position:sticky;top:-12px;z-index:2;background:#0b1520;outline:3px solid #0b1520}
+.heat-grid .cell.rowhead{position:sticky;left:-12px;z-index:1;background:#0b1520;outline:3px solid #0b1520}
+.heat-grid .cell.corner{position:sticky;top:-12px;left:-12px;z-index:3;background:#0b1520;outline:3px solid #0b1520}
 @media (max-width:1100px){.result-body.opt{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,3fr) minmax(0,2fr)}}
 
