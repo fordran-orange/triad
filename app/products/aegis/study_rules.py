@@ -12,6 +12,7 @@ so a fixed configuration chained over every window equals one continuous run. A 
 from __future__ import annotations
 
 import bisect
+import statistics
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -34,6 +35,20 @@ RULES = ("plateau", "peak", "frozen")
 SIDES = ("long", "short")
 SIDE_KEY = {"long": "long_side", "short": "short_side"}
 CHART_POINTS = 256
+RAW_LABEL = "RAW ARCHIVE · NOT RESEARCH-ELIGIBLE"
+OBJECTIVE_NAMES = {
+    "net_pnl": "net P&L",
+    "net_return": "return",
+    "cagr": "CAGR",
+    "max_drawdown": "max drawdown",
+    "mar": "MAR",
+    "win_rate": "win rate",
+    "expectancy": "expectancy",
+    "profit_factor": "profit factor",
+    "trade_count": "trade count",
+    "exposure": "exposure",
+}
+REPORT_METRICS = ("net_pnl", "net_return", "cagr", "max_drawdown", "mar", "trade_count", "exposure")
 
 
 @dataclass
@@ -272,8 +287,214 @@ def resample(points: list, limit: int = CHART_POINTS) -> list:
     return [points[(k * last) // (limit - 1)] for k in range(limit)]
 
 
+# --- the report (spec §7) --------------------------------------------------------------------
+
+
+def _two(value) -> str:
+    return "—" if value is None else f"{float(value):.2f}"
+
+
+def _oriented(objective: str, value) -> float | None:
+    if value is None:
+        return None
+    return -float(value) if objective == "max_drawdown" else float(value)
+
+
+def _comparison(symbol: str, objective: str, rules: dict) -> str:
+    name = OBJECTIVE_NAMES.get(objective, objective)
+
+    def value(rule: str) -> str:
+        return _two(rules[rule].get("metrics", {}).get(objective))
+
+    sentence = (
+        f"On {symbol} the plateau rule's out-of-sample {name} was {value('plateau')}, "
+        f"against {value('peak')} for the peak rule"
+    )
+    if "absent" in rules["frozen"]:
+        return sentence + "."
+    return sentence + f" and {value('frozen')} for the frozen centre."
+
+
+def _stability(windows: list[dict]) -> dict:
+    count = len(windows)
+    found = [w for w in windows if w.get("plateau")]
+    compared = [w["centre_inside"] for w in windows if w.get("centre_inside") is not None]
+    moves = [float(w["moved"]) for w in windows if w.get("moved") is not None]
+    paths: list[str] = []
+    for w in found:
+        for path in w["plateau"]["centre_params"]:
+            if path not in paths:
+                paths.append(path)
+    return {
+        "plateau_share": len(found) / count if count else None,
+        "centre_kept_share": sum(1 for kept in compared if kept) / len(compared)
+        if compared
+        else None,
+        "median_move": statistics.median(moves) if moves else None,
+        "centre_path": {
+            path: [
+                float(w["plateau"]["centre_params"][path]) if w.get("plateau") else None
+                for w in windows
+            ]
+            for path in paths
+        },
+    }
+
+
+def _window_rows(windows: list[dict]) -> list[dict]:
+    rows = []
+    for w in windows:
+        plateau = w.get("plateau")
+        rules = w.get("rules") or {}
+        rows.append(
+            {
+                "index": w["index"],
+                "oos_start": w.get("oos_start"),
+                "oos_end": w.get("oos_end"),
+                "choice": (
+                    f"plateau {plateau['id']} ({plateau['size']} cells), centre {plateau['centre_params']}"
+                    if plateau
+                    else f"no plateau: {w.get('no_plateau') or 'no statement'}"
+                ),
+                "best": w.get("best"),
+                "net_pnl": {
+                    rule: (record.get("combined") or {}).get("net_pnl")
+                    for rule, record in rules.items()
+                    if "absent" not in record
+                },
+                "flat": bool((rules.get("plateau") or {}).get("flat")),
+                "centre_inside": w.get("centre_inside"),
+                "moved": w.get("moved"),
+            }
+        )
+    return rows
+
+
+def study_report(document, per_symbol: dict[str, dict]) -> dict:
+    """The study's report from each symbol's stitched rules and window records: the three rules
+    side by side, the plateau rule's flat windows, one comparison sentence per symbol, the
+    cross-symbol line with its caveats, stability, bounded chart curves and the window table."""
+    objective = document.objective
+    name = OBJECTIVE_NAMES.get(objective, objective)
+    symbols: dict[str, dict] = {}
+    ahead = comparable = 0
+    for symbol in document.symbols:
+        entry = per_symbol.get(symbol)
+        if entry is None:
+            continue
+        rules: dict[str, dict] = {}
+        for rule in RULES:
+            stitched = entry["rules"][rule]
+            if "absent" in stitched:
+                rules[rule] = {"absent": stitched["absent"]}
+                continue
+            rules[rule] = {
+                "metrics": {key: stitched["metrics"].get(key) for key in REPORT_METRICS},
+                "objective": stitched["metrics"].get(objective),
+                "flat_windows": stitched["flat_windows"],
+                "windows": stitched["windows"],
+                "result_hash": stitched["result_hash"],
+            }
+        plateau = _oriented(objective, rules["plateau"]["objective"])
+        peak = _oriented(objective, rules["peak"]["objective"])
+        if plateau is not None and peak is not None:
+            comparable += 1
+            ahead += plateau > peak
+        windows = entry["windows"]
+        symbols[symbol] = {
+            "windows": len(windows),
+            "rules": rules,
+            "flat_line": f"flat in {rules['plateau']['flat_windows']} of {len(windows)} windows",
+            "comparison": _comparison(symbol, objective, rules),
+            "stability": _stability(windows),
+            "curves": {
+                rule: resample(entry["rules"][rule].get("equity") or [])
+                for rule in RULES
+                if "absent" not in entry["rules"][rule]
+            },
+            "window_rows": _window_rows(windows),
+        }
+    total = len(symbols)
+    if comparable == total:
+        summary = f"plateau rule ahead of the peak rule on {ahead} of {total} symbols by {name}"
+    else:
+        summary = (
+            f"plateau rule ahead of the peak rule on {ahead} of {comparable} comparable symbols "
+            f"by {name} ({total - comparable} not comparable)"
+        )
+    listed = list(symbols)
+    trades = []
+    for s in listed:
+        counts = [
+            f"{rule} {symbols[s]['rules'][rule]['metrics']['trade_count']}"
+            for rule in RULES
+            if "absent" not in symbols[s]["rules"][rule]
+        ]
+        trades.append(f"{s} " + " / ".join(counts))
+    caveats = [
+        "windows: " + ", ".join(f"{s} {symbols[s]['windows']}" for s in listed),
+        "plateau rule flat windows: "
+        + ", ".join(f"{s} {symbols[s]['rules']['plateau']['flat_windows']}" for s in listed),
+        "out-of-sample trades: " + "; ".join(trades),
+        "no significance test is claimed",
+    ]
+    return {
+        "objective": objective,
+        "data_label": f"{', '.join(listed)} {document.timeframe} {document.start} → {document.end}",
+        "raw_archive": True,
+        "label": RAW_LABEL,
+        "frozen_absent": document.frozen_absent,
+        "symbols": symbols,
+        "summary": summary,
+        "caveats": caveats,
+    }
+
+
+def render_study_markdown(report: dict) -> str:
+    lines = [f"# Plateau walk-forward: {report['summary']}", ""]
+    lines.append(f"{report['label']} · {report['data_label']} · objective {report['objective']}")
+    lines.append("")
+    lines.append("Caveats: " + "; ".join(report["caveats"]) + ".")
+    if report.get("frozen_absent"):
+        lines += ["", f"Frozen centre: absent — {report['frozen_absent']}."]
+    for symbol, entry in report["symbols"].items():
+        lines += ["", f"## {symbol}", "", entry["comparison"], ""]
+        lines.append("| rule | net P&L | return | CAGR | max drawdown | MAR | trades | exposure |")
+        lines.append("|---|---|---|---|---|---|---|---|")
+        for rule in RULES:
+            record = entry["rules"][rule]
+            if "absent" in record:
+                lines.append(f"| {rule} | absent: {record['absent']} | | | | | | |")
+                continue
+            m = record["metrics"]
+            lines.append(
+                f"| {rule} | {_two(m['net_pnl'])} | {_two(m['net_return'])} | {_two(m['cagr'])} | "
+                f"{_two(m['max_drawdown'])} | {_two(m['mar'])} | {m['trade_count']} | "
+                f"{_two(m['exposure'])} |"
+            )
+        stability = entry["stability"]
+        lines += [
+            "",
+            f"Plateau rule {entry['flat_line']}. Plateau found in {_two(stability['plateau_share'])} "
+            "of windows; centre inside the previous plateau in "
+            f"{_two(stability['centre_kept_share'])}; median move {_two(stability['median_move'])}.",
+            "",
+            "| window | out of sample | choice | plateau | peak | frozen | flat |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for row in entry["window_rows"]:
+            nets = row["net_pnl"]
+            lines.append(
+                f"| {row['index']} | {row['oos_start']} → {row['oos_end']} | {row['choice']} | "
+                f"{_two(nets.get('plateau'))} | {_two(nets.get('peak'))} | "
+                f"{_two(nets.get('frozen'))} | {'yes' if row['flat'] else 'no'} |"
+            )
+    return "\n".join(lines) + "\n"
+
+
 __all__ = [
     "CHART_POINTS",
+    "RAW_LABEL",
     "RULES",
     "SIDES",
     "SideChain",
@@ -281,8 +502,10 @@ __all__ = [
     "centre_inside",
     "enabled_sides",
     "move_distance",
+    "render_study_markdown",
     "resample",
     "run_window",
     "start_chains",
     "stitch_rule",
+    "study_report",
 ]

@@ -211,3 +211,179 @@ def test_resample_keeps_ends_and_bounds_the_count():
     out = resample(points, 256)
     assert len(out) == 256 and out[0] == points[0] and out[-1] == points[-1]
     assert resample(points[:10], 256) == points[:10]
+
+
+# --- Task 4: the report and its Markdown -------------------------------------------------------
+
+from products.aegis.study_rules import RAW_LABEL, render_study_markdown, study_report
+
+METRIC_KEYS = ("net_pnl", "net_return", "cagr", "max_drawdown", "mar", "trade_count", "exposure")
+
+
+def stitched(mar, flat=0, windows=16, trades=10, net=1000.0):
+    metrics = dict.fromkeys(METRIC_KEYS, 0.1)
+    metrics.update(mar=mar, trade_count=trades, net_pnl=net)
+    equity = [
+        {"timestamp": f"2020-01-{d:02d}T14:30:00+00:00", "equity": 100_000 + d}
+        for d in range(1, 29)
+    ]
+    return {
+        "metrics": metrics,
+        "flat_windows": flat,
+        "windows": windows,
+        "result_hash": "a" * 64,
+        "trades": [],
+        "equity": equity,
+    }
+
+
+def window_record(index, centre=None, inside=None, moved=None, reason=None):
+    plateau = (
+        None
+        if centre is None
+        else {
+            "id": 1,
+            "size": 9,
+            "median": 0.5,
+            "cliff": 0.2,
+            "centre_cell": centre,
+            "centre_params": {"long_side.indicators.ema.length": float(centre)},
+        }
+    )
+    return {
+        "index": index,
+        "oos_start": f"2020-0{index + 1}-01T14:30:00+00:00",
+        "oos_end": f"2020-0{index + 1}-28T20:30:00+00:00",
+        "plateau": plateau,
+        "no_plateau": reason if centre is None else None,
+        "best": {"cell": 3, "params": {"long_side.indicators.ema.length": 3.0}, "objective": 0.9},
+        "rules": {
+            rule: {
+                "flat": rule == "plateau" and centre is None,
+                "combined": {"net_pnl": 10.0 * index, "trade_count": 2, "exposure": 0.4},
+            }
+            for rule in ("plateau", "peak", "frozen")
+        },
+        "centre_inside": inside,
+        "moved": moved,
+    }
+
+
+class Doc:
+    """The study document fields the report reads."""
+
+    objective = "mar"
+    symbols = ["QQQ", "SPY", "ITOT"]
+    timeframe = "1h"
+    start = "2016-09-19"
+    end = "2026-09-18"
+    frozen_absent = None
+    name = "walk breakout"
+
+
+def three(frozen_absent=None):
+    doc = Doc()
+    doc.frozen_absent = frozen_absent
+    windows = [
+        window_record(0, centre=4),
+        window_record(1, centre=5, inside=True, moved=0.1),
+        window_record(2, reason="no plateau at tolerance 0.15; the best cell is a fragile peak"),
+        window_record(3, centre=8, inside=False, moved=0.4),
+    ]
+
+    def rules(plateau, peak, frozen):
+        out = {"plateau": stitched(plateau, flat=1, windows=4), "peak": stitched(peak, windows=4)}
+        out["frozen"] = {"absent": frozen_absent} if frozen_absent else stitched(frozen, windows=4)
+        return out
+
+    per_symbol = {
+        "QQQ": {"rules": rules(0.80, 0.30, 0.50), "windows": windows},
+        "SPY": {"rules": rules(0.61, 0.42, 0.55), "windows": windows},
+        "ITOT": {"rules": rules(0.20, 0.35, 0.10), "windows": windows},
+    }
+    return doc, per_symbol
+
+
+def test_comparison_sentence_by_objective():
+    report = study_report(*three())
+    assert report["symbols"]["SPY"]["comparison"] == (
+        "On SPY the plateau rule's out-of-sample MAR was 0.61, against 0.42 for the peak rule "
+        "and 0.55 for the frozen centre."
+    )
+    doc, per_symbol = three()
+    per_symbol["QQQ"]["rules"]["peak"]["metrics"]["mar"] = None
+    assert study_report(doc, per_symbol)["symbols"]["QQQ"]["comparison"].startswith(
+        "On QQQ the plateau rule's out-of-sample MAR was 0.80, against — for the peak rule"
+    )
+
+
+def test_flat_windows_line():
+    report = study_report(*three())
+    assert report["symbols"]["QQQ"]["flat_line"] == "flat in 1 of 4 windows"
+
+
+def test_cross_symbol_line_and_caveats():
+    report = study_report(*three())
+    assert report["summary"] == "plateau rule ahead of the peak rule on 2 of 3 symbols by MAR"
+    caveats = " ".join(report["caveats"])
+    assert "windows: QQQ 4, SPY 4, ITOT 4" in caveats
+    assert "plateau rule flat windows: QQQ 1, SPY 1, ITOT 1" in caveats
+    assert "no significance test is claimed" in caveats
+    doc, per_symbol = three()
+    per_symbol["ITOT"]["rules"]["plateau"]["metrics"]["mar"] = None
+    assert study_report(doc, per_symbol)["summary"] == (
+        "plateau rule ahead of the peak rule on 2 of 2 comparable symbols by MAR (1 not comparable)"
+    )
+
+
+def test_max_drawdown_is_ahead_when_lower():
+    doc, per_symbol = three()
+    doc.objective = "max_drawdown"
+    for symbol, (plateau, peak) in {
+        "QQQ": (0.1, 0.2),
+        "SPY": (0.3, 0.2),
+        "ITOT": (0.1, 0.4),
+    }.items():
+        per_symbol[symbol]["rules"]["plateau"]["metrics"]["max_drawdown"] = plateau
+        per_symbol[symbol]["rules"]["peak"]["metrics"]["max_drawdown"] = peak
+    assert study_report(doc, per_symbol)["summary"].startswith(
+        "plateau rule ahead of the peak rule on 2 of 3 symbols by max drawdown"
+    )
+
+
+def test_stability_block():
+    stability = study_report(*three())["symbols"]["QQQ"]["stability"]
+    assert stability["plateau_share"] == 0.75
+    assert stability["centre_kept_share"] == 0.5
+    assert stability["median_move"] == pytest.approx(0.25)
+    assert stability["centre_path"] == {"long_side.indicators.ema.length": [4.0, 5.0, None, 8.0]}
+
+
+def test_frozen_column_absent_with_its_reason():  # Review Focus 5
+    reason = "the parent report has no recommendation"
+    report = study_report(*three(frozen_absent=reason))
+    assert report["symbols"]["SPY"]["rules"]["frozen"] == {"absent": reason}
+    assert report["symbols"]["SPY"]["comparison"] == (
+        "On SPY the plateau rule's out-of-sample MAR was 0.61, against 0.42 for the peak rule."
+    )
+    assert f"Frozen centre: absent — {reason}." in render_study_markdown(report)
+
+
+def test_markdown_carries_the_raw_archive_label_and_the_window_table():
+    report = study_report(*three())
+    markdown = render_study_markdown(report)
+    assert markdown.startswith("# Plateau walk-forward: plateau rule ahead of the peak rule")
+    assert RAW_LABEL == "RAW ARCHIVE · NOT RESEARCH-ELIGIBLE" and RAW_LABEL in markdown
+    assert report["raw_archive"] is True
+    assert "no plateau at tolerance 0.15" in markdown  # a flat window states its reason
+    assert "flat in 1 of 4 windows" in markdown
+    assert len(report["symbols"]["QQQ"]["curves"]["plateau"]) == 28
+
+
+def test_curves_are_bounded():
+    doc, per_symbol = three()
+    per_symbol["QQQ"]["rules"]["peak"]["equity"] = [
+        {"timestamp": str(i), "equity": float(i)} for i in range(5000)
+    ]
+    curve = study_report(doc, per_symbol)["symbols"]["QQQ"]["curves"]["peak"]
+    assert len(curve) == 256 and curve[-1]["equity"] == 4999.0
