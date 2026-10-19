@@ -390,3 +390,11 @@ def test_curves_are_bounded():
     ]
     curve = study_report(doc, per_symbol)["symbols"]["QQQ"]["curves"]["peak"]
     assert len(curve) == 256 and curve[-1]["equity"] == 4999.0
+
+
+def test_window_choice_names_the_centre_plainly():
+    report = study_report(*three())
+    assert report["symbols"]["QQQ"]["window_rows"][0]["choice"] == (
+        "plateau 1 (9 cells), centre long_side.indicators.ema.length 4"
+    )
+    assert "{" not in render_study_markdown(report)

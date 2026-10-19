@@ -341,6 +341,10 @@ def _stability(windows: list[dict]) -> dict:
     }
 
 
+def _params(params: dict) -> str:
+    return ", ".join(f"{path} {float(value):g}" for path, value in params.items())
+
+
 def _window_rows(windows: list[dict]) -> list[dict]:
     rows = []
     for w in windows:
@@ -352,7 +356,7 @@ def _window_rows(windows: list[dict]) -> list[dict]:
                 "oos_start": w.get("oos_start"),
                 "oos_end": w.get("oos_end"),
                 "choice": (
-                    f"plateau {plateau['id']} ({plateau['size']} cells), centre {plateau['centre_params']}"
+                    f"plateau {plateau['id']} ({plateau['size']} cells), centre {_params(plateau['centre_params'])}"
                     if plateau
                     else f"no plateau: {w.get('no_plateau') or 'no statement'}"
                 ),

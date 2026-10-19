@@ -453,3 +453,94 @@ export interface WalkForwardStarted {
   total_units: number;
   estimated_seconds: number;
 }
+
+// --- studies (Mission 8 spec §7) ---------------------------------------------------------------
+
+export type StudyRule = 'plateau' | 'peak' | 'frozen';
+export const STUDY_RULES: StudyRule[] = ['plateau', 'peak', 'frozen'];
+export const STUDY_RULE_LABELS: Record<StudyRule, string> = { plateau: 'Plateau rule', peak: 'Peak rule', frozen: 'Frozen centre' };
+
+export interface StudyRuleMetrics {
+  net_pnl: number | null;
+  net_return: number | null;
+  cagr: number | null;
+  max_drawdown: number | null;
+  mar: number | null;
+  trade_count: number | null;
+  exposure: number | null;
+}
+
+export interface StudyRuleReport {
+  metrics: StudyRuleMetrics;
+  objective: number | null;
+  flat_windows: number;
+  windows: number;
+  result_hash: string;
+}
+
+export interface StudyCurvePoint {
+  timestamp: string;
+  equity: number;
+  drawdown?: number;
+}
+
+export interface StudyWindowRow {
+  index: number;
+  oos_start: string;
+  oos_end: string;
+  choice?: string;
+  best?: { cell: number; params: Record<string, number>; objective: number | null } | null;
+  net_pnl?: Partial<Record<StudyRule, number | null>>;
+  flat: boolean;
+  centre_inside?: boolean | null;
+  moved?: number | null;
+}
+
+export interface StudySymbolReport {
+  windows: number;
+  rules: Record<StudyRule, StudyRuleReport | { absent: string }>;
+  flat_line: string;
+  comparison: string;
+  stability: {
+    plateau_share: number | null;
+    centre_kept_share: number | null;
+    median_move: number | null;
+    centre_path: Record<string, Array<number | null>>;
+  };
+  curves: Partial<Record<StudyRule, StudyCurvePoint[]>>;
+  window_rows: StudyWindowRow[];
+}
+
+export interface StudyReport {
+  objective: string;
+  data_label: string;
+  raw_archive: boolean;
+  label: string;
+  frozen_absent: string | null;
+  symbols: Record<string, StudySymbolReport>;
+  summary: string;
+  caveats: string[];
+}
+
+export interface StudyProgress {
+  windows_done: number;
+  windows_total: number;
+  symbol: string | null;
+  window: number | null;
+  cells_done: number;
+}
+
+export interface StudySummary {
+  id: string;
+  name: string;
+  experiment_id: string;
+  status: 'queued' | 'running' | 'paused' | 'done' | 'cancelled' | 'failed';
+  progress: StudyProgress;
+  symbols: string[];
+  objective: string;
+  created_at: string;
+  updated_at: string;
+  decision: ExperimentDecision | null;
+  job_id?: string | null;
+  error?: string | null;
+}

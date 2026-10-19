@@ -1,5 +1,5 @@
 // Thin typed fetch wrappers for the Aegis worker routes (spec §7). Same-origin under /aegis/api.
-import type { ExperimentDocument, IndicatorSpec, Plan, StrategyDocument, StrategySpec } from '../contracts';
+import type { ExperimentDocument, IndicatorSpec, Plan, StrategyDocument, StrategySpec, StudyDocument, StudyPlan } from '../contracts';
 import type {
   CellsPage,
   ExperimentReport,
@@ -13,6 +13,7 @@ import type {
   Provenance,
   RunEnvelope,
   RunSummary,
+  StudySummary,
   WalkForwardPlan,
   WalkForwardStarted,
   WalkForwardStatus,
@@ -153,6 +154,7 @@ export interface StrategySummary {
 const put = (body: unknown): RequestInit => ({ method: 'PUT', body: JSON.stringify(body) });
 const doc = (id: string) => `/strategies/${encodeURIComponent(id)}`;
 const exp = (id: string) => `/experiments/${encodeURIComponent(id)}`;
+const study = (id: string) => `/studies/${encodeURIComponent(id)}`;
 
 /** POST /experiments and /experiments/plan body (ExperimentRequest in contracts.ts). */
 export interface ExperimentBody {
@@ -172,6 +174,33 @@ export interface ExperimentStarted {
   job_id: string | null;
   status: 'queued' | 'running';
   plan: Plan;
+}
+
+/** POST /studies and /studies/plan body (StudyRequest in contracts.ts). */
+export interface StudyBody {
+  experiment_id: string;
+  name?: string | null;
+  symbols: string[];
+  start?: string | null;
+  end?: string | null;
+  in_sample_bars?: number | null;
+  out_of_sample_bars?: number | null;
+}
+
+export interface StudyStarted {
+  study_id: string;
+  job_id: string;
+  status: 'running';
+  plan: StudyPlan;
+}
+
+/** GET /studies/{id}: the stored document as the runner last saved it, with its progress. */
+export type StudyStatus = StudyDocument & { units?: { done: number; total: number }; estimated_seconds?: number; elapsed_ms?: number };
+
+export interface StudyCellsPage {
+  total: number;
+  rows: Array<Record<string, unknown>>;
+  columns: string[];
 }
 
 export const api = {
@@ -224,4 +253,16 @@ export const api = {
   decideExperiment: (id: string, body: { verdict: 'accepted' | 'rejected' | 'deferred'; notes: string }) => request<ExperimentDocument>(`${exp(id)}/decision`, put(body)),
   refineExperiment: (id: string) => request<ExperimentDocument>(`${exp(id)}/refine`, { method: 'POST' }),
   deleteExperiment: (id: string) => request<{ deleted: string }>(exp(id), { method: 'DELETE' }),
+  studyPlan: (body: StudyBody) => request<StudyPlan>('/studies/plan', post(body)),
+  createStudy: (body: StudyBody) => request<StudyStarted>('/studies', post(body)),
+  studies: (experimentId?: string) => request<StudySummary[]>(experimentId ? `/studies?experiment_id=${encodeURIComponent(experimentId)}` : '/studies'),
+  study: (id: string) => request<StudyStatus>(study(id)),
+  pauseStudy: (id: string) => request<{ paused: string }>(`${study(id)}/pause`, { method: 'POST' }),
+  resumeStudy: (id: string) => request<{ study_id: string; job_id: string; status: string }>(`${study(id)}/resume`, { method: 'POST' }),
+  cancelStudy: (id: string) => request<{ cancelled: boolean }>(`${study(id)}/cancel`, { method: 'POST' }),
+  deleteStudy: (id: string) => request<{ deleted: string }>(study(id), { method: 'DELETE' }),
+  decideStudy: (id: string, body: { verdict: 'accepted' | 'rejected' | 'deferred'; notes: string }) => request<StudyDocument>(`${study(id)}/decision`, put(body)),
+  studyWindowCells: (id: string, symbol: string, w: number, query: { offset?: number; limit?: number } = {}) =>
+    request<StudyCellsPage>(`${study(id)}/windows/${encodeURIComponent(symbol)}/${w}/cells?offset=${query.offset ?? 0}&limit=${query.limit ?? 200}`),
+  studyMarkdownUrl: (id: string) => `${BASE}${study(id)}/report.md`,
 };

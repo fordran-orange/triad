@@ -5,6 +5,7 @@ import { paramsText, recommendationText } from '../experiments';
 import { DASH, num, pct, timeLabel } from '../format';
 import { OBJECTIVE_LABELS, OBJECTIVES, PERCENT_OBJECTIVES, type ExperimentReport, type Objective } from '../results';
 import { CellsTable } from './CellsTable';
+import { ExperimentStudies } from './ExperimentStudies';
 import { Heatmap } from './Heatmap';
 import { MainEffects } from './MainEffects';
 
@@ -227,6 +228,7 @@ export function ExperimentReportView({ experiment, report, onUse, onChanged, onR
         </div>
       </div>
 
+      <ExperimentStudies experiment={experiment} />
       <div className="report-section" id="decision">
         <h4>Decision</h4>
         {experiment.decision ? (
