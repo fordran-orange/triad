@@ -422,6 +422,9 @@ def test_study_runs_to_done_with_every_window_once(reference):
     full = StudyStore(repository).read_window(done.id, "QQQ", 1)
     assert "trades" in full["rules"]["plateau"]["combined"] and full["chains_out"]["plateau"]
     assert full["mode"] == "exhaustive" and full["cells_run"] == 9
+    # spec §5.5: each rule's carried in and out stay on the document's record
+    assert compact["sides"] and done.windows["QQQ"][1]["chains_in"] == full["chains_in"]
+    assert done.windows["QQQ"][1]["chains_out"] == full["chains_out"]
     cells = StudyStore(repository).cells(done.id, "QQQ", 1)
     assert sorted(cells.column("cell").to_pylist()) == list(range(9))
     assert done.report["raw_archive"] is True and done.report["summary"].startswith("plateau rule")
@@ -550,3 +553,39 @@ def test_frozen_column_is_absent_when_the_parent_has_no_recommendation(tmp_path)
     assert document.frozen_centre is None
     assert document.frozen_absent == "the parent report has no recommendation"
     assert document.status == "queued" and document.progress["windows_total"] == 7
+
+
+def test_frozen_centre_comes_from_the_parents_report_on_its_own_objective(tmp_path):
+    """A recomputed report on another objective or tolerance never becomes the frozen centre."""
+    from datetime import date
+
+    from products.aegis.runs import JsonRunRepository
+    from products.aegis.studies import StudyStore, create_study
+
+    repository = JsonRunRepository(tmp_path / "aegis")
+    experiments, parent = make_parent(repository)  # report 1 recommends cell 4 on net_pnl, 0.15
+    other = {"long_side.indicators.donchian.length": 10.0, "long_side.indicators.rsi.length": 7.0}
+    experiments.write_report(
+        parent.id, 2, {"recommendation": {"centre": {"cell": 0, "params": other}}}, "# r2"
+    )
+    reports = [
+        {"report_id": 1, "objective": "net_pnl", "tolerance": 0.15, "generated_at": "x"},
+        {"report_id": 2, "objective": "mar", "tolerance": 0.1, "generated_at": "y"},
+    ]
+    experiments.save(parent.model_copy(update={"reports": reports, "latest_report": 2}))
+    request = StudyRequest(
+        experiment_id=parent.id, symbols=list(LENGTHS), in_sample_bars=120, out_of_sample_bars=60
+    )
+    bars = {s: [r["timestamp"] for r in rows] for s, rows in ROWS_BY_SYMBOL.items()}
+    store = StudyStore(repository)
+    document = create_study(
+        store, experiments, request, bars, 2, date(2026, 1, 5), date(2026, 1, 31)
+    )
+    assert document.frozen_centre["cell"] == 4
+    experiments.save(parent.model_copy(update={"reports": reports[1:], "latest_report": 2}))
+    absent = create_study(store, experiments, request, bars, 2, date(2026, 1, 5), date(2026, 1, 31))
+    assert absent.frozen_centre is None
+    assert (
+        absent.frozen_absent
+        == "the parent has no report on its own objective net_pnl at tolerance 0.15"
+    )

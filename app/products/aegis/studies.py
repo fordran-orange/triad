@@ -420,6 +420,25 @@ class StudyStore:
 # --- creation, decision, cancel --------------------------------------------------------------
 
 
+def _own_report(experiment: ExperimentDocument) -> tuple[int | None, str | None]:
+    """The latest report on the experiment's own objective and tolerance (the definition the
+    study inherits); a report recomputed on another objective never freezes the centre."""
+    if not experiment.reports:
+        return experiment.latest_report, None
+    own = [
+        r["report_id"]
+        for r in experiment.reports
+        if r.get("objective") == experiment.objective
+        and float(r.get("tolerance", -1)) == float(experiment.tolerance)
+    ]
+    if own:
+        return max(own), None
+    return None, (
+        f"the parent has no report on its own objective {experiment.objective} "
+        f"at tolerance {experiment.tolerance:g}"
+    )
+
+
 def create_study(
     store: StudyStore,
     experiments: ExperimentStore,
@@ -436,14 +455,16 @@ def create_study(
     planned = plan_study(
         request, experiment, bars_by_symbol, experiments.last_ms_per_cell_bar(), workers
     )
-    try:
-        report = experiments.read_report(experiment.id, experiment.latest_report)
-    except KeyError as exc:
-        raise ValueError(
-            f"experiment {experiment.id} report {experiment.latest_report} is missing"
-        ) from exc
-    recommendation = report.get("recommendation")
-    centre = recommendation["centre"] if recommendation else None
+    number, absent = _own_report(experiment)
+    centre = None
+    if number is not None:
+        try:
+            report = experiments.read_report(experiment.id, number)
+        except KeyError as exc:
+            raise ValueError(f"experiment {experiment.id} report {number} is missing") from exc
+        recommendation = report.get("recommendation")
+        centre = recommendation["centre"] if recommendation else None
+        absent = None if centre else NO_RECOMMENDATION
     name = request.name or f"{experiment.name} · walk forward"
     now = _now()
     document = StudyDocument(
@@ -465,7 +486,7 @@ def create_study(
         in_sample_bars=planned.in_sample_bars,
         out_of_sample_bars=planned.out_of_sample_bars,
         frozen_centre={"cell": centre["cell"], "params": centre["params"]} if centre else None,
-        frozen_absent=None if centre else NO_RECOMMENDATION,
+        frozen_absent=absent,
         data=data or {},
         plan=planned.model_dump(mode="json"),
         status="queued",
@@ -512,8 +533,9 @@ def cancel_idle_study(store: StudyStore, document: StudyDocument) -> StudyDocume
 
 
 def compact(record: dict) -> dict:
-    """A window record without its trades, plateau cells or chains: what the document keeps."""
-    out = {k: v for k, v in record.items() if k not in ("chains_out", "chains_in")}
+    """A window record without its trades or plateau cells: what the document keeps. Each rule's
+    carried in and out (the chains) stay, as spec §5.5 asks."""
+    out = dict(record)
     if record.get("plateau"):
         out["plateau"] = {k: v for k, v in record["plateau"].items() if k != "cells"}
     rules = {}
