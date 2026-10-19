@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import type { StrategySide } from '../contracts';
 import { money, num, pct } from '../format';
+import { compactMoney } from '../layout';
 import { METRICS, METRIC_LABELS, TERMINAL_JOB_STATES, type Cell, type JobStatus, type Metric } from '../results';
 import { useRunBacktest } from '../state/run';
 import { applyConfigs, selectionText, SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
@@ -9,7 +10,7 @@ import { formatSeconds } from './OptimizePopover';
 import { Heatmap, profitKind } from './Heatmap';
 
 const FORMAT: Record<Metric, (v: number) => string> = {
-  net_pnl: money,
+  net_pnl: compactMoney, // a cell holds "$47.2k"; its hover title gives the full amount
   mar: (v) => num(v, 2),
   max_drawdown: pct,
   trade_count: (v) => num(v, 0),
@@ -96,7 +97,7 @@ function JobView({ side, job }: { side: Side; job: JobStatus }) {
       {job.error && <div className="error">{job.error}</div>}
       {job.status === 'lost' && <div className="notice warn">This job was still running when the worker restarted; its partial cells are what was saved.</div>}
       {cancelError && <div className="error">{cancelError}</div>}
-      <div className="result-body">
+      <div className="result-body opt">
         <Heatmap
           title={`${side.toUpperCase()} heatmap`}
           metric={METRIC_LABELS[metric]}
@@ -105,6 +106,12 @@ function JobView({ side, job }: { side: Side; job: JobStatus }) {
           matrix={matrix}
           format={FORMAT[metric]}
           profit={profitKind(metric)}
+          detail={(fast, slow) => {
+            const cell = job.cells.find((c) => c.fast === fast && c.slow === slow);
+            if (!cell) return null;
+            const m = cell.metrics;
+            return `Net P&L ${money(m.net_pnl)} · MAR ${num(m.mar, 2)} · Max DD ${pct(m.max_drawdown)} · Trades ${num(m.trade_count, 0)}`;
+          }}
           rowLabel={describeParams({ [job.fast_path]: NaN }, planned).replace(' NaN', '') + '↓'}
           colLabel={describeParams({ [job.slow_path]: NaN }, planned).replace(' NaN', '') + '→'}
           selected={selectedCell && selectedCell.fast !== undefined && selectedCell.slow !== undefined ? selectedCell : null}
@@ -174,7 +181,7 @@ export function OptimizationTab() {
   };
 
   return (
-    <div className="result-body single">
+    <div className="result-body single opt-tab">
       <div className="results-table">
         <div className="legend">
           {SIDES.map((s) => {

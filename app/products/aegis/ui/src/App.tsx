@@ -10,6 +10,7 @@ import { SideNav } from './components/SideNav';
 import { StatusStrip } from './components/StatusStrip';
 import { StrategyPanel } from './components/StrategyPanel';
 import { TopBar } from './components/TopBar';
+import { loadResultsHeight, saveResultsHeight, clampResultsHeight } from './layout';
 import { TERMINAL_JOB_STATES } from './results';
 import { useDocumentSync } from './state/documents';
 import { useDispatch, useWorkspace } from './state/workspace';
@@ -20,6 +21,17 @@ export function App() {
   useDocumentSync();
   const [apiState, setApiState] = useState<string>('loading strategy contract…');
   const [runsOpen, setRunsOpen] = useState(false);
+  // The results panel (operator, 2026-10-19): a height this viewer drags and keeps, and a maximized
+  // state that gives the results the whole workspace.
+  const [resultsHeight, setResultsHeight] = useState(() => loadResultsHeight(safeStorage(), window.innerHeight));
+  const [maximized, setMaximized] = useState(false);
+  useEffect(() => {
+    const refit = () => setResultsHeight((h) => clampResultsHeight(h, window.innerHeight));
+    window.addEventListener('resize', refit);
+    return () => window.removeEventListener('resize', refit);
+  }, []);
+  const resize = (px: number) => setResultsHeight(clampResultsHeight(px, window.innerHeight));
+  const keep = (px: number) => saveResultsHeight(safeStorage(), clampResultsHeight(px, window.innerHeight));
 
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +91,10 @@ export function App() {
     <div className="app">
       <TopBar runsOpen={runsOpen} onToggleRuns={() => setRunsOpen((v) => !v)} />
       <SideNav />
-      <main className="main">
+      <main
+        className={'main' + (page !== 'lab' && page !== 'experiments' && maximized ? ' results-max' : '')}
+        style={page !== 'lab' && page !== 'experiments' ? { gridTemplateRows: maximized ? '0px minmax(0, 1fr)' : `minmax(0, 1fr) ${resultsHeight}px` } : undefined}
+      >
         {page === 'lab' ? (
           <section className="workspace">
             <LabPage />
@@ -96,7 +111,7 @@ export function App() {
               <ChartPanel />
               <StrategyPanel />
             </section>
-            <ResultsTabs />
+            <ResultsTabs height={resultsHeight} onResize={resize} onResizeEnd={keep} maximized={maximized} onMaximize={setMaximized} />
           </>
         )}
       </main>
@@ -105,4 +120,13 @@ export function App() {
       <StatusStrip apiState={apiState} />
     </div>
   );
+}
+
+/** localStorage when the browser allows it (it can throw in private windows or with blocked data). */
+function safeStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }

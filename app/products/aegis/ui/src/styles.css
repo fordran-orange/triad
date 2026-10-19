@@ -76,12 +76,12 @@ background-size:100% 48px,74px 100%}
 .window select{height:22px;font-size:10px;background:#07121b;border:1px solid var(--line);border-radius:3px;color:#dce7ef}
 .badge{font-size:10px;padding:2px 5px;border-radius:3px;background:#152536;color:#88a5b8;text-align:center}
 .badge.raw{background:#3a2a12;color:#f5bd51;border:1px solid #6b4d17;font-weight:700;letter-spacing:.04em}
-.results{border-top:1px solid var(--line);background:#09131d;min-height:0}
+.results{border-top:1px solid var(--line);background:#09131d;min-height:0;display:flex;flex-direction:column;position:relative}
 .result-tabs{height:38px;display:flex;border-bottom:1px solid var(--line);align-items:end}
 .result-tabs button{padding:11px 13px 9px;color:#70899b;background:none;border:0}
 .result-tabs .active{color:white;border-bottom:2px solid var(--green)}
 .result-tabs .disabled{color:#4b6274}
-.result-body{height:calc(100% - 38px);display:grid;grid-template-columns:300px 1fr}
+.result-body{flex:1;min-height:0;display:grid;grid-template-columns:300px 1fr}
 .result-body.single{grid-template-columns:1fr}
 .heatmap{border-right:1px solid var(--line);padding:12px;overflow:auto}
 .heat-grid{display:grid;gap:3px;margin-top:9px}
@@ -184,4 +184,20 @@ tr.muted td{color:#4f6b80}
 .study-mark{stroke:#1d2c39;stroke-width:1;vector-effect:non-scaling-stroke}
 .swatch{display:inline-block;width:10px;height:3px;vertical-align:middle;margin-right:4px}
 .exp-table tr.flat td{color:#c9a65a}
+/* The results panel (operator, 2026-10-19): drag the divider, Maximize to give the results the whole
+   workspace; the optimizer's matrix and table each scroll on their own, labels pinned. */
+.main.results-max > .workspace{visibility:hidden;overflow:hidden}
+.results-resizer{position:absolute;top:-4px;left:0;right:0;height:8px;cursor:row-resize;z-index:4}
+.results-resizer:hover,.results-resizer:focus-visible{background:linear-gradient(transparent 3px,#2da7ff 3px,#2da7ff 5px,transparent 5px);outline:none}
+.result-tabs{flex:none}
+.results-maximize{margin-left:auto;align-self:center;height:26px;margin-right:8px;padding:0 10px!important;border:1px solid var(--line)!important;border-radius:4px;color:#9ab0be!important}
+.opt-tab{display:flex;flex-direction:column}
+.opt-tab > .results-table{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.result-body.opt{flex:1;min-height:0;grid-template-columns:minmax(0,3fr) minmax(300px,2fr)}
+.result-body.opt > .heatmap,.result-body.opt > .results-table{min-height:0;overflow:auto}
+.heat-axes{margin-top:2px}
+.heat-grid .cell.colhead{position:sticky;top:0;z-index:2;background:#0b1520}
+.heat-grid .cell.rowhead{position:sticky;left:0;z-index:1;background:#0b1520}
+.heat-grid .cell.corner{position:sticky;top:0;left:0;z-index:3;background:#0b1520}
+@media (max-width:1100px){.result-body.opt{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,3fr) minmax(0,2fr)}}
 

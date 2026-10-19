@@ -1,4 +1,5 @@
 import { DASH } from '../format';
+import { heatTemplate } from '../layout';
 
 export interface HeatmapProps {
   title: string;
@@ -17,6 +18,8 @@ export interface HeatmapProps {
   lowerIsBetter?: boolean;
   /** The metric whose sign is money: a losing value is red whatever its rank. */
   profit?: ProfitKind;
+  /** The full numbers of a cell for its hover title (the cell itself shows a compact value). */
+  detail?: (fast: number, slow: number) => string | null;
 }
 
 /** 'sign': below 0 loses money (net P&L, return, CAGR, MAR, expectancy); 'ratio': below 1
@@ -66,7 +69,7 @@ export function cells(fast: number[], slow: number[], matrix: HeatmapProps['matr
   );
 }
 
-export function Heatmap({ title, metric, fast, slow, matrix, format, rowLabel = 'fast↓', colLabel = 'slow→', selected, onSelect, empty, lowerIsBetter = false, profit = null }: HeatmapProps) {
+export function Heatmap({ title, metric, fast, slow, matrix, format, rowLabel = 'fast↓', colLabel = 'slow→', selected, onSelect, empty, lowerIsBetter = false, profit = null, detail }: HeatmapProps) {
   const grid = cells(fast, slow, matrix, lowerIsBetter, profit);
   const fmt = format ?? ((v: number) => v.toFixed(0));
   return (
@@ -74,26 +77,32 @@ export function Heatmap({ title, metric, fast, slow, matrix, format, rowLabel = 
       <div className="panel-title">
         {title} <span className="small">{metric}</span>
       </div>
+      {fast.length > 0 && slow.length > 0 && (
+        <div className="sub heat-axes">
+          rows {rowLabel} · columns {colLabel} · {fast.length} × {slow.length}
+        </div>
+      )}
       {fast.length === 0 || slow.length === 0 ? (
         <div className="sub">{empty ?? 'Optimization not run — no parameter grid to show.'}</div>
       ) : (
-        <div className="heat-grid" style={{ gridTemplateColumns: `48px repeat(${slow.length}, 1fr)` }}>
-          <div className="cell h" title={colLabel}>
+        <div className="heat-grid" style={{ gridTemplateColumns: heatTemplate(slow.length) }}>
+          <div className="cell h corner" title={colLabel}>
             {rowLabel}
           </div>
           {slow.map((s) => (
-            <div className="cell h" key={'h' + s}>
+            <div className="cell h colhead" key={'h' + s}>
               {s}
             </div>
           ))}
           {grid.map((row, r) => (
             <div key={'r' + fast[r]} style={{ display: 'contents' }}>
-              <div className="cell h">{fast[r]}</div>
+              <div className="cell h rowhead">{fast[r]}</div>
               {row.map((cell) => {
                 const isSelected = selected?.fast === cell.fast && selected?.slow === cell.slow;
                 const className = 'cell ' + (cell.tone === 'mid' ? '' : cell.tone) + (isSelected ? ' selected' : '');
                 const label = cell.value === null ? DASH : fmt(cell.value);
-                const title = `${rowLabel} ${cell.fast} / ${colLabel} ${cell.slow}${cell.value === null ? ' · skipped or pending' : ''}`;
+                const more = cell.value === null ? null : (detail?.(cell.fast, cell.slow) ?? null);
+                const title = `${rowLabel} ${cell.fast} / ${colLabel} ${cell.slow}${cell.value === null ? ' · skipped or pending' : more ? ` · ${more}` : ''}`;
                 return onSelect && cell.value !== null ? (
                   <button type="button" key={`${cell.fast}-${cell.slow}`} className={className} title={title} onClick={() => onSelect(cell.fast, cell.slow)} aria-pressed={isSelected}>
                     {label}
