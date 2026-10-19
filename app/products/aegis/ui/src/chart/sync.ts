@@ -60,7 +60,9 @@ export function overlaysFromSeries(times: number[], series: Record<string, Array
       pane: m.pane,
       group: m.group,
       style: m.style,
-      points: values.flatMap((value, i) => (value === null || value === undefined ? [] : [{ time: times[i], value }])),
+      // One point per bar: Vela aligns a line's points to the bars by index, so a warm-up gap stays
+      // null (dropping it shifted every line left by its warm-up; operator, 2026-10-19).
+      points: values.map((value, i) => ({ time: times[i], value: value ?? null })),
     };
   });
 }

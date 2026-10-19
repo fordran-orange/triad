@@ -14,7 +14,7 @@ export interface Bar {
 
 export interface OverlayPoint {
   time: number;
-  value: number;
+  value: number | null; // null: the bar is inside the indicator's warm-up
 }
 
 export interface Overlay {

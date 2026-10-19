@@ -56,9 +56,20 @@ describe('chart sync', () => {
   it("keeps the reference strategy's ids, titles and colours on the price pane", () => {
     const overlays = overlaysFromSeries([60_000, 120_000, 180_000], { ema: [null, 2, 3] }, referenceMeta);
     expect(overlays).toEqual([
-      { id: 'ema', title: 'EMA 9', color: '#2da7ff', pane: 'price', group: 'ema', style: 'line', points: [{ time: 120_000, value: 2 }, { time: 180_000, value: 3 }] },
+      { id: 'ema', title: 'EMA 9', color: '#2da7ff', pane: 'price', group: 'ema', style: 'line', points: [{ time: 60_000, value: null }, { time: 120_000, value: 2 }, { time: 180_000, value: 3 }] },
     ]);
     expect(referenceMeta.sma).toMatchObject({ title: 'SMA 30', color: '#39d98a', pane: 'price', group: 'sma' });
+  });
+
+  it('keeps one point per bar: warm-up gaps stay null so a line starts at its warm-up bar and ends on the last bar (operator, 2026-10-19)', () => {
+    // Vela aligns a line's points to the bars by index; dropping the gaps shifted EMA 9 eight bars left.
+    const times = Array.from({ length: 12 }, (_, i) => (i + 1) * 60_000);
+    const values = times.map((_, i) => (i < 8 ? null : 100 + i));
+    const [line] = overlaysFromSeries(times, { ema: values }, referenceMeta);
+    expect(line.points).toHaveLength(times.length);
+    expect(line.points.map((p) => p.time)).toEqual(times);
+    expect(line.points.findIndex((p) => p.value !== null)).toBe(8);
+    expect(line.points[line.points.length - 1]).toEqual({ time: times[11], value: 111 });
   });
 
   it('puts price kinds on the price pane and oscillators in one pane per indicator', () => {
