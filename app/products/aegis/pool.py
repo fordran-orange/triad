@@ -36,6 +36,8 @@ _DATA_KEY = None
 _SPEC = None
 _SETTINGS = None
 _CACHE = None
+_ROWS = None
+_WINDOW = None  # (bounds, frame, data key) of the window slice the worker last ran
 
 
 def default_workers() -> int:
@@ -56,13 +58,15 @@ def resample_curve(points: list[float], n: int = CURVE_POINTS) -> list[float]:
 
 
 def _init_worker(rows: list[dict], symbol: str, spec: dict, settings: dict) -> None:
-    global _FRAME, _DATA_KEY, _SPEC, _SETTINGS, _CACHE
+    global _FRAME, _DATA_KEY, _SPEC, _SETTINGS, _CACHE, _ROWS, _WINDOW
     from products.aegis.backtest import BacktestSettings, _data_key, _prepare_frame
     from products.aegis.indicators import IndicatorCache
     from products.aegis.strategy import StrategySpec
 
     for row in rows:
         row.setdefault("symbol", symbol)
+    _ROWS = rows
+    _WINDOW = None
     _FRAME = _prepare_frame(rows)
     _DATA_KEY = _data_key(_FRAME)
     _SPEC = StrategySpec.model_validate(spec)
@@ -70,7 +74,24 @@ def _init_worker(rows: list[dict], symbol: str, spec: dict, settings: dict) -> N
     _CACHE = IndicatorCache()
 
 
-def _run_cell(index: int, params: dict[str, float], want_curve: bool) -> dict:
+def _window_frame(window: tuple[int, int] | None):
+    """The frame and data key a cell runs on: the whole bars, or one window's slice prepared
+    as its own bars (Mission 8: a study maps each window in-sample only)."""
+    global _WINDOW
+    if window is None:
+        return _FRAME, _DATA_KEY
+    from products.aegis.backtest import _data_key, _prepare_frame
+
+    bounds = (int(window[0]), int(window[1]))
+    if _WINDOW is None or _WINDOW[0] != bounds:
+        frame = _prepare_frame(_ROWS[bounds[0] : bounds[1]])
+        _WINDOW = (bounds, frame, _data_key(frame))
+    return _WINDOW[1], _WINDOW[2]
+
+
+def _run_cell(
+    index: int, params: dict[str, float], want_curve: bool, window: tuple[int, int] | None = None
+) -> dict:
     from products.aegis.backtest import BacktestRequest, run_metrics
     from products.aegis.surface import apply_params, skip_reason_of
 
@@ -101,7 +122,8 @@ def _run_cell(index: int, params: dict[str, float], want_curve: bool) -> dict:
         strategy=strategy, data=None, bars=[], events=[], settings=_SETTINGS, engine="kernel"
     )
     try:
-        result = run_metrics(request, _FRAME, _DATA_KEY, _CACHE, want_curve)
+        frame, data_key = _window_frame(window)
+        result = run_metrics(request, frame, data_key, _CACHE, want_curve)
     except ValueError as exc:  # the engine's own refusal (a warm-up longer than the data)
         message = str(exc)
         reason = "insufficient bars" if message.startswith("insufficient bars") else message
@@ -127,7 +149,7 @@ class Pool:
         self._executor: ProcessPoolExecutor | None = None
         self._bars = 0
         self._cell_ms_total = 0.0
-        self._cells_measured = 0
+        self._cell_bars_total = 0
 
     def start(self, rows: list[dict], symbol: str, spec: dict, settings: dict) -> None:
         self._bars = len(rows)
@@ -139,23 +161,37 @@ class Pool:
 
     @property
     def mean_ms_per_cell_bar(self) -> float | None:
-        if not self._cells_measured or not self._bars:
+        if not self._cell_bars_total:
             return None
-        return self._cell_ms_total / self._cells_measured / self._bars
+        return self._cell_ms_total / self._cell_bars_total
 
-    def run_chunk(self, cells: list[tuple[int, dict[str, float]]], want_curve: bool) -> list[dict]:
+    def run_chunk(
+        self,
+        cells: list[tuple[int, dict[str, float]]],
+        want_curve: bool,
+        window: tuple[int, int] | None = None,
+    ) -> list[dict]:
+        """Run cells on the whole bars, or with `window` = (start, end) on that slice only."""
         if self._executor is None:
             raise RuntimeError("pool not started")
+        bars = self._bars if window is None else window[1] - window[0]
         indices = [index for index, _ in cells]
         params = [values for _, values in cells]
         chunksize = max(1, len(cells) // (self.max_workers * 4))
         rows = list(
-            self._executor.map(_run_cell, indices, params, repeat(want_curve), chunksize=chunksize)
+            self._executor.map(
+                _run_cell,
+                indices,
+                params,
+                repeat(want_curve),
+                repeat(window),
+                chunksize=chunksize,
+            )
         )
         for row in rows:
             if row["valid"]:
                 self._cell_ms_total += row["elapsed_ms"]
-                self._cells_measured += 1
+                self._cell_bars_total += bars
         return rows
 
     def shutdown(self) -> None:

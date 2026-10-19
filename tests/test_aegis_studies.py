@@ -210,3 +210,81 @@ def test_refused_when_mar_has_less_than_a_year_in_sample():  # plan ruling P6
     refused(message, request, experiment(), three_symbols(17_500))
     plan = plan_study(request, experiment(objective="net_pnl"), three_symbols(17_500), None, 10)
     assert plan.symbols[0].windows == (17_500 - 700) // 200
+
+
+# --- Task 3: in-sample maps on a window slice ------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def window_pool():
+    from products.aegis.pool import Pool
+
+    p = Pool(max_workers=2)
+    p.start([dict(r) for r in POOL_ROWS], "QQQ", pinned().model_dump(mode="json"), POOL_SETTINGS)
+    yield p
+    p.shutdown()
+
+
+def _wave(n):
+    from test_aegis_walkforward import wave_bars
+
+    return [{**r, "timestamp": r["timestamp"].isoformat()} for r in wave_bars(n=n)]
+
+
+POOL_ROWS = _wave(400)
+POOL_SETTINGS = {"initial_capital": 100_000, "allocation_fraction": 1}
+
+
+def wide_surface():
+    return Surface(
+        parameters=[
+            Parameter(path="long_side.indicators.donchian.length", start=10, stop=30, step=2),
+            Parameter(path="long_side.indicators.rsi.length", start=7, stop=28, step=3),
+        ]
+    )
+
+
+def test_map_window_exhaustive_matches_analyse(window_pool):
+    from products.aegis.analysis import analyse
+    from products.aegis.backtest import BacktestRequest, run_backtest
+    from products.aegis.studies import map_window
+    from products.aegis.surface import apply_params, build_grid
+
+    surface = Surface(
+        parameters=[
+            Parameter(path="long_side.indicators.donchian.length", start=10, stop=20, step=5),
+            Parameter(path="long_side.indicators.rsi.length", start=7, stop=28, step=7),
+        ]
+    )
+    grid = build_grid(pinned(), surface, 200)
+    table, report = map_window(
+        window_pool, grid, "exhaustive", 12, 0, "net_pnl", 0.15, 1, (100, 300), "QQQ w0"
+    )
+    assert sorted(table.column("cell").to_pylist()) == list(range(12))
+    assert set(table.column("pass").to_pylist()) == {"grid"}
+    assert report == analyse(table, grid, "net_pnl", 0.15, "exhaustive", 1, "QQQ w0")
+    row = table.to_pylist()[5]
+    params = {path: row[path] for path in surface.paths()}
+    sliced = run_backtest(
+        BacktestRequest(strategy=apply_params(pinned(), params), bars=POOL_ROWS[100:300])
+    )
+    assert row["combined.net_pnl"] == sliced["combined"]["metrics"]["net_pnl"]
+
+
+def test_map_window_sampled_stays_within_budget(window_pool):
+    from products.aegis.studies import map_window
+    from products.aegis.surface import build_grid
+
+    grid = build_grid(pinned(), wide_surface(), 200)
+    assert grid.valid_count == 88
+    table, report = map_window(
+        window_pool, grid, "sampled", 20, 10, "net_pnl", 0.15, 7, (100, 300), "QQQ w0"
+    )
+    cells = table.column("cell").to_pylist()
+    assert 20 <= len(cells) <= 30 and len(set(cells)) == len(cells)
+    assert set(table.column("pass").to_pylist()) <= {"sample", "refine"}
+    assert report["mode"] == "sampled"
+    again, _ = map_window(
+        window_pool, grid, "sampled", 20, 10, "net_pnl", 0.15, 7, (100, 300), "QQQ w0"
+    )
+    assert again.column("cell").to_pylist() == cells

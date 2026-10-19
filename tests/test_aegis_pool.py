@@ -133,3 +133,24 @@ def test_a_cell_whose_warm_up_exceeds_the_bars_is_an_invalid_row_not_a_failure()
     row = worker._run_cell(7, params, False)
     assert row["valid"] is False and row["skip_reason"] == "insufficient bars", row
     assert row["metrics"] is None and row["cell"] == 7 and row["params"] == params
+
+
+def test_pool_window_slice_equals_a_backtest_on_those_bars(pool):
+    """Mission 8 Task 3: a window's cells run on the window's bars only, as a plain backtest of
+    that slice would."""
+    spec = pinned()
+    for index, params in cells(4):
+        [row] = pool.run_chunk([(index, params)], want_curve=False, window=(40, 230))
+        sliced = run_backtest(
+            BacktestRequest(strategy=apply_params(spec, params), bars=ROWS[40:230])
+        )
+        for scope in SCOPES:
+            for metric in METRICS:
+                assert row["metrics"][scope][metric] == sliced[scope]["metrics"][metric], (
+                    scope,
+                    metric,
+                )
+    whole = pool.run_chunk(cells(1), want_curve=False)[0]
+    full = run_backtest(BacktestRequest(strategy=apply_params(spec, cells(1)[0][1]), bars=ROWS))
+    assert whole["metrics"]["combined"] == full["combined"]["metrics"]  # no window: as before
+    assert pool.mean_ms_per_cell_bar > 0

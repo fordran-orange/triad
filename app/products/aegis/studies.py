@@ -13,18 +13,24 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Literal
 
+import pyarrow as pa
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from products.aegis.analysis import analyse
 from products.aegis.backtest import MIN_BARS, BacktestSettings
-from products.aegis.experiments import ExperimentDocument
+from products.aegis.experiments import ExperimentDocument, _cells_table
+from products.aegis.pool import Pool
 from products.aegis.strategy import StrategySpec
 from products.aegis.surface import (
     KERNEL_MS_PER_BAR,
     Budget,
+    Grid,
     Lever,
     Surface,
     build_grid,
     effective_workers,
+    latin_hypercube,
+    refinement_cells,
 )
 from products.aegis.surface import plan as plan_surface
 from products.aegis.walkforward import MIN_OOS_BARS, cut_windows
@@ -241,6 +247,55 @@ def plan_study(
     )
 
 
+def map_window(
+    pool: Pool,
+    grid: Grid,
+    mode: str,
+    first_pass: int,
+    refinement: int,
+    objective: str,
+    tolerance: float,
+    seed: int,
+    window: tuple[int, int],
+    data_label: str,
+) -> tuple[pa.Table, dict]:
+    """One window's in-sample map (spec §5.1–5.2): every planned cell on the window's bars only,
+    exhaustive or a Latin-hypercube first pass plus plateau refinement as an experiment samples,
+    then the experiment's analysis. Returns the cells (the experiment's cell schema) and the
+    report; nothing is persisted here."""
+    paths = grid.paths
+
+    def run(cells: list[int], label: str) -> list[dict]:
+        if not cells:
+            return []
+        rows = pool.run_chunk(
+            [(i, grid.cell_values(i)) for i in cells], want_curve=False, window=window
+        )
+        for row in rows:
+            row["pass"] = label
+        return rows
+
+    if mode == "exhaustive":
+        cells = range(grid.size) if grid.skipped_count == 0 else grid.valid_indices_iter()
+        rows = run(list(cells), "grid")
+    else:
+        rows = run(latin_hypercube(grid, first_pass, seed), "sample")
+        first = _cells_table(rows, paths)
+        report = analyse(first, grid, objective, tolerance, "sampled", seed, data_label)
+        sign = -1.0 if objective == "max_drawdown" else 1.0
+        run_cells = {
+            cell: (None if value is None else sign * float(value))
+            for cell, value in zip(
+                first.column("cell").to_pylist(),
+                first.column(f"combined.{objective}").to_pylist(),
+                strict=True,
+            )
+        }
+        rows += run(refinement_cells(grid, run_cells, report["plateaus"], refinement), "refine")
+    table = _cells_table(rows, paths)
+    return table, analyse(table, grid, objective, tolerance, mode, seed, data_label)
+
+
 __all__ = [
     "DEFAULT_SYMBOLS",
     "UNFINISHED",
@@ -248,6 +303,7 @@ __all__ = [
     "StudyPlan",
     "StudyRequest",
     "SymbolPlan",
+    "map_window",
     "plan_study",
     "window_lengths",
 ]
