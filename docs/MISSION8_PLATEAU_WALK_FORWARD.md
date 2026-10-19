@@ -120,6 +120,9 @@ dropped; the peak rule happened to have none.
   check, by design; it runs on `main` after the merge.
 - After the fix pass: Aegis scope 353 passed and 1 skipped; UI 75 vitest cases; `tsc` clean; the
   build succeeds; lint passes.
+- **`tools\verify.ps1` on `main` after the merge (2026-10-19): exit 0, "all three scopes green"**:
+  core 386 passed / 171 skipped; triad 634 / 424 (209 subtests); aegis 353 / 1. Database health,
+  the foundation and secret audit, compose, whitespace and git checks passed.
 - Host issue met on the way: since the 2026-10-18 reboot Windows reserved TCP 57225–57824, which
   covers Neo4j's host ports 57474 and 57687, so Docker published neither. The operator restored
   them with an elevated `net stop winnat`, recreating the container and `net start winnat`. The
