@@ -1,11 +1,11 @@
 """Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items, the 14 Mission 4
-items, the 11 Mission 5 items and the 13 Mission 6 items (spec §2) in Chromium against the
+items, the 11 Mission 5 items, the 13 Mission 6 items and the 9 Mission 8 items in Chromium against the
 running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
 (indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
-Item 51 restarts the worker detached through WMI (tools/start_product.ps1), as the DoD asks.
+Items 51 and 63 restart the worker detached through WMI (tools/start_product.ps1), as the DoD asks.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
-Exit code 0 only when all 60 items PASS with no page errors.
+Exit code 0 only when all 69 items PASS with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
 
@@ -88,6 +88,16 @@ ITEMS = [
     "recompute the finished experiment's report with net P&L and tolerance 0.10 without rerunning: both reports kept",
     "every refusal is honest over HTTP: no parameters, eleven, a path on the wrong side, a fractional step, a budget of zero, a pause on a finished experiment, a delete of a running one",
     "governance unchanged, no file under Core, the platform host or Triad changed, and pyproject.toml changed by the one optional-extra line only",
+    # Mission 8 (spec §3 items 1–9)
+    "plan a study from the finished breakout experiment: per symbol the windows, 252 cells per window exhaustive, the runs and an estimate priced from the measured cost",
+    "start it on QQQ, SPY and ITOT 1h 2016-09-19 → 2026-09-18 with 3,493 + 873 bars: progress advances by window while the status route answers under 500 ms",
+    "pause, restart the worker: the study is paused, not lost; resume; it finishes with every window of every symbol present exactly once",
+    "the report: per symbol the three rules side by side, the flat windows, stability, the equity chart and the window table; the cross-symbol line; the raw-archive label",
+    "recompute one window independently: its cells re-analysed give the same plateau centre, and the plateau rule's out-of-sample run equals a direct backtest by hash",
+    "an identical study reproduces every per-rule result hash",
+    "every refusal answers 422 or 409 naming the problem",
+    "record the decision accepted with a note: shown on the study and in the list under its experiment",
+    "governance unchanged and no file under Core, the platform host or Triad changed since the Mission 8 plan",
 ]
 RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
 MISSION5_BASE = (
@@ -104,6 +114,11 @@ MISSION6_BASE = (
 # Mission 6's merged head. Item 60 checks Mission 6's own pyproject.toml change over its own range;
 # later missions may change pyproject.toml (Mission 7 added the triad extra and owner markers).
 MISSION6_END = "90e94d0"
+MISSION8_BASE = (
+    "31bddc8"  # the Mission 8 plan commit; Core, platform host and Triad are frozen since
+)
+STUDY_SYMBOLS = ["QQQ", "SPY", "ITOT"]
+STUDY_RANGE = ("2016-09-19", "2026-09-18")  # spec §3 item 2: the archive's whole span today
 EXPERIMENT_SURFACE = [  # spec §2 item 2: 7 × 4 × 3 × 3 = 252 cells across both sides
     ("long_side.indicators.donchian.length", 10, 40, 5),
     ("long_side.indicators.rsi.length", 7, 28, 7),
@@ -308,6 +323,32 @@ class Acceptance:
             "tolerance": 0.15,
             "seed": 1,
         }
+
+    # -- study plumbing (Mission 8) -------------------------------------------------------------
+    def study(self, study_id: str) -> dict:
+        return self.api(f"studies/{study_id}")
+
+    def study_body(self) -> dict:
+        return {
+            "experiment_id": self.exp_id,
+            "symbols": list(STUDY_SYMBOLS),
+            "start": STUDY_RANGE[0],
+            "end": STUDY_RANGE[1],
+            "in_sample_bars": 3493,
+            "out_of_sample_bars": 873,
+        }
+
+    def study_hashes(self, document: dict) -> dict:
+        return {
+            symbol: {rule: entry["rules"][rule].get("result_hash") for rule in entry["rules"]}
+            for symbol, entry in document["report"]["symbols"].items()
+        }
+
+    def wait_study(self, study_id: str, statuses, timeout: float) -> dict:
+        assert self.wait_until(lambda: self.study(study_id)["status"] in statuses, timeout, 2), (
+            self.study(study_id)["status"]
+        )
+        return self.study(study_id)
 
     def open_planner(self) -> None:
         """New experiment; when the gate asks, revert the workspace's unsaved edits (an
@@ -1927,6 +1968,515 @@ class Acceptance:
 
         self.item(60, item60)
 
+        # -- Mission 8 (spec §3 items 1–9) ----------------------------------------------------
+        def item61():
+            page.locator("#nav-charts").click()
+            page.wait_for_selector("#chart-mount")
+            page.locator("#nav-experiments").click()
+            page.wait_for_selector(f"#exp-{self.exp_id}", timeout=60_000)
+            page.locator(f"#exp-{self.exp_id}").click()
+            page.wait_for_function(
+                "document.getElementById('experiment-walk-forward') && !document.getElementById('experiment-walk-forward').disabled",
+                timeout=60_000,
+            )
+            page.locator("#experiment-walk-forward").click()
+            page.wait_for_function(
+                "/runs · ≈/.test(document.getElementById('study-plan')?.innerText ?? '')",
+                timeout=120_000,
+            )
+            checked = self.js(
+                "[...document.querySelectorAll('#study-symbols input')].filter(i => i.checked)"
+                ".map(i => i.id.replace('study-symbol-check-', ''))"
+            )
+            assert sorted(checked) == sorted(STUDY_SYMBOLS), checked
+            lengths = self.js(
+                "[document.getElementById('study-in-sample').value, document.getElementById('study-out-of-sample').value]"
+            )
+            assert lengths == ["3493", "873"], lengths
+            line = self.js("document.getElementById('study-plan').innerText").splitlines()[0]
+            response = self.post("studies/plan", self.study_body())
+            assert response.ok, response.text()
+            planned = response.json()
+            assert (planned["in_sample_bars"], planned["out_of_sample_bars"]) == (3493, 873), (
+                planned
+            )
+            for entry in planned["symbols"]:
+                assert entry["mode"] == "exhaustive" and entry["cells_per_window"] == 252, entry
+                assert entry["first_window"]["is_start"].startswith("2016-09-19"), entry
+            assert planned["price_source"] == "measured", planned
+            assert f"{planned['total_runs']:,} runs" in line and "measured on this host" in line, (
+                line
+            )
+            self.study_plan = planned
+            windows = {e["symbol"]: e["windows"] for e in planned["symbols"]}
+            self.timings["study_plan"] = {
+                "windows": windows,
+                "bars": {e["symbol"]: e["bars"] for e in planned["symbols"]},
+                "total_runs": planned["total_runs"],
+                "estimate_seconds": planned["estimate_seconds"],
+                "ms_per_cell_bar": planned["ms_per_cell_bar"],
+            }
+            return (
+                f"plan line '{line}'; API: windows {windows}, 252 cells per window exhaustive, "
+                f"{planned['total_runs']:,} runs, ≈ {planned['estimate_seconds']:.0f} s at the measured "
+                f"{planned['ms_per_cell_bar']:.4f} ms per cell-bar"
+            )
+
+        self.item(61, item61)
+
+        def item62():
+            page.locator("#study-start-date").fill(STUDY_RANGE[0])
+            page.locator("#study-end-date").fill(STUDY_RANGE[1])
+            time.sleep(1.5)  # the plan line's 300 ms debounce, then its request
+            page.wait_for_function(
+                "!document.getElementById('study-start').disabled", timeout=120_000
+            )
+            with page.expect_response(
+                lambda r: r.url.endswith("/aegis/api/studies") and r.request.method == "POST",
+                timeout=120_000,
+            ) as caught:
+                page.locator("#study-start").click()
+            started = caught.value
+            assert started.status == 202, started.text()
+            self.study_id = started.json()["study_id"]
+            self.study_request = json.loads(started.request.post_data)
+            for key, value in self.study_body().items():
+                assert self.study_request[key] == value, (key, self.study_request[key], value)
+            self.study_started = time.perf_counter()
+            seen, latencies = [], []
+            deadline = time.monotonic() + 900
+            while time.monotonic() < deadline:
+                t = time.perf_counter()
+                response = page.request.get(self.base + f"api/studies/{self.study_id}")
+                latencies.append(int((time.perf_counter() - t) * 1000))
+                assert response.ok, response.text()
+                done = response.json()["progress"]["windows_done"]
+                if not seen or seen[-1] != done:
+                    seen.append(done)
+                if len(seen) >= 3:
+                    break
+                time.sleep(0.25)
+            assert len(seen) >= 3 and seen == sorted(seen), seen
+            assert max(latencies) < 500, max(latencies)
+            page.wait_for_function(
+                "/of \\d+ windows/.test(document.getElementById('study-progress')?.innerText ?? '')",
+                timeout=60_000,
+            )
+            progress = self.js("document.getElementById('study-progress').innerText")
+            self.timings["study_status_latency_ms_max"] = max(latencies)
+            return (
+                f"study {self.study_id} started from the page with {self.study_request['symbols']} "
+                f"{STUDY_RANGE[0]} → {STUDY_RANGE[1]}, 3,493 + 873 bars; windows done advanced "
+                f"{' → '.join(map(str, seen))}; status route {max(latencies)} ms max over "
+                f"{len(latencies)} calls; the page reads '{progress.splitlines()[-1]}'"
+            )
+
+        self.item(62, item62)
+
+        def item63():
+            paused = self.post(f"studies/{self.study_id}/pause", {})
+            assert paused.status == 200, paused.text()
+            doc = self.wait_study(self.study_id, ("paused",), 900)
+            before = doc["progress"]["windows_done"]
+            old, new = self.restart_worker()
+            after = self.study(self.study_id)
+            assert after["status"] == "paused", after["status"]
+            assert after["progress"]["windows_done"] == before, after["progress"]
+            resumed_at = time.perf_counter()
+            resumed = self.post(f"studies/{self.study_id}/resume", {})
+            assert resumed.status == 202, resumed.text()
+            doc = self.wait_study(self.study_id, ("done", "failed", "cancelled"), 5400)
+            assert doc["status"] == "done", doc.get("error")
+            total = 0
+            for entry in self.study_plan["symbols"]:
+                indices = [w["index"] for w in doc["windows"][entry["symbol"]]]
+                assert indices == list(range(entry["windows"])), (entry["symbol"], indices)
+                total += entry["windows"]
+            assert doc["progress"]["windows_done"] == total, doc["progress"]
+            self.study_doc = doc
+            self.timings["study_seconds"] = {
+                "start_to_done": round(time.perf_counter() - self.study_started, 1),
+                "resume_to_done": round(time.perf_counter() - resumed_at, 1),
+                "ms_per_cell_bar": doc.get("ms_per_cell_bar"),
+            }
+            counts = ", ".join(f"{e['symbol']} {e['windows']}" for e in self.study_plan["symbols"])
+            return (
+                f"paused at {before} of {total} windows; worker {old} → {new}; the study stayed "
+                f"paused at {before}; resumed and finished in {self.timings['study_seconds']['resume_to_done']} s; "
+                f"every window present once ({counts})"
+            )
+
+        self.item(63, item63)
+
+        def item64():
+            page.locator("#nav-charts").click()
+            page.wait_for_selector("#chart-mount")
+            page.locator("#nav-experiments").click()
+            page.wait_for_selector(f"#exp-{self.exp_id}", timeout=60_000)
+            page.locator(f"#exp-{self.exp_id}").click()
+            page.wait_for_selector(f"#study-row-{self.study_id}", timeout=60_000)
+            page.locator(f"#study-row-{self.study_id}").click()
+            page.wait_for_selector("#study-summary", timeout=60_000)
+            summary = self.js("document.getElementById('study-summary').innerText")
+            assert "RAW ARCHIVE · NOT RESEARCH-ELIGIBLE" in summary, summary
+            assert "plateau rule ahead of the peak rule on" in summary, summary
+            assert "no significance test is claimed" in summary, summary
+            report = self.study_doc["report"]
+            assert report["raw_archive"] is True and report["frozen_absent"] is None, report[
+                "frozen_absent"
+            ]
+            lines = []
+            for entry in self.study_plan["symbols"]:
+                symbol = entry["symbol"]
+                rows = self.js(
+                    f"document.querySelectorAll('#study-rules-{symbol} tbody tr').length"
+                )
+                paths = self.js(f"document.querySelectorAll('#study-chart-{symbol} path').length")
+                windows = self.js(
+                    f"document.querySelectorAll('#study-windows-{symbol} tbody tr[id^=\"study-window-{symbol}-\"]').length"
+                )
+                assert rows == 3 and paths == 3, (symbol, rows, paths)
+                assert windows == entry["windows"], (symbol, windows)
+                assert self.js(f"!!document.getElementById('study-stability-{symbol}')"), symbol
+                section = report["symbols"][symbol]
+                lines.append(f"{section['comparison']} ({section['flat_line']})")
+            self.timings["study_report"] = {
+                "summary": report["summary"],
+                "symbols": {
+                    s: {
+                        "comparison": e["comparison"],
+                        "flat_line": e["flat_line"],
+                        "stability": {
+                            k: v for k, v in e["stability"].items() if k != "centre_path"
+                        },
+                        "rules": {r: v.get("metrics") for r, v in e["rules"].items()},
+                    }
+                    for s, e in report["symbols"].items()
+                },
+            }
+            page.screenshot(path=str(self.screenshot_path("study")), full_page=True)
+            return f"'{report['summary']}'; " + " ".join(lines)
+
+        self.item(64, item64)
+
+        def item65():
+            import hashlib
+            import subprocess
+            from datetime import UTC as utc
+            from datetime import datetime as dt
+
+            symbol = "QQQ"
+            doc = self.study_doc
+            candidates = [
+                w
+                for w in doc["windows"][symbol]
+                if w["plateau"] and not w["rules"]["plateau"]["flat"] and w["index"] > 0
+            ]
+            carried = [
+                w
+                for w in candidates
+                if any(c.get("carry") for c in w["chains_in"]["plateau"].values())
+            ]
+            window = (carried or candidates)[0]
+            k = window["index"]
+            cells = self.api(f"studies/{self.study_id}/windows/{symbol}/{k}/cells?limit=5000")
+            payload = {
+                "rows": cells["rows"],
+                "spec": doc["spec"],
+                "surface": doc["surface"],
+                "in_sample": doc["in_sample_bars"],
+                "objective": doc["objective"],
+                "tolerance": doc["tolerance"],
+                "mode": window["mode"],
+                "seed": doc["seed"] + k,
+            }
+            script = (
+                "import json, sys\n"
+                "sys.path.insert(0, 'app')\n"
+                "from products.aegis.analysis import analyse\n"
+                "from products.aegis.strategy import StrategySpec\n"
+                "from products.aegis.surface import Surface, build_grid\n"
+                "data = json.load(sys.stdin)\n"
+                "grid = build_grid(StrategySpec.model_validate(data['spec']), "
+                "Surface.model_validate(data['surface']), data['in_sample'])\n"
+                "report = analyse(data['rows'], grid, data['objective'], data['tolerance'], "
+                "data['mode'], data['seed'], 'recompute')\n"
+                "rec = report['recommendation']\n"
+                "print(json.dumps({'centre': rec['centre']['cell'] if rec else None, "
+                "'statement': report['statement']}))\n"
+            )
+            ran = subprocess.run(
+                [str(ROOT / ".venv-aegis" / "Scripts" / "python.exe"), "-c", script],
+                input=json.dumps(payload),
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+                check=True,
+            )
+            recomputed = json.loads(ran.stdout.strip().splitlines()[-1])
+            assert recomputed["centre"] == window["plateau"]["centre_cell"], (
+                recomputed,
+                window["plateau"],
+            )
+
+            bars = self.api(
+                f"data/bars?symbol={symbol}&timeframe=1h&start={STUDY_RANGE[0]}&end={STUDY_RANGE[1]}"
+            )["bars"]
+            plan = next(e for e in self.study_plan["symbols"] if e["symbol"] == symbol)
+            assert len(bars) == plan["bars"], (len(bars), plan["bars"])
+            rows = [
+                {
+                    "timestamp": dt.fromtimestamp(b["time"] / 1000, utc).isoformat(),
+                    "open": b["open"],
+                    "high": b["high"],
+                    "low": b["low"],
+                    "close": b["close"],
+                    "volume": b["volume"],
+                    "symbol": symbol,
+                }
+                for b in bars
+            ]
+            oos_start = k * 873 + 3493
+            oos_end = oos_start + 873
+            assert rows[oos_start]["timestamp"] == window["oos_start"], (
+                rows[oos_start],
+                window["oos_start"],
+            )
+            last = k == plan["windows"] - 1
+            params = window["rules"]["plateau"]["params"]
+            matched = []
+            for side, record in window["rules"]["plateau"]["sides"].items():
+                chain = window["chains_in"]["plateau"][side]
+                spec = json.loads(json.dumps(doc["spec"]))
+                other = "short_side" if side == "long" else "long_side"
+                spec[other]["enabled"] = False
+                for path, value in params.items():
+                    side_key, _, rest = path.partition(".")
+                    parts = rest.split(
+                        "."
+                    )  # indicators.<id>.length or indicators.<id>.params.<name>
+                    indicator = next(i for i in spec[side_key]["indicators"] if i["id"] == parts[1])
+                    if parts[2] == "length":
+                        indicator["length"] = round(value)
+                    else:
+                        indicator.setdefault("params", {})[parts[3]] = value
+                body = {
+                    "strategy": spec,
+                    "bars": rows[:oos_end],
+                    "settings": {
+                        "initial_capital": chain["cash"],
+                        "allocation_fraction": doc["settings"]["allocation_fraction"],
+                        "evaluate_from": window["oos_start"],
+                        "initial_position": chain["carry"],
+                        "close_at_end": last,
+                    },
+                }
+                response = self.post("backtest", body)
+                assert response.ok, response.text()[:300]
+                result = response.json()["result"][side]
+                digest = hashlib.sha256(
+                    json.dumps(
+                        {"trades": result["trades"], "metrics": result["metrics"]},
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    ).encode("utf-8")
+                ).hexdigest()
+                assert digest == record["run_hash"], (side, digest, record["run_hash"])
+                matched.append(
+                    f"{side} {len(result['trades'])} trades from ${chain['cash']:,.0f}"
+                    + (" with a carried position" if chain.get("carry") else "")
+                    + f" → {digest[:12]}"
+                )
+            return (
+                f"{symbol} window {k} ({window['oos_start'][:10]} → {window['oos_end'][:10]}): its "
+                f"{len(cells['rows'])} cells re-analysed out of process give centre cell "
+                f"{recomputed['centre']} as recorded; the plateau rule's runs equal direct "
+                f"backtests on the same bars, evaluate_from, capital and carry: "
+                + "; ".join(matched)
+            )
+
+        self.item(65, item65)
+
+        def item66():
+            started = self.post("studies", self.study_request)
+            assert started.status == 202, started.text()
+            twin_id = started.json()["study_id"]
+            twin = self.wait_study(twin_id, ("done", "failed", "cancelled"), 5400)
+            assert twin["status"] == "done", twin.get("error")
+            first, second = self.study_hashes(self.study_doc), self.study_hashes(twin)
+            assert first == second, (first, second)
+            self.twin_id = twin_id
+            count = sum(len(v) for v in first.values())
+            return (
+                f"study {twin_id} on the identical request reproduced all {count} per-rule hashes: "
+                + "; ".join(
+                    f"{s} " + ", ".join(f"{r} {h[:12]}" for r, h in v.items())
+                    for s, v in first.items()
+                )
+            )
+
+        self.item(66, item66)
+
+        def item67():
+            checks = []
+
+            def refused(response, status, needle, label):
+                assert response.status == status and needle in response.text(), (
+                    label,
+                    response.status,
+                    response.text()[:300],
+                )
+                checks.append(f"{label} → {status}")
+
+            base = self.study_body()
+            refused(
+                self.post("studies/plan", {**base, "symbols": ["ZZZ"]}),
+                422,
+                "unknown symbol 'ZZZ'",
+                "unknown symbol",
+            )
+            refused(
+                self.post("studies/plan", {**base, "in_sample_bars": 30}),
+                422,
+                "in_sample_bars 30 below 35",
+                "in-sample under the floor",
+            )
+            refused(
+                self.post("studies/plan", {**base, "out_of_sample_bars": 10}),
+                422,
+                "out_of_sample_bars 10 below 20",
+                "out-of-sample under the floor",
+            )
+            refused(
+                self.post("studies/plan", {**base, "start": "2026-01-02"}),
+                422,
+                "range too short",
+                "a range shorter than one window",
+            )
+            refused(
+                self.post(
+                    "studies/plan", {**base, "in_sample_bars": 700, "out_of_sample_bars": 200}
+                ),
+                422,
+                "needs an in-sample span of at least 365 days",
+                "MAR on under a year in-sample",
+            )
+            refused(
+                self.post("studies/plan", {**base, "symbols": []}),
+                422,
+                "at least one symbol",
+                "no symbol",
+            )
+            refused(
+                self.post(f"studies/{self.study_id}/pause", {}),
+                409,
+                "not running",
+                "pause of a finished study",
+            )
+            refused(
+                page.request.delete(self.base + f"api/experiments/{self.exp_id}"),
+                409,
+                "has studies",
+                "delete of a parent experiment",
+            )
+            small = {**base, "symbols": ["QQQ"], "name": f"refusals {self.stamp}"}
+            started = self.post("studies", small)
+            assert started.status == 202, started.text()
+            running = started.json()["study_id"]
+            refused(
+                self.post("studies", small),
+                409,
+                "another job is running",
+                "a second start while one runs",
+            )
+            refused(
+                page.request.delete(self.base + f"api/studies/{running}"),
+                409,
+                "cancel it first",
+                "delete of a running study",
+            )
+            queued = self.post(
+                "experiments", self.experiment_body(EXPERIMENT_SURFACE, name=f"queued {self.stamp}")
+            )
+            assert queued.status == 202 and queued.json()["status"] == "queued", queued.text()
+            queued_id = queued.json()["experiment_id"]
+            refused(
+                self.post("studies/plan", {**base, "experiment_id": queued_id}),
+                422,
+                "a study needs a finished experiment with a report",
+                "a study of an unfinished experiment",
+            )
+            assert self.post(f"experiments/{queued_id}/cancel", {}).ok
+            assert page.request.delete(self.base + f"api/experiments/{queued_id}").ok
+            assert self.post(f"studies/{running}/cancel", {}).ok
+            self.wait_study(running, ("cancelled",), 900)
+            assert page.request.delete(self.base + f"api/studies/{running}").ok
+            return (
+                "; ".join(checks)
+                + "; the refusals' study and experiment were cancelled and deleted"
+            )
+
+        self.item(67, item67)
+
+        def item68():
+            page.locator("#nav-charts").click()
+            page.wait_for_selector("#chart-mount")
+            page.locator("#nav-experiments").click()
+            page.wait_for_selector(f"#exp-{self.exp_id}", timeout=60_000)
+            page.locator(f"#exp-{self.exp_id}").click()
+            page.wait_for_selector(f"#study-row-{self.study_id}", timeout=60_000)
+            page.locator(f"#study-row-{self.study_id}").click()
+            page.wait_for_selector("#study-decision-save", timeout=60_000)
+            note = f"plateau walk-forward recorded; no significance claimed ({self.stamp})"
+            page.locator("#study-decision-verdict").select_option("accepted")
+            page.locator("#study-decision-notes").fill(note)
+            page.locator("#study-decision-save").click()
+            page.wait_for_function(
+                f"(document.getElementById('study-decision-current')?.innerText ?? '').includes({json.dumps(note)})",
+                timeout=30_000,
+            )
+            page.wait_for_function(
+                f"(document.getElementById('study-row-{self.study_id}')?.innerText ?? '').includes('accepted')",
+                timeout=30_000,
+            )
+            doc = self.study(self.study_id)
+            assert doc["decision"]["verdict"] == "accepted" and doc["decision"]["notes"] == note, (
+                doc["decision"]
+            )
+            listed = next(
+                s
+                for s in self.api(f"studies?experiment_id={self.exp_id}")
+                if s["id"] == self.study_id
+            )
+            assert listed["decision"]["verdict"] == "accepted", listed
+            return f"accepted at {doc['decision']['decided_at']} with the note; shown on the study and in its row under the experiment"
+
+        self.item(68, item68)
+
+        def item69():
+            import subprocess
+
+            def git(*args) -> str:
+                return subprocess.run(
+                    ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
+                ).stdout
+
+            status = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
+            assert status["mode"] == "human_directed" and status["exchange"] == "CLOSED", status
+            schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
+            assert schedule["enabled"] is False and schedule["id"].startswith("c99fa831"), schedule
+            paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
+            committed = git("diff", "--name-only", MISSION8_BASE, "HEAD", "--", *paths).strip()
+            pending = git("status", "--porcelain", "--", *paths).strip()
+            assert committed == "" and pending == "", (committed, pending)
+            return (
+                f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since {MISSION8_BASE}"
+            )
+
+        self.item(69, item69)
+
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -1959,6 +2509,8 @@ def main(argv=None) -> int:
         "result_hashes": acceptance.hashes,
         "experiment_id": getattr(acceptance, "exp_id", None),
         "refined_experiment_id": getattr(acceptance, "child_id", None),
+        "study_id": getattr(acceptance, "study_id", None),
+        "identical_study_id": getattr(acceptance, "twin_id", None),
         "page_errors": acceptance.errors,
     }
     out = ROOT / "logs" / f"aegis-acceptance-{stamp}.json"
