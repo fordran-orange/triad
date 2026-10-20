@@ -667,18 +667,18 @@ def test_remaining_time_extrapolates_from_chunks_not_start_up():  # limits revie
     assert remaining_seconds(560, [], 0) is None
 
 
-def test_pool_workers_drop_the_rows_when_no_window_is_asked():  # limits review I3
+def test_pool_workers_hold_one_frame_and_no_rows():  # limits review I3; Mission 10
+    """A worker holds the prepared frame only and slices a window from it."""
     from products.aegis import pool
+    from products.aegis.backtest import _prepare_frame
 
-    rows = [{**row, "timestamp": row["timestamp"].isoformat()} for row in bars()]
-    pool._init_worker(rows, "QQQ", default_strategy().model_dump(mode="json"), {}, False)
-    try:
-        assert pool._ROWS is None and pool._FRAME is not None
-        with pytest.raises(RuntimeError, match="window"):
-            pool._window_frame((0, 10))
-    finally:
-        pool._init_worker(rows, "QQQ", default_strategy().model_dump(mode="json"), {})
-    assert pool._ROWS is not None  # experiments and studies keep them for their windows
+    rows = [{**row, "timestamp": row["timestamp"].isoformat(), "symbol": "QQQ"} for row in bars()]
+    pool._init_worker(rows, "QQQ", default_strategy().model_dump(mode="json"), {})
+    assert pool._FRAME.equals(_prepare_frame(rows)) and not hasattr(pool, "_ROWS")
+    window, _ = pool._window_frame((5, 60))
+    assert window.equals(_prepare_frame(rows[5:60]))
+    with pytest.raises(ValueError, match="at least"):
+        pool._window_frame((0, 10))
 
 
 def test_a_kind_can_save_on_a_time_budget(tmp_path):  # limits review I5
@@ -729,3 +729,38 @@ def test_a_pooled_kind_plans_its_own_estimate(monkeypatch):  # limits review I4
     kind = OptimizerJob(request(_grid_strategy()), pd.DataFrame(bars()), PINNED, ms_per_bar=0.02)
     assert kind.pooled and kind.planned_seconds and kind.planned_seconds > POOL_START_SECONDS
     assert kind.snapshot()["estimated_seconds"] == pytest.approx(kind.planned_seconds, abs=1e-3)
+
+
+# --- Mission 10: the pool from a frame, sized to free memory --------------------------------------
+
+
+def test_workers_fit_free_memory():
+    from products.aegis.pool import POOL_BYTES_PER_BAR, workers_for
+
+    per = 947_519 * POOL_BYTES_PER_BAR
+    assert workers_for(947_519, 10, per * 100) == 10
+    assert 1 <= workers_for(947_519, 10, per * 3) < 10
+    with pytest.raises(ValueError, match="free"):
+        workers_for(947_519, 10, per // 2)
+
+
+def test_pool_from_a_frame_equals_the_rows_pool():
+    from products.aegis.backtest import _prepare_frame
+    from products.aegis.pool import Pool
+
+    rows = [{**row, "timestamp": row["timestamp"].isoformat()} for row in bars()]
+    spec = small_strategy().model_dump(mode="json")
+    cells = [
+        (i, {"long_side.indicators.ema.length": e, "long_side.indicators.sma.length": s})
+        for i, (e, s) in enumerate([(5, 8), (6, 9), (7, 10)])
+    ]
+    out = []
+    for source in (rows, _prepare_frame(rows)):
+        pool = Pool(max_workers=2)
+        pool.start(source, "QQQ", spec, {})
+        try:
+            ran = sorted(pool.run_chunk(cells, want_curve=False), key=lambda r: r["cell"])
+            out.append([r["metrics"] for r in ran])
+        finally:
+            pool.shutdown()
+    assert out[0] == out[1]

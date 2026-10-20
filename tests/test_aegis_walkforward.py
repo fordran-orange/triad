@@ -649,9 +649,11 @@ def test_out_of_sample_runs_on_the_full_history():
     from datetime import datetime
 
     from products.aegis.backtest import BacktestRequest, BacktestSettings, run_backtest
+    from products.aegis.optimize import engine_rows
 
     rows = wave_bars(n=400, period=29.0, amplitude=6.0)
     job = WalkForwardJob(rsi_walkforward_request(), pd.DataFrame(rows), PINNED)
+    oracle = engine_rows(pd.DataFrame(rows), job.request.data.symbol)  # the rows path, apart
     for unit in range(job.total_units):
         job.commit(unit, job.run_unit(unit))
     last = len(job.plan.windows) - 1
@@ -663,7 +665,7 @@ def test_out_of_sample_runs_on_the_full_history():
         continuous = run_backtest(
             BacktestRequest(
                 strategy=job._strategy_with(side),
-                bars=job.rows[: window.oos_end],
+                bars=oracle[: window.oos_end],
                 settings=BacktestSettings(
                     evaluate_from=datetime.fromisoformat(job.timestamps[window.oos_start]),
                     close_at_end=window.index == last,

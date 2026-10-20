@@ -176,7 +176,53 @@ def _check_initial_position(request: BacktestRequest) -> None:
 
 
 def _prepare_frame(rows: list[dict]) -> pd.DataFrame:
-    frame = pd.DataFrame(rows).copy()
+    return _validated(pd.DataFrame(rows).copy())
+
+
+def prepare_archive_frame(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """`_prepare_frame(engine_rows(frame, symbol))` without a dict per bar (Mission 10): the same
+    columns, order, dtypes and checks, so the data key and every hash are unchanged."""
+    out = frame.assign(symbol=symbol)
+    if "timestamp" in out.columns:
+        # The rows path round-trips through ISO strings, which always parse to nanoseconds.
+        out["timestamp"] = pd.to_datetime(out["timestamp"], utc=True).astype("datetime64[ns, UTC]")
+    for name in ("open", "high", "low", "close", "volume"):
+        # ... and through Python floats and ints, which widen every float and int column.
+        if name in out.columns and out[name].dtype.kind == "f":
+            out[name] = out[name].astype("float64")
+        elif name in out.columns and out[name].dtype.kind in "iu":
+            out[name] = out[name].astype("int64")
+    return _validated(out)
+
+
+def frame_slice(frame: pd.DataFrame, start: int, end: int) -> pd.DataFrame:
+    """Bars [start, end) of a prepared frame: what `_prepare_frame` makes of those rows (a
+    walk-forward window, an out-of-sample lead or a study window)."""
+    part = frame.iloc[start:end].reset_index(drop=True)
+    if len(part) < MIN_BARS:
+        raise ValueError(f"at least {MIN_BARS} bars are required to simulate")
+    return part
+
+
+def prepare_bars(bars: list[dict] | pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """A job's bars as one prepared frame: an archive frame for `symbol`, or supplied rows as
+    given (the rows path, unchanged)."""
+    if isinstance(bars, pd.DataFrame):
+        return prepare_archive_frame(bars, symbol)
+    return _prepare_frame(bars)
+
+
+def prepared_request(
+    strategy: StrategySpec, settings: BacktestSettings, engine: str = "kernel"
+) -> BacktestRequest:
+    """A request whose bars are already a prepared frame (`run_prepared` reads neither bars
+    nor the archive reference)."""
+    return BacktestRequest.model_construct(
+        strategy=strategy, data=None, bars=[], events=[], settings=settings, engine=engine
+    )
+
+
+def _validated(frame: pd.DataFrame) -> pd.DataFrame:
     required = {"timestamp", "open", "high", "low", "close", "volume"}
     missing = required - set(frame.columns)
     if missing:

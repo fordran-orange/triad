@@ -127,10 +127,14 @@ class IndicatorCache:
     """Memoizes indicator outputs per (data identity, kind, source, length, parameters): one frame
     per configuration, shared across optimizer cells, runs and indicator ids."""
 
-    def __init__(self, max_data_keys: int | None = None) -> None:
+    def __init__(self, max_data_keys: int | None = None, max_bytes: int | None = None) -> None:
         self._series: dict[tuple, pd.DataFrame] = {}
         self._data_keys: list[str] = []  # insertion order; the oldest is evicted first
         self.max_data_keys = max_data_keys
+        # Mission 10: a pool worker's cache holds at most this many bytes, the least recently
+        # used configuration going first, so a wide grid cannot grow a worker without bound.
+        self.max_bytes = max_bytes
+        self.nbytes = 0
         self.hits = 0
         self._lock = threading.Lock()  # the worker-wide backtest cache is shared across requests
 
@@ -145,7 +149,14 @@ class IndicatorCache:
         while self.max_data_keys is not None and len(self._data_keys) > self.max_data_keys:
             evicted = self._data_keys.pop(0)
             for key in [k for k in self._series if k[0] == evicted]:
-                del self._series[key]
+                self._drop(key)
+
+    def _drop(self, key: tuple) -> None:
+        self.nbytes -= int(self._series.pop(key).memory_usage(index=True).sum())
+
+    def _trim(self) -> None:
+        while self.max_bytes is not None and self.nbytes > self.max_bytes and len(self._series) > 1:
+            self._drop(next(iter(self._series)))
 
     def get(self, data_key: str, spec: IndicatorSpec, frame: pd.DataFrame) -> pd.DataFrame:
         """The outputs frame, columns named by output; relabel it with `named`."""
@@ -157,8 +168,12 @@ class IndicatorCache:
                 self._admit(data_key)
                 series = outputs(spec, frame)
                 self._series[key] = series
+                self.nbytes += int(series.memory_usage(index=True).sum())
+                self._trim()
             else:
                 self.hits += 1
+                if self.max_bytes is not None:  # most recently used last
+                    self._series[key] = self._series.pop(key)
             return series
 
     def __len__(self) -> int:

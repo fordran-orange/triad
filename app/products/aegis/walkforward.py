@@ -21,17 +21,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from products.aegis import kernel
 from products.aegis.backtest import (
     MIN_BARS,
-    BacktestRequest,
     BacktestSettings,
     DataReference,
     OpenPosition,
+    _data_key,
     _metrics,
-    run_backtest,
+    frame_slice,
+    prepare_archive_frame,
+    prepared_request,
+    run_prepared,
 )
 from products.aegis.indicators import IndicatorCache
 from products.aegis.optimize import (
     GridPlan,
-    engine_rows,
     expand_grid,
     plain_settings,
     provenance,
@@ -299,9 +301,11 @@ class WalkForwardJob:
     def __init__(self, request: WalkForwardRequest, frame, pinned: Any):
         self.request = request
         self.side = request.side
-        self.rows = engine_rows(frame, request.data.symbol)
-        self.timestamps = [row["timestamp"] for row in self.rows]
-        self.plan = plan(request, len(self.rows), self.timestamps)
+        # Mission 10: one prepared frame; the timestamps are the strings the rows path made.
+        self.frame = prepare_archive_frame(frame, request.data.symbol)
+        self.timestamps = [stamp.isoformat() for stamp in frame["timestamp"]]
+        self._slice: tuple[tuple[int, int], Any, str] | None = None
+        self.plan = plan(request, len(self.frame), self.timestamps)
         self.data = provenance(pinned)
         self.records = [pending_record(w, self.timestamps) for w in self.plan.windows]
         self.cells: dict[int, list[dict]] = {w.index: [] for w in self.plan.windows}
@@ -332,18 +336,27 @@ class WalkForwardJob:
             update={self._side_key: side, self._other_key: self._other_side}
         )
 
+    def _bars(self, start: int, end: int):
+        """Bars [start, end) and their data key; a window's cells share one slice."""
+        if self._slice is None or self._slice[0] != (start, end):
+            part = frame_slice(self.frame, start, end)
+            self._slice = ((start, end), part, _data_key(part))
+        return self._slice[1], self._slice[2]
+
+    def _run(self, strategy: StrategySpec, settings: BacktestSettings, start: int, end: int):
+        frame, key = self._bars(start, end)
+        return run_prepared(prepared_request(strategy, settings), frame, key, self.cache)
+
     def run_unit(self, index: int) -> dict:
         window_index, unit = self._locate(index)
         window = self.plan.windows[window_index]
         if unit < self.plan.cells_per_window:
             params = self.plan.grid.cells[unit]
-            result = run_backtest(
-                BacktestRequest(
-                    strategy=self._strategy_with(apply_parameters(self._base_side, params)),
-                    bars=self.rows[window.is_start : window.is_end],
-                    settings=self.request.settings,
-                ),
-                cache=self.cache,
+            result = self._run(
+                self._strategy_with(apply_parameters(self._base_side, params)),
+                self.request.settings,
+                window.is_start,
+                window.is_end,
             )
             return {
                 "unit": "cell",
@@ -372,17 +385,10 @@ class WalkForwardJob:
                 "close_at_end": last,
             }
         )
-        result = run_backtest(
-            BacktestRequest(
-                strategy=self._strategy_with(chosen),
-                # The whole history before the window (review finding #2): recursive
-                # indicators (EMA, RSI, ATR, MACD) then hold the values a continuous run holds;
-                # a short lead would cold-start them and move the window's signals.
-                bars=self.rows[: window.oos_end],
-                settings=settings,
-            ),
-            cache=self.cache,
-        )
+        # The whole history before the window (review finding #2): recursive indicators (EMA,
+        # RSI, ATR, MACD) then hold the values a continuous run holds; a short lead would
+        # cold-start them and move the window's signals.
+        result = self._run(self._strategy_with(chosen), settings, 0, window.oos_end)
         side = result[self.side]
         rebased = rebase(
             side["trades"], side["equity"], self._chained_equity, side["metrics"]["exposure"]

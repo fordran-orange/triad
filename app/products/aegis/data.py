@@ -11,7 +11,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import threading
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -240,7 +240,10 @@ class ArchiveStore:
                 minutes_key = (archive.vintage, archive.symbol, "__minutes__")
                 if minutes_key not in self._frames:
                     self._frames[minutes_key] = _load_minutes(self.root / archive.relative_path)
-                self._frames[key] = _resample(self._frames[minutes_key], timeframe)
+                minutes = self._frames[minutes_key]
+                # Mission 10: 1m is the minute frame itself, never a second ten-year copy;
+                # selection copies what it returns, so the cached frame is never handed out.
+                self._frames[key] = minutes if timeframe == "1m" else _resample(minutes, timeframe)
                 self.resample_count += 1
             return self._frames[key]
 
@@ -251,8 +254,13 @@ class ArchiveStore:
         if end_date < start_date:
             raise ValueError("end date precedes start date")
         full = self._frame(archive, timeframe)
-        local_dates = full["timestamp"].dt.tz_convert(TIMEZONE).dt.date
-        frame = full[(local_dates >= start_date) & (local_dates <= end_date)].reset_index(drop=True)
+        # A bar's local date lies in [start, end] exactly when the bar is at or after local
+        # midnight of `start` and before local midnight after `end` (midnight always exists in
+        # New York); comparing instants builds no date object per bar (Mission 10).
+        first = pd.Timestamp(start_date.isoformat(), tz=TIMEZONE)
+        after = pd.Timestamp((end_date + timedelta(days=1)).isoformat(), tz=TIMEZONE)
+        stamps = full["timestamp"]
+        frame = full[(stamps >= first) & (stamps < after)].reset_index(drop=True)
         if len(frame) > BAR_CAP:
             raise BarsTooLarge(len(frame), BAR_CAP)
         pinned = PinnedSource(

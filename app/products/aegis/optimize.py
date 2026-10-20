@@ -22,7 +22,14 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from products.aegis import kernel
-from products.aegis.backtest import BacktestRequest, BacktestSettings, DataReference, run_backtest
+from products.aegis.backtest import (
+    BacktestSettings,
+    DataReference,
+    _data_key,
+    prepare_archive_frame,
+    prepared_request,
+    run_prepared,
+)
 from products.aegis.indicators import IndicatorCache
 from products.aegis.jobs import MS_PER_BAR, UNFINISHED, JobBusy, JobRunner, estimate_seconds
 from products.aegis.kinds import kind_info
@@ -395,18 +402,21 @@ class OptimizerJob:
         self.request = request
         self.side = request.side
         self.plan = expand_grid(getattr(request.strategy, SIDE_KEY[request.side]))
-        self.rows = engine_rows(frame, request.data.symbol)
+        self.frame = prepare_archive_frame(frame, request.data.symbol)  # Mission 10: no rows
+        self.data_key = _data_key(self.frame)
         self.data = provenance(pinned)
-        self.bars = len(self.rows)
+        self.bars = len(self.frame)
         self.pooled = len(self.plan.cells) > SERIAL_MAX_CELLS
         self.pool = None
+        self.workers = 1
         self.planned_seconds: float | None = None  # a pooled job's estimate until a chunk is done
         self.save_every_seconds = 0.0  # serial grids save after every cell, as before
         if self.pooled:
-            from products.aegis.pool import Pool, default_workers
+            from products.aegis.pool import Pool, default_workers, fitted_workers
 
             self._pool_factory = pool_factory or Pool
-            workers = getattr(self._pool_factory(), "max_workers", None) or default_workers()
+            wanted = getattr(self._pool_factory(), "max_workers", None) or default_workers()
+            workers = self.workers = fitted_workers(self.bars, wanted)
             self.chunk = chunk_cells(workers, self.bars, pool_rate or ms_per_bar)
             self.total_units = math.ceil(len(self.plan.cells) / self.chunk)
             # The pool prices itself; a pooled job never teaches the host its serial cost.
@@ -418,7 +428,7 @@ class OptimizerJob:
         else:
             self.chunk = 1
             self.total_units = len(self.plan.cells)
-            self.bars_per_unit = len(self.rows)
+            self.bars_per_unit = self.bars
         self.cells: list[dict] = []
         self.chunk_seconds: list[float] = []  # a pooled job's chunks' wall time
         self.ms_per_cell_bar: float | None = (
@@ -437,12 +447,12 @@ class OptimizerJob:
         if self.pool is None:
             spec = self.request.strategy.model_copy(update={self._other_key: self._other_side})
             self.pool = self._pool_factory()
+            self.pool.max_workers = min(self.pool.max_workers, self.workers)
             self.pool.start(
-                self.rows,
+                self.frame,
                 self.request.data.symbol,
                 spec.model_dump(mode="json"),
                 self.request.settings.model_dump(mode="json"),
-                keep_rows=False,
             )
         first = index * self.chunk
         batch = self.plan.cells[first : first + self.chunk]
@@ -480,9 +490,8 @@ class OptimizerJob:
                 self._other_key: self._other_side,
             }
         )
-        result = run_backtest(
-            BacktestRequest(strategy=strategy, bars=self.rows, settings=self.request.settings),
-            cache=self.cache,
+        result = run_prepared(
+            prepared_request(strategy, self.request.settings), self.frame, self.data_key, self.cache
         )
         return {
             "params": params,

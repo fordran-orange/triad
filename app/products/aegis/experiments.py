@@ -20,14 +20,29 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from products.aegis import kernel
-from products.aegis.backtest import BacktestRequest, BacktestSettings, DataReference, run_backtest
+from products.aegis.backtest import (
+    BacktestSettings,
+    DataReference,
+    _data_key,
+    prepare_bars,
+    prepared_request,
+    run_prepared,
+)
 from products.aegis.optimize import provenance
-from products.aegis.pool import CURVE_POINTS, METRICS, SCOPES, Pool, default_workers
+from products.aegis.pool import (
+    CURVE_POINTS,
+    METRICS,
+    SCOPES,
+    Pool,
+    default_workers,
+    fitted_workers,
+)
 from products.aegis.results import envelope as run_envelope
 from products.aegis.runs import RunRepository
 from products.aegis.strategies import StrategyLibrary, slug
@@ -414,19 +429,22 @@ class ExperimentJob:
     def __init__(
         self,
         document: ExperimentDocument,
-        rows: list[dict],
+        bars: list[dict] | pd.DataFrame,
         pinned: Any,
         repository: RunRepository,
         max_workers: int | None = None,
     ) -> None:
         self.document = document.model_copy()
-        self.rows = rows
+        # Mission 10: one prepared frame (an archive frame, or supplied rows as given).
+        self.frame = prepare_bars(bars, document.data.symbol)
         self.pinned = provenance(pinned)
         self.repository = repository
         self.store = ExperimentStore(repository)
-        self.bars = len(rows)
+        self.bars = len(self.frame)
         self.grid = build_grid(document.spec, document.surface, self.bars)
-        self.workers = max_workers or document.workers or default_workers()
+        self.workers = fitted_workers(
+            self.bars, max_workers or document.workers or default_workers()
+        )
         self.chunk = document.chunk_cells or CHUNK_CELLS
         self.keep_curves = document.plan["planned_runs"] <= CURVES_LIMIT
         done = self.store.done_cells(document.id)
@@ -515,7 +533,7 @@ class ExperimentJob:
     def _start_pool(self) -> None:
         self.pool = Pool(self.workers)
         self.pool.start(
-            self.rows,
+            self.frame,
             self.document.data.symbol,
             self.document.spec.model_dump(mode="json"),
             self.document.settings.model_dump(mode="json"),
@@ -647,7 +665,7 @@ class ExperimentJob:
         if self.pool is not None:
             self.pool.shutdown()
             self.pool = None
-        self.rows = []
+        self.frame = self.frame.iloc[0:0]
 
 
 # --- reports, decision, refine ---------------------------------------------------------------
@@ -839,7 +857,7 @@ def materialize(
     document: ExperimentDocument,
     store: ExperimentStore,
     repository: RunRepository,
-    rows: list[dict],
+    bars: list[dict] | pd.DataFrame,
     pinned: Any,
     cell: int,
 ) -> dict:
@@ -849,10 +867,8 @@ def materialize(
     params = {path: row[path] for path in document.surface.paths()}
     strategy = apply_params(document.spec, params)
     started = time.perf_counter()
-    request = BacktestRequest(
-        strategy=strategy, bars=rows, settings=document.settings, engine="kernel"
-    )
-    result = run_backtest(request)
+    frame = prepare_bars(bars, document.data.symbol)
+    result = run_prepared(prepared_request(strategy, document.settings), frame, _data_key(frame))
     envelope = run_envelope(
         result,
         strategy,

@@ -158,3 +158,20 @@ def test_cache_distinguishes_parameters():
     assert len(cache) == 2 and cache.hits == 0
     cache.get("k", IndicatorSpec(id="other", kind="BB", length=5), f)  # default multiplier 2
     assert len(cache) == 2 and cache.hits == 1
+
+
+def test_a_byte_bounded_cache_keeps_the_most_recently_used():  # Mission 10: pool workers
+    f = frame([float(i) for i in range(1, 101)])
+    specs = [IndicatorSpec(id=f"s{n}", kind="SMA", length=n) for n in (2, 3, 4)]
+    one = int(IndicatorCache().get("k", specs[0], f).memory_usage(index=True).sum())
+    cache = IndicatorCache(max_bytes=2 * one)
+    cache.get("k", specs[0], f)
+    cache.get("k", specs[1], f)
+    cache.get("k", specs[0], f)  # a hit makes length 2 the most recent
+    cache.get("k", specs[2], f)  # evicts length 3, the least recently used
+    assert len(cache) == 2 and cache.hits == 1
+    cache.get("k", specs[0], f)
+    assert cache.hits == 2
+    again = cache.get("k", specs[1], f)  # recomputed, equal to an uncached computation
+    assert cache.hits == 2 and again.equals(IndicatorCache().get("k", specs[1], f))
+    assert cache.nbytes <= 2 * one

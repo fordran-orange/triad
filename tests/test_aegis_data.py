@@ -168,3 +168,65 @@ def test_cache_computes_each_timeframe_once(root):
     assert store.resample_count == len(TIMEFRAMES)
     store.bars("SPY", "1D", "2026-10-30", "2026-11-02")
     assert store.resample_count == len(TIMEFRAMES)
+
+
+# --- Mission 10: ten years in one process ------------------------------------------------------------
+
+
+def test_the_store_holds_one_minute_copy(root):
+    store = ArchiveStore(root)
+    store.bars("QQQ", "1m", "2026-10-30", "2026-11-02")
+    archive = store.source("QQQ")
+    assert (
+        store._frame(archive, "1m")
+        is store._frames[(archive.vintage, archive.symbol, "__minutes__")]
+    )
+
+
+def test_selection_by_local_dates_is_unchanged(root):
+    store = ArchiveStore(root)
+    spans = (
+        ("2026-10-30", "2026-10-30"),
+        ("2026-10-31", "2026-11-02"),
+        ("2026-10-30", "2026-11-02"),
+    )
+    for timeframe in TIMEFRAMES:
+        full = store._frame(store.source("QQQ"), timeframe)
+        dates = full["timestamp"].dt.tz_convert("America/New_York").dt.date
+        for start, end in spans:
+            frame, _ = store.bars("QQQ", timeframe, start, end)
+            keep = (dates >= date.fromisoformat(start)) & (dates <= date.fromisoformat(end))
+            assert frame.equals(full[keep].reset_index(drop=True)), (timeframe, start, end)
+
+
+def test_archive_frame_equals_the_rows_path(root):
+    from products.aegis.backtest import (
+        BacktestSettings,
+        _data_key,
+        _prepare_frame,
+        prepare_archive_frame,
+        prepared_request,
+        run_prepared,
+    )
+    from products.aegis.optimize import engine_rows
+    from products.aegis.results import canonical_payload, result_hash
+    from products.aegis.strategy import default_strategy
+
+    frame, pinned = ArchiveStore(root).bars("QQQ", "1m", "2026-10-30", "2026-11-02")
+    direct = prepare_archive_frame(frame, "QQQ")
+    via_rows = _prepare_frame(engine_rows(frame, "QQQ"))
+    assert direct.equals(via_rows) and list(direct.columns) == list(via_rows.columns)
+    assert _data_key(direct) == _data_key(via_rows)
+    request = prepared_request(default_strategy(), BacktestSettings())
+    identity = pinned.model_dump(mode="json")
+    hashes = {
+        result_hash(
+            canonical_payload(run_prepared(request, f, _data_key(f)), default_strategy(), identity)
+        )
+        for f in (direct, via_rows)
+    }
+    assert len(hashes) == 1
+    from test_aegis_walkforward import wave_bars
+
+    wave = pd.DataFrame(wave_bars(n=300))
+    assert prepare_archive_frame(wave, "QQQ").equals(_prepare_frame(engine_rows(wave, "QQQ")))

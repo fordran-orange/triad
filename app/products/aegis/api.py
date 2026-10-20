@@ -23,7 +23,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from products.aegis import experiments as experiments_module
 from products.aegis import optimize as optimize_module
 from products.aegis import studies as studies_module
-from products.aegis.backtest import BacktestRequest, DataReference, run_backtest
+from products.aegis.backtest import (
+    BacktestRequest,
+    DataReference,
+    _data_key,
+    prepare_archive_frame,
+    run_backtest,
+    run_prepared,
+)
 from products.aegis.compare import compare as compare_runs
 from products.aegis.data import (
     TIMEFRAMES,
@@ -47,7 +54,7 @@ from products.aegis.optimize import (
     expand_grid,
     plan_seconds,
 )
-from products.aegis.pool import default_workers
+from products.aegis.pool import default_workers, fitted_workers
 from products.aegis.results import envelope
 from products.aegis.runs import JsonRunRepository, RunRepository
 from products.aegis.strategies import BuiltinRefused, StrategyLibrary, StrategyReferenced
@@ -200,15 +207,15 @@ def _envelope(request: BacktestRequest, store: ArchiveStore, cache: IndicatorCac
         frame, pinned = _select(
             store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
         )
-        engine_request = request.model_copy(
-            update={"bars": engine_rows(frame, request.data.symbol)}
-        )
         identity = _provenance(pinned)
     else:
-        engine_request = request
         identity = {"source": "supplied_bars", "bar_count": len(request.bars)}
     try:
-        result = run_backtest(engine_request, cache=cache)
+        if request.data is not None:  # Mission 10: the archive frame, never a dict per bar
+            prepared = prepare_archive_frame(frame, request.data.symbol)
+            result = run_prepared(request, prepared, _data_key(prepared), cache)
+        else:
+            result = run_backtest(request, cache=cache)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return envelope(
@@ -268,7 +275,7 @@ def _grid_seconds(cells: int, bars: int, runner: JobRunner, experiments) -> tupl
     the pool at the cost per cell-bar the last experiment measured (the limits change)."""
     if cells <= SERIAL_MAX_CELLS:
         return plan_seconds(cells, bars, runner.ms_per_bar, None, 1), 1
-    workers = default_workers()
+    workers = fitted_workers(bars)  # Mission 10: what free memory holds, as the job will run
     rate = _pool_rate(runner, experiments)
     return plan_seconds(cells, bars, runner.ms_per_bar, rate, workers), workers
 
@@ -296,9 +303,9 @@ def optimize_plan(
     )
     try:
         plan = expand_grid(_side_spec(request))
+        seconds, workers = _grid_seconds(len(plan.cells), len(frame), runner, experiments)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    seconds, workers = _grid_seconds(len(plan.cells), len(frame), runner, experiments)
     return {
         "total_cells": len(plan.cells),
         "skipped_cells": len(plan.skipped),
@@ -666,7 +673,7 @@ def experiment_plan(
             request.budget,
             len(frame),
             measured or KERNEL_MS_PER_BAR,
-            default_workers(),
+            fitted_workers(len(frame)),
             request.data.timeframe,
             price_source="measured" if measured else "starting_guess",
         )
@@ -680,9 +687,10 @@ def _start_experiment(
 ) -> str | None:
     """Start (or resume) the runner job for a document; None when another job is running."""
     frame, pinned = _experiment_bars(document.data, store)
-    job = experiments_module.ExperimentJob(
-        document, engine_rows(frame, document.data.symbol), pinned, repository
-    )
+    try:
+        job = experiments_module.ExperimentJob(document, frame, pinned, repository)
+    except ValueError as exc:  # not even one pool worker fits in free memory now
+        raise HTTPException(422, str(exc)) from exc
     try:
         return runner.start(job)
     except JobBusy:
@@ -702,7 +710,12 @@ def create_experiment(
     _document(library, request.strategy_id)
     try:
         document = experiments_module.create(
-            experiments, library, request, len(frame), default_workers(), request.data.timeframe
+            experiments,
+            library,
+            request,
+            len(frame),
+            fitted_workers(len(frame)),
+            request.data.timeframe,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -843,7 +856,7 @@ def materialize_cell(
             document,
             experiments,
             repository,
-            engine_rows(frame, document.data.symbol),
+            frame,
             pinned,
             cell,
         )
@@ -939,7 +952,7 @@ def refine_experiment(
     frame, _ = _experiment_bars(document.data, store)
     try:
         child = experiments_module.refine(
-            experiments, document, len(frame), default_workers(), document.data.timeframe
+            experiments, document, len(frame), fitted_workers(len(frame)), document.data.timeframe
         )
     except (ValueError, KeyError) as exc:
         raise HTTPException(422, str(exc)) from exc
