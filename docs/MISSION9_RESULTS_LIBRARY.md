@@ -167,6 +167,11 @@ saved under the old label's search keeps the view; a deep-linked study is gone a
 experiments. **The walk after the pass passed 76/76 with no page errors**
 (`docs/evidence/aegis-acceptance-20261020T115945Z.json`, 618 s).
 
+**Merged (2026-10-20, the operator: "merge mission 9 and push"):** a fast-forward of `main`
+`d56485a..f4bbc09`. `tools\verify.ps1` on `main` afterwards: exit 0, "all three scopes green"
+(core 386 passed / 171 skipped; triad 634 / 424 with 209 subtests; aegis 389 / 1); lint, database
+health, the foundation and secret audit, compose, whitespace and git checks passed.
+
 ### Deferred minors
 
 - Empty with a malformed id answers 500 rather than 404/422.
