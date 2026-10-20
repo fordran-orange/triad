@@ -41,6 +41,7 @@ disabled.
 | Ten years of 15m bars (2016-09-19 → 2026-09-18) | 65,107 bars; 6.6 MB of bars to the page in ≈ 1 s; the chart drew them with 4,866 markers in ≈ 2–4 s |
 | A ten-year 15m backtest (default strategy) | 1.4–1.9 s on the worker, 5 s end to end; a saved run of 26.6 MB |
 | One-minute bars | 161,754 from 2025-01-01; from 2024-01-01 refused (254,586 over 200,000) |
+| Near the cap: QQQ 1m 2025-01-01 → 2026-09-18 (161,754 bars) | 16.8 MB of bars in 2.6 s; the backtest 4.3 s on the worker (12 s end to end, 6,932 trades), a saved run of 66.7 MB; the Library opened it with its chart (13,864 markers) in ≈ 10 s, the page holding ≈ 200 MB. It works; it is the size where the "no limit" draft's slim runs and long-range chart start to matter |
 | A 560-cell, three-parameter grid on 1h 2023–2024 | planned ≈ 5.3 s on 10 workers; ran in 7.4–9.4 s (the pool's start-up is not priced) |
 | A 2,560-cell grid | planned ≈ 24 s; ran in 17–18 s; each status at most 440 KB |
 | A 23,684-cell grid on ten years of 15m | planned ≈ 1 h 10 min; Start asked first |

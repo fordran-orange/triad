@@ -23,8 +23,10 @@ operator's explicit approval and independent QA).
   | Per-bar indicator values | 36% | stored twice (`result.<side>.series` and `series`); recomputable from the archive |
   | Trades and markers | 11% | markers stored twice |
 
-- A ten-year 15m run is 26.6 MB. At today's format a ten-year 1-minute run would be about 400 MB,
-  and its bars about 95 MB to the page.
+- A ten-year 15m run is 26.6 MB. Near the new cap, 161,754 one-minute bars (2025-01-01 →
+  2026-09-18) gave a 66.7 MB saved run, 16.8 MB of bars to the page, and a Library view that took
+  ≈ 10 s to open with ≈ 200 MB in the page. At today's format a ten-year 1-minute run would be
+  about 400 MB, and its bars about 95 MB to the page.
 - The result hash covers the strategy, the pinned data, each side's per-bar series and equity,
   trades, metrics, the combined trades/equity/metrics, the temporal breakdown and the markers
   (`results.canonical_payload`).
