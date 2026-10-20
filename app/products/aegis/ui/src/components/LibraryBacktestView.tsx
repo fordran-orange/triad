@@ -17,7 +17,7 @@ const TABS: Array<[Tab, string]> = [
 
 /** A saved backtest, read-only (spec §5.1): its header, chart and results come from the run; the
  *  workspace changes only when the operator presses Load. */
-export function LibraryBacktestView({ entry, actions }: { entry: LibraryEntry; actions?: ReactNode }) {
+export function LibraryBacktestView({ entry, actions, housekeeping }: { entry: LibraryEntry; actions?: ReactNode; housekeeping?: ReactNode }) {
   const state = useWorkspace();
   const dispatch = useDispatch();
   const [run, setRun] = useState<RunEnvelope | null>(null);
@@ -69,6 +69,7 @@ export function LibraryBacktestView({ entry, actions }: { entry: LibraryEntry; a
           </button>
         </div>
       </div>
+      {housekeeping}
       <LibraryChart run={run} />
       <div className="library-results">
         <div className="result-tabs">

@@ -113,6 +113,7 @@ export function StudyView({ studyId, onChanged, onDeleted }: Props) {
           type="button"
           className="btn"
           id="study-delete"
+          title="Move it to Recently deleted in the Library"
           disabled={busy || unfinished}
           onClick={() =>
             act(async () => {

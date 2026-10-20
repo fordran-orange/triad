@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { api, errorMessage, type StrategySummary } from '../api/client';
 import { DASH, timeLabel } from '../format';
-import { comparable, headlineText, kindLabel } from '../library';
+import { comparable, headlineText, kindLabel, losing } from '../library';
 import { LIBRARY_KINDS, type Cell, type JobStatus, type LibraryEntry, type LibraryFilters, type LibraryKind, type LibraryPage as Page, type WalkForwardStatus } from '../results';
 import { applyConfigs, selectionFromData, TIMEFRAMES, unsavedEdits, useDispatch, useWorkspace, type Side } from '../state/workspace';
 import { LibraryBacktestView } from './LibraryBacktestView';
+import { LibraryCompare } from './LibraryCompare';
 import { entryKey, LibraryList } from './LibraryList';
 import { describeParams, OptimizationJobView } from './OptimizationTab';
 import { WalkForwardJobView } from './WalkForwardTab';
@@ -13,6 +14,8 @@ const LIMIT = 50;
 const DEFAULT_FILTERS: LibraryFilters = { kinds: [], symbol: '', timeframe: '', strategy: '', starred: false, decision: '', q: '', sort: 'created', offset: 0, limit: LIMIT, deleted: false };
 const POLL_MS = 2000; // while the index is still preparing headlines
 const SEARCH_MS = 300;
+const LABEL_MAX = 80; // spec §6.1
+const NOTES_MAX = 2000;
 
 /** Every saved result in one place (Mission 9 spec §8): the filter bar and list, and the selected
  *  item's read-only view. Nothing here changes the workspace except a Load the operator presses. */
@@ -27,6 +30,8 @@ export function LibraryPage() {
   const [selected, setSelected] = useState<{ kind: LibraryKind; id: string } | null>(null);
   const [checked, setChecked] = useState<Record<string, LibraryEntry>>({});
   const [tick, setTick] = useState(0);
+  const [comparing, setComparing] = useState<[string, string] | null>(null);
+  const [notice, setNotice] = useState<ReactNode>(null);
 
   const set = (patch: Partial<LibraryFilters>) => setFilters((f) => ({ ...f, offset: 0, ...patch }));
   const refresh = useCallback(() => setTick((t) => t + 1), []);
@@ -76,6 +81,92 @@ export function LibraryPage() {
   const current = selected ? (entries.find((e) => e.kind === selected.kind && e.id === selected.id) ?? null) : null;
   const ticked = Object.values(checked);
   const compare = comparable(ticked);
+
+  const uncheck = (keys: string[]) =>
+    setChecked((c) => {
+      const next = { ...c };
+      for (const k of keys) delete next[k];
+      return next;
+    });
+  const named = (e: LibraryEntry) => `${kindLabel(e.kind).toLowerCase()} "${e.label || e.name}"`;
+
+  const remove = async (entry: LibraryEntry) => {
+    if (!window.confirm(`Move ${named(entry)} to Recently deleted? It can be restored until the trash is emptied.`)) return;
+    try {
+      await api.libraryDelete(entry.kind, entry.id);
+      uncheck([entryKey(entry)]);
+      setSelected(null);
+      setNotice(`Moved ${named(entry)} to Recently deleted.`);
+      refresh();
+    } catch (e) {
+      setNotice(<span className="error">{errorMessage(e)}</span>);
+    }
+  };
+
+  // Studies go before experiments, so an experiment ticked with its studies is not refused for them.
+  const ORDER: Record<LibraryKind, number> = { study: 0, backtest: 1, optimization: 1, walkforward: 1, experiment: 2 };
+  const removeSelected = async () => {
+    const items = [...ticked].sort((x, y) => ORDER[x.kind] - ORDER[y.kind]);
+    if (items.length === 0 || !window.confirm(`Move ${items.length} ticked result${items.length === 1 ? '' : 's'} to Recently deleted?`)) return;
+    const moved: string[] = [];
+    const refusals: string[] = [];
+    for (const e of items) {
+      try {
+        await api.libraryDelete(e.kind, e.id);
+        moved.push(entryKey(e));
+      } catch (err) {
+        refusals.push(`${named(e)}: ${errorMessage(err)}`);
+      }
+    }
+    uncheck(moved);
+    if (selected && moved.includes(entryKey(selected))) setSelected(null);
+    setNotice(
+      <>
+        Moved {moved.length} to Recently deleted.
+        {refusals.length > 0 && (
+          <ul id="library-refusals">
+            {refusals.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        )}
+      </>,
+    );
+    refresh();
+  };
+
+  const restore = async (entry: LibraryEntry) => {
+    try {
+      await api.libraryRestore(entry.kind, entry.id);
+      uncheck([entryKey(entry)]);
+      setSelected(null);
+      setNotice(`Restored ${named(entry)}.`);
+      refresh();
+    } catch (e) {
+      setNotice(<span className="error">{errorMessage(e)}</span>);
+    }
+  };
+
+  // The one destructive act: always an explicit click, with a confirmation naming the count.
+  const emptyTrash = async () => {
+    const items = ticked.length ? ticked.map((e) => ({ kind: e.kind, id: e.id })) : null;
+    let count = items?.length ?? 0;
+    try {
+      if (!items) count = (await api.library({ ...DEFAULT_FILTERS, deleted: true, limit: 1 })).total;
+      if (count === 0) return;
+      const what = items ? `the ${count} ticked deleted result${count === 1 ? '' : 's'}` : count === 1 ? 'the 1 deleted result' : `all ${count} deleted results`;
+      if (!window.confirm(`Permanently erase ${what}? This cannot be undone.`)) return;
+      const { erased } = await api.libraryEmpty(items);
+      setChecked({});
+      setSelected(null);
+      setNotice(`Erased ${erased} for good.`);
+      refresh();
+    } catch (e) {
+      setNotice(<span className="error">{errorMessage(e)}</span>);
+    }
+  };
+
+  const tickForCompare = (entry: LibraryEntry) => setChecked((c) => ({ ...c, [entryKey(entry)]: entry }));
 
   const star = async (entry: LibraryEntry) => {
     try {
@@ -159,6 +250,8 @@ export function LibraryPage() {
                 onChange={(e) => {
                   setChecked({});
                   setSelected(null);
+                  setComparing(null);
+                  setNotice(null);
                   set({ deleted: e.target.checked });
                 }}
               />{' '}
@@ -173,13 +266,39 @@ export function LibraryPage() {
               preparing {page.preparing}
             </span>
           )}
-          <span style={{ marginLeft: 'auto' }}>
-            <button type="button" className="btn" id="library-compare" disabled={!compare.ok} title={compare.ok ? 'Compare the two ticked backtests' : compare.reason}>
-              Compare
-            </button>
+          <span className="library-toolbar">
+            {filters.deleted ? (
+              <button type="button" className="btn" id="library-empty" disabled={!page || page.total === 0} onClick={emptyTrash} title={ticked.length ? 'Erase the ticked deleted results for good' : 'Erase every deleted result for good'}>
+                {ticked.length ? `Empty ${ticked.length} ticked` : 'Empty'}
+              </button>
+            ) : (
+              <>
+                <button type="button" className="btn" id="library-delete-selected" disabled={ticked.length === 0} onClick={removeSelected} title="Move the ticked results to Recently deleted">
+                  Delete selected
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  id="library-compare"
+                  disabled={!compare.ok}
+                  title={compare.ok ? 'Compare the two ticked backtests' : compare.reason}
+                  onClick={() => compare.ok && setComparing([ticked[0].id, ticked[1].id])}
+                >
+                  Compare
+                </button>
+              </>
+            )}
           </span>
         </div>
         {error && <div className="error">{error}</div>}
+        {notice && (
+          <div className="notice library-notice" id="library-notice" role="status">
+            {notice}
+            <button type="button" className="btn btn-ghost" aria-label="Dismiss" onClick={() => setNotice(null)}>
+              ✕
+            </button>
+          </div>
+        )}
         {page && entries.length === 0 && <div className="empty-state">{filters.deleted ? 'Nothing was deleted recently.' : 'No saved results match these filters.'}</div>}
         <LibraryList
           entries={entries}
@@ -211,9 +330,15 @@ export function LibraryPage() {
         )}
       </div>
       <div className="library-view" id="library-view">
-        {!selected && <div className="empty-state">Select a saved result to open it read-only. Tick two backtests to compare them.</div>}
-        {selected && !current && page && <PendingEntry kind={selected.kind} id={selected.id} />}
-        {current && <EntryView key={entryKey(current)} entry={current} />}
+        {comparing ? (
+          <LibraryCompare a={comparing[0]} b={comparing[1]} onClose={() => setComparing(null)} />
+        ) : (
+          <>
+            {!selected && <div className="empty-state">Select a saved result to open it read-only. Tick two backtests to compare them.</div>}
+            {selected && !current && page && <PendingEntry kind={selected.kind} id={selected.id} />}
+            {current && <EntryView key={entryKey(current)} entry={current} onChanged={refresh} onRemove={remove} onRestore={restore} onCompareWith={tickForCompare} />}
+          </>
+        )}
       </div>
     </div>
   );
@@ -228,18 +353,76 @@ function PendingEntry({ kind, id }: { kind: LibraryKind; id: string }) {
   return <div className="empty-state">{kindLabel(kind)} {id} is not on this page of the list.</div>;
 }
 
-function EntryView({ entry }: { entry: LibraryEntry }) {
-  if (entry.deleted_at) return <DeletedView entry={entry} />;
+interface EntryActions {
+  onChanged: () => void;
+  onRemove: (entry: LibraryEntry) => void;
+  onRestore: (entry: LibraryEntry) => void;
+  onCompareWith: (entry: LibraryEntry) => void;
+}
+
+function EntryView({ entry, onChanged, onRemove, onRestore, onCompareWith }: { entry: LibraryEntry } & EntryActions) {
+  if (entry.deleted_at) return <DeletedView entry={entry} onRestore={onRestore} />;
+  const keep = <Housekeeping entry={entry} onChanged={onChanged} onRemove={onRemove} />;
   switch (entry.kind) {
     case 'backtest':
-      return <LibraryBacktestView entry={entry} />;
+      return (
+        <LibraryBacktestView
+          entry={entry}
+          housekeeping={keep}
+          actions={
+            <button type="button" className="btn" id="library-compare-with" onClick={() => onCompareWith(entry)} title="Tick this backtest; tick a second one, then Compare">
+              Compare with…
+            </button>
+          }
+        />
+      );
     case 'optimization':
-      return <LibraryOptimizationView entry={entry} />;
+      return <LibraryOptimizationView entry={entry} housekeeping={keep} />;
     case 'walkforward':
-      return <LibraryWalkForwardView entry={entry} />;
+      return <LibraryWalkForwardView entry={entry} housekeeping={keep} />;
     default:
-      return <LibraryDocumentView entry={entry} />;
+      return <LibraryDocumentView entry={entry} housekeeping={keep} />;
   }
+}
+
+/** Label, notes and Delete for the open item (spec §6). The star lives on the row. */
+function Housekeeping({ entry, onChanged, onRemove }: { entry: LibraryEntry; onChanged: () => void; onRemove: (entry: LibraryEntry) => void }) {
+  const [label, setLabel] = useState(entry.label);
+  const [notes, setNotes] = useState(entry.notes);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setLabel(entry.label);
+    setNotes(entry.notes);
+  }, [entry.label, entry.notes]);
+  const dirty = label !== entry.label || notes !== entry.notes;
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.annotate(entry.kind, entry.id, { label: label.trim(), notes, starred: entry.starred });
+      onChanged();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="library-housekeeping">
+      <input id="library-label" aria-label="Label" maxLength={LABEL_MAX} placeholder="Label" value={label} onChange={(e) => setLabel(e.target.value)} />
+      <textarea id="library-notes" aria-label="Notes" maxLength={NOTES_MAX} rows={2} placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+      <div className="library-actions">
+        <button type="button" className="btn" id="library-save-annotation" disabled={!dirty || busy} onClick={save}>
+          Save label and notes
+        </button>
+        <button type="button" className="btn" id="library-delete" disabled={busy} onClick={() => onRemove(entry)} title="Move it to Recently deleted">
+          Delete
+        </button>
+      </div>
+      {error && <div className="error">{error}</div>}
+    </div>
+  );
 }
 
 function ViewHead({ entry, children }: { entry: LibraryEntry; children?: ReactNode }) {
@@ -255,17 +438,21 @@ function ViewHead({ entry, children }: { entry: LibraryEntry; children?: ReactNo
         <div className="small muted">
           {kindLabel(entry.kind)} · {entry.symbols.join(', ') || DASH} · {entry.timeframe ?? DASH} · {entry.start ?? DASH} → {entry.end ?? DASH} · strategy {entry.strategy_name ?? DASH} · saved {timeLabel(entry.created_at)}
         </div>
-        <div className="small">{headlineText(entry)}</div>
+        <div className={'small' + (losing(entry) ? ' red' : '')}>{headlineText(entry)}</div>
       </div>
       <div className="library-actions">{children}</div>
     </div>
   );
 }
 
-function DeletedView({ entry }: { entry: LibraryEntry }) {
+function DeletedView({ entry, onRestore }: { entry: LibraryEntry; onRestore: (entry: LibraryEntry) => void }) {
   return (
     <div className="library-doc">
-      <ViewHead entry={entry} />
+      <ViewHead entry={entry}>
+        <button type="button" className="btn btn-primary" id="library-restore" onClick={() => onRestore(entry)}>
+          Restore
+        </button>
+      </ViewHead>
       <div className="notice warn">Deleted {timeLabel(entry.deleted_at)}. It stays in Recently deleted until it is restored or the trash is emptied.</div>
     </div>
   );
@@ -277,7 +464,7 @@ function useLoad() {
   return (what: string) => !unsavedEdits(state) || window.confirm(`Load ${what} into the workspace? Unsaved strategy edits will be replaced.`);
 }
 
-function LibraryOptimizationView({ entry }: { entry: LibraryEntry }) {
+function LibraryOptimizationView({ entry, housekeeping }: { entry: LibraryEntry; housekeeping: ReactNode }) {
   const { selection } = useWorkspace();
   const dispatch = useDispatch();
   const confirmLoad = useLoad();
@@ -313,6 +500,7 @@ function LibraryOptimizationView({ entry }: { entry: LibraryEntry }) {
           Load the picked cell into the workspace
         </button>
       </ViewHead>
+      {housekeeping}
       <div className="library-job-body opt-tab">
         <OptimizationJobView side={side} job={job} selected={pick?.params ?? null} onPick={(cell) => setPick((p) => (p && JSON.stringify(p.params) === JSON.stringify(cell.params) ? null : cell))} library />
       </div>
@@ -320,7 +508,7 @@ function LibraryOptimizationView({ entry }: { entry: LibraryEntry }) {
   );
 }
 
-function LibraryWalkForwardView({ entry }: { entry: LibraryEntry }) {
+function LibraryWalkForwardView({ entry, housekeeping }: { entry: LibraryEntry; housekeeping: ReactNode }) {
   const [job, setJob] = useState<WalkForwardStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -338,6 +526,7 @@ function LibraryWalkForwardView({ entry }: { entry: LibraryEntry }) {
   return (
     <div className="library-job">
       <ViewHead entry={entry} />
+      {housekeeping}
       <div className="library-job-body">
         <WalkForwardJobView side={job.side} job={job} library />
       </div>
@@ -346,7 +535,7 @@ function LibraryWalkForwardView({ entry }: { entry: LibraryEntry }) {
 }
 
 /** Experiments and studies keep their report views on the Experiments page (spec §5.4). */
-function LibraryDocumentView({ entry }: { entry: LibraryEntry }) {
+function LibraryDocumentView({ entry, housekeeping }: { entry: LibraryEntry; housekeeping: ReactNode }) {
   const dispatch = useDispatch();
   const experimentId = entry.kind === 'experiment' ? entry.id : typeof entry.links.experiment_id === 'string' ? entry.links.experiment_id : null;
   const open = () => {
@@ -360,7 +549,7 @@ function LibraryDocumentView({ entry }: { entry: LibraryEntry }) {
           Open on the Experiments page
         </button>
       </ViewHead>
-      {entry.notes && <div className="small library-notes-text">{entry.notes}</div>}
+      {housekeeping}
     </div>
   );
 }

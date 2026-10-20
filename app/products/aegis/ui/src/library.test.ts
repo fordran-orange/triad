@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { comparable, headlineText, kindLabel, markText, queryString } from './library';
+import { comparable, headlineText, kindLabel, losing, markText, queryString } from './library';
 import type { LibraryEntry, LibraryFilters } from './results';
 
 function entry(kind: LibraryEntry['kind'], headline: Record<string, unknown>, id = 'x'): LibraryEntry {
@@ -86,5 +86,14 @@ describe('library helpers', () => {
     expect(markText('worse')).toBe('▼ worse');
     expect(markText(null)).toBe('');
     expect(kindLabel('walkforward')).toBe('Walk-forward');
+  });
+
+  it('losing marks a headline that lost money, and only that', () => {
+    expect(losing(entry('backtest', { net_pnl: -50, mar: 0.5 }))).toBe(true);
+    expect(losing(entry('backtest', { net_pnl: 50, mar: -0.5 }))).toBe(false);
+    expect(losing(entry('walkforward', { net_pnl: -1 }))).toBe(true);
+    expect(losing(entry('optimization', { objective: 'net_pnl', best: -10 }))).toBe(true);
+    expect(losing(entry('optimization', { objective: 'mar', best: -0.2 }))).toBe(false);
+    expect(losing(entry('backtest', {}))).toBe(false);
   });
 });

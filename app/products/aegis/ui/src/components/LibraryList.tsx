@@ -1,5 +1,5 @@
 import { DASH, timeLabel } from '../format';
-import { headlineText, kindLabel } from '../library';
+import { headlineText, kindLabel, losing } from '../library';
 import type { LibraryEntry } from '../results';
 
 export const entryKey = (e: Pick<LibraryEntry, 'kind' | 'id'>) => `${e.kind}:${e.id}`;
@@ -69,7 +69,7 @@ export function LibraryList({ entries, selected, checked, onSelect, onCheck, onS
               <div className="small muted">
                 {e.symbols.length ? e.symbols.join(', ') : DASH} · {e.timeframe ?? DASH} · {range(e)} · {e.deleted_at ? `deleted ${timeLabel(e.deleted_at)}` : timeLabel(e.created_at)}
               </div>
-              <div className={'small' + (preparing ? ' muted' : '')}>{headlineText(e)}</div>
+              <div className={'small' + (preparing ? ' muted' : losing(e) ? ' red' : '')}>{headlineText(e)}</div>
             </div>
           </div>
         );

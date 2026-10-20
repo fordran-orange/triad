@@ -214,6 +214,7 @@ export function ExperimentsPage() {
               type="button"
               className="btn"
               id="experiment-delete"
+              title="Move it to Recently deleted in the Library"
               disabled={busy || selected.status === 'running' || selected.status === 'queued' || selected.status === 'paused'}
               onClick={() =>
                 act(async () => {

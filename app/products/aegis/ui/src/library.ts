@@ -66,6 +66,17 @@ export function headlineText(entry: LibraryEntry): string {
   }
 }
 
+const MONEY_OBJECTIVES = new Set(['net_pnl', 'net_return', 'cagr', 'expectancy']);
+
+/** Whether the headline lost money (red is reserved for that; operator, 2026-10-19). */
+export function losing(entry: LibraryEntry): boolean {
+  const h = entry.headline ?? {};
+  const pnl = value(h.net_pnl);
+  if (pnl !== null) return pnl < 0;
+  const best = value(h.best);
+  return MONEY_OBJECTIVES.has(String(h.objective)) && best !== null && best < 0;
+}
+
 /** GET /library's query: empty filters are left out; kinds repeat. */
 export function queryString(filters: LibraryFilters): string {
   const q = new URLSearchParams();

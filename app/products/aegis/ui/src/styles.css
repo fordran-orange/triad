@@ -229,3 +229,17 @@ tr.muted td{color:#4f6b80}
 .library-results{display:flex;flex-direction:column;min-height:260px}
 .library-job-body{display:flex;flex-direction:column;min-height:0;flex:1}
 .library-notes-text{white-space:pre-wrap;color:#9db1bf}
+.library-toolbar{margin-left:auto;display:flex;gap:6px}
+.library-notice{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;background:#102b3d;color:#cfe3f2;border:1px solid #1e3a52}
+.library-notice ul{margin:4px 0 0 16px;padding:0}
+.library-housekeeping{display:grid;grid-template-columns:minmax(160px,1fr) minmax(200px,2fr) auto;gap:8px;align-items:start;margin:0 0 8px 0}
+.library-housekeeping textarea{resize:vertical;min-height:30px;font:inherit;font-size:12px}
+.library-compare{display:flex;flex-direction:column;gap:10px}
+.compare-identities{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.compare-identity{border:1px solid var(--line);border-radius:5px;padding:8px}
+.compare-table{width:100%;border-collapse:collapse;font-size:12px}
+.compare-table td,.compare-table th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left}
+.compare-table td:not(:first-child),.compare-table th:not(:first-child){text-align:right}
+.compare-svg{width:100%;height:220px;display:block;background:#0b1622;border:1px solid var(--line)}
+.compare-svg.dd{height:70px}
+.compare-axis{justify-content:space-between}
