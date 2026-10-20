@@ -20,8 +20,8 @@ export const METRIC_NAMES: Record<string, string> = {
 const MONEY = new Set(['net_pnl', 'expectancy']);
 const PERCENT = new Set(['net_return', 'cagr', 'max_drawdown', 'win_rate', 'exposure']);
 
-/** Drawdown is drawn below zero; return and dollars as they are. */
-const valueOf = (p: ComparePoint, unit: CurveUnit) => (unit === 'dd' ? -p.dd : p[unit]);
+/** The worker sends drawdown as running / peak − 1 (at or below zero), so it draws below zero as it is. */
+const valueOf = (p: ComparePoint, unit: CurveUnit) => p[unit];
 
 /** Both runs' curves as SVG paths on the union of their dates and one value range, so the two
  *  lines compare by position (spec §7: one calendar axis). */

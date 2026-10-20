@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { api, errorMessage, type StrategySummary } from '../api/client';
 import { DASH, timeLabel } from '../format';
-import { comparable, headlineText, kindLabel, losing } from '../library';
+import { comparable, headlineText, kindLabel, losing, openedEntry } from '../library';
 import { LIBRARY_KINDS, type Cell, type JobStatus, type LibraryEntry, type LibraryFilters, type LibraryKind, type LibraryPage as Page, type WalkForwardStatus } from '../results';
 import { applyConfigs, selectionFromData, TIMEFRAMES, unsavedEdits, useDispatch, useWorkspace, type Side } from '../state/workspace';
 import { LibraryBacktestView } from './LibraryBacktestView';
@@ -32,6 +32,8 @@ export function LibraryPage() {
   const [tick, setTick] = useState(0);
   const [comparing, setComparing] = useState<[string, string] | null>(null);
   const [notice, setNotice] = useState<ReactNode>(null);
+  const [fetched, setFetched] = useState<LibraryEntry | null>(null);
+  const [missing, setMissing] = useState(false);
 
   const set = (patch: Partial<LibraryFilters>) => setFilters((f) => ({ ...f, offset: 0, ...patch }));
   const refresh = useCallback(() => setTick((t) => t + 1), []);
@@ -78,7 +80,27 @@ export function LibraryPage() {
   }, [page, refresh]);
 
   const entries = page?.entries ?? [];
-  const current = selected ? (entries.find((e) => e.kind === selected.kind && e.id === selected.id) ?? null) : null;
+  const listed = selected !== null && entries.some((e) => e.kind === selected.kind && e.id === selected.id);
+  const current = openedEntry(entries, selected, fetched);
+
+  // An opened item the list page does not show keeps its full view: fetch it by id, again
+  // after every change (milestone QA D2).
+  useEffect(() => {
+    setMissing(false);
+    if (!selected || !page || listed) return;
+    let cancelled = false;
+    api
+      .libraryEntry(selected.kind, selected.id)
+      .then((e) => !cancelled && setFetched(e))
+      .catch(() => {
+        if (cancelled) return;
+        setFetched(null);
+        setMissing(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, page, listed]);
   const ticked = Object.values(checked);
   const compare = comparable(ticked);
 
@@ -335,22 +357,13 @@ export function LibraryPage() {
         ) : (
           <>
             {!selected && <div className="empty-state">Select a saved result to open it read-only. Tick two backtests to compare them.</div>}
-            {selected && !current && page && <PendingEntry kind={selected.kind} id={selected.id} />}
+            {selected && !current && (missing ? <div className="empty-state">{kindLabel(selected.kind)} {selected.id} is no longer saved.</div> : <div className="empty-state">Opening…</div>)}
             {current && <EntryView key={entryKey(current)} entry={current} onChanged={refresh} onRemove={remove} onRestore={restore} onCompareWith={tickForCompare} />}
           </>
         )}
       </div>
     </div>
   );
-}
-
-/** A deep-linked item that the current filters or page do not list: fetch nothing; say so. */
-function PendingEntry({ kind, id }: { kind: LibraryKind; id: string }) {
-  if (kind === 'backtest') {
-    const entry: LibraryEntry = { kind, id, name: 'Backtest', label: '', notes: '', starred: false, symbols: [], timeframe: null, start: null, end: null, strategy_id: null, strategy_name: null, created_at: null, status: null, decision: null, headline: {}, links: {} };
-    return <LibraryBacktestView entry={entry} />;
-  }
-  return <div className="empty-state">{kindLabel(kind)} {id} is not on this page of the list.</div>;
 }
 
 interface EntryActions {

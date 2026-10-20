@@ -43,10 +43,12 @@ export function objectiveValue(objective: unknown, v: unknown): string {
   return num(x, 2);
 }
 
-/** One line of each kind's headline numbers; "preparing…" until the worker has computed them. */
+/** One line of each kind's headline numbers; "preparing…" until the worker has computed them,
+ *  and a dash when it has but the document gave nothing to show. */
 export function headlineText(entry: LibraryEntry): string {
+  if (entry.ready === false) return 'preparing…';
   const h = entry.headline;
-  if (!h || Object.keys(h).length === 0) return 'preparing…';
+  if (!h || Object.keys(h).length === 0) return DASH;
   const side = typeof h.side === 'string' ? h.side.toUpperCase() : DASH;
   switch (entry.kind) {
     case 'backtest':
@@ -92,6 +94,19 @@ export function queryString(filters: LibraryFilters): string {
   q.set('limit', String(filters.limit));
   if (filters.deleted) q.set('deleted', 'true');
   return q.toString();
+}
+
+/** The entry the view shows: the list's copy while the page lists it, else the copy fetched
+ *  by id (an item opened from a deep link, or one a new label or star took off the page). */
+export function openedEntry(
+  entries: LibraryEntry[],
+  selected: { kind: LibraryKind; id: string } | null,
+  fetched: LibraryEntry | null,
+): LibraryEntry | null {
+  if (!selected) return null;
+  const listed = entries.find((e) => e.kind === selected.kind && e.id === selected.id);
+  if (listed) return listed;
+  return fetched && fetched.kind === selected.kind && fetched.id === selected.id ? fetched : null;
 }
 
 /** Whether the ticked entries can be compared (exactly two backtests in this version). */

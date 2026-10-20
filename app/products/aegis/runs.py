@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import threading
 import time
 from pathlib import Path
 from typing import Protocol
@@ -115,10 +116,11 @@ class RunRepository(Protocol):
     def delete_study(self, study_id: str) -> None: ...
     def study_dir(self, study_id: str) -> Path: ...
     def read_document(self, folder: str, identifier: str) -> dict: ...
-    def write_summary(self, folder: str, identifier: str, summary: dict) -> None: ...
+    def cache_summary(self, folder: str, identifier: str, expected: dict, block: dict) -> bool: ...
     def move_to_trash(self, folder: str, identifier: str, meta: dict) -> None: ...
     def restore_from_trash(self, folder: str, identifier: str) -> None: ...
     def list_trash(self) -> list[dict]: ...
+    def heal_trash(self) -> list[str]: ...
     def read_trashed(self, folder: str, identifier: str) -> dict: ...
     def erase_from_trash(self, folder: str, identifier: str) -> None: ...
     def trashed_ids(self, folder: str) -> set[str]: ...
@@ -173,6 +175,12 @@ def _strategy_summary(document: dict) -> dict:
     }
 
 
+# Every summary sidecar write takes this lock, so the library's cache write can compare the
+# sidecar it read with the one on disk and never put back a copy a save has replaced (Mission 9
+# final review I2).
+_SIDECARS = threading.RLock()
+
+
 def _retry(action, attempts: int = 50, delay: float = 0.01):
     """Run a file operation that Windows may refuse while another handle is open on the file."""
     for attempt in range(attempts):
@@ -201,7 +209,8 @@ class JsonRunRepository:
         folder = self._folder(kind)
         self._write(folder / f"{identifier}.json", envelope)
         # Sidecar summary: listing never has to parse full envelopes (series, equity, cells).
-        self._write(folder / f"{identifier}.summary.json", summarize(envelope))
+        with _SIDECARS:
+            self._write(folder / f"{identifier}.summary.json", summarize(envelope))
         return identifier
 
     @staticmethod
@@ -247,8 +256,19 @@ class JsonRunRepository:
     def read_document(self, folder: str, identifier: str) -> dict:
         return self._get(folder, identifier)
 
-    def write_summary(self, folder: str, identifier: str, summary: dict) -> None:
-        self._write(self._folder(folder) / f"{_check_id(identifier)}.summary.json", summary)
+    def cache_summary(self, folder: str, identifier: str, expected: dict, block: dict) -> bool:
+        """Add the library's block to the sidecar only while it is still the copy the index
+        read; a save in between wins and the next query computes the block again."""
+        path = self._folder(folder) / f"{_check_id(identifier)}.summary.json"
+        with _SIDECARS:
+            try:
+                current = self._read(path)
+            except (OSError, ValueError):
+                return False
+            if current != expected:
+                return False
+            self._write(path, {**current, "library": block})
+            return True
 
     # Recently deleted (Mission 9 spec §6.2, plan ruling P3): an item's document, sidecar and
     # folders move to trash/<folder>/<id>/ with trash.json; restore moves them back.
@@ -261,39 +281,89 @@ class JsonRunRepository:
         names += [f"{identifier}.{suffix}" for suffix in ITEM_FOLDERS.get(folder, ())]
         return [base / name for name in names if (base / name).exists()]
 
+    # The document's place decides where an item is (final review I4): a delete moves it last and
+    # a restore moves it first, so an interrupted move leaves the item live with some pieces in
+    # its trash folder. The next delete or restore of the item, and `heal_trash` at startup, put
+    # those pieces back; nothing is overwritten and Empty never sees them.
+    def _stranded(self, folder: str, identifier: str) -> bool:
+        target = self._trash(folder, identifier)
+        return target.is_dir() and not (target / f"{identifier}.json").exists()
+
+    def _bring_back(self, folder: str, identifier: str) -> None:
+        """Move a trash folder's remaining pieces back beside the live document; a piece present
+        on both sides stays where it is and keeps the folder."""
+        target, live = self._trash(folder, identifier), self._folder(folder)
+        clash = False
+        for path in sorted(target.iterdir()):
+            if path.name == "trash.json":
+                continue
+            if (live / path.name).exists():
+                clash = True
+                continue
+            _retry(lambda path=path: shutil.move(str(path), str(live / path.name)))
+        if not clash:
+            shutil.rmtree(target, ignore_errors=True)
+
     def move_to_trash(self, folder: str, identifier: str, meta: dict) -> None:
         source = self._folder(folder) / f"{_check_id(identifier)}.json"
         if not source.is_file():
             raise KeyError(identifier)
         target = self._trash(folder, identifier)
-        if target.exists():
+        if (target / f"{identifier}.json").exists():
             raise FileExistsError(f"{folder}/{identifier} is already in Recently deleted")
+        if target.exists():
+            self._bring_back(folder, identifier)  # an earlier move stopped part way
+        if target.exists():
+            raise FileExistsError(
+                f"{folder}/{identifier} has pieces in Recently deleted that clash with the live item"
+            )
         target.mkdir(parents=True)
         self._write(target / "trash.json", meta)
-        for path in self._item_paths(folder, identifier):
+        pieces = [p for p in self._item_paths(folder, identifier) if p != source] + [source]
+        for path in pieces:  # the document last: once it has moved, the item is deleted
             _retry(lambda path=path: shutil.move(str(path), str(target / path.name)))
 
     def restore_from_trash(self, folder: str, identifier: str) -> None:
         target = self._trash(folder, identifier)
-        if not (target / "trash.json").is_file():
-            raise KeyError(identifier)
         live = self._folder(folder)
+        document = target / f"{_check_id(identifier)}.json"
+        if not document.is_file():
+            if self._stranded(folder, identifier) and (live / f"{identifier}.json").is_file():
+                self._bring_back(folder, identifier)  # an earlier move stopped part way
+                return
+            raise KeyError(identifier)
         if (live / f"{identifier}.json").exists():
             raise FileExistsError(f"an item with id {identifier} exists")
-        for path in sorted(target.iterdir()):
-            if path.name != "trash.json":
-                _retry(lambda path=path: shutil.move(str(path), str(live / path.name)))
-        shutil.rmtree(target, ignore_errors=True)
+        _retry(lambda: shutil.move(str(document), str(live / document.name)))  # now live
+        self._bring_back(folder, identifier)
+
+    def heal_trash(self) -> list[str]:
+        """Finish every move a crash or a refused file left part way (run at startup)."""
+        healed = []
+        root = self.root / "trash"
+        for target in sorted(root.glob("*/*")) if root.is_dir() else []:
+            folder, identifier = target.parent.name, target.name
+            if not target.is_dir() or not self._stranded(folder, identifier):
+                continue
+            if (self._folder(folder) / f"{identifier}.json").is_file():
+                self._bring_back(folder, identifier)
+                healed.append(f"{folder}/{identifier}")
+        return healed
 
     def list_trash(self) -> list[dict]:
+        """Trashed items: every trash folder holding its document. A torn trash.json still lists,
+        by its folder and id, without its deletion time."""
         root = self.root / "trash"
         items = []
-        if root.is_dir():
-            for meta in sorted(root.glob("*/*/trash.json")):
-                try:
-                    items.append({**self._read(meta), "folder": meta.parent.parent.name})
-                except (OSError, ValueError):
-                    continue
+        for target in sorted(root.glob("*/*")) if root.is_dir() else []:
+            folder, identifier = target.parent.name, target.name
+            if not (target / f"{identifier}.json").is_file():
+                continue
+            try:
+                meta = self._read(target / "trash.json")
+            except (OSError, ValueError):
+                meta = {}
+            items.append({**meta, "id": identifier, "folder": folder})
         return items
 
     def read_trashed(self, folder: str, identifier: str) -> dict:
@@ -304,8 +374,8 @@ class JsonRunRepository:
 
     def erase_from_trash(self, folder: str, identifier: str) -> None:
         target = self._trash(folder, identifier)
-        if not target.is_dir():
-            raise KeyError(identifier)
+        if not (target / f"{_check_id(identifier)}.json").is_file():
+            raise KeyError(identifier)  # only a trashed item, never a live item's stranded piece
         shutil.rmtree(target)
 
     def trashed_ids(self, folder: str) -> set[str]:

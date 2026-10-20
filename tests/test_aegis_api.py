@@ -1305,6 +1305,29 @@ def test_experiment_delete_now_moves_to_the_trash(client):
     assert c.get("/aegis/api/experiments/four-cells").status_code == 200
 
 
+def test_library_entry_route_answers_for_one_item_live_or_deleted(client):
+    """The page opens an item that is not on its current list page by id (milestone QA D2)."""
+    c, _, repository = client
+    _finished_experiment(repository)
+    url = "/aegis/api/library/experiment/four-cells"
+    c.put(url + "/annotation", json={"label": "the four", "starred": True})
+    entry = c.get(url)
+    assert entry.status_code == 200
+    assert (entry.json()["id"], entry.json()["label"], entry.json()["starred"]) == (
+        "four-cells",
+        "the four",
+        True,
+    )
+    assert entry.json()["ready"] is True
+    assert c.delete(url).status_code == 200
+    deleted = c.get(url).json()
+    assert (
+        deleted["status"] == "deleted" and deleted["deleted_at"] and deleted["label"] == "the four"
+    )
+    assert c.get("/aegis/api/library/experiment/nope").status_code == 404
+    assert c.get("/aegis/api/library/nope/four-cells").status_code == 404
+
+
 def test_library_annotation_keeps_the_fields_a_request_leaves_out(client):
     """A star sent alone must not erase a label saved a moment earlier (the row's star and the
     view's label editor each send only their own fields)."""

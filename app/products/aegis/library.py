@@ -19,7 +19,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from products.aegis.experiments import ExperimentStore
-from products.aegis.runs import RunRepository
+from products.aegis.runs import RunRepository, _retry
 
 KINDS = ("backtest", "optimization", "walkforward", "experiment", "study")
 FOLDERS = {
@@ -70,6 +70,9 @@ class LibraryEntry(BaseModel):
     headline: dict = Field(default_factory=dict)
     links: dict = Field(default_factory=dict)
     deleted_at: str | None = None
+    # False while the headline waits for the backfill; True once computed, even when the
+    # document gave nothing to show (it then lists with "—", never "preparing…").
+    ready: bool = True
 
 
 class Refused(Exception):
@@ -197,12 +200,18 @@ class Annotations:
     _lock = threading.Lock()
 
     def all(self) -> dict[str, dict]:
-        if self.path is None or not self.path.is_file():
-            return {}
+        """For listing: an unreadable file lists as no annotations."""
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            return self._load()
         except (OSError, ValueError):
             return {}
+
+    def _load(self) -> dict[str, dict]:
+        """For a write: a busy file is retried, and one still unreadable raises rather than read
+        as empty, so a save never writes back only its own note (final review I5)."""
+        if self.path is None or not self.path.is_file():
+            return {}
+        data = _retry(lambda: json.loads(self.path.read_text(encoding="utf-8")))
         return data if isinstance(data, dict) else {}
 
     def _save(self, data: dict) -> None:
@@ -211,7 +220,7 @@ class Annotations:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.name + ".tmp")
         tmp.write_text(json.dumps(data, sort_keys=True), encoding="utf-8")
-        tmp.replace(self.path)
+        _retry(lambda: tmp.replace(self.path))  # Windows refuses the swap while a reader holds it
 
     def get(self, kind: str, identifier: str) -> dict:
         return self.all().get(f"{kind}:{identifier}", {})
@@ -230,7 +239,7 @@ class Annotations:
         if notes is not None and len(notes) > NOTES_MAX:
             raise ValueError(f"notes longer than {NOTES_MAX} characters")
         with self._lock:
-            data = self.all()
+            data = self._load()
             note = {
                 "label": "",
                 "notes": "",
@@ -249,7 +258,7 @@ class Annotations:
 
     def remove(self, kind: str, identifier: str) -> None:
         with self._lock:
-            data = self.all()
+            data = self._load()
             if data.pop(f"{kind}:{identifier}", None) is not None:
                 self._save(data)
 
@@ -297,12 +306,15 @@ class Library:
                 if not (isinstance(block, dict) and block.get("version") == VERSION):
                     if time.perf_counter() < deadline:
                         block = self._block(kind, identifier)
-                        try:
-                            self.repository.write_summary(
-                                FOLDERS[kind], identifier, {**summary, "library": block}
-                            )
-                        except (OSError, ValueError):
-                            pass  # the next query computes it again
+                        # A queued or running job saves again soon (and drops the block), so its
+                        # headline is computed for this listing and never cached.
+                        if summary.get("status") not in UNFINISHED_JOBS:
+                            try:
+                                self.repository.cache_summary(
+                                    FOLDERS[kind], identifier, summary, block
+                                )
+                            except (OSError, ValueError):
+                                pass  # the next query computes it again
                     else:
                         block = None
                         preparing += 1
@@ -364,6 +376,7 @@ class Library:
             decision=summary.get("decision") if kind in ("experiment", "study") else None,
             headline=dict(source.get("headline") or {}),
             links=links,
+            ready=block is not None,
         )
 
     # -- housekeeping (spec §6.2) --------------------------------------------------------------
@@ -408,7 +421,10 @@ class Library:
             raise KeyError(kind)
         folder = FOLDERS[kind]
         if kind == "study":
-            parent = self.repository.read_trashed(folder, identifier).get("experiment_id")
+            try:
+                parent = self.repository.read_trashed(folder, identifier).get("experiment_id")
+            except KeyError:
+                parent = None  # live already: the repository finishes a move that stopped
             if parent:
                 try:
                     self.repository.read_document(FOLDERS["experiment"], parent)
@@ -424,7 +440,7 @@ class Library:
     def empty(self, items: list[tuple[str, str]] | None = None) -> int:
         """Erase trashed items for good (all, or the named ones); their annotations go too."""
         if items is None:
-            items = [(t.get("kind"), t.get("id")) for t in self.repository.list_trash()]
+            items = [(self._trash_kind(t), t.get("id")) for t in self.repository.list_trash()]
         erased = 0
         for kind, identifier in items:
             if kind not in KINDS or not isinstance(identifier, str):
@@ -437,11 +453,19 @@ class Library:
             erased += 1
         return erased
 
+    @staticmethod
+    def _trash_kind(meta: dict) -> str | None:
+        """The trash record's kind, or its folder's when the record is torn."""
+        kind = meta.get("kind")
+        if kind in KINDS:
+            return kind
+        return next((k for k, folder in FOLDERS.items() if folder == meta.get("folder")), None)
+
     def trashed(self) -> list[LibraryEntry]:
         notes = self.annotations.all()
         entries = []
         for meta in self.repository.list_trash():
-            kind, identifier = meta.get("kind"), meta.get("id")
+            kind, identifier = self._trash_kind(meta), meta.get("id")
             if kind not in KINDS or not isinstance(identifier, str):
                 continue
             try:
@@ -459,6 +483,24 @@ class Library:
                 entry.model_copy(update={"status": "deleted", "deleted_at": meta.get("deleted_at")})
             )
         return entries
+
+    def entry(self, kind: str, identifier: str) -> LibraryEntry:
+        """One item by id, live or in Recently deleted (the page opens an item that its current
+        list page does not show; milestone QA D2). KeyError when neither knows it."""
+        if kind not in KINDS:
+            raise KeyError(kind)
+        notes = self.annotations.all()
+        for summary in self._summaries(kind):
+            if summary.get(ID_KEYS[kind]) != identifier:
+                continue
+            block = summary.get("library")
+            if not (isinstance(block, dict) and block.get("version") == VERSION):
+                block = self._block(kind, identifier)
+            return self._entry(kind, identifier, summary, block, notes.get(f"{kind}:{identifier}"))
+        for entry in self.trashed():
+            if entry.kind == kind and entry.id == identifier:
+                return entry
+        raise KeyError(identifier)
 
     def query(self, q: LibraryQuery, budget_seconds: float = 1.5) -> dict:
         if q.deleted:

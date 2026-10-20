@@ -575,6 +575,7 @@ export interface LibraryEntry {
   headline: Record<string, unknown>;
   links: Record<string, unknown>;
   deleted_at?: string | null;
+  ready?: boolean; // false while the headline waits for the backfill
 }
 
 export interface LibraryPage {

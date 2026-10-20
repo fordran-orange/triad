@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { comparable, headlineText, kindLabel, losing, markText, queryString } from './library';
+import { comparable, headlineText, kindLabel, losing, markText, openedEntry, queryString } from './library';
 import type { LibraryEntry, LibraryFilters } from './results';
 
 function entry(kind: LibraryEntry['kind'], headline: Record<string, unknown>, id = 'x'): LibraryEntry {
@@ -21,6 +21,7 @@ function entry(kind: LibraryEntry['kind'], headline: Record<string, unknown>, id
     decision: null,
     headline,
     links: {},
+    ready: true,
   };
 }
 
@@ -62,7 +63,8 @@ describe('library helpers', () => {
     expect(headlineText(entry('study', { symbols: ['QQQ', 'SPY'], windows: 32, summary_line: 'plateau rule ahead of the peak rule on 2 of 2 symbols by MAR' }))).toBe(
       'plateau rule ahead of the peak rule on 2 of 2 symbols by MAR · 32 windows',
     );
-    expect(headlineText(entry('backtest', {}))).toBe('preparing…');
+    expect(headlineText({ ...entry('backtest', {}), ready: false })).toBe('preparing…');
+    expect(headlineText(entry('backtest', {}))).toBe('—'); // computed, but the document gave nothing
   });
 
   it('queryString drops empty filters and repeats kinds', () => {
@@ -95,5 +97,15 @@ describe('library helpers', () => {
     expect(losing(entry('optimization', { objective: 'net_pnl', best: -10 }))).toBe(true);
     expect(losing(entry('optimization', { objective: 'mar', best: -0.2 }))).toBe(false);
     expect(losing(entry('backtest', {}))).toBe(false);
+  });
+
+  it('openedEntry keeps an opened item in view when the list page no longer shows it', () => {
+    const a = entry('backtest', {}, 'a');
+    const fetched = { ...entry('backtest', {}, 'b'), label: 'kept' };
+    expect(openedEntry([a], { kind: 'backtest', id: 'a' }, null)).toBe(a);
+    expect(openedEntry([a], { kind: 'backtest', id: 'b' }, fetched)).toBe(fetched);
+    expect(openedEntry([a], { kind: 'backtest', id: 'b' }, { ...fetched, id: 'other' })).toBeNull();
+    expect(openedEntry([a], { kind: 'optimization', id: 'a' }, null)).toBeNull();
+    expect(openedEntry([a], null, fetched)).toBeNull();
   });
 });

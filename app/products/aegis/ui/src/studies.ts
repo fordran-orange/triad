@@ -8,6 +8,13 @@ import { STUDY_RULE_LABELS, STUDY_RULES, type StudyCurvePoint, type StudyReport,
 const n = (value: number) => value.toLocaleString('en-US');
 
 /** "3 symbols · 48 windows · 12,096 runs · ≈ 2 min 0 s (measured on this host)". */
+/** The selected study, only while it is one of the open experiment's studies: a study chosen
+ *  under another experiment (or by a deep link) never shows under this one. */
+export function visibleStudy(selectedId: string | null, items: Array<{ id: string }> | null): string | null {
+  if (!selectedId || !items) return null;
+  return items.some((item) => item.id === selectedId) ? selectedId : null;
+}
+
 export function planLine(plan: StudyPlan): string {
   const symbols = plan.symbols.length;
   const windows = plan.symbols.reduce((sum, s) => sum + s.windows, 0);

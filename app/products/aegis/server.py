@@ -24,6 +24,10 @@ async def lifespan(_: FastAPI):
     lost = api.get_runner().mark_lost_on_startup()
     if lost:
         log.warning("marked %d unfinished optimization(s) as lost: %s", len(lost), lost)
+    # A delete or restore a crash stopped part way is finished before anything lists the trash.
+    healed = api.get_repository().heal_trash()
+    if healed:
+        log.warning("finished %d interrupted Recently deleted move(s): %s", len(healed), healed)
     api.warm_in_background(api.get_store())  # spec §6: first touches warm, off the request path
     yield
 

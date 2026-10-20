@@ -25,7 +25,7 @@ export function LibraryList({ entries, selected, checked, onSelect, onCheck, onS
     <div className="library-list" id="library-list" role="list">
       {entries.map((e) => {
         const key = entryKey(e);
-        const preparing = Object.keys(e.headline ?? {}).length === 0;
+        const preparing = e.ready === false;
         const unfinished = e.status && e.status !== 'done' && e.status !== 'ok';
         return (
           <div

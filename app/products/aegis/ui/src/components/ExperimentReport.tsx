@@ -230,7 +230,7 @@ export function ExperimentReportView({ experiment, report, onUse, onChanged, onR
         </div>
       </div>
 
-      <ExperimentStudies experiment={experiment} initialStudyId={focusStudyId} />
+      <ExperimentStudies key={experiment.id} experiment={experiment} initialStudyId={focusStudyId} />
       <div className="report-section" id="decision">
         <h4>Decision</h4>
         {experiment.decision ? (

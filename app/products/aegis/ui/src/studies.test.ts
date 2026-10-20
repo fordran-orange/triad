@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StudyPlan } from './contracts';
 import type { StudyReport } from './results';
-import { bestCells, equityPaths, flatShading, planLine, ruleRows, windowMarks } from './studies';
+import { bestCells, equityPaths, flatShading, planLine, ruleRows, visibleStudy, windowMarks } from './studies';
 
 function plan(overrides: Partial<StudyPlan> = {}): StudyPlan {
   const symbol = (name: string) => ({
@@ -132,5 +132,13 @@ describe('the window cells, best first by the objective (review finding)', () =>
       { cell: 2, valid: true, 'combined.mar': 0.9 },
     ];
     expect(bestCells(mar, 'mar', 20).map((r) => r.cell)).toEqual([2, 0, 1]);
+  });
+
+  it('visibleStudy shows a study only while it belongs to the open experiment', () => {
+    const items = [{ id: 's1' }, { id: 's2' }];
+    expect(visibleStudy('s1', items)).toBe('s1');
+    expect(visibleStudy('other-experiments-study', items)).toBeNull();
+    expect(visibleStudy('s1', null)).toBeNull(); // still loading this experiment's studies
+    expect(visibleStudy(null, items)).toBeNull();
   });
 });

@@ -9,7 +9,7 @@ const EQUITY: { a: ComparePoint[]; b: ComparePoint[] } = {
   ],
   b: [
     { t: '2024-01-02T00:00:00+00:00', pct: 0, usd: 50_000, dd: 0 },
-    { t: '2024-01-05T00:00:00+00:00', pct: -0.1, usd: 45_000, dd: 0.1 },
+    { t: '2024-01-05T00:00:00+00:00', pct: -0.1, usd: 45_000, dd: -0.1 }, // the engine's drawdown is running / peak − 1, at or below zero
   ],
 };
 

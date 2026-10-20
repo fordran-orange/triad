@@ -423,3 +423,148 @@ def test_annotations_round_trip_and_limits(world):
         library.annotations.set("backtest", "run-a", "x" * 81, "", False)
     with pytest.raises(ValueError, match="notes"):
         library.annotations.set("backtest", "run-a", "", "x" * 2001, False)
+
+
+# --- the final review's fix pass -----------------------------------------------------------------
+
+
+def test_the_headline_cache_never_overwrites_a_concurrent_save(world):  # final review I2
+    repository, library, _run = world
+    doc = {**save_walkforward(repository, job_id="wf-race")}
+    library.entries()
+    repository.save_walkforward(doc)  # any save drops the cached block
+    compute = library._block
+
+    def a_save_lands_meanwhile(kind, identifier):
+        block = compute(kind, identifier)
+        if identifier == "wf-race":
+            repository.save_walkforward({**doc, "status": "cancelled"})
+        return block
+
+    library._block = a_save_lands_meanwhile
+    library.entries()
+    sidecar = repository.root / "walkforward" / "wf-race.summary.json"
+    assert json.loads(sidecar.read_text(encoding="utf-8"))["status"] == "cancelled"
+
+
+def test_a_running_job_is_listed_without_rewriting_its_sidecar(world):  # final review I2
+    repository, library, _run = world
+    doc = save_walkforward(repository, job_id="wf-live")
+    repository.save_walkforward({**doc, "status": "running"})
+    sidecar = repository.root / "walkforward" / "wf-live.summary.json"
+    before = sidecar.read_text(encoding="utf-8")
+    entries, preparing = library.entries()
+    entry = next(e for e in entries if e.id == "wf-live")
+    assert entry.status == "running" and entry.headline["windows"] == 4 and preparing == 0
+    assert sidecar.read_text(encoding="utf-8") == before
+
+
+def test_an_unreadable_document_is_ready_with_an_empty_headline(world):  # final review I3
+    repository, library, _run = world
+    repository.save_run({"run_id": "broken", "created_at": "2026-10-01T00:00:00+00:00"})
+    entries = {e.id: e for e in library.query(LibraryQuery(kinds=["backtest"]))["entries"]}
+    assert entries["broken"].headline == {} and entries["broken"].ready is True
+    waiting = library.query(LibraryQuery(kinds=["backtest"]), budget_seconds=0)
+    assert all(e.ready for e in waiting["entries"])  # cached blocks stay ready
+    repository.save_run({"run_id": "new", "created_at": "2026-10-02T00:00:00+00:00"})
+    fresh = {e.id: e for e in library.query(LibraryQuery(), budget_seconds=0)["entries"]}
+    assert fresh["new"].ready is False
+
+
+def test_an_annotation_survives_a_busy_file(world, monkeypatch):  # final review I5
+    from pathlib import Path
+
+    _repository, library, _run = world
+    real = Path.replace
+    refusals = []
+
+    def busy_once(self, target):
+        if self.name.startswith("annotations") and not refusals:
+            refusals.append(self.name)
+            raise PermissionError("Windows: another handle is open")
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "replace", busy_once)
+    library.annotations.set("backtest", "run-a", label="kept")
+    assert refusals and library.annotations.get("backtest", "run-a")["label"] == "kept"
+
+
+def test_a_busy_read_never_wipes_the_other_annotations(world, monkeypatch):  # final review I5
+    from pathlib import Path
+
+    _repository, library, _run = world
+    library.annotations.set("backtest", "run-a", label="first")
+    real = Path.read_text
+    refusals = []
+
+    def busy_once(self, *args, **kwargs):
+        if self.name == "annotations.json" and not refusals:
+            refusals.append(self.name)
+            raise PermissionError("Windows: another handle is open")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", busy_once)
+    library.annotations.set("optimization", "opt-a", starred=True)
+    assert refusals
+    assert library.annotations.get("backtest", "run-a")["label"] == "first"
+    assert library.annotations.get("optimization", "opt-a")["starred"] is True
+
+
+def _pieces(path):
+    return sorted(p.name for p in path.iterdir()) if path.is_dir() else []
+
+
+def test_an_interrupted_restore_is_finished_not_stranded(world):  # final review I4
+    import shutil
+
+    repository, library, _run = world
+    live = repository.root / "experiments"
+    trash = repository.root / "trash" / "experiments" / "exp-a"
+    library.delete("study", "study-a")
+    library.delete("experiment", "exp-a")
+    assert "exp-a.reports" in _pieces(trash)
+    shutil.move(str(trash / "exp-a.json"), str(live / "exp-a.json"))  # stopped after the document
+    assert "exp-a" not in [e.id for e in library.trashed()]  # the document's place decides
+    assert library.empty([("experiment", "exp-a")]) == 0 and "exp-a.reports" in _pieces(trash)
+    library.restore("experiment", "exp-a")
+    assert not trash.exists() and {"exp-a.reports", "exp-a.summary.json"} <= set(_pieces(live))
+
+
+def test_an_interrupted_delete_is_finished_by_the_next_delete(world):  # final review I4
+    import shutil
+
+    repository, library, _run = world
+    live = repository.root / "experiments"
+    trash = repository.root / "trash" / "experiments" / "exp-a"
+    library.delete("study", "study-a")
+    trash.mkdir(parents=True)
+    (trash / "trash.json").write_text(json.dumps({"kind": "experiment", "id": "exp-a"}))
+    shutil.move(str(live / "exp-a.reports"), str(trash / "exp-a.reports"))  # stopped early
+    assert "exp-a" in [e.id for e in library.entries()[0]]
+    assert "exp-a" not in [e.id for e in library.trashed()]
+    library.delete("experiment", "exp-a")
+    assert {"exp-a.json", "exp-a.reports", "exp-a.summary.json"} <= set(_pieces(trash))
+    assert not (live / "exp-a.json").exists()
+    library.restore("experiment", "exp-a")
+    assert not trash.exists() and "exp-a.reports" in _pieces(live)
+
+
+def test_startup_finishes_a_stranded_move(world):  # final review I4
+    import shutil
+
+    repository, library, _run = world
+    trash = repository.root / "trash" / "studies" / "study-a"
+    library.delete("study", "study-a")
+    shutil.move(str(trash / "study-a.json"), str(repository.root / "studies" / "study-a.json"))
+    repository.heal_trash()
+    assert not trash.exists() and repository.read_document("studies", "study-a")["id"] == "study-a"
+
+
+def test_a_torn_trash_record_still_lists_and_restores(world):  # final review (minor, folded in)
+    repository, library, run = world
+    library.delete("backtest", "run-a")
+    (repository.root / "trash" / "runs" / "run-a" / "trash.json").write_text("{torn")
+    listed = {e.id: e for e in library.trashed()}
+    assert listed["run-a"].kind == "backtest" and listed["run-a"].status == "deleted"
+    library.restore("backtest", "run-a")
+    assert repository.read_document("runs", "run-a")["result_hash"] == run["result_hash"]

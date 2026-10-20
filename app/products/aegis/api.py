@@ -1168,6 +1168,16 @@ def _library_kind(kind: str) -> str:
     return kind
 
 
+@router.get("/library/{kind}/{item_id}")
+def library_entry(kind: str, item_id: str, library: Library = LIBRARY_INDEX):
+    """One saved result's entry, live or in Recently deleted."""
+    _library_kind(kind)
+    try:
+        return library.entry(kind, item_id)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(404, f"unknown {kind} {item_id!r}") from exc
+
+
 @router.put("/library/{kind}/{item_id}/annotation")
 def annotate_library_item(
     kind: str, item_id: str, request: AnnotationRequest, library: Library = LIBRARY_INDEX

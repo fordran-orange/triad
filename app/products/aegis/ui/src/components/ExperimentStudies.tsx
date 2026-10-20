@@ -3,6 +3,7 @@ import { api, errorMessage } from '../api/client';
 import type { ExperimentDocument } from '../contracts';
 import { DASH, timeLabel } from '../format';
 import type { StudySummary } from '../results';
+import { visibleStudy } from '../studies';
 import { StudyPlanner } from './StudyPlanner';
 import { StudyView } from './StudyView';
 
@@ -24,6 +25,7 @@ export function ExperimentStudies({ experiment, initialStudyId = null }: { exper
   }, [experiment.id]);
   useEffect(refresh, [refresh]);
   const finished = experiment.status === 'done' && experiment.latest_report !== null;
+  const shown = visibleStudy(selectedId, items);
 
   return (
     <div className="report-section" id="walk-forward">
@@ -86,10 +88,10 @@ export function ExperimentStudies({ experiment, initialStudyId = null }: { exper
       ) : (
         <div className="muted small">{items === null ? 'Loading studies…' : 'No studies of this experiment yet.'}</div>
       )}
-      {selectedId && (
+      {shown && (
         <StudyView
-          key={selectedId}
-          studyId={selectedId}
+          key={shown}
+          studyId={shown}
           onChanged={refresh}
           onDeleted={() => {
             setSelectedId(null);

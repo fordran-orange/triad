@@ -154,7 +154,10 @@ export function ExperimentsPage() {
           </thead>
           <tbody>
             {items.filter((item) => typeof item.id === 'string' && item.progress).map((item) => (
-              <tr key={item.id} id={`exp-${item.id}`} className={item.id === selectedId ? 'selected' : ''} onClick={() => setSelectedId(item.id)}>
+              <tr key={item.id} id={`exp-${item.id}`} className={item.id === selectedId ? 'selected' : ''} onClick={() => {
+                setSelectedId(item.id);
+                setFocusStudy(null); // a deep link's study belongs to its own experiment only
+              }}>
                 <td>
                   {item.name}
                   {item.parent && <div className="muted">refines {item.parent}</div>}
