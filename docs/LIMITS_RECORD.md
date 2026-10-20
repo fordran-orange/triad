@@ -162,6 +162,11 @@ priced at ≈ 42 min (the pool's learned cost) and still asks first. `tools\veri
 branch after the pass: all three scopes green (core 386 / 171; triad 634 / 424 with 209
 subtests; aegis 411 / 1); it stopped at the "Wrong Git branch" check, by design.
 
+**Merged (2026-10-20, the operator: "merge"):** `aegis/limits` merged into `main` with one merge
+commit (`c65d2ec`), since `main` had gained Mission 9's record line. `tools\verify.ps1` on `main`
+afterwards: exit 0, "all three scopes green" (core 386 / 171; triad 634 / 424 with 209 subtests;
+aegis 411 / 1).
+
 ### Deferred minors (after the review)
 
 - A throwaway `Pool()` is built to read the worker count.
