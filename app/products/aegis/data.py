@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict
 DATA_ROOT = Path(__file__).resolve().parents[3]
 ARCHIVE_DIR = Path("data") / "raw" / "HFDataLibrary"
 TIMEFRAMES = ("1m", "15m", "30m", "1h", "1D")
-BAR_CAP = 50_000
+BAR_CAP = 200_000  # operator, 2026-10-20: ten years at 15m (65,107 bars) and up; the goal is no limit
 RESAMPLING_POLICY = "rth-anchored-v1"
 TIMEZONE = "America/New_York"
 SESSION_OPEN = "09:30"
