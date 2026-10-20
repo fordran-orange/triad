@@ -1,11 +1,11 @@
 """Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items, the 14 Mission 4
 items, the 11 Mission 5 items, the 13 Mission 6 items, the 9 Mission 8 items, the 7 Mission 9
-items and the 5 limits items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
+items, the 5 limits items and the 5 Mission 10 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
 (indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
 Items 51 and 63 restart the worker detached through WMI (tools/start_product.ps1), as the DoD asks.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
-Exit code 0 only when all 81 items PASS with no page errors.
+Exit code 0 only when all 86 items PASS with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
 
@@ -107,11 +107,17 @@ ITEMS = [
     "delete → Recently deleted → restore keeps the result hash; the refusals answer 409 naming a parent with studies, a running study and a study whose parent is trashed",
     "governance unchanged, no file under Core, the platform host or Triad changed since the Mission 9 plan, items 1–69 still pass and Recently deleted was never emptied",
     # the limits change (2026-10-20)
-    "a ten-year 15m backtest (65,107 bars) runs and its chart loads under the 200,000-bar cap",
+    "a ten-year 15m backtest (65,107 bars) runs and its chart loads under the 2,000,000-bar guard",
     "a three-parameter grid of more than 400 cells runs on the pool; its matrix switches axes, a square's best cell loads and its backtest equals the cell",
     "a grid of more than 1,000 cells sends its best 1,000 and pages the rest; the saved job keeps every cell",
-    "the refusals above both bounds are honest, and a run estimated over ten minutes asks before it starts",
+    "ten years of 1m now select; the grid refusal is honest, and a run estimated over ten minutes asks before it starts",
     "governance unchanged since the limits plan and items 1–76 still pass",
+    # Mission 10: no limit (spec §10)
+    "a saved run is slim: no per-bar series, side equity at most 2,000 points, format 2, under 1 MB, its hash unchanged; a run saved before the mission opens with its equity",
+    "ten years of 1m in the page: 947,519 bars shown as aggregated candles; a wheel zoom swaps to finer candles; indicators and markers follow; Run Backtest completes",
+    "the ten-year run opens in the Library and compares with item 22's run",
+    "Save only what I keep: a backtest is not in the Library until Keep; the mode switches back to every",
+    "governance unchanged since the Mission 10 plan and items 1–81 still pass",
 ]
 RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
 MISSION5_BASE = (
@@ -136,6 +142,9 @@ MISSION9_BASE = (
 )
 LIBRARY_KINDS = ["backtest", "optimization", "walkforward", "experiment", "study"]
 LIMITS_BASE = "9d13297"  # the limits design and plan commit; Core, platform host and Triad frozen
+NO_LIMIT_BASE = "b6960b8"  # the Mission 10 plan commit; Core, platform host and Triad frozen since
+TEN_YEARS_1M = 947_519  # QQQ 1m bars over STUDY_RANGE in the 20260919 vintage
+MISSION10_STARTED = "2026-10-20T20:00:00"  # runs saved before this are format 1 (per-bar series)
 THREE_PARAMETERS = [  # 7 x 4 x 20 = 560 cells: more than 400, so the pool runs it
     ("indicators.donchian.length", 10, 40, 5),
     ("indicators.rsi.length", 7, 28, 7),
@@ -2520,6 +2529,7 @@ class Acceptance:
         self.item(69, item69)
         self.mission9()
         self.limits()
+        self.no_limit()
 
     # -- Mission 9 plumbing: the Results library ---------------------------------------------
     def library_rows(self) -> list[str]:
@@ -3093,7 +3103,7 @@ class Acceptance:
             )
             bars = self.wait_bars(timeout=180_000)
             chart_s = round(time.perf_counter() - started, 1)
-            assert 50_000 < bars <= 200_000, bars
+            assert 50_000 < bars <= 2_000_000, bars  # Mission 10: the cap is a memory guard
             # A 26 MB envelope is more than the browser's inspector keeps, so the run is read back
             # from the worker rather than from the page's response.
             previous = self.run_state()
@@ -3240,9 +3250,10 @@ class Acceptance:
             bars = page.request.get(
                 self.base
                 + f"api/data/bars?symbol=QQQ&timeframe=1m&start={STUDY_RANGE[0]}&end={STUDY_RANGE[1]}"
+                + "&max_bars=20000"
             )
-            assert bars.status == 422 and "over cap 200000" in bars.text(), bars.text()[:200]
-            checks.append("ten years of 1m → 422 over cap 200000")
+            assert bars.ok and bars.json()["count"] == TEN_YEARS_1M, bars.text()[:200]
+            checks.append(f"ten years of 1m now select: {TEN_YEARS_1M:,} bars")
             huge = self.limits_body(
                 [
                     ("indicators.donchian.length", 2, 401, 1),
@@ -3327,6 +3338,301 @@ class Acceptance:
             )
 
         self.item(81, item81)
+
+    # -- Mission 10 plumbing: no limit -------------------------------------------------------------
+    def worker_memory(self) -> dict:
+        """The worker's working set now and at its peak, from the OS (PowerShell Get-Process)."""
+        import subprocess
+
+        script = (
+            "$c = Get-NetTCPConnection -LocalPort 8102 -State Listen | Select-Object -First 1; "
+            "Get-Process -Id $c.OwningProcess | Select-Object Id, WorkingSet64, PeakWorkingSet64 "
+            "| ConvertTo-Json -Compress"
+        )
+        out = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        ).stdout
+        info = json.loads(out)
+        return {
+            "pid": info["Id"],
+            "working_set_mb": round(info["WorkingSet64"] / 1e6),
+            "peak_working_set_mb": round(info["PeakWorkingSet64"] / 1e6),
+        }
+
+    def run_file(self, run_id: str) -> Path:
+        return ROOT / "data" / "aegis" / "runs" / f"{run_id}.json"
+
+    def library_equity(self) -> str:
+        self.page.locator("#library-tab-equity").click()
+        self.page.wait_for_selector("#library-view svg[aria-label='equity curve']", timeout=30_000)
+        return self.js("document.querySelector('#library-view .result-body')?.innerText ?? ''")
+
+    def chart_badge(self) -> str:
+        return self.js("document.getElementById('chart-shown-as')?.innerText ?? ''")
+
+    # -- Mission 10 items 82-86 ---------------------------------------------------------------------
+    def no_limit(self):
+        page = self.page
+
+        def item82():
+            a = self.identical_runs[0]
+            path = self.run_file(a["run_id"])
+            stored = json.loads(path.read_text(encoding="utf-8"))
+            size = path.stat().st_size
+            sides = ("long", "short")
+            assert "series" not in stored and all(
+                "series" not in stored["result"][x] for x in sides
+            )
+            assert stored["stored"]["format"] == 2, stored.get("stored")
+            points = {x: len(stored["result"][x]["equity"]) for x in sides}
+            assert all(n <= 2_000 for n in points.values()), points
+            assert size < 1_000_000, size
+            assert stored["result_hash"] == RECORDED_IDENTICAL_HASH, stored["result_hash"]
+            self.open_library()
+            self.library_open("backtest", a["run_id"])
+            slim = self.library_equity()
+            per_bar = stored["stored"]["equity_points"]["long"]
+            assert f"drawn from 2,000 of {per_bar:,} points" in slim, slim
+            older = [
+                r
+                for r in self.api("runs")
+                if r.get("created_at", "") < MISSION10_STARTED
+                and (r.get("data") or {}).get("timeframe") == "1h"
+                and r.get("kept") is not False
+            ]
+            assert older, "no run saved before Mission 10 to open"
+            old = older[0]
+            old_envelope = self.api(f"runs/{old['run_id']}")
+            assert "stored" not in old_envelope and "series" in old_envelope, sorted(old_envelope)
+            full = len(old_envelope["result"]["long"]["equity"])
+            self.open_library()
+            self.library_open("backtest", old["run_id"])
+            shown = self.library_equity()
+            assert f"long ({full})" in shown and "drawn from" not in shown, shown
+            return (
+                f"item 22's run {a['run_id'][:8]}: {size:,} bytes, format 2, side equity {points} "
+                f"of {per_bar:,} bars, hash {stored['result_hash'][:12]}… unchanged; format-1 run "
+                f"{old['run_id'][:8]} ({old['created_at'][:16]}) opens with its {full:,}-point equity"
+            )
+
+        self.item(82, item82)
+
+        def item83():
+            page.locator("#nav-charts").click()
+            page.wait_for_selector("#chart-mount", timeout=30_000)
+            self.select("Symbol", "QQQ")
+            page.get_by_label("Start date").fill(STUDY_RANGE[0])
+            page.get_by_label("End date").fill(STUDY_RANGE[1])
+            self.select("Timeframe", "1m")
+            page.wait_for_function(
+                "(document.querySelector('.chart-header')?.innerText ?? '').startsWith('QQQ · 1m')"
+            )
+            started = time.perf_counter()
+            page.wait_for_function(
+                f"(document.querySelector('.chart-header .ohlc')?.innerText ?? '').includes('{STUDY_RANGE[0]}')",
+                timeout=180_000,
+            )
+            bars = self.wait_bars(timeout=180_000)
+            chart_s = round(time.perf_counter() - started, 1)
+            assert bars == TEN_YEARS_1M, bars
+            first = self.chart_badge()
+            assert first.startswith("shown as "), first
+            query = f"symbol=QQQ&timeframe=1m&start={STUDY_RANGE[0]}&end={STUDY_RANGE[1]}&max_bars=20000"
+            view = self.api("data/bars?" + query)
+            assert view["count"] == bars and view["shown"] <= 20_000, (view["count"], view["shown"])
+            assert view["display_timeframe"] in first, (view["display_timeframe"], first)
+            series = self.post(
+                "indicators",
+                {
+                    "symbol": "QQQ",
+                    "timeframe": "1m",
+                    "start": STUDY_RANGE[0],
+                    "end": STUDY_RANGE[1],
+                    "indicators": [
+                        {"id": "ema", "kind": "EMA", "length": 9},
+                        {"id": "sma", "kind": "SMA", "length": 30},
+                    ],
+                    "max_bars": 20_000,
+                },
+            ).json()
+            candles = [b["time"] for b in view["bars"]]
+            assert series["times"] == candles and len(series["series"]["ema"]) == len(candles)
+            box = page.locator("#chart-mount").bounding_box()
+            page.mouse.move(box["x"] + box["width"] * 0.7, box["y"] + box["height"] * 0.4)
+            for _ in range(12):
+                page.mouse.wheel(0, -400)
+                page.wait_for_timeout(80)
+            page.wait_for_function(
+                "(document.getElementById('chart-shown-as')?.innerText ?? '') !== "
+                + json.dumps(first),
+                timeout=60_000,
+            )
+            zoomed = self.chart_badge() or "native 1m candles"
+            before = self.worker_memory()
+            previous = self.run_state()
+            ran = time.perf_counter()
+            page.locator("#run-backtest").click()
+            page.wait_for_function(
+                "(s => s.startsWith('run ') && s !== "
+                + json.dumps(previous)
+                + ")(document.getElementById('run-state')?.innerText ?? '')",
+                timeout=900_000,
+            )
+            wall_s = round(time.perf_counter() - ran, 1)
+            after = self.worker_memory()
+            prefix = self.run_state().split()[1]
+            run_id = next(r["run_id"] for r in self.api("runs") if r["run_id"].startswith(prefix))
+            envelope = self.api(f"runs/{run_id}")
+            self.hashes.append(envelope["result_hash"])
+            assert envelope["data"]["bar_count"] == bars and envelope["saved"] is True
+            markers = len(envelope["markers"])
+            legend = self.js("document.querySelector('.chart-header .legend')?.innerText ?? ''")
+            assert f"{markers} markers" in legend, legend
+            size = self.run_file(run_id).stat().st_size
+            self.ten_year_run = envelope
+            self.timings["ten_year_1m"] = {
+                "bars": bars,
+                "chart_s": chart_s,
+                "shown": view["shown"],
+                "display_timeframe": view["display_timeframe"],
+                "zoomed": zoomed,
+                "backtest_server_ms": envelope["elapsed_ms"],
+                "backtest_wall_s": wall_s,
+                "run_file_bytes": size,
+                "markers": markers,
+                "worker_before": before,
+                "worker_after": after,
+            }
+            return (
+                f"QQQ 1m {STUDY_RANGE[0]} → {STUDY_RANGE[1]}: {bars:,} bars in {chart_s} s, "
+                f"{first} ({view['shown']:,} candles); zoom → {zoomed}; indicators on the same "
+                f"{len(candles):,} candles; run {run_id[:8]} in {envelope['elapsed_ms']:,} ms server / "
+                f"{wall_s} s wall, {markers:,} markers in the legend, file {size / 1e6:.1f} MB; worker "
+                f"working set {before['working_set_mb']:,} → {after['working_set_mb']:,} MB, peak "
+                f"{before['peak_working_set_mb']:,} → {after['peak_working_set_mb']:,} MB"
+            )
+
+        self.item(83, item83)
+
+        def item84():
+            run, b = self.ten_year_run, self.identical_runs[1]
+            self.open_library()
+            self.library_open("backtest", run["run_id"])
+            page.wait_for_function(
+                "/947,519 bars/.test(document.querySelector('#library-chart .chart-header')?.innerText ?? '')",
+                timeout=180_000,
+            )
+            header = self.js("document.querySelector('#library-chart .chart-header').innerText")
+            assert "shown as" in header, header
+            star = page.locator(f'[id="lib-star-backtest-{run["run_id"]}"]')
+            if star.get_attribute("aria-pressed") != "true":
+                with page.expect_response(
+                    lambda r: r.url.endswith("/annotation"), timeout=30_000
+                ) as starred:
+                    star.click()
+                assert starred.value.ok, starred.value.text()
+            try:
+                self.open_library()
+                self.library_kind("backtest")
+                self.library_change(lambda: page.locator("#library-starred").check())
+                self.compare_ticked(run["run_id"], b["run_id"])
+                notes = self.js("document.getElementById('compare-notes').innerText")
+                curves = self.js(
+                    "document.querySelectorAll('#compare-chart svg')[0].querySelectorAll('path').length"
+                )
+                assert curves == 2, curves
+                page.locator("#compare-close").click()
+            finally:
+                self.open_library()
+                self.library_kind("backtest")
+                unstar = page.locator(f'[id="lib-star-backtest-{run["run_id"]}"]')
+                if unstar.count() and unstar.get_attribute("aria-pressed") == "true":
+                    with page.expect_response(
+                        lambda r: r.url.endswith("/annotation"), timeout=30_000
+                    ):
+                        unstar.click()
+            return (
+                f"run {run['run_id'][:8]} opens in the Library ('{header.splitlines()[-1].strip()}'); "
+                f"compared with item 22's run {b['run_id'][:8]}: {notes.strip()[:160]}; 2 curves"
+            )
+
+        self.item(84, item84)
+
+        def item85():
+            page.locator("#nav-charts").click()
+            page.wait_for_selector("#chart-mount", timeout=30_000)
+            page.get_by_label("Start date").fill("2023-01-01")
+            page.get_by_label("End date").fill("2024-12-31")
+            self.select("Timeframe", "1h")
+            page.wait_for_function(
+                "(document.querySelector('.chart-header')?.innerText ?? '').startsWith('QQQ · 1h')"
+                " && (document.querySelector('.chart-header')?.innerText ?? '').includes('2023-01-01 → 2024-12-31')",
+                timeout=90_000,
+            )
+            self.wait_bars()
+            try:
+                page.locator("#save-mode").select_option("kept")
+                assert self.wait_until(lambda: self.api("preferences")["save_runs"] == "kept", 10)
+                envelope = self.run_backtest()
+                run_id = envelope["run_id"]
+                assert envelope["saved"] is False, envelope.get("saved")
+                assert "NOT KEPT" in self.run_state(), self.run_state()
+                listed = [r for r in self.api("runs") if r["run_id"] == run_id]
+                assert listed and listed[0].get("kept") is False, listed
+
+                def in_library() -> bool:
+                    entries = self.api("library?kind=backtest")["entries"]
+                    return run_id in [e["id"] for e in entries]
+
+                assert not in_library()
+                with page.expect_response(
+                    lambda r: r.url.endswith("/keep"), timeout=30_000
+                ) as kept:
+                    page.locator("#keep-run").click()
+                assert kept.value.ok and kept.value.json() == {"saved": run_id}, kept.value.text()
+                assert self.wait_until(in_library, 10), "kept run not in the Library"
+                assert "NOT KEPT" not in self.run_state(), self.run_state()
+            finally:
+                page.locator("#save-mode").select_option("every")
+                assert self.wait_until(lambda: self.api("preferences")["save_runs"] == "every", 10)
+            return (
+                f"in 'Save only what I keep' run {run_id[:8]} answered saved=false, listed kept=false "
+                "and stayed out of the Library; Keep saved it and the Library lists it; the mode is "
+                "back to 'Save every backtest'"
+            )
+
+        self.item(85, item85)
+
+        def item86():
+            import subprocess
+
+            def git(*args) -> str:
+                return subprocess.run(
+                    ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
+                ).stdout
+
+            status = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
+            assert status["mode"] == "human_directed" and status["exchange"] == "CLOSED", status
+            schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
+            assert schedule["enabled"] is False and schedule["id"].startswith("c99fa831"), schedule
+            paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
+            committed = git("diff", "--name-only", NO_LIMIT_BASE, "HEAD", "--", *paths).strip()
+            pending = git("status", "--porcelain", "--", *paths).strip()
+            assert committed == "" and pending == "", (committed, pending)
+            earlier = [r for r in self.results if r["item"] <= 81]
+            failed = [r["item"] for r in earlier if r["status"] != "PASS"]
+            assert len(earlier) == 81 and not failed, failed
+            return (
+                f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
+                f"{NO_LIMIT_BASE}; items 1–81 PASS"
+            )
+
+        self.item(86, item86)
 
 
 def main(argv=None) -> int:
