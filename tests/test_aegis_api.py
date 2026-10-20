@@ -1305,6 +1305,26 @@ def test_experiment_delete_now_moves_to_the_trash(client):
     assert c.get("/aegis/api/experiments/four-cells").status_code == 200
 
 
+def test_library_annotation_keeps_the_fields_a_request_leaves_out(client):
+    """A star sent alone must not erase a label saved a moment earlier (the row's star and the
+    view's label editor each send only their own fields)."""
+    c, _, repository = client
+    _finished_experiment(repository)
+    url = "/aegis/api/library/experiment/four-cells/annotation"
+    assert c.put(url, json={"label": "the four", "notes": "kept"}).status_code == 200
+    starred = c.put(url, json={"starred": True})
+    assert starred.status_code == 200
+    assert starred.json() == {
+        "kind": "experiment",
+        "id": "four-cells",
+        "label": "the four",
+        "notes": "kept",
+        "starred": True,
+    }
+    relabelled = c.put(url, json={"label": "renamed", "notes": ""})
+    assert relabelled.json()["starred"] is True and relabelled.json()["notes"] == ""
+
+
 def test_library_annotation_delete_restore_and_empty_routes(client):
     c, _, repository = client
     _finished_experiment(repository)

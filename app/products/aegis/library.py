@@ -216,14 +216,33 @@ class Annotations:
     def get(self, kind: str, identifier: str) -> dict:
         return self.all().get(f"{kind}:{identifier}", {})
 
-    def set(self, kind: str, identifier: str, label: str, notes: str, starred: bool) -> dict:
-        if len(label) > LABEL_MAX:
+    def set(
+        self,
+        kind: str,
+        identifier: str,
+        label: str | None = None,
+        notes: str | None = None,
+        starred: bool | None = None,
+    ) -> dict:
+        """Write the given fields; a field passed as None keeps its stored value."""
+        if label is not None and len(label) > LABEL_MAX:
             raise ValueError(f"label longer than {LABEL_MAX} characters")
-        if len(notes) > NOTES_MAX:
+        if notes is not None and len(notes) > NOTES_MAX:
             raise ValueError(f"notes longer than {NOTES_MAX} characters")
         with self._lock:
             data = self.all()
-            note = {"label": label, "notes": notes, "starred": bool(starred)}
+            note = {
+                "label": "",
+                "notes": "",
+                "starred": False,
+                **data.get(f"{kind}:{identifier}", {}),
+            }
+            if label is not None:
+                note["label"] = label
+            if notes is not None:
+                note["notes"] = notes
+            if starred is not None:
+                note["starred"] = bool(starred)
             data[f"{kind}:{identifier}"] = note
             self._save(data)
         return note

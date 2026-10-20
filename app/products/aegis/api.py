@@ -1142,10 +1142,13 @@ def library_index(
 
 
 class AnnotationRequest(BaseModel):
+    """Only the fields sent change; a field left out keeps its value (a row's star and the view's
+    label editor each send their own)."""
+
     model_config = ConfigDict(extra="forbid")
-    label: str = Field(default="", max_length=80)
-    notes: str = Field(default="", max_length=2000)
-    starred: bool = False
+    label: str | None = Field(default=None, max_length=80)
+    notes: str | None = Field(default=None, max_length=2000)
+    starred: bool | None = None
 
 
 class LibraryItem(BaseModel):

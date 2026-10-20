@@ -170,7 +170,7 @@ export function LibraryPage() {
 
   const star = async (entry: LibraryEntry) => {
     try {
-      await api.annotate(entry.kind, entry.id, { label: entry.label, notes: entry.notes, starred: !entry.starred });
+      await api.annotate(entry.kind, entry.id, { starred: !entry.starred }); // only the star: a label saved a moment ago stays
       refresh();
     } catch (e) {
       setError(errorMessage(e));
@@ -400,7 +400,7 @@ function Housekeeping({ entry, onChanged, onRemove }: { entry: LibraryEntry; onC
     setBusy(true);
     setError(null);
     try {
-      await api.annotate(entry.kind, entry.id, { label: label.trim(), notes, starred: entry.starred });
+      await api.annotate(entry.kind, entry.id, { label: label.trim(), notes });
       onChanged();
     } catch (e) {
       setError(errorMessage(e));
