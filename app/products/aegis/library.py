@@ -43,7 +43,7 @@ LISTERS = {
     "experiment": "list_experiments",
     "study": "list_studies",
 }
-VERSION = 1
+VERSION = 2  # 2: an optimization's cells_run counts cells, not a pooled job's chunks
 UNFINISHED_JOBS = ("queued", "running")
 UNFINISHED_DOCUMENTS = ("queued", "running", "paused")
 LABEL_MAX = 80
@@ -140,7 +140,8 @@ def headline(kind: str, document: dict, experiments: ExperimentStore | None) -> 
         objective = document.get("objective")
         block["headline"] = {
             "side": document.get("side"),
-            "cells_run": progress.get("done"),
+            # a pooled job's progress counts chunks; cells_done counts cells (the limits change)
+            "cells_run": document.get("cells_done", progress.get("done")),
             "cells_total": document.get("total_cells"),
             "objective": objective,
             "best": _best(document.get("cells") or [], objective) if objective else None,

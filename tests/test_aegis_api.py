@@ -331,6 +331,38 @@ def test_optimize_routes_page_every_cell_and_build_a_matrix(client, monkeypatch)
     assert c.get("/aegis/api/optimize/nope/cells").status_code == 404
 
 
+def test_optimize_square_and_one_metric_matrix_routes(client, monkeypatch):
+    """The limits review: a click finds one square's best cell without the whole matrix; the
+    page asks for the one metric it shows; a pair beyond the drawable squares is refused."""
+    import products.aegis.optimize as optimize_module
+
+    c, _, repository = client
+    server.app.dependency_overrides[api.get_runner] = lambda: OptimizerRunner(repository)
+    job_id = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    done = _wait(c, job_id, "done")
+    fast, slow = done["fast_path"], done["slow_path"]
+    row, col = done["fast_values"][0], done["slow_values"][-1]
+    square = c.get(
+        f"/aegis/api/optimize/{job_id}/square",
+        params={"rows": fast, "cols": slow, "row": row, "col": col},
+    )
+    assert square.status_code == 200, square.text
+    assert (square.json()["params"][fast], square.json()["params"][slow]) == (row, col)
+    one = c.get(
+        f"/aegis/api/optimize/{job_id}/matrix", params={"rows": fast, "cols": slow, "metric": "mar"}
+    ).json()
+    assert set(one["metrics"]) == {"mar"} and done["matrix_squares"] == 9
+    monkeypatch.setattr(optimize_module, "MAX_SQUARES", 4)
+    too_many = c.get(f"/aegis/api/optimize/{job_id}/matrix", params={"rows": fast, "cols": slow})
+    assert too_many.status_code == 422 and "more than a matrix draws" in too_many.json()["detail"]
+    assert c.get(f"/aegis/api/optimize/{job_id}").json()["matrices"] == {}
+    missing = c.get(
+        f"/aegis/api/optimize/{job_id}/square",
+        params={"rows": fast, "cols": slow, "row": 999, "col": col},
+    )
+    assert missing.status_code == 404
+
+
 def test_optimize_status_progresses_and_is_responsive_while_running(client):
     c, _, repository = client
     _, gate = _held_runner(repository)

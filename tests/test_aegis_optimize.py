@@ -13,6 +13,8 @@ from products.aegis.backtest import DataReference
 from products.aegis.optimize import (
     MAX_CELLS,
     MS_PER_BAR,
+    POOL_PREPARE_SECONDS_PER_BAR,
+    POOL_START_SECONDS,
     SERIAL_MAX_CELLS,
     GridPlan,
     JobBusy,
@@ -21,10 +23,15 @@ from products.aegis.optimize import (
     OptimizerRunner,
     axis_matrix,
     best_cells,
+    chunk_cells,
     estimate_seconds,
     expand_grid,
     heatmap,
+    page_view,
     plan_seconds,
+    pool_rate,
+    remaining_seconds,
+    square_cell,
 )
 from products.aegis.runs import JsonRunRepository
 from products.aegis.strategy import OptimizationParameter, default_strategy
@@ -96,8 +103,10 @@ def test_grid_bound_names_the_count_and_points_to_experiments():
 
 def test_plan_prices_a_pooled_grid_across_workers():
     assert plan_seconds(100, 1000, 0.02, None, 10) == pytest.approx(2.0)  # serial: the host rate
-    assert plan_seconds(1000, 1000, 0.02, 0.03, 10) == pytest.approx(3.0)  # pooled: the pool rate
-    assert plan_seconds(1000, 1000, 0.02, None, 10) == pytest.approx(2.0)  # no pool rate yet
+    start = POOL_START_SECONDS + 1000 * POOL_PREPARE_SECONDS_PER_BAR  # the limits review (I4)
+    # pooled: the pool rate across the effective workers (0.8 each, as experiments price them)
+    assert plan_seconds(1000, 1000, 0.02, 0.03, 10) == pytest.approx(start + 30.0 / 8)
+    assert plan_seconds(1000, 1000, 0.02, None, 10) == pytest.approx(start + 20.0 / 8)
 
 
 def _grid_strategy():
@@ -573,3 +582,150 @@ def test_axis_matrix_of_a_two_parameter_job_equals_its_heatmap():  # Review Focu
     m = axis_matrix(two, "indicators.ema.length", "indicators.sma.length", values)
     for metric in ("net_pnl", "max_drawdown"):
         assert m["metrics"][metric]["values"] == heatmap(two, [5.0, 9.0], [20.0, 30.0], metric)
+
+
+# --- the limits review's fix pass ------------------------------------------------------------------
+
+
+def _status(cells, fast=(5.0, 9.0), slow=(20.0, 30.0), skipped=0):
+    return {
+        "objective": "net_pnl",
+        "cells": cells,
+        "skipped": [{"indicators.ema.length": 1.0}] * skipped,
+        "matrices": {"net_pnl": {"long": [[1.0]]}},
+        "fast_values": list(fast),
+        "slow_values": list(slow),
+    }
+
+
+def test_page_view_drops_what_the_page_cannot_draw(monkeypatch):  # review C1
+    import products.aegis.optimize as module
+
+    small = page_view(_status(THREE))
+    assert small["matrices"] and small["matrix_squares"] == 4 and len(small["cells"]) == 6
+    assert small["cells_done"] == small["cells_shown"] == 6
+    monkeypatch.setattr(module, "MAX_SQUARES", 3)
+    monkeypatch.setattr(module, "SKIPPED_SENT", 2)
+    monkeypatch.setattr(module, "CELLS_SENT", 2)
+    big = page_view(_status(THREE, skipped=3))
+    assert big["matrices"] == {} and big["matrix_squares"] == 4
+    assert big["skipped"] == [] and big["cells_shown"] == 2 and big["cells_done"] == 6
+
+
+def test_square_cell_finds_the_best_cell_of_one_square():  # review C1: a click without the matrix
+    best = square_cell(
+        THREE, "indicators.ema.length", "indicators.sma.length", 5.0, 20.0, "net_pnl"
+    )
+    assert best is THREE[1]  # net 30 beats 10
+    worst_dd = square_cell(
+        THREE, "indicators.ema.length", "indicators.sma.length", 5.0, 20.0, "max_drawdown"
+    )
+    assert worst_dd is THREE[0]  # drawdown 0.20 beats 0.30
+    assert (
+        square_cell(THREE, "indicators.ema.length", "indicators.sma.length", 7.0, 20.0, "net_pnl")
+        is None
+    )
+
+
+def test_axis_matrix_for_one_metric_refers_only_to_its_cells():  # review C1: smaller payloads
+    values = {"indicators.ema.length": [5.0, 9.0], "indicators.rsi.length": [7.0, 14.0]}
+    m = axis_matrix(
+        THREE, "indicators.ema.length", "indicators.rsi.length", values, metrics=("net_pnl",)
+    )
+    assert set(m["metrics"]) == {"net_pnl"} and len(m["cells"]) == 4
+
+
+def test_a_populated_square_of_undefined_cells_is_undefined():  # Review Focus 3, both halves
+    undefined = [_cell(5, 20, 7, None, None), _cell(5, 20, 14, None, None)]
+    assert heatmap(undefined, [5.0], [20.0], "net_pnl") == [[None]]
+    values = {"indicators.ema.length": [5.0], "indicators.sma.length": [20.0]}
+    m = axis_matrix(undefined, "indicators.ema.length", "indicators.sma.length", values)
+    assert m["counts"] == [[2]] and m["metrics"]["net_pnl"]["values"] == [[None]]
+
+
+def test_pool_rate_learns_from_the_latest_pooled_optimization():  # limits review I4
+    summaries = [  # newest first, as the runner lists them
+        {"status": "running", "ms_per_cell_bar": 0.5, "cells_done": 900},
+        {"status": "done", "ms_per_cell_bar": 0.02, "cells_done": 20},  # too few cells to price
+        {"status": "done", "ms_per_cell_bar": 0.03, "cells_done": 560},
+        {"status": "done", "ms_per_cell_bar": 0.04, "cells_done": 2560},
+    ]
+    assert pool_rate(summaries, 0.025) == 0.03
+    assert pool_rate(summaries[:2], 0.025) == 0.025  # nothing pooled to learn from: experiments'
+    assert pool_rate([], None) is None
+
+
+def test_chunks_are_sized_to_about_ten_seconds():  # limits review (cancel latency, re-graded)
+    assert chunk_cells(10, 3_493, 0.0245) == 10 * 32  # a short frame: the full 32 per worker
+    assert chunk_cells(10, 65_107, 0.0245) == 10 * 6  # ten years of 15m: about 10 s per chunk
+    assert chunk_cells(10, 200_000, 0.5) == 10  # never fewer than one cell per worker
+
+
+def test_remaining_time_extrapolates_from_chunks_not_start_up():  # limits review (QA obs 1)
+    # two chunks of 320 cells took 3 s and 4 s after a 6 s start: 1,920 cells left
+    assert remaining_seconds(1920, [3.0, 4.0], 640) == pytest.approx(1920 * 7.0 / 640)
+    assert remaining_seconds(560, [], 0) is None
+
+
+def test_pool_workers_drop_the_rows_when_no_window_is_asked():  # limits review I3
+    from products.aegis import pool
+
+    rows = [{**row, "timestamp": row["timestamp"].isoformat()} for row in bars()]
+    pool._init_worker(rows, "QQQ", default_strategy().model_dump(mode="json"), {}, False)
+    try:
+        assert pool._ROWS is None and pool._FRAME is not None
+        with pytest.raises(RuntimeError, match="window"):
+            pool._window_frame((0, 10))
+    finally:
+        pool._init_worker(rows, "QQQ", default_strategy().model_dump(mode="json"), {})
+    assert pool._ROWS is not None  # experiments and studies keep them for their windows
+
+
+def test_a_kind_can_save_on_a_time_budget(tmp_path):  # limits review I5
+    class Counting(JsonRunRepository):
+        saves = 0
+
+        def save_optimization(self, envelope):
+            Counting.saves += 1
+            return super().save_optimization(envelope)
+
+    def run(interval):
+        Counting.saves = 0
+        kind = OptimizerJob(request(), pd.DataFrame(bars()), PINNED)
+        kind.save_every_seconds = interval
+        runner = OptimizerRunner(Counting(tmp_path / str(interval)))
+        job_id = runner.start(kind)
+        assert wait_for(lambda: runner.status(job_id)["status"] == "done")
+        return Counting.saves
+
+    assert run(0.0) == 2 + 9 + 1  # queued, running, every cell, the end (as before)
+    assert run(1000.0) == 2 + 1  # queued, running, the end
+
+
+def test_the_kind_is_released_even_when_the_last_save_fails(tmp_path):  # limits review (re-graded)
+    released = []
+
+    class LastSaveFails(JsonRunRepository):
+        saves = 0
+
+        def save_optimization(self, envelope):
+            LastSaveFails.saves += 1
+            if envelope.get("status") in ("done", "cancelled", "failed"):
+                raise OSError("disk full")
+            return super().save_optimization(envelope)
+
+    kind = OptimizerJob(request(), pd.DataFrame(bars()), PINNED)
+    kind.release = lambda: released.append(True)
+    runner = OptimizerRunner(LastSaveFails(tmp_path))
+    job_id = runner.start(kind)
+    assert wait_for(lambda: runner.status(job_id)["status"] == "failed")
+    assert released == [True]
+
+
+def test_a_pooled_kind_plans_its_own_estimate(monkeypatch):  # limits review I4
+    import products.aegis.optimize as module
+
+    monkeypatch.setattr(module, "SERIAL_MAX_CELLS", 10)
+    kind = OptimizerJob(request(_grid_strategy()), pd.DataFrame(bars()), PINNED, ms_per_bar=0.02)
+    assert kind.pooled and kind.planned_seconds and kind.planned_seconds > POOL_START_SECONDS
+    assert kind.snapshot()["estimated_seconds"] == pytest.approx(kind.planned_seconds, abs=1e-3)

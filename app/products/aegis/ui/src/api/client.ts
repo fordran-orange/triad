@@ -228,8 +228,14 @@ export const api = {
   job: (id: string) => request<JobStatus>(`/optimize/${encodeURIComponent(id)}`),
   optimizeCells: (id: string, offset: number, limit: number) =>
     request<{ total: number; rows: Cell[] }>(`/optimize/${encodeURIComponent(id)}/cells?offset=${offset}&limit=${limit}`),
-  optimizeMatrix: (id: string, rows: string, cols: string) =>
-    request<AxisMatrix>(`/optimize/${encodeURIComponent(id)}/matrix?rows=${encodeURIComponent(rows)}&cols=${encodeURIComponent(cols)}`),
+  optimizeMatrix: (id: string, rows: string, cols: string, metric?: string) =>
+    request<AxisMatrix>(
+      `/optimize/${encodeURIComponent(id)}/matrix?rows=${encodeURIComponent(rows)}&cols=${encodeURIComponent(cols)}${metric ? `&metric=${encodeURIComponent(metric)}` : ''}`,
+    ),
+  optimizeSquare: (id: string, rows: string, cols: string, row: number, col: number, metric: string) =>
+    request<Cell>(
+      `/optimize/${encodeURIComponent(id)}/square?rows=${encodeURIComponent(rows)}&cols=${encodeURIComponent(cols)}&row=${row}&col=${col}&metric=${encodeURIComponent(metric)}`,
+    ),
   cancel: (id: string) => request<{ cancelled: boolean }>(`/optimize/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
   walkforwardPlan: (body: WalkForwardBody) => request<WalkForwardPlan>('/walkforward/plan', post(body)),
   walkforward: (body: WalkForwardBody) => request<WalkForwardStarted>('/walkforward', post(body)),

@@ -269,8 +269,16 @@ def _grid_seconds(cells: int, bars: int, runner: JobRunner, experiments) -> tupl
     if cells <= SERIAL_MAX_CELLS:
         return plan_seconds(cells, bars, runner.ms_per_bar, None, 1), 1
     workers = default_workers()
-    rate = experiments.last_ms_per_cell_bar()
+    rate = _pool_rate(runner, experiments)
     return plan_seconds(cells, bars, runner.ms_per_bar, rate, workers), workers
+
+
+def _pool_rate(runner: JobRunner, experiments) -> float | None:
+    """The pool's measured cost per cell-bar: the latest pooled optimization's, else the last
+    experiment's (the limits review: the estimate learns from pooled optimizations too)."""
+    return optimize_module.pool_rate(
+        runner.list_jobs("optimization"), experiments.last_ms_per_cell_bar()
+    )
 
 
 @router.post("/optimize/plan")
@@ -314,11 +322,13 @@ def optimize(
         store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
     )
     try:
-        kind = OptimizerJob(request, frame, pinned)
-        if kind.pooled:
-            kind.planned_seconds, _ = _grid_seconds(
-                len(kind.plan.cells), len(frame), runner, experiments
-            )
+        kind = OptimizerJob(
+            request,
+            frame,
+            pinned,
+            ms_per_bar=runner.ms_per_bar,
+            pool_rate=_pool_rate(runner, experiments),
+        )
         job_id = runner.start(kind)
     except JobBusy as exc:
         raise HTTPException(409, "an optimization is already running") from exc
@@ -347,14 +357,7 @@ def optimization(job_id: str, runner: JobRunner = RUNNER):
     """The job as it stands. A job of more than CELLS_SENT cells sends its best by the objective
     (the page polls this every second); every cell pages through /cells, and the saved document
     keeps them all."""
-    status = _optimization(runner, job_id)
-    cells = status.get("cells") or []
-    done = status.get("cells_done", len(cells))
-    if len(cells) > optimize_module.CELLS_SENT:
-        cells = optimize_module.best_cells(
-            cells, status.get("objective", "net_pnl"), optimize_module.CELLS_SENT
-        )
-    return {**status, "cells": cells, "cells_done": done, "cells_shown": len(cells)}
+    return optimize_module.page_view(_optimization(runner, job_id))
 
 
 @router.get("/optimize/{job_id}/cells")
@@ -371,17 +374,56 @@ def optimization_cells(
     return {"total": len(ordered), "rows": ordered[offset : offset + limit]}
 
 
+def _grid_values(status: dict) -> dict:
+    spec = StrategySpec.model_validate(status["strategy"])
+    side = getattr(spec, "long_side" if status.get("side") == "long" else "short_side")
+    return optimize_module.grid_values(side)
+
+
 @router.get("/optimize/{job_id}/matrix")
-def optimization_matrix(job_id: str, rows: str, cols: str, runner: JobRunner = RUNNER):
-    """Any two of the job's parameters as a matrix; each square is the best of the rest."""
+def optimization_matrix(
+    job_id: str, rows: str, cols: str, metric: str | None = None, runner: JobRunner = RUNNER
+):
+    """Any two of the job's parameters as a matrix; each square is the best of the rest. With
+    `metric`, that metric only (the page asks for the one it shows)."""
     status = _optimization(runner, job_id)
+    if metric is not None and metric not in optimize_module.OBJECTIVES:
+        raise HTTPException(422, f"unknown metric {metric!r}")
+    metrics = (metric,) if metric else optimize_module.OBJECTIVES
     try:
-        spec = StrategySpec.model_validate(status["strategy"])
-        side = getattr(spec, "long_side" if status.get("side") == "long" else "short_side")
-        values = optimize_module.grid_values(side)
-        return optimize_module.axis_matrix(status.get("cells") or [], rows, cols, values)
+        values = _grid_values(status)
+        squares = len(values.get(rows, [])) * len(values.get(cols, []))
+        if squares > optimize_module.MAX_SQUARES:
+            raise ValueError(
+                f"{squares} squares is more than a matrix draws ({optimize_module.MAX_SQUARES}); "
+                "choose other parameters or a coarser step"
+            )
+        return optimize_module.axis_matrix(
+            status.get("cells") or [], rows, cols, values, metrics=metrics
+        )
     except (KeyError, ValueError) as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/optimize/{job_id}/square")
+def optimization_square(
+    job_id: str,
+    rows: str,
+    cols: str,
+    row: float,
+    col: float,
+    metric: str | None = None,
+    runner: JobRunner = RUNNER,
+):
+    """One square's best cell, for a click on a cell the page was not sent."""
+    status = _optimization(runner, job_id)
+    metric = metric or status.get("objective", "net_pnl")
+    if metric not in optimize_module.OBJECTIVES:
+        raise HTTPException(422, f"unknown metric {metric!r}")
+    cell = optimize_module.square_cell(status.get("cells") or [], rows, cols, row, col, metric)
+    if cell is None:
+        raise HTTPException(404, "no cell with a value in that square")
+    return cell
 
 
 @router.post("/optimize/{job_id}/cancel")

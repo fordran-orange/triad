@@ -22,3 +22,24 @@ export function squareTitle(count: number, best: Cell | null, axes: [string, str
   const rest = Object.keys(others).length ? ` · ${describe(others)}` : '';
   return count > 1 ? `best of ${count}${rest}` : `1 cell${rest}`;
 }
+
+/** The most matrix squares the page draws (the worker's MAX_SQUARES); the table carries the rest. */
+export const MAX_SQUARES = 2500;
+
+/** How many values a parameter takes in the job's grid (0 when it is not one of them). */
+export function axisLength(job: Pick<JobStatus, 'side' | 'strategy'>, path: string): number {
+  const side = job.side === 'long' ? job.strategy.long_side : job.strategy.short_side;
+  const p = (side?.optimization ?? []).find((o) => o.path === path && o.enabled !== false);
+  return p ? Math.floor((p.stop - p.start) / p.step + 1e-9) + 1 : 0;
+}
+
+/** Why a matrix is not drawn, or null when it fits (the limits review: a two-parameter grid of
+ *  100,000 cells would be 100,000 squares re-rendered every second). */
+export function tooManySquares(rows: number, cols: number): string | null {
+  const c = Math.max(1, cols);
+  const n = rows * c;
+  if (n <= MAX_SQUARES) return null;
+  const f = (v: number) => v.toLocaleString('en-US');
+  return `${f(rows)} × ${f(c)} = ${f(n)} squares is more than the matrix draws (${f(MAX_SQUARES)}): choose other parameters or a coarser step; the table lists every cell`;
+}
+

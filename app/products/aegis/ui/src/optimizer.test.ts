@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatSeconds } from './components/OptimizePopover';
-import { axisChoices, needsConfirm, squareTitle } from './optimizer';
+import { axisChoices, axisLength, needsConfirm, squareTitle, tooManySquares } from './optimizer';
 import type { Cell, JobStatus } from './results';
 
 const describe_ = (params: Record<string, number>) =>
@@ -46,5 +46,25 @@ describe('optimizer helpers (the limits change)', () => {
     expect(formatSeconds(59)).toBe('59 s');
     expect(formatSeconds(125)).toBe('2 min 5 s');
     expect(formatSeconds(7380)).toBe('2 h 3 min');
+  });
+
+  it('axisLength counts the values of a parameter as the grid expands them', () => {
+    const job = {
+      side: 'short',
+      strategy: { long_side: { optimization: [] }, short_side: { optimization: [{ path: 'indicators.ema.length', start: 5, stop: 50, step: 5, enabled: true }] } },
+    } as unknown as JobStatus;
+    expect(axisLength(job, 'indicators.ema.length')).toBe(10);
+    expect(axisLength(job, 'indicators.sma.length')).toBe(0);
+  });
+
+  it('tooManySquares stops a matrix the page cannot draw and says what to do instead', () => {
+    expect(tooManySquares(50, 50)).toBeNull();
+    expect(tooManySquares(400, 250)).toBe('400 × 250 = 100,000 squares is more than the matrix draws (2,500): choose other parameters or a coarser step; the table lists every cell');
+    expect(tooManySquares(3000, 0)).toBe('3,000 × 1 = 3,000 squares is more than the matrix draws (2,500): choose other parameters or a coarser step; the table lists every cell');
+  });
+
+  it('formatSeconds never reads 60 of a smaller unit', () => {
+    expect(formatSeconds(7199)).toBe('2 h 0 min');
+    expect(formatSeconds(119.6)).toBe('2 min 0 s');
   });
 });

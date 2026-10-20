@@ -57,7 +57,9 @@ def resample_curve(points: list[float], n: int = CURVE_POINTS) -> list[float]:
     return [float(points[(k * last) // (n - 1)]) for k in range(n)]
 
 
-def _init_worker(rows: list[dict], symbol: str, spec: dict, settings: dict) -> None:
+def _init_worker(
+    rows: list[dict], symbol: str, spec: dict, settings: dict, keep_rows: bool = True
+) -> None:
     global _FRAME, _DATA_KEY, _SPEC, _SETTINGS, _CACHE, _ROWS, _WINDOW
     from products.aegis.backtest import BacktestSettings, _data_key, _prepare_frame
     from products.aegis.indicators import IndicatorCache
@@ -72,6 +74,8 @@ def _init_worker(rows: list[dict], symbol: str, spec: dict, settings: dict) -> N
     _SPEC = StrategySpec.model_validate(spec)
     _SETTINGS = BacktestSettings.model_validate(settings)
     _CACHE = IndicatorCache()
+    if not keep_rows:
+        _ROWS = None  # a grid never slices windows: one prepared frame per worker is enough
 
 
 def _window_frame(window: tuple[int, int] | None):
@@ -80,6 +84,8 @@ def _window_frame(window: tuple[int, int] | None):
     global _WINDOW
     if window is None:
         return _FRAME, _DATA_KEY
+    if _ROWS is None:
+        raise RuntimeError("this pool was started without rows; a window needs them")
     from products.aegis.backtest import _data_key, _prepare_frame
 
     bounds = (int(window[0]), int(window[1]))
@@ -151,12 +157,14 @@ class Pool:
         self._cell_ms_total = 0.0
         self._cell_bars_total = 0
 
-    def start(self, rows: list[dict], symbol: str, spec: dict, settings: dict) -> None:
+    def start(
+        self, rows: list[dict], symbol: str, spec: dict, settings: dict, keep_rows: bool = True
+    ) -> None:
         self._bars = len(rows)
         self._executor = ProcessPoolExecutor(
             max_workers=self.max_workers,
             initializer=_init_worker,
-            initargs=(rows, symbol, spec, settings),
+            initargs=(rows, symbol, spec, settings, keep_rows),
         )
 
     @property

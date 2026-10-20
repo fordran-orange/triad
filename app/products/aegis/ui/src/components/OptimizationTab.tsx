@@ -3,7 +3,7 @@ import { api, errorMessage } from '../api/client';
 import type { StrategySide } from '../contracts';
 import { money, num, pct } from '../format';
 import { compactMoney } from '../layout';
-import { axisChoices, squareTitle } from '../optimizer';
+import { axisChoices, axisLength, squareTitle, tooManySquares } from '../optimizer';
 import { METRICS, METRIC_LABELS, TERMINAL_JOB_STATES, type AxisMatrix, type Cell, type JobStatus, type Metric } from '../results';
 import { useRunBacktest } from '../state/run';
 import { applyConfigs, selectionText, SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
@@ -41,8 +41,6 @@ export function rankCells(cells: Cell[], objective: Metric): Cell[] {
   });
 }
 
-const PAGE = 1000; // the job's status sends its best 1,000 cells; the rest page in
-
 const sameParams = (a: Record<string, number> | null, b: Record<string, number>) =>
   a !== null && Object.keys(b).length === Object.keys(a).length && Object.entries(b).every(([k, v]) => a[k] === v);
 
@@ -73,25 +71,28 @@ export function OptimizationJobView({
   // best of the rest, built on the worker for the chosen pair.
   const choices = axisChoices(job);
   const [axes, setAxes] = useState<[string, string]>([job.fast_path, job.slow_path]);
-  // A job that sends only its best cells (over 1,000) needs the worker's matrix to hover and pick.
-  const trimmed = (job.cells_shown ?? job.cells.length) < (job.cells_done ?? job.progress.done);
-  const custom = choices.length >= 3 || trimmed || axes[0] !== job.fast_path || axes[1] !== job.slow_path;
+  // The worker builds the matrix only for a pair the stored matrices do not hold (the limits
+  // review: a trimmed two-parameter job resolves a square's cell on click instead).
+  const custom = choices.length >= 3 || axes[0] !== job.fast_path || axes[1] !== job.slow_path;
+  const tooMany = custom
+    ? tooManySquares(axisLength(job, axes[0]), axisLength(job, axes[1]))
+    : tooManySquares(job.fast_values.length, job.slow_values.length);
   const [axisMatrix, setAxisMatrix] = useState<AxisMatrix | null>(null);
   const done = job.cells_done ?? job.progress.done;
   useEffect(() => {
-    if (!custom || !axes[0] || !axes[1]) {
+    if (!custom || tooMany || !axes[0] || !axes[1]) {
       setAxisMatrix(null);
       return;
     }
     let cancelled = false;
     api
-      .optimizeMatrix(job.job_id, axes[0], axes[1])
+      .optimizeMatrix(job.job_id, axes[0], axes[1], metric)
       .then((m) => !cancelled && setAxisMatrix(m))
       .catch(() => !cancelled && setAxisMatrix(null));
     return () => {
       cancelled = true;
     };
-  }, [job.job_id, axes, custom, done, job.status]);
+  }, [job.job_id, axes, custom, tooMany, metric, done, job.status]);
   const view =
     custom && axisMatrix
       ? {
@@ -122,6 +123,7 @@ export function OptimizationJobView({
   const selectedCell = selected ? { fast: selected[view.rowPath], slow: selected[view.colPath] } : null;
   // The table: the best cells the status sends, then the rest a page at a time.
   const shown = job.cells_shown ?? job.cells.length;
+  const PAGE = shown < done ? shown : 1000; // the status sends its best cells; the rest page in
   const [page, setPage] = useState(0);
   const [pageRows, setPageRows] = useState<Cell[] | null>(null);
   useEffect(() => {
@@ -140,6 +142,16 @@ export function OptimizationJobView({
   }, [page, job.job_id]);
   const tableCells = page === 0 ? rankCells(job.cells, job.objective) : (pageRows ?? []);
   const pages = Math.max(1, Math.ceil(done / PAGE));
+  // A square whose cell the page was not sent: one small lookup on the worker, then the pick.
+  const pickSquare = async (fast: number, slow: number) => {
+    const { cell } = view.cellAt(fast, slow);
+    if (cell) return pick(cell);
+    try {
+      pick(await api.optimizeSquare(job.job_id, view.rowPath, view.colPath, fast, slow, metric));
+    } catch {
+      // no cell with a value there: nothing to pick
+    }
+  };
   const pick = (cell: Cell) => (onPick ? onPick(cell) : dispatch({ type: 'SELECT_CONFIG', side, params: sameParams(selected, cell.params) ? null : cell.params }));
   const cancel = async () => {
     setCancelError(null);
@@ -209,6 +221,13 @@ export function OptimizationJobView({
       {job.status === 'lost' && <div className="notice warn">This job was still running when the worker restarted; its partial cells are what was saved.</div>}
       {cancelError && <div className="error">{cancelError}</div>}
       <div className="result-body opt">
+        {tooMany ? (
+          <div className="heatmap">
+            <div className="notice" id={`matrix-too-large-${side}`}>
+              {tooMany}
+            </div>
+          </div>
+        ) : (
         <Heatmap
           title={`${side.toUpperCase()} heatmap`}
           metric={METRIC_LABELS[metric]}
@@ -228,11 +247,11 @@ export function OptimizationJobView({
           colLabel={label(view.colPath) + '→'}
           selected={selectedCell && selectedCell.fast !== undefined && selectedCell.slow !== undefined ? selectedCell : null}
           onSelect={(fast, slow) => {
-            const { cell } = view.cellAt(fast, slow);
-            if (cell) pick(cell);
+            void pickSquare(fast, slow);
           }}
           empty="No two-axis grid for this job."
         />
+        )}
         <div className="results-table">
           <div className="panel-title">
             Parameter sets <span className="small">{done.toLocaleString()} evaluated · best first by {METRIC_LABELS[job.objective]}</span>

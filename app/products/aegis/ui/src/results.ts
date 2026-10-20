@@ -187,6 +187,7 @@ export interface JobStatus {
   cells_done?: number; // every evaluated cell (the limits change); `cells` may hold only the best
   cells_shown?: number;
   pooled?: boolean; // more than 400 cells: run in chunks on the process pool
+  matrix_squares?: number; // the stored pair's squares; above the page's budget `matrices` is empty
 }
 
 /** GET /optimize/{id}/matrix: any two of a job's parameters; each square is the best of the rest. */
@@ -196,7 +197,7 @@ export interface AxisMatrix {
   rows: number[];
   cols: number[];
   counts: number[][];
-  metrics: Record<Metric, { values: Matrix; cells: Array<Array<number | null>> }>;
+  metrics: Partial<Record<Metric, { values: Matrix; cells: Array<Array<number | null>> }>>; // one metric when asked for one
   cells: Cell[];
 }
 

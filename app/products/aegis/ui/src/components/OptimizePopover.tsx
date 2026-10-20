@@ -7,16 +7,20 @@ import { warmupBars } from '../rules';
 import { defaultWindowBars } from './WalkForwardTab';
 
 export function formatSeconds(seconds: number): string {
-  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
-  if (seconds >= 3600) {
-    const hours = Math.floor(seconds / 3600);
-    return `${hours} h ${Math.round((seconds - hours * 3600) / 60)} min`;
+  if (seconds < 59.5) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+  // Round first, then split, so a duration never reads "60 s" or "60 min" of a smaller unit.
+  if (seconds < 3570) {
+    const total = Math.round(seconds);
+    const minutes = Math.floor(total / 60);
+    return `${minutes} min ${total - minutes * 60} s`;
   }
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes} min ${Math.round(seconds - minutes * 60)} s`;
+  const totalMinutes = Math.round(seconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  return `${hours} h ${totalMinutes - hours * 60} min`;
 }
 
 type Mode = 'grid' | 'walkforward';
+const PLAN_DEBOUNCE_MS = 300;
 
 /** Side, objective and the pre-run plan before a start; grid optimization or walk-forward. */
 export function OptimizePopover({ onClose }: { onClose: () => void }) {
@@ -48,13 +52,18 @@ export function OptimizePopover({ onClose }: { onClose: () => void }) {
     setWfPlan(null);
     setError(null);
     const body = { strategy, side, data: selection, settings, objective };
-    const request =
-      mode === 'grid'
-        ? api.optimizePlan(body).then((p) => !cancelled && setPlan(p))
-        : api.walkforwardPlan({ ...body, in_sample_bars: windows.inSample, out_of_sample_bars: windows.outOfSample }).then((p) => !cancelled && setWfPlan(p));
-    request.catch((e: unknown) => !cancelled && setError(errorMessage(e)));
+    // Debounced: a plan near the 100,000-cell bound costs the worker seconds, and typing in a range
+    // field changes the strategy on every keystroke (the limits review).
+    const timer = setTimeout(() => {
+      const request =
+        mode === 'grid'
+          ? api.optimizePlan(body).then((p) => !cancelled && setPlan(p))
+          : api.walkforwardPlan({ ...body, in_sample_bars: windows.inSample, out_of_sample_bars: windows.outOfSample }).then((p) => !cancelled && setWfPlan(p));
+      request.catch((e: unknown) => !cancelled && setError(errorMessage(e)));
+    }, PLAN_DEBOUNCE_MS);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [strategy, side, selection, settings, objective, mode, windows]);
 
