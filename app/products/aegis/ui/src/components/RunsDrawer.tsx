@@ -24,7 +24,7 @@ export function RunsDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     return () => {
       cancelled = true;
     };
-  }, [open, lastRun?.run_id, kept]);
+  }, [open, lastRun?.run_id, lastRun?.saved, kept]); // a Keep in the status strip re-reads it too
 
   if (!open) return null;
 
