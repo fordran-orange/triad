@@ -1,11 +1,11 @@
 """Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items, the 14 Mission 4
-items, the 11 Mission 5 items, the 13 Mission 6 items, the 9 Mission 8 items and the 7 Mission 9
-items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
+items, the 11 Mission 5 items, the 13 Mission 6 items, the 9 Mission 8 items, the 7 Mission 9
+items and the 5 limits items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
 (indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
 Items 51 and 63 restart the worker detached through WMI (tools/start_product.ps1), as the DoD asks.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
-Exit code 0 only when all 76 items PASS with no page errors.
+Exit code 0 only when all 81 items PASS with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
 
@@ -106,6 +106,12 @@ ITEMS = [
     "item 22's pair compares as identical; item 39's run against item 54's lists exactly the differing parameters, carries ▲/▼ marks and draws both curves on one calendar axis",
     "delete → Recently deleted → restore keeps the result hash; the refusals answer 409 naming a parent with studies, a running study and a study whose parent is trashed",
     "governance unchanged, no file under Core, the platform host or Triad changed since the Mission 9 plan, items 1–69 still pass and Recently deleted was never emptied",
+    # the limits change (2026-10-20)
+    "a ten-year 15m backtest (65,107 bars) runs and its chart loads under the 200,000-bar cap",
+    "a three-parameter grid of more than 400 cells runs on the pool; its matrix switches axes, a square's best cell loads and its backtest equals the cell",
+    "a grid of more than 1,000 cells sends its best 1,000 and pages the rest; the saved job keeps every cell",
+    "the refusals above both bounds are honest, and a run estimated over ten minutes asks before it starts",
+    "governance unchanged since the limits plan and items 1–76 still pass",
 ]
 RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
 MISSION5_BASE = (
@@ -129,6 +135,22 @@ MISSION9_BASE = (
     "d56485a"  # the Mission 9 plan commit; Core, platform host and Triad are frozen since
 )
 LIBRARY_KINDS = ["backtest", "optimization", "walkforward", "experiment", "study"]
+LIMITS_BASE = "9d13297"  # the limits design and plan commit; Core, platform host and Triad frozen
+THREE_PARAMETERS = [  # 7 x 4 x 20 = 560 cells: more than 400, so the pool runs it
+    ("indicators.donchian.length", 10, 40, 5),
+    ("indicators.rsi.length", 7, 28, 7),
+    ("indicators.ema.length", 10, 200, 10),
+]
+PAGED_PARAMETERS = [  # 16 x 8 x 20 = 2,560 cells: more than the 1,000 a status sends
+    ("indicators.donchian.length", 10, 40, 2),
+    ("indicators.rsi.length", 7, 28, 3),
+    ("indicators.ema.length", 10, 200, 10),
+]
+QUESTION_PARAMETERS = [  # 31 x 4 x 191 = 23,684 cells on ten years of 15m: well over ten minutes
+    ("indicators.donchian.length", 10, 40, 1),
+    ("indicators.rsi.length", 7, 28, 7),
+    ("indicators.ema.length", 10, 200, 1),
+]
 THROWAWAY_SURFACE = [  # item 75: 3 × 3 = 9 cells, a finished experiment in seconds
     ("long_side.indicators.donchian.length", 10, 30, 10),
     ("long_side.indicators.rsi.length", 7, 21, 7),
@@ -2497,6 +2519,7 @@ class Acceptance:
 
         self.item(69, item69)
         self.mission9()
+        self.limits()
 
     # -- Mission 9 plumbing: the Results library ---------------------------------------------
     def library_rows(self) -> list[str]:
@@ -3007,6 +3030,303 @@ class Acceptance:
             )
 
         self.item(76, item76)
+
+    # -- the limits change: plumbing ------------------------------------------------------------
+    def limits_body(self, ranges, timeframe="1h", start="2023-01-01", end="2024-12-31") -> dict:
+        """The walk's breakout document with an EMA exit, so three parameters matter on one side."""
+        spec = self.api(f"strategies/{self.lab['id']}")["spec"]
+        side = spec["long_side"]
+        side["indicators"] = [i for i in side["indicators"] if i["id"] != "ema"] + [
+            {"id": "ema", "kind": "EMA", "length": 50, "source": "close", "overlay": True}
+        ]
+        side["exit"] = {
+            "left": "price.close",
+            "operator": "crosses_below",
+            "right": "ema",
+            "timing": "bar_close",
+        }
+        side["optimization"] = [
+            {"path": p, "enabled": True, "start": a, "stop": b, "step": s} for p, a, b, s in ranges
+        ]
+        spec["name"] = f"limits {self.stamp}"
+        return {
+            "strategy": spec,
+            "side": "long",
+            "data": {"symbol": "QQQ", "timeframe": timeframe, "start": start, "end": end},
+            "objective": "mar",
+        }
+
+    def run_optimization(self, body: dict, timeout: float = 900) -> dict:
+        started = self.post("optimize", body)
+        assert started.status == 202, started.text()
+        job_id = started.json()["job_id"]
+        assert self.wait_until(
+            lambda: self.api(f"optimize/{job_id}")["status"] in ("done", "failed", "cancelled"),
+            timeout,
+            1,
+        )
+        job = self.api(f"optimize/{job_id}")
+        assert job["status"] == "done", job.get("error")
+        return job
+
+    def heat_cells(self) -> int:
+        return self.js("document.querySelectorAll('#library-view .heat-grid .cell:not(.h)').length")
+
+    # -- the limits change: items 77-81 -------------------------------------------------------------
+    def limits(self):
+        page = self.page
+
+        def item77():
+            page.locator("#nav-charts").click()
+            page.wait_for_selector("#chart-mount", timeout=30_000)
+            self.select("Symbol", "QQQ")
+            page.get_by_label("Start date").fill(STUDY_RANGE[0])
+            page.get_by_label("End date").fill(STUDY_RANGE[1])
+            self.select("Timeframe", "15m")
+            page.wait_for_function(
+                "(document.querySelector('.chart-header')?.innerText ?? '').startsWith('QQQ · 15m')"
+            )
+            started = time.perf_counter()
+            page.wait_for_function(
+                f"(document.querySelector('.chart-header .ohlc')?.innerText ?? '').includes('{STUDY_RANGE[0]}')",
+                timeout=180_000,
+            )
+            bars = self.wait_bars(timeout=180_000)
+            chart_s = round(time.perf_counter() - started, 1)
+            assert 50_000 < bars <= 200_000, bars
+            # A 26 MB envelope is more than the browser's inspector keeps, so the run is read back
+            # from the worker rather than from the page's response.
+            previous = self.run_state()
+            page.locator("#run-backtest").click()
+            page.wait_for_function(
+                "(s => s.startsWith('run ') && s !== "
+                + json.dumps(previous)
+                + ")(document.getElementById('run-state')?.innerText ?? '')",
+                timeout=600_000,
+            )
+            prefix = self.run_state().split()[1]
+            run_id = next(r["run_id"] for r in self.api("runs") if r["run_id"].startswith(prefix))
+            envelope = self.api(f"runs/{run_id}")
+            self.hashes.append(envelope["result_hash"])
+            assert envelope["data"]["bar_count"] == bars, (envelope["data"].get("bar_count"), bars)
+            assert envelope["data"]["start"] == STUDY_RANGE[0] and envelope["markers"], envelope[
+                "data"
+            ]
+            self.timings["ten_year_15m"] = {
+                "bars": bars,
+                "chart_s": chart_s,
+                "backtest_server_ms": envelope["elapsed_ms"],
+            }
+            return (
+                f"QQQ 15m {STUDY_RANGE[0]} → {STUDY_RANGE[1]}: {bars:,} bars charted in {chart_s} s "
+                f"(the old cap was 50,000); run {envelope['run_id'][:8]} in {envelope['elapsed_ms']} ms, "
+                f"{envelope['result']['combined']['metrics']['trade_count']} trades, "
+                f"{len(envelope['markers'])} markers"
+            )
+
+        self.item(77, item77)
+
+        def item78():
+            body = self.limits_body(THREE_PARAMETERS)
+            planned = self.post("optimize/plan", body).json()
+            assert planned["total_cells"] == 560 and planned["pooled"] is True, planned
+            started = time.perf_counter()
+            job = self.run_optimization(body)
+            seconds = round(time.perf_counter() - started, 1)
+            assert job["cells_done"] == 560 and job["pooled"] is True, job.get("cells_done")
+            self.open_library()
+            self.library_kind("optimization")
+            self.library_open("optimization", job["job_id"])
+            page.wait_for_function(
+                "document.querySelectorAll('#library-view .heat-grid .cell:not(.h)').length === 28",
+                timeout=60_000,
+            )
+            page.locator("#matrix-cols-long").select_option("indicators.ema.length")
+            page.wait_for_function(
+                "document.querySelectorAll('#library-view .heat-grid .cell:not(.h)').length === 140",
+                timeout=60_000,
+            )
+            rows, cols = "indicators.donchian.length", "indicators.ema.length"
+            matrix = self.api(f"optimize/{job['job_id']}/matrix?rows={rows}&cols={cols}")
+            values = matrix["metrics"]["mar"]["values"]
+            r, c = max(
+                ((r, c) for r in range(len(values)) for c in range(len(values[r]))),
+                key=lambda rc: values[rc[0]][rc[1]] if values[rc[0]][rc[1]] is not None else -1e9,
+            )
+            best = matrix["cells"][matrix["metrics"]["mar"]["cells"][r][c]]
+            square = page.locator("#library-view .heat-grid .cell:not(.h)").nth(
+                r * len(matrix["cols"]) + c
+            )
+            title = square.get_attribute("title") or ""
+            assert f"best of {matrix['counts'][r][c]}" in title and "MAR" in title, title
+            square.click()
+            page.wait_for_function("!document.getElementById('library-load').disabled")
+            asked: list[str] = []
+
+            def accept(dialog):
+                asked.append(dialog.message)
+                dialog.accept()
+
+            page.on("dialog", accept)
+            try:
+                page.locator("#library-load").click()
+                page.wait_for_selector("#chart-mount", timeout=30_000)
+            finally:
+                page.remove_listener("dialog", accept)
+            self.wait_bars()
+            envelope = self.run_backtest()
+            long_side = envelope["strategy"]["long_side"]
+            lengths = {f"indicators.{i['id']}.length": i["length"] for i in long_side["indicators"]}
+            assert all(lengths[p] == v for p, v in best["params"].items()), (
+                lengths,
+                best["params"],
+            )
+            ran = envelope["result"]["long"]["metrics"]["mar"]
+            assert abs(ran - best["metrics"]["mar"]) < 1e-9, (ran, best["metrics"]["mar"])
+            self.limits_job = job["job_id"]
+            return (
+                f"560 cells planned on the pool ({planned['workers']} workers, ≈ "
+                f"{planned['estimated_seconds']:.1f} s) and run in {seconds} s; matrix Donchian × RSI "
+                f"(28 squares), switched to Donchian × EMA (140); '{title.split(' · ')[-1]}'; the best "
+                f"square loaded {best['params']} and its backtest's long MAR {ran:.4f} equals the cell's"
+            )
+
+        self.item(78, item78)
+
+        def item79():
+            body = self.limits_body(PAGED_PARAMETERS)
+            started = time.perf_counter()
+            job = self.run_optimization(body)
+            seconds = round(time.perf_counter() - started, 1)
+            assert (job["cells_done"], job["cells_shown"], len(job["cells"])) == (2560, 1000, 1000)
+            mars = [cell["metrics"]["mar"] for cell in job["cells"]]
+            defined = [m for m in mars if m is not None]
+            assert defined == sorted(defined, reverse=True), "the best 1,000 are not in MAR order"
+            rest = self.api(f"optimize/{job['job_id']}/cells?offset=1000&limit=1000")
+            assert rest["total"] == 2560 and len(rest["rows"]) == 1000
+            assert (rest["rows"][0]["metrics"]["mar"] or -1e9) <= defined[-1]
+            saved = json.loads(
+                (ROOT / "data" / "aegis" / "optimizations" / f"{job['job_id']}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            assert len(saved["cells"]) == 2560
+            self.open_library()
+            self.library_kind("optimization")
+            self.library_open("optimization", job["job_id"])
+            page.wait_for_function(
+                "(document.getElementById('optimization-cells-pages-long')?.innerText ?? '').includes('the best 1,000 of 2,560')",
+                timeout=60_000,
+            )
+            page.locator("#optimization-cells-next-long").click()
+            page.wait_for_function(
+                "(document.getElementById('optimization-cells-pages-long')?.innerText ?? '').includes('1,001–2,000')",
+                timeout=60_000,
+            )
+            page.wait_for_function(  # the next page arrives after its label changes
+                "document.querySelectorAll('#library-view #optimization-cells-long tbody tr').length === 1000",
+                timeout=60_000,
+            )
+            return (
+                f"2,560 cells in {seconds} s; the status sends the best 1,000 in MAR order, the next "
+                "page continues below them, the saved job keeps all 2,560; the table reads 'the best "
+                "1,000 of 2,560' and pages to 1,001–2,000"
+            )
+
+        self.item(79, item79)
+
+        def item80():
+            checks = []
+            bars = page.request.get(
+                self.base
+                + f"api/data/bars?symbol=QQQ&timeframe=1m&start={STUDY_RANGE[0]}&end={STUDY_RANGE[1]}"
+            )
+            assert bars.status == 422 and "over cap 200000" in bars.text(), bars.text()[:200]
+            checks.append("ten years of 1m → 422 over cap 200000")
+            huge = self.limits_body(
+                [
+                    ("indicators.donchian.length", 2, 401, 1),
+                    ("indicators.rsi.length", 2, 301, 1),
+                    ("indicators.ema.length", 10, 11, 1),
+                ]
+            )
+            refused = self.post("optimize/plan", huge)
+            assert refused.status == 422 and "over cap 100000" in refused.text(), refused.text()[
+                :200
+            ]
+            assert "experiment" in refused.text()
+            checks.append("240,000 cells → 422 over cap 100000, pointing to an experiment")
+            body = self.limits_body(QUESTION_PARAMETERS, "15m", *STUDY_RANGE)
+            planned = self.post("optimize/plan", body).json()
+            assert planned["estimated_seconds"] > 600, planned
+            # the page: the same plan from the workspace asks before it starts
+            page.locator("#nav-charts").click()
+            page.wait_for_selector("#chart-mount", timeout=30_000)
+            page.get_by_label("Start date").fill(STUDY_RANGE[0])
+            page.get_by_label("End date").fill(STUDY_RANGE[1])
+            self.select("Timeframe", "15m")
+            self.wait_bars(timeout=180_000)
+            for path, start, stop, step in QUESTION_PARAMETERS:
+                for field, value in (("start", start), ("stop", stop), ("step", step)):
+                    page.get_by_label(f"long {path} {field}").fill(str(value))
+            before = self.api("optimize")[0]["job_id"]
+            if not self.js("!!document.querySelector('.popover')"):
+                page.locator("#optimize").click()
+            page.locator("#grid-mode").click()
+            page.wait_for_function(
+                "/on the pool/.test(document.getElementById('optimize-plan')?.innerText ?? '')",
+                timeout=120_000,
+            )
+            line = self.js("document.getElementById('optimize-plan').innerText")
+            asked: list[str] = []
+
+            def dismiss(dialog):
+                asked.append(dialog.message)
+                dialog.dismiss()
+
+            page.on("dialog", dismiss)
+            try:
+                page.locator("#start-optimization").click()
+                page.wait_for_timeout(1500)
+            finally:
+                page.remove_listener("dialog", dismiss)
+            assert asked and "Start it?" in asked[0] and "cells" in asked[0], asked
+            assert self.api("optimize")[0]["job_id"] == before, "a job started anyway"
+            if self.js("!!document.querySelector('.popover')"):
+                page.locator(".popover .actions button", has_text="Close").click()
+            checks.append(
+                f"plan '{line.strip()}' asked '{asked[0]}' and, dismissed, started nothing"
+            )
+            return "; ".join(checks)
+
+        self.item(80, item80)
+
+        def item81():
+            import subprocess
+
+            def git(*args) -> str:
+                return subprocess.run(
+                    ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
+                ).stdout
+
+            status = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
+            assert status["mode"] == "human_directed" and status["exchange"] == "CLOSED", status
+            schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
+            assert schedule["enabled"] is False and schedule["id"].startswith("c99fa831"), schedule
+            paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
+            committed = git("diff", "--name-only", LIMITS_BASE, "HEAD", "--", *paths).strip()
+            pending = git("status", "--porcelain", "--", *paths).strip()
+            assert committed == "" and pending == "", (committed, pending)
+            earlier = [r for r in self.results if r["item"] <= 76]
+            failed = [r["item"] for r in earlier if r["status"] != "PASS"]
+            assert len(earlier) == 76 and not failed, failed
+            return (
+                f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
+                f"{LIMITS_BASE}; items 1–76 PASS"
+            )
+
+        self.item(81, item81)
 
 
 def main(argv=None) -> int:
