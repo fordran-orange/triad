@@ -120,19 +120,47 @@ def test_backtest_by_data_reference_persists_and_returns_hash(client):
         "data",
         "strategy",
         "result",
-        "series",
         "markers",
+        "stored",
     }
+    assert "series" not in body and body["stored"]["format"] == 2  # Mission 10: slim runs
     assert body["data"]["symbol"] == "QQQ" and body["data"]["research_eligible"] is False
     assert len(body["data"]["sha256"]) == 64 and len(body["data"]["data_hash"]) == 64
     assert body["result"]["combined"]["metrics"]["trade_count"] >= 0
-    assert set(body["series"]) == {"long", "short"} and set(body["series"]["long"]) == {
-        "ema",
-        "sma",
-    }
+    assert all("series" not in body["result"][side] for side in ("long", "short"))
     second = c.post("/aegis/api/backtest", json=payload).json()
     assert second["result_hash"] == body["result_hash"] and second["run_id"] != body["run_id"]
     assert repository.get_run(body["run_id"])["result_hash"] == body["result_hash"]
+
+
+def test_a_format_one_run_still_reads(client):  # Mission 10 Review Focus 1
+    """A run saved before slim runs (per-bar series, full side equity) still opens, compares and
+    lists in the Library."""
+    c, _, repository = client
+    strategy = default_strategy().model_dump(mode="json")
+    payload = {"strategy": strategy, "data": {"symbol": "QQQ", "timeframe": "15m", **RANGE}}
+    new = c.post("/aegis/api/backtest", json=payload).json()
+    old = {k: v for k, v in new.items() if k != "stored"}
+    old["run_id"] = "format-one"
+    long_equity = [
+        {
+            "timestamp": f"2026-10-30T{13 + i // 60:02d}:{i % 60:02d}:00+00:00",
+            "equity": 100000.0,
+            "drawdown": 0.0,
+        }
+        for i in range(120)
+    ]
+    old["result"] = {
+        **new["result"],
+        "long": {**new["result"]["long"], "equity": long_equity, "series": {"ema": [None] * 120}},
+    }
+    old["series"] = {"long": {"ema": [None] * 120}, "short": {}}
+    repository.save_run(old)
+    assert c.get("/aegis/api/runs/format-one").json()["result"]["long"]["equity"] == long_equity
+    compared = c.get("/aegis/api/library/compare", params={"a": "format-one", "b": new["run_id"]})
+    assert compared.status_code == 200, compared.text
+    listed = c.get("/aegis/api/library", params={"kind": "backtest"}).json()["entries"]
+    assert "format-one" in [e["id"] for e in listed]
 
 
 def test_backtest_requires_exactly_one_of_data_or_bars(client):
@@ -766,9 +794,11 @@ def test_strategy_route_refusals(client):
 
 
 def test_backtest_envelope_carries_strategy_identity_outside_the_hash(client):
-    from products.aegis.results import result_hash
+    from products.aegis.backtest import BacktestRequest, run_backtest
+    from products.aegis.optimize import engine_rows
+    from products.aegis.results import canonical_payload, result_hash
 
-    c, _, _ = client
+    c, store, _ = client
     payload = {
         "strategy": default_strategy().model_dump(mode="json"),
         "data": {"symbol": "QQQ", "timeframe": "15m", **RANGE},
@@ -776,7 +806,14 @@ def test_backtest_envelope_carries_strategy_identity_outside_the_hash(client):
     body = c.post("/aegis/api/backtest", json=payload).json()
     assert body["strategy_id"] == "ema9-sma30-cross-v1" and len(body["strategy_hash"]) == 64
     assert "strategy_id" not in body["result"] and "strategy_hash" not in body["result"]
-    assert body["result_hash"] == result_hash(body["result"])
+    # Mission 10 decision 1: the hash covers the full result, computed before the stored run is
+    # slimmed, so it equals a direct run's canonical hash (not a hash of the slim result).
+    frame, _ = store.bars("QQQ", "15m", RANGE["start"], RANGE["end"])
+    direct = run_backtest(
+        BacktestRequest(strategy=default_strategy(), bars=engine_rows(frame, "QQQ"))
+    )
+    full = canonical_payload(direct, default_strategy(), body["data"])
+    assert body["result_hash"] == result_hash(full) != result_hash(body["result"])
     [summary] = c.get("/aegis/api/runs").json()
     assert summary["strategy_id"] == "ema9-sma30-cross-v1"
 

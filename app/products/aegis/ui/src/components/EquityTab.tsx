@@ -1,5 +1,5 @@
 import { timeLabel } from '../format';
-import type { EquityPoint } from '../results';
+import type { EquityPoint, StoredFormat } from '../results';
 import { useWorkspace, type RunRecord } from '../state/workspace';
 import { StaleNotice } from './RunContext';
 
@@ -9,14 +9,23 @@ export function EquityTab() {
   return <EquityView run={lastRun} stale />;
 }
 
+/** The caption's per-side line: a slim run's side curves stand for more bars than they draw. */
+export function sideCurveNote(stored: StoredFormat | undefined, longDrawn: number, shortDrawn: number): string {
+  const base = 'per-side equity is marked to market per bar';
+  const bars = Math.max(stored?.equity_points.long ?? 0, stored?.equity_points.short ?? 0);
+  const drawn = Math.max(longDrawn, shortDrawn);
+  if (!stored || bars <= drawn) return base;
+  return `${base}, drawn from ${drawn.toLocaleString('en-US')} of ${bars.toLocaleString('en-US')} points`;
+}
+
 /** One run's view; the Library feeds it a saved run without touching the workspace (Mission 9). */
 export function EquityView({ run: lastRun, stale = false }: { run: RunRecord | null; stale?: boolean }) {
   const result = lastRun?.result;
   const series: Array<[string, string, EquityPoint[]]> = result
     ? [
-        ['combined', '#2da7ff', result.combined.equity],
-        ['long', '#39d98a', result.long.equity],
-        ['short', '#ff5c67', result.short.equity],
+        ['combined', '#2da7ff', result.combined.equity ?? []],
+        ['long', '#39d98a', result.long.equity ?? []],
+        ['short', '#ff5c67', result.short.equity ?? []],
       ]
     : [];
   const drawn = series.filter(([, , points]) => points.length > 1);
@@ -59,7 +68,9 @@ export function EquityView({ run: lastRun, stale = false }: { run: RunRecord | n
           <span>{timeLabel(longest[2][0]?.timestamp)}</span>
           <span style={{ marginLeft: 'auto' }}>{timeLabel(longest[2][longest[2].length - 1]?.timestamp)}</span>
         </div>
-        <div className="muted small">Combined equity is realized at each exit; per-side equity is marked to market per bar. Different x scales.</div>
+        <div className="muted small">
+          Combined equity is realized at each exit; {sideCurveNote(lastRun?.stored, result?.long.equity?.length ?? 0, result?.short.equity?.length ?? 0)}. Different x scales.
+        </div>
       </div>
     </div>
   );

@@ -17,16 +17,32 @@ from products.aegis.backtest import markers
 from products.aegis.strategy import StrategySpec
 
 SIDE_KEYS = ("enabled", "series", "trades", "equity", "metrics")
+EQUITY_POINTS = 2_000  # a stored side curve's resolution (Mission 10 decision 2)
+STORED_FORMAT = 2  # 2: no per-bar series, side equity resampled, markers once
+_CHUNK = 1_000  # list items per C-encoded slice of the streamed hash
 
 
 def _clean(value: Any) -> Any:
-    """Make a structure strict-JSON: NaN/inf become None, tuples become lists, keys are str."""
+    """Make a structure strict-JSON: NaN/inf become None, tuples become lists, keys are str.
+    Copy on write: a structure with nothing to change comes back as the same object, so a
+    ten-year run's per-bar lists are not duplicated (Mission 10)."""
     if isinstance(value, float):
         return None if math.isnan(value) or math.isinf(value) else value
     if isinstance(value, dict):
-        return {str(k): _clean(v) for k, v in value.items()}
+        out, changed = {}, False
+        for k, v in value.items():
+            key = k if isinstance(k, str) else str(k)
+            cleaned = _clean(v)
+            changed = changed or key is not k or cleaned is not v
+            out[key] = cleaned
+        return out if changed else value
     if isinstance(value, (list, tuple)):
-        return [_clean(v) for v in value]
+        items, changed = [], isinstance(value, tuple)
+        for v in value:
+            cleaned = _clean(v)
+            changed = changed or cleaned is not v
+            items.append(cleaned)
+        return items if changed else value
     return value
 
 
@@ -90,6 +106,43 @@ def result_hash(payload: dict) -> str:
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
+def _dumps(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def _stream(value: Any, update) -> None:
+    """Feed the bytes of `canonical_json(value)` to `update` piece by piece: dicts key by key,
+    long lists in C-encoded slices, so a ten-year run is never one string (Mission 10)."""
+    if isinstance(value, dict):
+        update("{")
+        for i, key in enumerate(sorted(value)):
+            update(("," if i else "") + _dumps(key) + ":")
+            _stream(value[key], update)
+        update("}")
+    elif isinstance(value, list) and len(value) > _CHUNK:
+        update("[")
+        for start in range(0, len(value), _CHUNK):
+            update(("," if start else "") + _dumps(value[start : start + _CHUNK])[1:-1])
+        update("]")
+    else:
+        update(_dumps(value))
+
+
+def stream_hash(payload: dict) -> str:
+    """`result_hash(payload)`, computed without building the canonical JSON as one string."""
+    digest = hashlib.sha256()
+    _stream(payload, lambda text: digest.update(text.encode("utf-8")))
+    return digest.hexdigest()
+
+
+def slim_equity(points: list[dict], limit: int = EQUITY_POINTS) -> list[dict]:
+    """A side curve resampled by index to at most `limit` points, the first and last kept."""
+    if len(points) <= limit:
+        return points
+    last = len(points) - 1
+    return [points[(k * last) // (limit - 1)] for k in range(limit)]
+
+
 def envelope(
     result: dict,
     strategy: StrategySpec,
@@ -104,19 +157,33 @@ def envelope(
     from datetime import UTC, datetime
 
     payload = canonical_payload(result, strategy, identity)
+    digest = stream_hash(payload)  # over the full result, before anything is slimmed (decision 1)
+    stored = {  # Mission 10: no per-bar series, side equity resampled, markers once
+        **{key: value for key, value in payload.items() if key not in ("long", "short", "markers")},
+        **{
+            side: {
+                **{k: v for k, v in payload[side].items() if k != "series"},
+                "equity": slim_equity(payload[side]["equity"]),
+            }
+            for side in ("long", "short")
+        },
+    }
     return {
         "run_id": str(uuid.uuid4()),
         "created_at": datetime.now(UTC).isoformat(),
         "elapsed_ms": elapsed_ms,
-        "result_hash": result_hash(payload),
+        "result_hash": digest,
         "data": identity,
         "strategy_id": strategy.id,
         "strategy_hash": strategy_hash(strategy),
         "strategy": strategy.model_dump(mode="json"),
         "settings": settings.model_dump(mode="json"),
-        "result": payload,
-        "series": {"long": result["long"]["series"], "short": result["short"]["series"]},
-        "markers": markers(result),
+        "result": stored,
+        "markers": payload["markers"],
+        "stored": {
+            "format": STORED_FORMAT,
+            "equity_points": {side: len(payload[side]["equity"]) for side in ("long", "short")},
+        },
         "cache_hits": cache_hits,
         "engine": result["engine"],
         "state": "ok",

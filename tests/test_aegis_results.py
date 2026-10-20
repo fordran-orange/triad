@@ -1,8 +1,16 @@
 import json
 
 import pytest
-from products.aegis.backtest import BacktestRequest, markers, run_backtest
-from products.aegis.results import canonical_payload, result_hash
+from products.aegis.backtest import BacktestRequest, BacktestSettings, markers, run_backtest
+from products.aegis.results import (
+    EQUITY_POINTS,
+    _clean,
+    canonical_payload,
+    envelope,
+    result_hash,
+    slim_equity,
+    stream_hash,
+)
 from products.aegis.strategy import apply_parameters, default_strategy
 from test_aegis_backtest import bars
 
@@ -76,3 +84,70 @@ def test_markers_have_entry_and_exit_per_trade():
     assert isinstance(first["time"], int) and first["time"] > 1_600_000_000_000
     assert isinstance(first["price"], float)
     assert points == sorted(points, key=lambda p: (p["time"], p["side"], p["kind"]))
+
+
+# --- Mission 10: slim saved runs, the hash computed before slimming ---------------------------------
+
+
+def _wave_run(strategy=None, n=4_000):
+    from test_aegis_walkforward import wave_bars
+
+    spec = strategy or default_strategy()
+    return run_backtest(BacktestRequest(strategy=spec, bars=wave_bars(n=n))), spec
+
+
+def test_stream_hash_equals_the_canonical_hash():
+    result, spec = _wave_run()
+    payload = canonical_payload(result, spec, DATA)
+    assert stream_hash(payload) == result_hash(payload)
+    nested = {"b": [{"z": 1, "a": [1.5, None, "é"]}] * 3, "a": {"y": {"x": True}}, "ü": "ß"}
+    assert stream_hash(nested) == result_hash(nested)
+    big = {"points": [{"t": i, "v": i / 3} for i in range(25_000)], "empty": [], "one": [7]}
+    assert stream_hash(big) == result_hash(big)
+
+
+def test_slim_equity_keeps_endpoints():
+    points = [{"timestamp": str(i), "equity": float(i), "drawdown": 0.0} for i in range(10_000)]
+    out = slim_equity(points)
+    assert len(out) == EQUITY_POINTS == 2_000 and out[0] is points[0] and out[-1] is points[-1]
+    short = points[:1_500]
+    assert slim_equity(short) == short
+    assert slim_equity([]) == []
+
+
+def test_the_saved_run_is_slim_and_keeps_its_hash():
+    result, spec = _wave_run()
+    long_bars, short_bars = len(result["long"]["equity"]), len(result["short"]["equity"])
+    assert long_bars > EQUITY_POINTS  # the test needs a run longer than the stored resolution
+    run = envelope(result, spec, BacktestSettings(), DATA, 5)
+    assert run["result_hash"] == result_hash(canonical_payload(result, spec, DATA))
+    assert "series" not in run and "markers" not in run["result"]
+    for side in ("long", "short"):
+        assert "series" not in run["result"][side]
+        assert len(run["result"][side]["equity"]) <= EQUITY_POINTS
+    assert run["stored"] == {"format": 2, "equity_points": {"long": long_bars, "short": short_bars}}
+    payload = canonical_payload(result, spec, DATA)
+    for side in ("long", "short", "combined"):
+        assert run["result"][side]["trades"] == payload[side]["trades"]
+        assert run["result"][side]["metrics"] == payload[side]["metrics"]
+    assert run["result"]["combined"]["equity"] == payload["combined"]["equity"]
+    assert run["result"]["temporal"] == payload["temporal"] and run["markers"] == payload["markers"]
+    json.dumps(run, allow_nan=False)
+
+
+def test_clean_does_not_copy_a_clean_structure():
+    clean = {"a": [1.0, {"b": [2.0, None]}], "c": "x"}
+    assert _clean(clean) is clean
+    dirty = {"a": [1.0, float("nan")], "b": {"c": float("inf")}, "d": [1]}
+    out = _clean(dirty)
+    assert out == {"a": [1.0, None], "b": {"c": None}, "d": [1]} and out["d"] is dirty["d"]
+
+
+def test_slim_run_of_a_disabled_side():  # Review Focus 2
+    spec = default_strategy()
+    spec = spec.model_copy(
+        update={"short_side": spec.short_side.model_copy(update={"enabled": False})}
+    )
+    result, spec = _wave_run(spec)
+    run = envelope(result, spec, BacktestSettings(), DATA, 5)
+    assert run["result"]["short"]["equity"] == [] and run["stored"]["equity_points"]["short"] == 0

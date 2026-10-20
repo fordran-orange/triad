@@ -104,7 +104,8 @@ export interface RunEnvelope {
   data: Provenance;
   strategy: StrategySpec;
   result: ResultPayload;
-  series: Record<'long' | 'short', Record<string, Array<number | null>>>;
+  series?: Record<'long' | 'short', Record<string, Array<number | null>>>; // runs saved before Mission 10 only
+  stored?: StoredFormat; // Mission 10: absent on runs saved before slim runs
   markers: TradeMarker[];
   settings?: { initial_capital: number; allocation_fraction: number }; // absent on runs persisted before the fix pass
   state: RunState;
@@ -112,6 +113,13 @@ export interface RunEnvelope {
   strategy_id?: string | null;
   strategy_hash?: string; // absent on runs persisted before Mission 5
   engine?: string;
+}
+
+/** How a run was stored (Mission 10): format 2 drops per-bar series and resamples each side's
+ *  per-bar equity; `equity_points` keeps each side's true per-bar count. */
+export interface StoredFormat {
+  format: number;
+  equity_points: Record<'long' | 'short', number>;
 }
 
 /** What GET /aegis/api/runs lists: the envelope without result, series or markers. */
