@@ -88,9 +88,22 @@ square); all 40 recent optimizations had exactly two parameters.
   pool (its matrix, an axis switch, a square's best cell applied and rerun), a ten-year 15m
   backtest and chart, the honest refusals above both bounds, and governance.
 
-## 7. Questions for the operator (asked on return)
+## 7. Decisions (the operator, 2026-10-20: "go with the recommendations on the limits questions")
 
-1. Is 100,000 cells the right bound for an exhaustive grid, with experiments for anything larger?
-2. Is ten minutes the right threshold for "Start asks first"?
-3. The matrix's square shows the best over the other parameters: is that the reading wanted, or
-   the median (robustness) as a second option?
+1. The exhaustive grid's bound stays 100,000 cells; experiments take anything larger.
+2. Start asks first above ten minutes.
+3. A matrix square shows the best of the other parameters only, with no median view: a click
+   loads one real cell, and robustness is what an experiment's plateau report measures.
+
+## 8. Amendments from the review and QA fix pass (2026-10-20)
+
+- The page draws at most 2,500 matrix squares. Above that, the status sends no stored matrices,
+  the matrix route refuses the pair, and the page says why ("N × M squares is more than the
+  matrix draws …; the table lists every cell"). A long skipped list is sent as its count.
+- The worker builds a matrix only for a pair the stored matrices do not hold (three or more
+  parameters), one metric at a time. A click on a square whose cell the page was not sent asks
+  `GET /optimize/{id}/square` for that square's best cell.
+- A pooled grid's estimate prices the pool's start-up and its effective workers (0.8 each, as
+  experiments do), learns from the latest finished pooled optimization's measured cost, and after
+  the first chunk follows the chunks' own pace. Chunks aim at about ten seconds of work; a pooled
+  job saves at most every five seconds; pool workers keep no copy of the rows.
