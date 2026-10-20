@@ -2,11 +2,15 @@
 // Overlays are native indicators that plot server-supplied arrays; markers are a legend-less
 // native indicator emitting arrow labels. The library's attribution watermark stays enabled.
 import { Vela, registerNativeIndicator } from '@luxalgo/vela';
-import type { Bar, ChartAdapter, CrosshairPoint, Marker, Overlay } from './adapter';
+import type { Bar, ChartAdapter, CrosshairPoint, Marker, Overlay, VisibleSpan } from './adapter';
 import type { Timeframe } from '../state/workspace';
 import { SeriesMap } from './seriesMap';
 
 const TIMEFRAME_TO_VELA: Record<Timeframe, string> = { '1m': '1', '15m': '15', '30m': '30', '1h': '60', '1D': 'D' };
+// Vela keeps candles at least MIN_BAR_SPACING px apart (its own constant), so a chart shows at
+// most its plot width / 0.5 candles; the price scale takes about PRICE_SCALE_PX of the mount.
+const MIN_BAR_SPACING = 0.5;
+const PRICE_SCALE_PX = 64;
 
 // Module-level registries read by the native indicator instances (one chart per page in Aegis).
 const overlayRegistry = new Map<string, Overlay>();
@@ -166,6 +170,9 @@ export class VelaAdapter implements ChartAdapter {
   private crosshair: ((p: CrosshairPoint | null) => void) | null = null;
   private pendingOverlays: Overlay[] = [];
   private pendingMarkers: Marker[] = [];
+  private viewport: ((span: VisibleSpan) => void) | null = null;
+  private stopViewport: (() => void) | null = null;
+  private swapping: Promise<void> | null = null; // an in-place swap of candles in flight
 
   mount(el: HTMLElement): void {
     this.el = el;
@@ -177,6 +184,8 @@ export class VelaAdapter implements ChartAdapter {
     this.timeframe = timeframe;
     const data = bars.map((b) => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume }));
     if (this.chart) {
+      this.stopViewport?.();
+      this.stopViewport = null;
       this.chart.destroy();
       this.chart = null;
       this.forgetAll();
@@ -196,6 +205,8 @@ export class VelaAdapter implements ChartAdapter {
         crosshair({ time: e.time, price: e.price, paneKind: e.paneKind ?? null, values });
       });
     }
+    this.swapping = null;
+    this.listenViewport();
     void chart.ready().then(() => {
       if (this.chart !== chart) return;
       this.applyOverlays(this.pendingOverlays);
@@ -203,14 +214,61 @@ export class VelaAdapter implements ChartAdapter {
     });
   }
 
+  replaceBars(bars: Bar[], timeframe: Timeframe, visible: VisibleSpan): void {
+    const chart = this.chart;
+    if (!chart) return this.setBars(bars, timeframe);
+    this.timeframe = timeframe;
+    const data = bars.map((b) => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume }));
+    // setMarket keeps panes, handles and subscriptions; the native indicators restart and read
+    // the registries, which setOverlays/setMarkers refresh meanwhile (see `refresh`).
+    const swap: Promise<void> = chart
+      .setMarket({ timeframe: TIMEFRAME_TO_VELA[timeframe], data, visibleRange: { from: visible.from, to: visible.to } } as never)
+      .then(() => {
+        if (this.chart !== chart || this.swapping !== swap) return;
+        this.swapping = null;
+        this.applyOverlays(this.pendingOverlays);
+        this.applyMarkers(this.pendingMarkers);
+      });
+    this.swapping = swap;
+  }
+
+  capacity(): number {
+    return Math.max(100, Math.floor(((this.el?.clientWidth ?? 0) - PRICE_SCALE_PX) / MIN_BAR_SPACING));
+  }
+
+  onViewport(cb: (span: VisibleSpan) => void): void {
+    this.viewport = cb;
+    this.listenViewport();
+  }
+
+  private listenViewport() {
+    this.stopViewport?.();
+    this.stopViewport = null;
+    const chart = this.chart;
+    const cb = this.viewport;
+    if (!chart || !cb) return;
+    const on = (chart as unknown as { on(event: 'viewport:changed', handler: (r: VisibleSpan) => void): () => void }).on;
+    this.stopViewport = on.call(chart, 'viewport:changed', (r) => cb({ from: r.from, to: r.to }));
+  }
+
   setOverlays(series: Overlay[]): void {
     this.pendingOverlays = series;
-    if (this.chart) this.applyOverlays(series);
+    if (this.chart && this.swapping) this.refresh(series);
+    else if (this.chart) this.applyOverlays(series);
   }
 
   setMarkers(markers: Marker[]): void {
     this.pendingMarkers = markers;
-    if (this.chart) this.applyMarkers(markers);
+    if (this.chart && this.swapping) markerRegistry = markers;
+    else if (this.chart) this.applyMarkers(markers);
+  }
+
+  /** During a swap: the registries the restarting native indicators read hold the new points. */
+  private refresh(series: Overlay[]) {
+    for (const s of series) if (s.pane === 'price' && overlayRegistry.has(s.id)) overlayRegistry.set(s.id, s);
+    const groups = new Map<string, Overlay[]>();
+    for (const s of series) if (s.pane === 'own') groups.set(s.group, [...(groups.get(s.group) ?? []), s]);
+    for (const [group, overlays] of groups) if (groupRegistry.has(group)) groupRegistry.set(group, overlays);
   }
 
   private applyOverlays(series: Overlay[]) {
@@ -279,6 +337,9 @@ export class VelaAdapter implements ChartAdapter {
   }
 
   clear(): void {
+    this.stopViewport?.();
+    this.stopViewport = null;
+    this.swapping = null;
     this.chart?.destroy();
     this.chart = null;
     this.forgetAll();

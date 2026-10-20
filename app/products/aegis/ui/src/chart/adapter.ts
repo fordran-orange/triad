@@ -41,9 +41,22 @@ export interface CrosshairPoint {
   values: Record<string, number>; // series values under the cursor, keyed by overlay id
 }
 
+/** A visible time range, epoch ms. */
+export interface VisibleSpan {
+  from: number;
+  to: number;
+}
+
 export interface ChartAdapter {
   mount(el: HTMLElement): void;
   setBars(bars: Bar[], timeframe: Timeframe): void;
+  /** Swap the candles in place keeping `visible` in view (Mission 10: a zoom's finer or coarser
+   *  candles); overlays and markers set meanwhile are applied over the new candles. */
+  replaceBars(bars: Bar[], timeframe: Timeframe, visible: VisibleSpan): void;
+  /** Called on every applied pan or zoom (not debounced). */
+  onViewport(cb: (span: VisibleSpan) => void): void;
+  /** How many candles the chart can show at once at its widest zoom. */
+  capacity(): number;
   setOverlays(series: Overlay[]): void;
   setMarkers(markers: Marker[]): void;
   onCrosshair(cb: (p: CrosshairPoint | null) => void): void;

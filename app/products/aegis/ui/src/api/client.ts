@@ -119,7 +119,10 @@ export interface BarsResponse {
   timeframe: string;
   timezone: string;
   bars: Bar[];
-  count: number;
+  count: number; // the native bars of the whole selection
+  shown: number; // the candles drawn (Mission 10)
+  display_timeframe: string; // the drawn candles' timeframe: the native one unless aggregated
+  window: { from_ms: number | null; to_ms: number | null };
   data: Provenance;
 }
 
@@ -128,7 +131,25 @@ export interface IndicatorsResponse {
   series: Record<string, Array<number | null>>; // keyed by reference spelling: `id` or `id.output`
   outputs: Record<string, string[]>; // indicator id → its outputs ([] for single-series kinds)
   pane: Record<string, 'price' | 'own'>; // indicator id → the chart pane its series belong on
+  display_timeframe: string; // index-aligned to GET /data/bars' candles for the same view
   data: Provenance;
+}
+
+/** The candles a chart asks for (Mission 10): at most `maxBars` over [from, to] epoch ms. */
+export interface ChartView {
+  maxBars: number;
+  from?: number;
+  to?: number;
+}
+
+function viewQuery(view?: ChartView): string {
+  if (!view) return '';
+  return `&max_bars=${view.maxBars}` + (view.from !== undefined ? `&from_ms=${Math.floor(view.from)}` : '') + (view.to !== undefined ? `&to_ms=${Math.ceil(view.to)}` : '');
+}
+
+function viewBody(view?: ChartView): Record<string, number> {
+  if (!view) return {};
+  return { max_bars: view.maxBars, ...(view.from !== undefined ? { from_ms: Math.floor(view.from) } : {}), ...(view.to !== undefined ? { to_ms: Math.ceil(view.to) } : {}) };
 }
 
 /** POST /optimize and /optimize/plan body (OptimizeRequest in contracts.ts, selection as the data reference). */
@@ -215,10 +236,10 @@ export const api = {
   status: () => request<{ product: string; mode: string; status: string; exchange: string }>('/status'),
   defaultStrategy: () => request<StrategySpec>('/strategy/default'),
   symbols: () => request<{ timeframes: string[]; symbols: SymbolInfo[] }>('/data/symbols'),
-  bars: (s: Selection) =>
-    request<BarsResponse>(`/data/bars?symbol=${encodeURIComponent(s.symbol)}&timeframe=${s.timeframe}&start=${s.start}&end=${s.end}`),
-  indicators: (s: Selection, indicators: IndicatorSpec[]) =>
-    request<IndicatorsResponse>('/indicators', post({ symbol: s.symbol, timeframe: s.timeframe, start: s.start, end: s.end, indicators })),
+  bars: (s: Selection, view?: ChartView) =>
+    request<BarsResponse>(`/data/bars?symbol=${encodeURIComponent(s.symbol)}&timeframe=${s.timeframe}&start=${s.start}&end=${s.end}${viewQuery(view)}`),
+  indicators: (s: Selection, indicators: IndicatorSpec[], view?: ChartView) =>
+    request<IndicatorsResponse>('/indicators', post({ symbol: s.symbol, timeframe: s.timeframe, start: s.start, end: s.end, indicators, ...viewBody(view) })),
   backtest: (body: { strategy: StrategySpec; data: Selection; settings: Settings }) => request<RunEnvelope>('/backtest', post(body)),
   runs: () => request<RunSummary[]>('/runs'),
   run: (id: string) => request<RunEnvelope>(`/runs/${encodeURIComponent(id)}`),

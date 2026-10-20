@@ -15,6 +15,16 @@ class MockAdapter implements ChartAdapter {
     this.calls.push('setBars');
     this.bars = bars;
   }
+  replaceBars(bars: Bar[]) {
+    this.calls.push('replaceBars');
+    this.bars = bars;
+  }
+  onViewport() {
+    this.calls.push('onViewport');
+  }
+  capacity() {
+    return 1_000;
+  }
   setOverlays(series: Overlay[]) {
     this.calls.push('setOverlays');
     this.overlays = series;

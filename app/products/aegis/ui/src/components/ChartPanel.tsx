@@ -1,15 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, errorMessage } from '../api/client';
 import { createChartAdapter, type ChartAdapter, type CrosshairPoint, type Marker } from '../chart/adapter';
-import { chartMeta, syncChart, type OverlayMeta } from '../chart/sync';
+import { shownAs } from '../chart/longRange';
+import { useLongRange } from '../chart/useLongRange';
 import { num } from '../format';
-import type { Provenance } from '../results';
 import { chartKey, runStaleness, SIDE_KEY, useDispatch, useWorkspace } from '../state/workspace';
-
-interface Loaded {
-  count: number;
-  data: Provenance;
-}
 
 export function ChartPanel() {
   const state = useWorkspace();
@@ -18,21 +12,40 @@ export function ChartPanel() {
   const mountRef = useRef<HTMLDivElement>(null);
   const adapterRef = useRef<ChartAdapter | null>(null);
   const [adapterReady, setAdapterReady] = useState(false);
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<CrosshairPoint | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [meta, setMeta] = useState<Record<string, OverlayMeta>>({});
+  const [drawnVintage, setDrawnVintage] = useState<string | null>(null);
 
   // The chart shows the focused side's indicators (plan ruling P9).
   const indicators = strategy ? (strategy[SIDE_KEY[focusSide]].indicators ?? []) : [];
-  const indicatorKey = JSON.stringify(indicators.map((i) => [i.id, i.kind, i.length, i.source ?? 'close', i.params ?? {}]));
   const pinnedVintage = lastRun?.data.vintage;
   const stale = runStaleness(state);
   // Markers belong to the run's selection and archive; on any other chart they would be a lie.
-  const vintageDrift = loaded !== null && pinnedVintage !== undefined && pinnedVintage !== loaded.data.vintage;
+  const vintageDrift = drawnVintage !== null && pinnedVintage !== undefined && pinnedVintage !== drawnVintage;
   const markers: Marker[] = !stale.selection && !vintageDrift ? (lastRun?.markers ?? []) : [];
   const markerKey = `${lastRun?.run_id ?? ''}:${markers.length}`;
+
+  // Mission 10: one long-range loader; the header keeps the true native count.
+  const range = useLongRange(adapterReady ? adapterRef.current : null, strategy ? selection : null, indicators, markers, {
+    markerKey,
+    onLoaded: (bars, series) => {
+      setDrawnVintage(String(bars.data.vintage ?? ''));
+      dispatch({ type: 'BARS_LOADED', bars: { count: bars.count, vintage: String(bars.data.vintage ?? '') } });
+      const latest: Record<string, number | null> = {};
+      for (const [key, values] of Object.entries(series.series)) {
+        const last = [...values].reverse().find((v) => v !== null && v !== undefined);
+        latest[key] = last ?? null;
+      }
+      dispatch({ type: 'SET_LATEST', key: chartKey(state), values: latest });
+    },
+    onFailed: () => {
+      setDrawnVintage(null);
+      dispatch({ type: 'BARS_LOADED', bars: null });
+      dispatch({ type: 'SET_LATEST', key: '', values: {} });
+    },
+  });
+  const loaded = range.data && range.count !== null ? { count: range.count, data: range.data } : null;
+  const { error, loading, meta } = range;
+  const badge = range.displayTimeframe ? shownAs(range.displayTimeframe, selection.timeframe) : null;
 
   // Mount the chart backend once; the adapter owns the library from here on.
   useEffect(() => {
@@ -53,53 +66,6 @@ export function ChartPanel() {
       adapterRef.current = null;
     };
   }, []);
-
-  // Selection or indicator parameters changed: fetch bars and series, then sync the chart.
-  useEffect(() => {
-    const adapter = adapterRef.current;
-    if (!adapter || !adapterReady || !strategy) return;
-    let cancelled = false;
-    const key = chartKey(state); // what this fetch is for
-    setLoading(true);
-    setError(null);
-    setLoaded(null); // the header must not pair the new selection with the previous fetch's count
-    Promise.all([api.bars(selection), api.indicators(selection, indicators)])
-      .then(([bars, series]) => {
-        if (cancelled) return;
-        setLoaded({ count: bars.count, data: bars.data });
-        dispatch({ type: 'BARS_LOADED', bars: { count: bars.count, vintage: String(bars.data.vintage ?? '') } });
-        const drawn = chartMeta(indicators, series.outputs, series.pane);
-        setMeta(drawn);
-        syncChart(adapter, { bars: bars.bars, timeframe: selection.timeframe, times: series.times, series: series.series, meta: drawn, markers });
-        const latest: Record<string, number | null> = {};
-        for (const [key, values] of Object.entries(series.series)) {
-          const last = [...values].reverse().find((v) => v !== null && v !== undefined);
-          latest[key] = last ?? null;
-        }
-        dispatch({ type: 'SET_LATEST', key, values: latest });
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        adapter.clear(); // never leave a previous selection's candles under a header that names the new one
-        setLoaded(null);
-        setMeta({});
-        dispatch({ type: 'BARS_LOADED', bars: null });
-        dispatch({ type: 'SET_LATEST', key: '', values: {} });
-        setError(errorMessage(e));
-      })
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-    // markers are applied separately below; indicatorKey captures parameter changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adapterReady, selection.symbol, selection.timeframe, selection.start, selection.end, indicatorKey]);
-
-  // A new run (or a selection that no longer matches it) only changes the markers; bars and overlays stay as fetched.
-  useEffect(() => {
-    adapterRef.current?.setMarkers(markers);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markerKey]);
 
   const studyValues = cursor?.paneKind === 'study' ? Object.entries(cursor.values).filter(([k]) => meta[k]?.pane === 'own') : [];
 
@@ -150,7 +116,12 @@ export function ChartPanel() {
               </>
             ) : loaded ? (
               <>
-                {loaded.count.toLocaleString()} bars · {selection.start} → {selection.end}
+                <span id="chart-bar-count">{loaded.count.toLocaleString()} bars</span> · {selection.start} → {selection.end}
+                {badge && (
+                  <span className="badge" id="chart-shown-as" title={`${range.shown?.toLocaleString()} candles drawn; zoom in for finer candles, down to ${selection.timeframe}`}>
+                    {badge}
+                  </span>
+                )}
               </>
             ) : (
               <>
