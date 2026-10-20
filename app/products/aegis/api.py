@@ -34,6 +34,7 @@ from products.aegis.data import (
 from products.aegis.indicators import IndicatorCache, compute
 from products.aegis.jobs import JobBusy, JobRunner, estimate_seconds
 from products.aegis.kinds import kind_info
+from products.aegis.library import Library, LibraryQuery
 from products.aegis.optimize import OptimizeRequest, OptimizerJob, engine_rows, expand_grid
 from products.aegis.pool import default_workers
 from products.aegis.results import envelope
@@ -1083,6 +1084,56 @@ def study_report_markdown(study_id: str, studies: studies_module.StudyStore = ST
     return PlainTextResponse(
         render_study_markdown(document.report), media_type="text/markdown; charset=utf-8"
     )
+
+
+# --- the Results library (Mission 9 spec §4) --------------------------------------------------------
+
+
+def get_library(
+    repository: RunRepository = REPOSITORY,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+) -> Library:
+    return Library(repository, experiments)
+
+
+LIBRARY_INDEX = Depends(get_library)
+KINDS_QUERY = Query(default=[])
+
+
+@router.get("/library")
+def library_index(
+    kind: list[str] = KINDS_QUERY,
+    symbol: str | None = None,
+    timeframe: str | None = None,
+    strategy: str | None = None,
+    starred: bool | None = None,
+    decision: str | None = None,
+    q: str | None = None,
+    sort: str = "created",
+    offset: int = 0,
+    limit: int = 50,
+    deleted: bool = False,
+    library: Library = LIBRARY_INDEX,
+):
+    """Every saved result as one entry; headlines are computed once and cached (plan P1, P2)."""
+    try:
+        query = LibraryQuery(
+            kinds=kind,
+            symbol=symbol,
+            timeframe=timeframe,
+            strategy=strategy,
+            starred=starred,
+            decision=decision,
+            q=q,
+            sort=sort,
+            offset=offset,
+            limit=limit,
+            deleted=deleted,
+        )
+    except ValidationError as exc:
+        raise HTTPException(422, exc.errors()[0]["msg"]) from exc
+    result = library.query(query)
+    return {**result, "entries": [e.model_dump(mode="json") for e in result["entries"]]}
 
 
 __all__ = [

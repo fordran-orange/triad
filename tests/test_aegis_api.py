@@ -1274,3 +1274,19 @@ def test_a_decision_waits_until_the_study_has_stopped(client, tmp_path, monkeypa
     )
     assert decided.status_code == 200
     assert c.get(f"/aegis/api/studies/{study_id}").json()["decision"]["notes"] == "after"
+
+
+# --- the Results library (Mission 9) ---------------------------------------------------------------
+
+
+def test_library_route_lists_and_filters(client):
+    c, _, repository = client
+    _finished_experiment(repository)
+    body = c.get("/aegis/api/library").json()
+    assert body["total"] >= 1 and body["preparing"] == 0
+    assert any(e["kind"] == "experiment" and e["id"] == "four-cells" for e in body["entries"])
+    only = c.get("/aegis/api/library", params={"kind": "experiment"}).json()
+    assert {e["kind"] for e in only["entries"]} == {"experiment"}
+    assert c.get("/aegis/api/library", params={"q": "nothing like this"}).json()["total"] == 0
+    assert c.get("/aegis/api/library", params={"limit": 500}).status_code == 422
+    assert c.get("/aegis/api/library", params={"kind": "nope"}).status_code == 422

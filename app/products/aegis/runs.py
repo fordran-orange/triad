@@ -112,6 +112,8 @@ class RunRepository(Protocol):
     def list_studies(self) -> list[dict]: ...
     def delete_study(self, study_id: str) -> None: ...
     def study_dir(self, study_id: str) -> Path: ...
+    def read_document(self, folder: str, identifier: str) -> dict: ...
+    def write_summary(self, folder: str, identifier: str, summary: dict) -> None: ...
 
 
 def _check_id(identifier: str) -> str:
@@ -231,6 +233,14 @@ class JsonRunRepository:
             except OSError:
                 pass
         return sorted(items.values(), key=lambda item: item.get("created_at", ""), reverse=True)
+
+    # The Results library (Mission 9): read any kind's document and rewrite its summary sidecar
+    # with the library's cached block (plan ruling P1).
+    def read_document(self, folder: str, identifier: str) -> dict:
+        return self._get(folder, identifier)
+
+    def write_summary(self, folder: str, identifier: str, summary: dict) -> None:
+        self._write(self._folder(folder) / f"{_check_id(identifier)}.summary.json", summary)
 
     def save_run(self, envelope: dict) -> str:
         return self._save("runs", "run_id", envelope)
