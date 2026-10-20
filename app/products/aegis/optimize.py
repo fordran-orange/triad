@@ -12,6 +12,7 @@ progress, cancel and the save follow the chunk. Its cells equal the serial path'
 
 from __future__ import annotations
 
+import heapq
 import math
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -31,6 +32,7 @@ from products.aegis.strategy import RuleSpec, StrategySide, StrategySpec, apply_
 SERIAL_MAX_CELLS = 400  # up to here a grid runs serially, one cell per unit, as before
 MAX_CELLS = 100_000  # a grid is enumerated in memory; larger surfaces are an experiment's
 CHUNK_PER_WORKER = 32  # cells per pool worker in one unit of a pooled grid
+CELLS_SENT = 1_000  # a job's status sends at most this many cells, the best by its objective
 OBJECTIVES = ("net_pnl", "mar", "max_drawdown", "trade_count")
 
 Side = Literal["long", "short"]
@@ -173,26 +175,113 @@ def plan_seconds(
     return cells * bars * rate / max(1, workers) / 1000.0
 
 
+def _defined(value) -> bool:
+    return value is not None and not (isinstance(value, float) and math.isnan(value))
+
+
+def _better(metric: str, value: float, than: float) -> bool:
+    """Strictly better by the metric's orientation: max drawdown lower, everything else higher."""
+    return value < than if metric == "max_drawdown" else value > than
+
+
 def heatmap(
     cells: list[dict], fast_values: list[float], slow_values: list[float], metric: str
 ) -> list[list[float | None]]:
     """Rows fast ascending, columns slow ascending; None where skipped, pending or undefined.
 
-    Cells without both axis values (a one-axis grid) have no place in a matrix and are ignored.
+    A square holds the best cell among those sharing its two values (a grid of three or more
+    parameters has several; the first of equals is kept). Cells without both axis values (a
+    one-axis grid) have no place in a matrix and are ignored.
     """
     lookup: dict[tuple[float, float], float | None] = {}
     for cell in cells:
         if cell.get("fast") is None or cell.get("slow") is None:
             continue
+        key = (float(cell["fast"]), float(cell["slow"]))
         value = cell.get("metrics", {}).get(metric)
-        lookup[(float(cell["fast"]), float(cell["slow"]))] = (
-            None
-            if value is None or (isinstance(value, float) and math.isnan(value))
-            else float(value)
-        )
+        if not _defined(value):
+            lookup.setdefault(key, None)
+            continue
+        current = lookup.get(key)
+        if current is None or _better(metric, float(value), current):
+            lookup[key] = float(value)
     return [
         [lookup.get((fast, slow)) for slow in sorted(slow_values)] for fast in sorted(fast_values)
     ]
+
+
+def best_cells(cells: list[dict], objective: str, n: int) -> list[dict]:
+    """The best `n` cells by the objective (max drawdown ascending, everything else descending),
+    undefined values last, equals in the order they were evaluated."""
+    sign = 1.0 if objective == "max_drawdown" else -1.0
+
+    def key(item: tuple[int, dict]):
+        index, cell = item
+        value = cell.get("metrics", {}).get(objective)
+        return (0, sign * float(value), index) if _defined(value) else (1, 0.0, index)
+
+    return [cell for _, cell in heapq.nsmallest(n, enumerate(cells), key=key)]
+
+
+def grid_values(side: StrategySide) -> dict[str, list[float]]:
+    """Each enabled optimization parameter's values, as the grid expands them."""
+    return {p.path: _values(p.start, p.stop, p.step) for p in side.optimization if p.enabled}
+
+
+def axis_matrix(
+    cells: list[dict], rows_path: str, cols_path: str, values: dict[str, list[float]]
+) -> dict:
+    """The matrix of any two of a job's parameters (the limits change, 2026-10-20): per metric,
+    each square holds the best of the cells sharing its two values (by the metric's orientation)
+    and points into `cells`, the referenced cells; `counts` says how many cells each square holds.
+    """
+    if rows_path == cols_path:
+        raise ValueError("a matrix needs two different parameters")
+    for path in (rows_path, cols_path):
+        if path not in values:
+            raise ValueError(f"{path} is not a parameter of this optimization")
+    rows, cols = sorted(values[rows_path]), sorted(values[cols_path])
+    row_at = {float(v): i for i, v in enumerate(rows)}
+    col_at = {float(v): i for i, v in enumerate(cols)}
+    counts = [[0] * len(cols) for _ in rows]
+    best: dict[str, list[list[int | None]]] = {
+        metric: [[None] * len(cols) for _ in rows] for metric in OBJECTIVES
+    }
+    for index, cell in enumerate(cells):
+        params = cell.get("params", {})
+        if rows_path not in params or cols_path not in params:
+            continue
+        r, c = row_at.get(float(params[rows_path])), col_at.get(float(params[cols_path]))
+        if r is None or c is None:
+            continue
+        counts[r][c] += 1
+        for metric in OBJECTIVES:
+            value = cell.get("metrics", {}).get(metric)
+            if not _defined(value):
+                continue
+            held = best[metric][r][c]
+            if held is None or _better(metric, float(value), float(cells[held]["metrics"][metric])):
+                best[metric][r][c] = index
+    referenced = sorted({i for grid in best.values() for row in grid for i in row if i is not None})
+    position = {i: k for k, i in enumerate(referenced)}
+    return {
+        "rows_path": rows_path,
+        "cols_path": cols_path,
+        "rows": rows,
+        "cols": cols,
+        "counts": counts,
+        "metrics": {
+            metric: {
+                "values": [
+                    [None if i is None else float(cells[i]["metrics"][metric]) for i in row]
+                    for row in grid
+                ],
+                "cells": [[None if i is None else position[i] for i in row] for row in grid],
+            }
+            for metric, grid in best.items()
+        },
+        "cells": [cells[i] for i in referenced],
+    }
 
 
 def engine_rows(frame: pd.DataFrame, symbol: str) -> list[dict]:
@@ -370,6 +459,7 @@ class OptimizerRunner(JobRunner):
 
 
 __all__ = [
+    "CELLS_SENT",
     "CHUNK_PER_WORKER",
     "MAX_CELLS",
     "MS_PER_BAR",
@@ -381,9 +471,12 @@ __all__ = [
     "OptimizeRequest",
     "OptimizerJob",
     "OptimizerRunner",
+    "axis_matrix",
+    "best_cells",
     "engine_rows",
     "estimate_seconds",
     "expand_grid",
+    "grid_values",
     "heatmap",
     "plan_seconds",
     "provenance",

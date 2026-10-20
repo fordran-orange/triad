@@ -298,6 +298,39 @@ def test_optimize_returns_202_with_plan(client):
     assert c.get("/aegis/api/optimize/does-not-exist").status_code == 404
 
 
+def test_optimize_routes_page_every_cell_and_build_a_matrix(client, monkeypatch):
+    """The limits change: a large job sends its best cells; every cell pages; any two parameters
+    make a matrix."""
+    import products.aegis.optimize as optimize_module
+
+    c, _, repository = client
+    server.app.dependency_overrides[api.get_runner] = lambda: OptimizerRunner(repository)
+    job_id = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    done = _wait(c, job_id, "done")
+    assert done["cells_done"] == 9 and len(done["cells"]) == 9
+    monkeypatch.setattr(optimize_module, "CELLS_SENT", 4)
+    trimmed = c.get(f"/aegis/api/optimize/{job_id}").json()
+    assert trimmed["cells_done"] == 9 and trimmed["cells_shown"] == 4 and len(trimmed["cells"]) == 4
+    nets = [cell["metrics"]["net_pnl"] for cell in trimmed["cells"]]
+    assert nets == sorted(nets, reverse=True)
+    assert len(repository.get_optimization(job_id)["cells"]) == 9  # the document keeps every cell
+    page = c.get(f"/aegis/api/optimize/{job_id}/cells", params={"offset": 2, "limit": 3}).json()
+    assert page["total"] == 9 and len(page["rows"]) == 3
+    every = c.get(f"/aegis/api/optimize/{job_id}/cells", params={"limit": 9}).json()["rows"]
+    assert every[2:5] == page["rows"]
+    fast, slow = done["fast_path"], done["slow_path"]
+    matrix = c.get(f"/aegis/api/optimize/{job_id}/matrix", params={"rows": fast, "cols": slow})
+    assert matrix.status_code == 200, matrix.text
+    assert matrix.json()["metrics"]["net_pnl"]["values"] == done["matrices"]["net_pnl"]["long"]
+    bad = c.get(f"/aegis/api/optimize/{job_id}/matrix", params={"rows": fast, "cols": fast})
+    assert bad.status_code == 422
+    assert (
+        c.get("/aegis/api/optimize/nope/matrix", params={"rows": fast, "cols": slow}).status_code
+        == 404
+    )
+    assert c.get("/aegis/api/optimize/nope/cells").status_code == 404
+
+
 def test_optimize_status_progresses_and_is_responsive_while_running(client):
     c, _, repository = client
     _, gate = _held_runner(repository)

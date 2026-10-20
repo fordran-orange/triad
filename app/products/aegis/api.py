@@ -21,6 +21,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from products.aegis import experiments as experiments_module
+from products.aegis import optimize as optimize_module
 from products.aegis import studies as studies_module
 from products.aegis.backtest import BacktestRequest, DataReference, run_backtest
 from products.aegis.compare import compare as compare_runs
@@ -334,12 +335,53 @@ def optimizations(runner: JobRunner = RUNNER):
     return runner.list_jobs("optimization")
 
 
-@router.get("/optimize/{job_id}")
-def optimization(job_id: str, runner: JobRunner = RUNNER):
+def _optimization(runner: JobRunner, job_id: str) -> dict:
     try:
         return runner.status(job_id, kind="optimization")
     except (KeyError, ValueError) as exc:
         raise HTTPException(404, f"unknown optimization {job_id!r}") from exc
+
+
+@router.get("/optimize/{job_id}")
+def optimization(job_id: str, runner: JobRunner = RUNNER):
+    """The job as it stands. A job of more than CELLS_SENT cells sends its best by the objective
+    (the page polls this every second); every cell pages through /cells, and the saved document
+    keeps them all."""
+    status = _optimization(runner, job_id)
+    cells = status.get("cells") or []
+    done = status.get("cells_done", len(cells))
+    if len(cells) > optimize_module.CELLS_SENT:
+        cells = optimize_module.best_cells(
+            cells, status.get("objective", "net_pnl"), optimize_module.CELLS_SENT
+        )
+    return {**status, "cells": cells, "cells_done": done, "cells_shown": len(cells)}
+
+
+@router.get("/optimize/{job_id}/cells")
+def optimization_cells(
+    job_id: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=5000),
+    runner: JobRunner = RUNNER,
+):
+    """Every evaluated cell, best first by the job's objective, a page at a time."""
+    status = _optimization(runner, job_id)
+    cells = status.get("cells") or []
+    ordered = optimize_module.best_cells(cells, status.get("objective", "net_pnl"), len(cells))
+    return {"total": len(ordered), "rows": ordered[offset : offset + limit]}
+
+
+@router.get("/optimize/{job_id}/matrix")
+def optimization_matrix(job_id: str, rows: str, cols: str, runner: JobRunner = RUNNER):
+    """Any two of the job's parameters as a matrix; each square is the best of the rest."""
+    status = _optimization(runner, job_id)
+    try:
+        spec = StrategySpec.model_validate(status["strategy"])
+        side = getattr(spec, "long_side" if status.get("side") == "long" else "short_side")
+        values = optimize_module.grid_values(side)
+        return optimize_module.axis_matrix(status.get("cells") or [], rows, cols, values)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/optimize/{job_id}/cancel")

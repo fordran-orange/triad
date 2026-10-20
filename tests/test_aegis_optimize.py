@@ -19,6 +19,8 @@ from products.aegis.optimize import (
     OptimizeRequest,
     OptimizerJob,
     OptimizerRunner,
+    axis_matrix,
+    best_cells,
     estimate_seconds,
     expand_grid,
     heatmap,
@@ -496,3 +498,78 @@ def test_grid_values_are_rounded_to_the_steps_decimals():
     assert _values(0.1, 0.5, 0.1) == [0.1, 0.2, 0.3, 0.4, 0.5]
     assert _values(5, 7, 1) == [5.0, 6.0, 7.0]
     assert _values(1.0, 2.0, 0.25) == [1.0, 1.25, 1.5, 1.75, 2.0]
+
+
+# --- the limits change: what a job sends, and a matrix of any two parameters ----------------------
+
+
+def _cell(ema, sma, rsi, net, dd):
+    return {
+        "params": {
+            "indicators.ema.length": ema,
+            "indicators.sma.length": sma,
+            "indicators.rsi.length": rsi,
+        },
+        "fast": ema,
+        "slow": sma,
+        "metrics": {"net_pnl": net, "mar": None, "max_drawdown": dd, "trade_count": 3},
+    }
+
+
+THREE = [  # ema x sma x rsi: two rsi values per (ema, sma) square
+    _cell(5, 20, 7, 10.0, 0.20),
+    _cell(5, 20, 14, 30.0, 0.30),
+    _cell(5, 30, 7, None, None),
+    _cell(5, 30, 14, -5.0, 0.10),
+    _cell(9, 20, 7, 50.0, 0.05),
+    _cell(9, 20, 14, 50.0, 0.40),  # ties the cell before it on net P&L: the first is kept
+]
+
+
+def test_heatmap_keeps_the_best_cell_of_a_square():  # Review Focus 3
+    net = heatmap(THREE, [5.0, 9.0], [20.0, 30.0], "net_pnl")
+    assert net == [[30.0, -5.0], [50.0, None]]
+    assert heatmap(THREE, [5.0, 9.0], [20.0, 30.0], "max_drawdown") == [[0.20, 0.10], [0.05, None]]
+
+
+def test_best_cells_by_objective_with_undefined_last_and_ties_stable():  # Review Focus 5
+    assert [c["metrics"]["net_pnl"] for c in best_cells(THREE, "net_pnl", 4)] == [
+        50.0,
+        50.0,
+        30.0,
+        10.0,
+    ]
+    assert best_cells(THREE, "net_pnl", 2)[0] is THREE[4]
+    assert [c["metrics"]["max_drawdown"] for c in best_cells(THREE, "max_drawdown", 6)][-1] is None
+    assert best_cells(THREE, "max_drawdown", 1)[0] is THREE[4]
+
+
+def test_axis_matrix_shows_any_two_parameters_with_the_best_of_the_rest():
+    values = {
+        "indicators.ema.length": [5.0, 9.0],
+        "indicators.sma.length": [20.0, 30.0],
+        "indicators.rsi.length": [7.0, 14.0],
+    }
+    m = axis_matrix(THREE, "indicators.ema.length", "indicators.rsi.length", values)
+    assert (m["rows"], m["cols"]) == ([5.0, 9.0], [7.0, 14.0])
+    net = m["metrics"]["net_pnl"]
+    assert net["values"] == [
+        [10.0, 30.0],
+        [50.0, 50.0],
+    ]  # best over sma; the undefined cell ignored
+    assert m["counts"] == [[2, 2], [1, 1]]
+    best = m["cells"][net["cells"][0][1]]
+    assert best["params"]["indicators.sma.length"] == 20 and best["metrics"]["net_pnl"] == 30.0
+    assert m["metrics"]["max_drawdown"]["values"][0] == [0.20, 0.10]
+    with pytest.raises(ValueError, match="two different parameters"):
+        axis_matrix(THREE, "indicators.ema.length", "indicators.ema.length", values)
+    with pytest.raises(ValueError, match="not a parameter"):
+        axis_matrix(THREE, "indicators.ema.length", "indicators.macd.length", values)
+
+
+def test_axis_matrix_of_a_two_parameter_job_equals_its_heatmap():  # Review Focus 4
+    two = [c for c in THREE if c["params"]["indicators.rsi.length"] == 7]
+    values = {"indicators.ema.length": [5.0, 9.0], "indicators.sma.length": [20.0, 30.0]}
+    m = axis_matrix(two, "indicators.ema.length", "indicators.sma.length", values)
+    for metric in ("net_pnl", "max_drawdown"):
+        assert m["metrics"][metric]["values"] == heatmap(two, [5.0, 9.0], [20.0, 30.0], metric)
