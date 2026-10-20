@@ -1,11 +1,11 @@
 """Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items, the 14 Mission 4
-items, the 11 Mission 5 items, the 13 Mission 6 items and the 9 Mission 8 items in Chromium against the
-running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
+items, the 11 Mission 5 items, the 13 Mission 6 items, the 9 Mission 8 items and the 7 Mission 9
+items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
 (indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
 Items 51 and 63 restart the worker detached through WMI (tools/start_product.ps1), as the DoD asks.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
-Exit code 0 only when all 69 items PASS with no page errors.
+Exit code 0 only when all 76 items PASS with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
 
@@ -98,6 +98,14 @@ ITEMS = [
     "every refusal answers 422 or 409 naming the problem",
     "record the decision accepted with a note: shown on the study and in the list under its experiment",
     "governance unchanged and no file under Core, the platform host or Triad changed since the Mission 8 plan",
+    # Mission 9 (spec §3 items 1–7)
+    "the Library lists saved results of all five kinds with each kind's headline numbers, 50 rows per page",
+    "filters, search and sort narrow and order the list; a label and star set on item 22's run are found by search and by Starred",
+    "item 22's run opens read-only with its chart, markers and results; the workspace is unchanged; Load then loads it, asking first over unsaved edits",
+    "item 21's optimization opens with its matrix and table, item 28's walk-forward with its windows, stitched equity and stability; the experiment and study open on the Experiments page selected",
+    "item 22's pair compares as identical; item 39's run against item 54's lists exactly the differing parameters, carries ▲/▼ marks and draws both curves on one calendar axis",
+    "delete → Recently deleted → restore keeps the result hash; the refusals answer 409 naming a parent with studies, a running study and a study whose parent is trashed",
+    "governance unchanged, no file under Core, the platform host or Triad changed since the Mission 9 plan, items 1–69 still pass and Recently deleted was never emptied",
 ]
 RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
 MISSION5_BASE = (
@@ -117,6 +125,14 @@ MISSION6_END = "90e94d0"
 MISSION8_BASE = (
     "31bddc8"  # the Mission 8 plan commit; Core, platform host and Triad are frozen since
 )
+MISSION9_BASE = (
+    "d56485a"  # the Mission 9 plan commit; Core, platform host and Triad are frozen since
+)
+LIBRARY_KINDS = ["backtest", "optimization", "walkforward", "experiment", "study"]
+THROWAWAY_SURFACE = [  # item 75: 3 × 3 = 9 cells, a finished experiment in seconds
+    ("long_side.indicators.donchian.length", 10, 30, 10),
+    ("long_side.indicators.rsi.length", 7, 21, 7),
+]
 STUDY_SYMBOLS = ["QQQ", "SPY", "ITOT"]
 STUDY_RANGE = ("2016-09-19", "2026-09-18")  # spec §3 item 2: the archive's whole span today
 EXPERIMENT_SURFACE = [  # spec §2 item 2: 7 × 4 × 3 × 3 = 252 cells across both sides
@@ -743,6 +759,7 @@ class Acceptance:
             assert done == total == filled == rows == 40, (done, total, filled, rows)
             elapsed = float(re.search(r"([\d.]+) s elapsed", self.job_head()).group(1))
             self.timings["optimizer_cell_ms_completed_job"] = round(1000 * elapsed / done, 1)
+            self.opt_job_id = self.api("optimize")[0]["job_id"]  # newest first
             page.screenshot(path=str(self.screenshot_path("optimization")), full_page=True)
             page.locator("#optimization-cells-long tbody tr").first.click()
             previous = self.run_state()
@@ -781,6 +798,7 @@ class Acceptance:
             assert first["result_hash"] == RECORDED_IDENTICAL_HASH, first["result_hash"]
             assert first["run_id"] != second["run_id"]
             self.timings["identical_request_hashes"] = [first["result_hash"], second["result_hash"]]
+            self.identical_runs = (first, second)
             return (
                 f"two identical requests: runs {first['run_id'][:8]} and {second['run_id'][:8]} "
                 f"both hash {first['result_hash']}"
@@ -1702,6 +1720,7 @@ class Acceptance:
                 == ema
             )
             same = envelope["result_hash"] == self.timings["materialized_hash"]
+            self.centre_run = envelope
             return (
                 f"the Charts page with unsaved edits; long '{long_card.splitlines()[0]}', short "
                 f"'{short_card.splitlines()[0]}'; backtest run {envelope['run_id'][:8]} hash "
@@ -2477,6 +2496,517 @@ class Acceptance:
             )
 
         self.item(69, item69)
+        self.mission9()
+
+    # -- Mission 9 plumbing: the Results library ---------------------------------------------
+    def library_rows(self) -> list[str]:
+        return self.js(
+            "[...document.querySelectorAll('#library-list .library-row')].map(r => r.id)"
+        )
+
+    def library_change(self, action) -> dict:
+        """Do one filter change and wait for the list request it causes; returns that page."""
+        with self.page.expect_response(
+            lambda r: "/aegis/api/library?" in r.url and r.request.method == "GET", timeout=60_000
+        ) as caught:
+            action()
+        page_ = caught.value.json()
+        self.page.wait_for_timeout(150)  # React renders the page it just received
+        return page_
+
+    def open_library(self) -> dict:
+        """The Library with its default filters: it keeps no state across visits, so leaving for
+        the Experiments page and coming back resets them."""
+        page = self.page
+        if self.js("!!document.getElementById('library-page')"):
+            page.locator("#nav-experiments").click()
+            page.wait_for_selector(".experiments-page", timeout=30_000)
+        return self.library_change(lambda: page.locator("#nav-library").click())
+
+    def library_kind(self, kind: str) -> dict:
+        return self.library_change(lambda: self.page.locator(f"#library-kind-{kind}").click())
+
+    def library_select(self, element_id: str, value: str) -> dict:
+        if value:
+            self.page.wait_for_selector(
+                f'#{element_id} option[value="{value}"]', state="attached", timeout=30_000
+            )
+        return self.library_change(lambda: self.page.locator(f"#{element_id}").select_option(value))
+
+    def library_search(self, text: str) -> dict:
+        return self.library_change(lambda: self.page.locator("#library-search").fill(text))
+
+    def library_row(self, kind: str, item_id: str):
+        locator = self.page.locator(f'[id="lib-{kind}-{item_id}"]')
+        locator.wait_for(timeout=30_000)
+        return locator
+
+    def library_open(self, kind: str, item_id: str) -> None:
+        self.library_row(kind, item_id).click()
+        self.page.wait_for_selector("#library-view .library-view-head", timeout=60_000)
+
+    def pair_filters(self) -> None:
+        """Narrow to the default strategy's QQQ 1h backtests, where item 22's pair is listed."""
+        self.library_kind("backtest")
+        self.library_select("library-symbol", "QQQ")
+        self.library_select("library-timeframe", "1h")
+        self.library_select("library-strategy", self.identical_runs[0]["strategy_id"])
+
+    def workspace_snapshot(self) -> dict:
+        page = self.page
+        page.locator("#nav-charts").click()
+        page.wait_for_selector("#chart-mount", timeout=30_000)
+        self.wait_bars()
+        return self.js(
+            "({run: document.getElementById('run-state')?.innerText ?? '',"
+            " instrument: document.querySelector('.chart-header .instrument')?.innerText ?? '',"
+            " range: document.querySelector('.chart-header .ohlc')?.innerText ?? '',"
+            " long: document.querySelector('.side-card.long .logic')?.innerText ?? '',"
+            " short: document.querySelector('.side-card.short .logic')?.innerText ?? '',"
+            " unsaved: !!document.getElementById('unsaved-edits')})"
+        )
+
+    def compare_ticked(self, a: str, b: str) -> None:
+        page = self.page
+        for run_id in (a, b):
+            page.locator(f'[id="lib-check-backtest-{run_id}"]').check()
+        page.wait_for_function("!document.getElementById('library-compare').disabled")
+        with page.expect_response(lambda r: "/aegis/api/library/compare?" in r.url, timeout=60_000):
+            page.locator("#library-compare").click()
+        page.wait_for_selector("#compare-notes", timeout=30_000)
+
+    # -- Mission 9 items --------------------------------------------------------------------------
+    def mission9(self):
+        page = self.page
+
+        def item70():
+            assert self.wait_until(lambda: self.api("library?limit=1")["preparing"] == 0, 600, 2), (
+                "headlines still preparing"
+            )
+            self.open_library()
+            own = {
+                "backtest": self.identical_runs[1]["run_id"],
+                "optimization": self.opt_job_id,
+                "walkforward": self.wf_status["job_id"],
+                "experiment": self.exp_id,
+                "study": self.study_id,
+            }
+            seen = []
+            for kind in LIBRARY_KINDS:
+                listed = self.api(f"library?kind={kind}&limit=200")
+                assert own[kind] in [e["id"] for e in listed["entries"]], (kind, own[kind])
+                shown = self.library_kind(kind)
+                rows = self.library_rows()
+                assert rows and all(r.startswith(f"lib-{kind}-") for r in rows), (kind, rows[:3])
+                assert len(rows) == min(50, shown["total"]), (kind, len(rows), shown["total"])
+                first = self.js(
+                    "document.querySelector('#library-list .library-row .library-row-body > .small:last-child')?.innerText ?? ''"
+                )
+                assert first and "preparing" not in first, (kind, first)
+                seen.append(f"{kind} {shown['total']} ('{first[:48]}')")
+                self.library_kind(kind)  # off again
+            return "; ".join(seen) + "; the walk's own items are indexed"
+
+        self.item(70, item70)
+
+        def item71():
+            a, b = self.identical_runs
+            totals = [self.open_library()["total"]]
+            totals.append(self.library_kind("backtest")["total"])
+            totals.append(self.library_select("library-symbol", "QQQ")["total"])
+            totals.append(self.library_select("library-timeframe", "1h")["total"])
+            totals.append(self.library_select("library-strategy", a["strategy_id"])["total"])
+            assert all(x >= y for x, y in itertools.pairwise(totals)) and totals[-1] >= 2, totals
+            self.library_open("backtest", b["run_id"])
+            self.pair_label = f"identical pair B {self.stamp}"
+            page.locator("#library-label").fill(self.pair_label)
+            page.locator("#library-notes").fill("Mission 9 acceptance: item 22's second run")
+            with page.expect_response(
+                lambda r: r.url.endswith("/annotation"), timeout=30_000
+            ) as saved:
+                page.locator("#library-save-annotation").click()
+            assert saved.value.ok, saved.value.text()
+            star = page.locator(f'[id="lib-star-backtest-{b["run_id"]}"]')
+            if star.get_attribute("aria-pressed") != "true":  # a fresh walk's run is unstarred
+                with page.expect_response(
+                    lambda r: r.url.endswith("/annotation"), timeout=30_000
+                ) as starred:
+                    star.click()
+                assert starred.value.ok and starred.value.json()["starred"] is True, (
+                    starred.value.text()
+                )
+            note = self.api(f"library?kind=backtest&q={self.pair_label.replace(' ', '+')}")
+            assert [(e["label"], e["starred"]) for e in note["entries"]] == [
+                (self.pair_label, True)
+            ], note["entries"]
+            page.wait_for_function(
+                f"document.getElementById({json.dumps('lib-star-backtest-' + b['run_id'])})?.getAttribute('aria-pressed') === 'true'"
+            )
+            self.open_library()
+            found = self.library_search(self.pair_label)
+            assert [e["id"] for e in found["entries"]] == [b["run_id"]], found["entries"]
+            assert self.library_rows() == [f"lib-backtest-{b['run_id']}"], self.library_rows()
+            self.open_library()
+            starred_page = self.library_change(lambda: page.locator("#library-starred").check())
+            assert all(e["starred"] for e in starred_page["entries"]), starred_page["entries"]
+            assert f"lib-backtest-{b['run_id']}" in self.library_rows()
+            self.open_library()
+            decided = self.library_select("library-decision", "accepted")
+            ids = {(e["kind"], e["id"]) for e in decided["entries"]}
+            assert {("experiment", self.exp_id), ("study", self.study_id)} <= ids, ids
+            self.open_library()
+            self.library_kind("backtest")
+            by_mar = self.library_select("library-sort", "mar")
+            mars = [e["headline"].get("mar") for e in by_mar["entries"]]
+            valued = [m for m in mars if m is not None]
+            assert valued == sorted(valued, reverse=True), mars[:10]
+            assert self.library_rows()[0] == f"lib-backtest-{by_mar['entries'][0]['id']}"
+            return (
+                f"totals all → backtest → QQQ → 1h → default strategy: {' → '.join(map(str, totals))}; "
+                f"label '{self.pair_label}' found by search alone; starred and listed under Starred "
+                f"({starred_page['total']}); accepted lists the experiment and the study; MAR sorts descending"
+            )
+
+        self.item(71, item71)
+
+        def item72():
+            b = self.identical_runs[1]
+            before = self.workspace_snapshot()
+            self.open_library()
+            self.library_search(self.pair_label)
+            self.library_open("backtest", b["run_id"])
+            page.wait_for_function(
+                "/\\d[\\d,]* bars · \\d[\\d,]* markers/.test(document.querySelector('#library-chart .legend')?.innerText ?? '')",
+                timeout=90_000,
+            )
+            legend = self.js("document.querySelector('#library-chart .legend').innerText")
+            markers = int(re.search(r"([\d,]+) markers", legend).group(1).replace(",", ""))
+            assert markers == len(b["markers"]) > 0, (markers, len(b["markers"]))
+            header = self.js("document.querySelector('#library-view .library-view-head').innerText")
+            assert b["result_hash"][:12] in header and "raw archive" in header, header
+            net = self.js(
+                "[...document.querySelectorAll('#library-view #summary-metrics tbody tr')]"
+                ".find(r => r.cells[0].innerText === 'Net P&L')?.cells[3].innerText ?? ''"
+            )
+            assert net not in ("", DASH), net
+            temporal = self.js(
+                "document.querySelectorAll('#library-view #temporal-breakdown tbody tr').length"
+            )
+            assert temporal > 0, "no temporal breakdown"
+            page.locator("#library-tab-trades").click()
+            trades = self.js(
+                "document.querySelectorAll('#library-view .results-table tbody tr').length"
+            )
+            assert trades > 0, "no trades listed"
+            page.locator("#library-tab-equity").click()
+            assert self.js(
+                "document.querySelectorAll('#library-view svg[aria-label=\"equity curve\"] path').length"
+            ), "no equity curve"
+            after = self.workspace_snapshot()
+            assert after == before, (before, after)
+            self.open_library()
+            self.library_search(self.pair_label)
+            self.library_open("backtest", b["run_id"])
+            asked: list[str] = []
+
+            def dismiss(dialog):
+                asked.append(dialog.message)
+                dialog.dismiss()
+
+            def accept(dialog):
+                asked.append(dialog.message)
+                dialog.accept()
+
+            if before["unsaved"]:
+                page.on("dialog", dismiss)
+                page.locator("#library-load").click()
+                page.wait_for_timeout(500)
+                page.remove_listener("dialog", dismiss)
+                assert asked and self.js("!!document.getElementById('library-page')"), asked
+            page.on("dialog", accept)
+            try:
+                page.locator("#library-load").click()
+                page.wait_for_selector("#chart-mount", timeout=30_000)
+            finally:
+                page.remove_listener("dialog", accept)
+            loaded = self.workspace_snapshot()
+            assert loaded["run"].startswith(f"run {b['run_id'][:8]}"), loaded
+            assert loaded["instrument"].startswith("QQQ · 1h"), loaded
+            return (
+                f"run {b['run_id'][:8]} read-only: {legend.strip()}, Net P&L {net}, {temporal} temporal rows, "
+                f"{trades} trades; the workspace before and after equal ({before['run'] or 'no run'}); "
+                + (
+                    "Load asked first over unsaved edits (dismissed: nothing changed), then loaded it"
+                    if before["unsaved"]
+                    else "no unsaved edits, so Load loaded it without asking"
+                )
+            )
+
+        self.item(72, item72)
+
+        def item73():
+            self.open_library()
+            self.library_kind("optimization")
+            self.library_open("optimization", self.opt_job_id)
+            page.wait_for_function(
+                "document.querySelectorAll('#library-view #optimization-cells-long tbody tr').length === 40",
+                timeout=60_000,
+            )
+            filled = self.js(
+                f"[...document.querySelectorAll('#library-view .heat-grid .cell:not(.h)')].filter(c => c.innerText !== '{DASH}').length"
+            )
+            assert filled == 40, filled
+            assert self.js("document.getElementById('library-load').disabled")
+            page.locator("#library-view #optimization-cells-long tbody tr").first.click()
+            page.wait_for_function("!document.getElementById('library-load').disabled")
+            self.library_kind("optimization")
+            self.library_kind("walkforward")
+            self.library_open("walkforward", self.wf_status["job_id"])
+            page.wait_for_function(
+                "document.querySelectorAll('#library-view #walkforward-windows-long tbody tr').length === 6",
+                timeout=60_000,
+            )
+            stitched = self.js("document.getElementById('walkforward-stitched-long').innerText")
+            stability = self.js("document.getElementById('walkforward-stability-long').innerText")
+            assert "Net P&L" in stitched and "Stability" in stability, (stitched, stability)
+            assert "final window" in self.js("document.getElementById('library-load').innerText")
+            self.library_kind("walkforward")
+            self.library_kind("experiment")
+            self.library_open("experiment", self.exp_id)
+            page.locator("#library-open").click()
+            page.wait_for_selector(f'[id="exp-{self.exp_id}"].selected', timeout=60_000)
+            self.open_library()
+            self.library_kind("study")
+            self.library_open("study", self.study_id)
+            page.locator("#library-open").click()
+            page.wait_for_selector(f'[id="study-row-{self.study_id}"].selected', timeout=60_000)
+            assert self.js(f"!!document.querySelector('[id=\"exp-{self.exp_id}\"].selected')")
+            return (
+                f"optimization {self.opt_job_id[:8]}: 40 matrix cells and 40 rows, a pick enables Load; "
+                f"walk-forward {self.wf_status['job_id'][:8]}: 6 windows, stitched and stability; "
+                f"experiment {self.exp_id} and study {self.study_id} open selected on the Experiments page"
+            )
+
+        self.item(73, item73)
+
+        def item74():
+            a, b = self.identical_runs
+            self.open_library()
+            self.pair_filters()
+            self.compare_ticked(a["run_id"], b["run_id"])
+            notes = self.js("document.getElementById('compare-notes').innerText")
+            assert "identical result" in notes and "same data" in notes, notes
+            assert "Same strategy and settings." in self.js(
+                "document.getElementById('compare-differences').innerText"
+            )
+            marks = self.js(
+                "[...document.querySelectorAll('#compare-metrics-combined tbody tr')].map(r => r.cells[4].innerText)"
+            )
+            assert marks and all(m == "" for m in marks), marks
+            page.locator("#compare-close").click()
+            first, centre = self.lab_run, self.centre_run
+            self.open_library()
+            self.library_kind("backtest")
+            self.library_select("library-strategy", self.lab["id"])
+            self.compare_ticked(first["run_id"], centre["run_id"])
+            expected = self.api(f"library/compare?a={first['run_id']}&b={centre['run_id']}")
+            shown = self.js(
+                "[...document.querySelectorAll('#compare-differences tbody tr')].map(r => [...r.cells].map(c => c.innerText))"
+            )
+            paths = [row[0] for row in shown]
+            assert paths and paths == [d["path"] for d in expected["differences"]], (
+                paths,
+                expected,
+            )
+            surface = {p for p, *_ in EXPERIMENT_SURFACE}
+            assert set(paths) <= surface, paths
+
+            def at(envelope, path):
+                side, _, ident, field = path.split(".")
+                spec = next(i for i in envelope["strategy"][side]["indicators"] if i["id"] == ident)
+                return spec[field]
+
+            for path, a_text, b_text in shown:
+                assert (json.loads(a_text), json.loads(b_text)) == (
+                    at(first, path),
+                    at(centre, path),
+                ), path
+            marks = self.js(
+                "[...document.querySelectorAll('#compare-metrics-combined tbody tr')].map(r => r.cells[4].innerText)"
+            )
+            assert any("▲" in m or "▼" in m for m in marks), marks
+            curves = self.js(
+                "document.querySelectorAll('#compare-chart svg')[0].querySelectorAll('path').length"
+            )
+            assert curves == 2, curves
+            unit = self.js("document.querySelector('#compare-unit .chip.active')?.innerText ?? ''")
+            assert "%" in unit, unit
+            page.locator("#compare-close").click()
+            return (
+                f"item 22's pair: {notes.strip()}; item 39 ({first['run_id'][:8]}) vs item 54 "
+                f"({centre['run_id'][:8]}): "
+                + ", ".join(f"{p} {x} → {y}" for p, x, y in shown)
+                + f"; marks {sum(1 for m in marks if m)} of {len(marks)}; two curves on one axis in % return"
+            )
+
+        self.item(74, item74)
+
+        def item75():
+            checks = []
+
+            def refused(response, needle, label):
+                assert response.status == 409 and needle in response.text(), (
+                    label,
+                    response.status,
+                    response.text()[:300],
+                )
+                checks.append(f"{label} → 409")
+
+            body = {
+                "strategy": self.api("strategy/default"),
+                "data": {
+                    "symbol": "QQQ",
+                    "timeframe": "1h",
+                    "start": "2024-01-01",
+                    "end": "2024-03-31",
+                },
+                "settings": {"initial_capital": 100000, "allocation_fraction": 1},
+            }
+            created = self.post("backtest", body)
+            assert created.ok, created.text()
+            run = created.json()
+            rid = run["run_id"]
+            self.open_library()
+            self.library_kind("backtest")
+            self.library_open("backtest", rid)
+            asked: list[str] = []
+
+            def accept(dialog):
+                asked.append(dialog.message)
+                dialog.accept()
+
+            page.on("dialog", accept)
+            try:
+                with page.expect_response(
+                    lambda r: r.request.method == "DELETE" and f"/library/backtest/{rid}" in r.url,
+                    timeout=30_000,
+                ) as deleted:
+                    page.locator("#library-delete").click()
+            finally:
+                page.remove_listener("dialog", accept)
+            assert deleted.value.ok and asked and "Recently deleted" in asked[0], asked
+            page.wait_for_selector(f'[id="lib-backtest-{rid}"]', state="detached", timeout=30_000)
+            self.library_change(lambda: page.locator("#library-deleted").check())
+            row = self.library_row("backtest", rid)
+            assert "deleted" in row.inner_text(), row.inner_text()
+            row.click()
+            with page.expect_response(
+                lambda r: r.url.endswith(f"/library/backtest/{rid}/restore"), timeout=30_000
+            ) as restored:
+                page.locator("#library-restore").click()
+            assert restored.value.ok, restored.value.text()
+            back = self.api(f"runs/{rid}")
+            assert back["result_hash"] == run["result_hash"], (
+                back["result_hash"],
+                run["result_hash"],
+            )
+            checks.append(
+                f"backtest {rid[:8]} deleted, listed in Recently deleted, restored with hash {run['result_hash'][:12]}"
+            )
+            refused(
+                page.request.delete(self.base + f"api/library/experiment/{self.exp_id}"),
+                "has studies",
+                "the item-63 study's parent experiment",
+            )
+            # a running study: QQQ alone on the 252-cell experiment runs for about a minute (item 67's)
+            running = self.post(
+                "studies",
+                {**self.study_body(), "symbols": ["QQQ"], "name": f"running {self.stamp}"},
+            )
+            assert running.status == 202, running.text()
+            running_id = running.json()["study_id"]
+            refused(
+                page.request.delete(self.base + f"api/library/study/{running_id}"),
+                "cancel it first",
+                "a running study",
+            )
+            assert self.post(f"studies/{running_id}/cancel", {}).ok
+            self.wait_study(running_id, ("cancelled", "done"), 900)
+            assert page.request.delete(self.base + f"api/library/study/{running_id}").ok
+            # a throwaway pair: a 9-cell experiment and a study of it, both finished in seconds
+            started = self.post(
+                "experiments",
+                self.experiment_body(
+                    THROWAWAY_SURFACE, objective="net_pnl", name=f"throwaway pair {self.stamp}"
+                ),
+            )
+            assert started.status == 202, started.text()
+            tid = started.json()["experiment_id"]
+            assert self.wait_until(
+                lambda: self.experiment(tid)["status"] in ("done", "failed", "cancelled"), 900, 1
+            )
+            assert self.experiment(tid)["status"] == "done", self.experiment(tid).get("error")
+            study = self.post(
+                "studies",
+                {
+                    **self.study_body(),
+                    "experiment_id": tid,
+                    "symbols": ["QQQ"],
+                    "name": f"throwaway study {self.stamp}",
+                },
+            )
+            assert study.status == 202, study.text()
+            sid = study.json()["study_id"]
+            self.wait_study(sid, ("done", "failed", "cancelled"), 900)
+            assert page.request.delete(self.base + f"api/library/study/{sid}").ok
+            assert page.request.delete(self.base + f"api/library/experiment/{tid}").ok
+            refused(
+                self.post(f"library/study/{sid}/restore", {}),
+                "restored first",
+                "a restore of a study whose parent is trashed",
+            )
+            assert self.post(f"library/experiment/{tid}/restore", {}).ok
+            assert self.post(f"library/study/{sid}/restore", {}).ok
+            assert page.request.delete(self.base + f"api/library/study/{sid}").ok
+            assert page.request.delete(self.base + f"api/library/experiment/{tid}").ok
+            self.throwaway = {"run": rid, "experiment": tid, "study": sid, "running": running_id}
+            return (
+                "; ".join(checks)
+                + f"; the throwaway pair {tid} / {sid} restored in order, then left in Recently deleted"
+            )
+
+        self.item(75, item75)
+
+        def item76():
+            import subprocess
+
+            def git(*args) -> str:
+                return subprocess.run(
+                    ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
+                ).stdout
+
+            status = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
+            assert status["mode"] == "human_directed" and status["exchange"] == "CLOSED", status
+            schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
+            assert schedule["enabled"] is False and schedule["id"].startswith("c99fa831"), schedule
+            paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
+            committed = git("diff", "--name-only", MISSION9_BASE, "HEAD", "--", *paths).strip()
+            pending = git("status", "--porcelain", "--", *paths).strip()
+            assert committed == "" and pending == "", (committed, pending)
+            earlier = [r for r in self.results if r["item"] <= 69]
+            failed = [r["item"] for r in earlier if r["status"] != "PASS"]
+            assert len(earlier) == 69 and not failed, failed
+            trash = {e["id"] for e in self.api("library?deleted=true&limit=200")["entries"]}
+            throwaway = getattr(self, "throwaway", {})
+            kept = {throwaway[k] for k in ("experiment", "study", "running") if k in throwaway}
+            assert kept <= trash, (kept, trash)
+            return (
+                f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since {MISSION9_BASE}; "
+                f"items 1–69 PASS; Recently deleted holds {len(trash)} item(s), never emptied"
+            )
+
+        self.item(76, item76)
 
 
 def main(argv=None) -> int:
@@ -2512,6 +3042,7 @@ def main(argv=None) -> int:
         "refined_experiment_id": getattr(acceptance, "child_id", None),
         "study_id": getattr(acceptance, "study_id", None),
         "identical_study_id": getattr(acceptance, "twin_id", None),
+        "library_throwaway": getattr(acceptance, "throwaway", None),
         "page_errors": acceptance.errors,
     }
     out = ROOT / "logs" / f"aegis-acceptance-{stamp}.json"
