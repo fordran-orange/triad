@@ -2,11 +2,16 @@ import { useEffect, useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import { METRICS, METRIC_LABELS, TERMINAL_JOB_STATES, type Metric, type OptimizePlan, type WalkForwardPlan } from '../results';
 import { SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
+import { needsConfirm } from '../optimizer';
 import { warmupBars } from '../rules';
 import { defaultWindowBars } from './WalkForwardTab';
 
 export function formatSeconds(seconds: number): string {
   if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+  if (seconds >= 3600) {
+    const hours = Math.floor(seconds / 3600);
+    return `${hours} h ${Math.round((seconds - hours * 3600) / 60)} min`;
+  }
   const minutes = Math.floor(seconds / 60);
   return `${minutes} min ${Math.round(seconds - minutes * 60)} s`;
 }
@@ -55,6 +60,13 @@ export function OptimizePopover({ onClose }: { onClose: () => void }) {
 
   const start = async () => {
     if (!strategy) return;
+    // A long run asks first, naming its size and estimate (the limits change).
+    const priced = mode === 'grid' ? plan : wfPlan;
+    if (priced && needsConfirm(priced.estimated_seconds)) {
+      const size = mode === 'grid' && plan ? `${plan.total_cells.toLocaleString()} cells` : wfPlan ? `${wfPlan.total_units.toLocaleString()} units` : '';
+      const where = mode === 'grid' && plan?.pooled ? ` on ${plan.workers} workers` : '';
+      if (!window.confirm(`This run is ${size}, estimated at ≈ ${formatSeconds(priced.estimated_seconds)}${where}. Start it?`)) return;
+    }
     setStarting(true);
     setError(null);
     try {
@@ -134,7 +146,8 @@ export function OptimizePopover({ onClose }: { onClose: () => void }) {
       <div className="plan" id={mode === 'grid' ? 'optimize-plan' : 'walkforward-plan'}>
         {mode === 'grid' && plan && (
           <>
-            {plan.total_cells} valid cells · {plan.skipped_cells} skipped{plan.skip_reason ? ` (${plan.skip_reason})` : ''} · {plan.bars.toLocaleString()} bars · ≈ {formatSeconds(plan.estimated_seconds)} estimated
+            {plan.total_cells.toLocaleString()} valid cells · {plan.skipped_cells} skipped{plan.skip_reason ? ` (${plan.skip_reason})` : ''} · {plan.bars.toLocaleString()} bars · ≈ {formatSeconds(plan.estimated_seconds)} estimated
+            {plan.pooled ? ` · on the pool (${plan.workers} workers)` : ''}
           </>
         )}
         {mode === 'walkforward' && wfPlan && (

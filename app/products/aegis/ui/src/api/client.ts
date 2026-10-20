@@ -1,6 +1,8 @@
 // Thin typed fetch wrappers for the Aegis worker routes (spec §7). Same-origin under /aegis/api.
 import type { ExperimentDocument, IndicatorSpec, Plan, StrategyDocument, StrategySpec, StudyDocument, StudyPlan } from '../contracts';
 import type {
+  AxisMatrix,
+  Cell,
   CellsPage,
   CompareResult,
   ExperimentReport,
@@ -224,6 +226,10 @@ export const api = {
   optimize: (body: OptimizeBody) => request<OptimizeStarted>('/optimize', post(body)),
   optimizations: () => request<JobSummary[]>('/optimize'),
   job: (id: string) => request<JobStatus>(`/optimize/${encodeURIComponent(id)}`),
+  optimizeCells: (id: string, offset: number, limit: number) =>
+    request<{ total: number; rows: Cell[] }>(`/optimize/${encodeURIComponent(id)}/cells?offset=${offset}&limit=${limit}`),
+  optimizeMatrix: (id: string, rows: string, cols: string) =>
+    request<AxisMatrix>(`/optimize/${encodeURIComponent(id)}/matrix?rows=${encodeURIComponent(rows)}&cols=${encodeURIComponent(cols)}`),
   cancel: (id: string) => request<{ cancelled: boolean }>(`/optimize/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
   walkforwardPlan: (body: WalkForwardBody) => request<WalkForwardPlan>('/walkforward/plan', post(body)),
   walkforward: (body: WalkForwardBody) => request<WalkForwardStarted>('/walkforward', post(body)),
