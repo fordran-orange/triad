@@ -184,6 +184,21 @@ export interface JobStatus {
   strategy: StrategySpec;
   settings: { initial_capital: number; allocation_fraction: number };
   error: string | null;
+  cells_done?: number; // every evaluated cell (the limits change); `cells` may hold only the best
+  cells_shown?: number;
+  pooled?: boolean; // more than 400 cells: run in chunks on the process pool
+  matrix_squares?: number; // the stored pair's squares; above the page's budget `matrices` is empty
+}
+
+/** GET /optimize/{id}/matrix: any two of a job's parameters; each square is the best of the rest. */
+export interface AxisMatrix {
+  rows_path: string;
+  cols_path: string;
+  rows: number[];
+  cols: number[];
+  counts: number[][];
+  metrics: Partial<Record<Metric, { values: Matrix; cells: Array<Array<number | null>> }>>; // one metric when asked for one
+  cells: Cell[];
 }
 
 export interface JobSummary {
@@ -207,6 +222,8 @@ export interface OptimizePlan {
   estimated_seconds: number;
   ms_per_bar: number; // the runner's last observed cell cost on this host
   bars: number;
+  pooled?: boolean; // more than 400 cells: priced and run on the process pool
+  workers?: number;
 }
 
 export interface OptimizeStarted {

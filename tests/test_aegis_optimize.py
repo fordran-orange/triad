@@ -3,6 +3,7 @@
 DB-free; synthetic bars from test_aegis_backtest; JSON repository on tmp_path.
 """
 
+import json
 import threading
 import time
 
@@ -12,13 +13,25 @@ from products.aegis.backtest import DataReference
 from products.aegis.optimize import (
     MAX_CELLS,
     MS_PER_BAR,
+    POOL_PREPARE_SECONDS_PER_BAR,
+    POOL_START_SECONDS,
+    SERIAL_MAX_CELLS,
     GridPlan,
     JobBusy,
     OptimizeRequest,
+    OptimizerJob,
     OptimizerRunner,
+    axis_matrix,
+    best_cells,
+    chunk_cells,
     estimate_seconds,
     expand_grid,
     heatmap,
+    page_view,
+    plan_seconds,
+    pool_rate,
+    remaining_seconds,
+    square_cell,
 )
 from products.aegis.runs import JsonRunRepository
 from products.aegis.strategy import OptimizationParameter, default_strategy
@@ -75,11 +88,92 @@ def test_grid_expands_from_side_ranges_and_skips_fast_ge_slow():
     assert all(s["indicators.ema.length"] >= s["indicators.sma.length"] for s in plan.skipped)
 
 
-def test_grid_over_400_cells_is_rejected():
+def test_a_grid_over_400_cells_is_planned_for_the_pool():  # the limits change (2026-10-20)
     strategy = small_strategy(fast=(1, 25, 1), slow=(30, 200, 10))  # 25 * 18 = 450 > 400
-    assert MAX_CELLS == 400
-    with pytest.raises(ValueError, match="grid too large"):
+    assert (MAX_CELLS, SERIAL_MAX_CELLS) == (100_000, 400)
+    assert len(expand_grid(strategy.long_side).cells) == 450
+
+
+def test_grid_bound_names_the_count_and_points_to_experiments():
+    strategy = small_strategy(fast=(1, 400, 1), slow=(401, 700, 1))  # 400 * 300 = 120,000
+    with pytest.raises(ValueError, match="120000 cells over cap 100000") as info:
         expand_grid(strategy.long_side)
+    assert "experiment" in str(info.value)
+
+
+def test_plan_prices_a_pooled_grid_across_workers():
+    assert plan_seconds(100, 1000, 0.02, None, 10) == pytest.approx(2.0)  # serial: the host rate
+    start = POOL_START_SECONDS + 1000 * POOL_PREPARE_SECONDS_PER_BAR  # the limits review (I4)
+    # pooled: the pool rate across the effective workers (0.8 each, as experiments price them)
+    assert plan_seconds(1000, 1000, 0.02, 0.03, 10) == pytest.approx(start + 30.0 / 8)
+    assert plan_seconds(1000, 1000, 0.02, None, 10) == pytest.approx(start + 20.0 / 8)
+
+
+def _grid_strategy():
+    return small_strategy(fast=(3, 8, 1), slow=(9, 14, 1))  # 6 x 6 = 36 cells
+
+
+def _run_to_end(tmp_path, kind):
+    runner = OptimizerRunner(JsonRunRepository(tmp_path))
+    job_id = runner.start(kind)
+    assert wait_for(lambda: runner.status(job_id)["status"] in ("done", "failed"), 120)
+    return runner.status(job_id)
+
+
+def test_pooled_cells_equal_serial_cells(tmp_path, monkeypatch):  # Review Focus 1
+    import products.aegis.optimize as module
+    from products.aegis.pool import Pool
+
+    frame = pd.DataFrame(bars())
+    serial = _run_to_end(
+        tmp_path / "serial", OptimizerJob(request(_grid_strategy()), frame, PINNED)
+    )
+    monkeypatch.setattr(module, "SERIAL_MAX_CELLS", 10)
+    kind = OptimizerJob(
+        request(_grid_strategy()), frame, PINNED, pool_factory=lambda: Pool(max_workers=2)
+    )
+    assert kind.pooled and kind.total_units < 36
+    pooled = _run_to_end(tmp_path / "pooled", kind)
+    assert serial["status"] == pooled["status"] == "done", (serial["error"], pooled["error"])
+    assert pooled["cells_done"] == serial["cells_done"] == 36
+    by_params = {json.dumps(c["params"], sort_keys=True): c for c in serial["cells"]}
+    for cell in pooled["cells"]:
+        twin = by_params[json.dumps(cell["params"], sort_keys=True)]
+        assert (cell["fast"], cell["slow"]) == (twin["fast"], twin["slow"])
+        assert cell["metrics"] == pytest.approx(twin["metrics"], nan_ok=True)
+    assert pooled["bars"] == serial["bars"] == len(frame)
+
+
+def test_pooled_job_progresses_and_cancels_by_chunk(tmp_path, monkeypatch):  # Review Focus 2
+    import products.aegis.optimize as module
+    from products.aegis.pool import Pool
+
+    monkeypatch.setattr(module, "SERIAL_MAX_CELLS", 10)
+    monkeypatch.setattr(module, "CHUNK_PER_WORKER", 4)  # 2 workers x 4 = 8 cells per unit
+    gate = threading.Event()
+
+    def after_chunk(done):
+        if done == 1:
+            gate.wait(30)
+
+    repository = JsonRunRepository(tmp_path)
+    runner = OptimizerRunner(repository, after_cell=after_chunk)
+    kind = OptimizerJob(
+        request(_grid_strategy()),
+        pd.DataFrame(bars()),
+        PINNED,
+        pool_factory=lambda: Pool(max_workers=2),
+    )
+    job_id = runner.start(kind)
+    assert wait_for(lambda: runner.status(job_id)["progress"]["done"] == 1, 120)
+    mid = runner.status(job_id)
+    assert mid["progress"] == {"done": 1, "total": 5} and mid["cells_done"] == 8
+    assert mid["total_cells"] == 36 and mid["ms_per_bar"] is None  # the pool never prices the host
+    assert runner.cancel(job_id) is True
+    gate.set()
+    assert wait_for(lambda: runner.status(job_id)["status"] == "cancelled", 60)
+    saved = repository.get_optimization(job_id)
+    assert saved["status"] == "cancelled" and len(saved["cells"]) == 8
 
 
 def test_estimate_uses_cells_bars_and_ms_per_bar():
@@ -413,3 +507,225 @@ def test_grid_values_are_rounded_to_the_steps_decimals():
     assert _values(0.1, 0.5, 0.1) == [0.1, 0.2, 0.3, 0.4, 0.5]
     assert _values(5, 7, 1) == [5.0, 6.0, 7.0]
     assert _values(1.0, 2.0, 0.25) == [1.0, 1.25, 1.5, 1.75, 2.0]
+
+
+# --- the limits change: what a job sends, and a matrix of any two parameters ----------------------
+
+
+def _cell(ema, sma, rsi, net, dd):
+    return {
+        "params": {
+            "indicators.ema.length": ema,
+            "indicators.sma.length": sma,
+            "indicators.rsi.length": rsi,
+        },
+        "fast": ema,
+        "slow": sma,
+        "metrics": {"net_pnl": net, "mar": None, "max_drawdown": dd, "trade_count": 3},
+    }
+
+
+THREE = [  # ema x sma x rsi: two rsi values per (ema, sma) square
+    _cell(5, 20, 7, 10.0, 0.20),
+    _cell(5, 20, 14, 30.0, 0.30),
+    _cell(5, 30, 7, None, None),
+    _cell(5, 30, 14, -5.0, 0.10),
+    _cell(9, 20, 7, 50.0, 0.05),
+    _cell(9, 20, 14, 50.0, 0.40),  # ties the cell before it on net P&L: the first is kept
+]
+
+
+def test_heatmap_keeps_the_best_cell_of_a_square():  # Review Focus 3
+    net = heatmap(THREE, [5.0, 9.0], [20.0, 30.0], "net_pnl")
+    assert net == [[30.0, -5.0], [50.0, None]]
+    assert heatmap(THREE, [5.0, 9.0], [20.0, 30.0], "max_drawdown") == [[0.20, 0.10], [0.05, None]]
+
+
+def test_best_cells_by_objective_with_undefined_last_and_ties_stable():  # Review Focus 5
+    assert [c["metrics"]["net_pnl"] for c in best_cells(THREE, "net_pnl", 4)] == [
+        50.0,
+        50.0,
+        30.0,
+        10.0,
+    ]
+    assert best_cells(THREE, "net_pnl", 2)[0] is THREE[4]
+    assert [c["metrics"]["max_drawdown"] for c in best_cells(THREE, "max_drawdown", 6)][-1] is None
+    assert best_cells(THREE, "max_drawdown", 1)[0] is THREE[4]
+
+
+def test_axis_matrix_shows_any_two_parameters_with_the_best_of_the_rest():
+    values = {
+        "indicators.ema.length": [5.0, 9.0],
+        "indicators.sma.length": [20.0, 30.0],
+        "indicators.rsi.length": [7.0, 14.0],
+    }
+    m = axis_matrix(THREE, "indicators.ema.length", "indicators.rsi.length", values)
+    assert (m["rows"], m["cols"]) == ([5.0, 9.0], [7.0, 14.0])
+    net = m["metrics"]["net_pnl"]
+    assert net["values"] == [
+        [10.0, 30.0],
+        [50.0, 50.0],
+    ]  # best over sma; the undefined cell ignored
+    assert m["counts"] == [[2, 2], [1, 1]]
+    best = m["cells"][net["cells"][0][1]]
+    assert best["params"]["indicators.sma.length"] == 20 and best["metrics"]["net_pnl"] == 30.0
+    assert m["metrics"]["max_drawdown"]["values"][0] == [0.20, 0.10]
+    with pytest.raises(ValueError, match="two different parameters"):
+        axis_matrix(THREE, "indicators.ema.length", "indicators.ema.length", values)
+    with pytest.raises(ValueError, match="not a parameter"):
+        axis_matrix(THREE, "indicators.ema.length", "indicators.macd.length", values)
+
+
+def test_axis_matrix_of_a_two_parameter_job_equals_its_heatmap():  # Review Focus 4
+    two = [c for c in THREE if c["params"]["indicators.rsi.length"] == 7]
+    values = {"indicators.ema.length": [5.0, 9.0], "indicators.sma.length": [20.0, 30.0]}
+    m = axis_matrix(two, "indicators.ema.length", "indicators.sma.length", values)
+    for metric in ("net_pnl", "max_drawdown"):
+        assert m["metrics"][metric]["values"] == heatmap(two, [5.0, 9.0], [20.0, 30.0], metric)
+
+
+# --- the limits review's fix pass ------------------------------------------------------------------
+
+
+def _status(cells, fast=(5.0, 9.0), slow=(20.0, 30.0), skipped=0):
+    return {
+        "objective": "net_pnl",
+        "cells": cells,
+        "skipped": [{"indicators.ema.length": 1.0}] * skipped,
+        "matrices": {"net_pnl": {"long": [[1.0]]}},
+        "fast_values": list(fast),
+        "slow_values": list(slow),
+    }
+
+
+def test_page_view_drops_what_the_page_cannot_draw(monkeypatch):  # review C1
+    import products.aegis.optimize as module
+
+    small = page_view(_status(THREE))
+    assert small["matrices"] and small["matrix_squares"] == 4 and len(small["cells"]) == 6
+    assert small["cells_done"] == small["cells_shown"] == 6
+    monkeypatch.setattr(module, "MAX_SQUARES", 3)
+    monkeypatch.setattr(module, "SKIPPED_SENT", 2)
+    monkeypatch.setattr(module, "CELLS_SENT", 2)
+    big = page_view(_status(THREE, skipped=3))
+    assert big["matrices"] == {} and big["matrix_squares"] == 4
+    assert big["skipped"] == [] and big["cells_shown"] == 2 and big["cells_done"] == 6
+
+
+def test_square_cell_finds_the_best_cell_of_one_square():  # review C1: a click without the matrix
+    best = square_cell(
+        THREE, "indicators.ema.length", "indicators.sma.length", 5.0, 20.0, "net_pnl"
+    )
+    assert best is THREE[1]  # net 30 beats 10
+    worst_dd = square_cell(
+        THREE, "indicators.ema.length", "indicators.sma.length", 5.0, 20.0, "max_drawdown"
+    )
+    assert worst_dd is THREE[0]  # drawdown 0.20 beats 0.30
+    assert (
+        square_cell(THREE, "indicators.ema.length", "indicators.sma.length", 7.0, 20.0, "net_pnl")
+        is None
+    )
+
+
+def test_axis_matrix_for_one_metric_refers_only_to_its_cells():  # review C1: smaller payloads
+    values = {"indicators.ema.length": [5.0, 9.0], "indicators.rsi.length": [7.0, 14.0]}
+    m = axis_matrix(
+        THREE, "indicators.ema.length", "indicators.rsi.length", values, metrics=("net_pnl",)
+    )
+    assert set(m["metrics"]) == {"net_pnl"} and len(m["cells"]) == 4
+
+
+def test_a_populated_square_of_undefined_cells_is_undefined():  # Review Focus 3, both halves
+    undefined = [_cell(5, 20, 7, None, None), _cell(5, 20, 14, None, None)]
+    assert heatmap(undefined, [5.0], [20.0], "net_pnl") == [[None]]
+    values = {"indicators.ema.length": [5.0], "indicators.sma.length": [20.0]}
+    m = axis_matrix(undefined, "indicators.ema.length", "indicators.sma.length", values)
+    assert m["counts"] == [[2]] and m["metrics"]["net_pnl"]["values"] == [[None]]
+
+
+def test_pool_rate_learns_from_the_latest_pooled_optimization():  # limits review I4
+    summaries = [  # newest first, as the runner lists them
+        {"status": "running", "ms_per_cell_bar": 0.5, "cells_done": 900},
+        {"status": "done", "ms_per_cell_bar": 0.02, "cells_done": 20},  # too few cells to price
+        {"status": "done", "ms_per_cell_bar": 0.03, "cells_done": 560},
+        {"status": "done", "ms_per_cell_bar": 0.04, "cells_done": 2560},
+    ]
+    assert pool_rate(summaries, 0.025) == 0.03
+    assert pool_rate(summaries[:2], 0.025) == 0.025  # nothing pooled to learn from: experiments'
+    assert pool_rate([], None) is None
+
+
+def test_chunks_are_sized_to_about_ten_seconds():  # limits review (cancel latency, re-graded)
+    assert chunk_cells(10, 3_493, 0.0245) == 10 * 32  # a short frame: the full 32 per worker
+    assert chunk_cells(10, 65_107, 0.0245) == 10 * 6  # ten years of 15m: about 10 s per chunk
+    assert chunk_cells(10, 200_000, 0.5) == 10  # never fewer than one cell per worker
+
+
+def test_remaining_time_extrapolates_from_chunks_not_start_up():  # limits review (QA obs 1)
+    # two chunks of 320 cells took 3 s and 4 s after a 6 s start: 1,920 cells left
+    assert remaining_seconds(1920, [3.0, 4.0], 640) == pytest.approx(1920 * 7.0 / 640)
+    assert remaining_seconds(560, [], 0) is None
+
+
+def test_pool_workers_drop_the_rows_when_no_window_is_asked():  # limits review I3
+    from products.aegis import pool
+
+    rows = [{**row, "timestamp": row["timestamp"].isoformat()} for row in bars()]
+    pool._init_worker(rows, "QQQ", default_strategy().model_dump(mode="json"), {}, False)
+    try:
+        assert pool._ROWS is None and pool._FRAME is not None
+        with pytest.raises(RuntimeError, match="window"):
+            pool._window_frame((0, 10))
+    finally:
+        pool._init_worker(rows, "QQQ", default_strategy().model_dump(mode="json"), {})
+    assert pool._ROWS is not None  # experiments and studies keep them for their windows
+
+
+def test_a_kind_can_save_on_a_time_budget(tmp_path):  # limits review I5
+    class Counting(JsonRunRepository):
+        saves = 0
+
+        def save_optimization(self, envelope):
+            Counting.saves += 1
+            return super().save_optimization(envelope)
+
+    def run(interval):
+        Counting.saves = 0
+        kind = OptimizerJob(request(), pd.DataFrame(bars()), PINNED)
+        kind.save_every_seconds = interval
+        runner = OptimizerRunner(Counting(tmp_path / str(interval)))
+        job_id = runner.start(kind)
+        assert wait_for(lambda: runner.status(job_id)["status"] == "done")
+        return Counting.saves
+
+    assert run(0.0) == 2 + 9 + 1  # queued, running, every cell, the end (as before)
+    assert run(1000.0) == 2 + 1  # queued, running, the end
+
+
+def test_the_kind_is_released_even_when_the_last_save_fails(tmp_path):  # limits review (re-graded)
+    released = []
+
+    class LastSaveFails(JsonRunRepository):
+        saves = 0
+
+        def save_optimization(self, envelope):
+            LastSaveFails.saves += 1
+            if envelope.get("status") in ("done", "cancelled", "failed"):
+                raise OSError("disk full")
+            return super().save_optimization(envelope)
+
+    kind = OptimizerJob(request(), pd.DataFrame(bars()), PINNED)
+    kind.release = lambda: released.append(True)
+    runner = OptimizerRunner(LastSaveFails(tmp_path))
+    job_id = runner.start(kind)
+    assert wait_for(lambda: runner.status(job_id)["status"] == "failed")
+    assert released == [True]
+
+
+def test_a_pooled_kind_plans_its_own_estimate(monkeypatch):  # limits review I4
+    import products.aegis.optimize as module
+
+    monkeypatch.setattr(module, "SERIAL_MAX_CELLS", 10)
+    kind = OptimizerJob(request(_grid_strategy()), pd.DataFrame(bars()), PINNED, ms_per_bar=0.02)
+    assert kind.pooled and kind.planned_seconds and kind.planned_seconds > POOL_START_SECONDS
+    assert kind.snapshot()["estimated_seconds"] == pytest.approx(kind.planned_seconds, abs=1e-3)

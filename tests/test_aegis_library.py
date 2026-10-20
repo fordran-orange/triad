@@ -6,7 +6,7 @@ import json
 import pytest
 from products.aegis.backtest import BacktestRequest, BacktestSettings, run_backtest
 from products.aegis.experiments import ExperimentStore
-from products.aegis.library import Library, LibraryQuery
+from products.aegis.library import VERSION, Library, LibraryQuery
 from products.aegis.results import envelope
 from products.aegis.runs import JsonRunRepository
 from products.aegis.strategy import default_strategy
@@ -231,7 +231,10 @@ def test_headline_is_cached_and_recomputed_after_a_save(world):
     library.query(LibraryQuery())
     sidecar = repository.root / "runs" / "run-a.summary.json"
     cached = json.loads(sidecar.read_text(encoding="utf-8"))
-    assert cached["library"]["version"] == 1 and cached["library"]["headline"]["trade_count"] >= 0
+    assert (
+        cached["library"]["version"] == VERSION
+        and cached["library"]["headline"]["trade_count"] >= 0
+    )
     repository.save_run(run)  # any save rewrites the sidecar without the cache (plan P1)
     assert "library" not in json.loads(sidecar.read_text(encoding="utf-8"))
     assert (
@@ -568,3 +571,21 @@ def test_a_torn_trash_record_still_lists_and_restores(world):  # final review (m
     assert listed["run-a"].kind == "backtest" and listed["run-a"].status == "deleted"
     library.restore("backtest", "run-a")
     assert repository.read_document("runs", "run-a")["result_hash"] == run["result_hash"]
+
+
+def test_a_pooled_optimization_headlines_its_cells_not_its_chunks(world):  # limits review I2
+    repository, library, _run = world
+    doc = save_optimization(repository, job_id="opt-pooled")
+    repository.save_optimization(
+        {
+            **doc,
+            "progress": {"done": 2, "total": 2},
+            "total_cells": 560,
+            "cells_done": 560,
+            "pooled": True,
+        }
+    )
+    entry = next(e for e in library.entries()[0] if e.id == "opt-pooled")
+    assert (entry.headline["cells_run"], entry.headline["cells_total"]) == (560, 560)
+    summary = next(s for s in repository.list_optimizations() if s["job_id"] == "opt-pooled")
+    assert summary["cells_done"] == 560  # the sidecar carries it for listings without the document

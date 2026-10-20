@@ -126,7 +126,7 @@ def test_bars_over_cap_returns_422_with_hint(root, monkeypatch):
         store.bars("SPY", "1m", "2026-10-30", "2026-11-02")
     assert info.value.count == 780 and info.value.cap == 100
     assert "narrow the range" in str(info.value)
-    assert BAR_CAP == 50_000 and TIMEFRAMES == ("1m", "15m", "30m", "1h", "1D")
+    assert BAR_CAP == 200_000 and TIMEFRAMES == ("1m", "15m", "30m", "1h", "1D")
 
 
 def test_pinned_source_has_file_sha_and_data_hash(root):

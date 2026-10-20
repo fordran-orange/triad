@@ -4,12 +4,17 @@ One side at a time: the grid is the cartesian product of that side's enabled opt
 parameters; cells whose entry-rule fast length is not below the slow length are skipped and
 reported. Cells run as units of a `JobRunner` job (`jobs.py`): one worker thread, progressive
 results, cooperative cancel, persistence from start, `lost` on restart, learned per-bar cost.
-No process pools, no vectorized rewrite.
+
+A grid of more than SERIAL_MAX_CELLS cells (the limits change, 2026-10-20) runs in chunks on the
+experiments' process pool instead: a unit is a chunk of `workers x CHUNK_PER_WORKER` cells, and
+progress, cancel and the save follow the chunk. Its cells equal the serial path's.
 """
 
 from __future__ import annotations
 
+import heapq
 import math
+import time
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -25,7 +30,17 @@ from products.aegis.results import strategy_hash
 from products.aegis.runs import RunRepository
 from products.aegis.strategy import RuleSpec, StrategySide, StrategySpec, apply_parameters
 
-MAX_CELLS = 400
+SERIAL_MAX_CELLS = 400  # up to here a grid runs serially, one cell per unit, as before
+MAX_CELLS = 100_000  # a grid is enumerated in memory; larger surfaces are an experiment's
+CHUNK_PER_WORKER = 32  # cells per pool worker in one unit of a pooled grid
+CELLS_SENT = 1_000  # a job's status sends at most this many cells, the best by its objective
+MAX_SQUARES = 2_500  # the most matrix squares the page draws; above it the table carries the job
+SKIPPED_SENT = 1_000  # a longer list of skipped cells is sent as its count only
+POOL_START_SECONDS = 2.5  # spawning the pool's workers (measured on this host)
+POOL_PREPARE_SECONDS_PER_BAR = 9e-6  # each worker prepares the bars (1.8 s at 200,000)
+TARGET_UNIT_SECONDS = 10.0  # a pooled chunk's aim: progress, cancel and saves stay timely
+POOLED_SAVE_SECONDS = 5.0  # a pooled job saves its growing document at most this often
+PRICE_MIN_CELLS = 50  # a pooled job prices the next plan only from this many cells
 OBJECTIVES = ("net_pnl", "mar", "max_drawdown", "trade_count")
 
 Side = Literal["long", "short"]
@@ -101,7 +116,10 @@ def expand_grid(side: StrategySide) -> GridPlan:
     axes = [(p.path, _values(p.start, p.stop, p.step)) for p in parameters]
     total = math.prod(len(values) for _, values in axes)
     if total > MAX_CELLS:
-        raise ValueError(f"grid too large: {total} cells over cap {MAX_CELLS}; narrow the ranges")
+        raise ValueError(
+            f"grid too large: {total} cells over cap {MAX_CELLS}; narrow the ranges, or run an "
+            "experiment, which samples a larger surface and refines it"
+        )
     by_path = dict(axes)
     crossover = _crossover_axes(side, by_path)
     if crossover is not None:
@@ -150,26 +168,200 @@ def _crossover_axes(side: StrategySide, by_path: dict) -> tuple[str, str] | None
     return (fast, slow) if fast in by_path and slow in by_path else None
 
 
+def plan_seconds(
+    cells: int,
+    bars: int,
+    ms_per_bar: float,
+    pool_ms_per_cell_bar: float | None,
+    workers: int,
+) -> float:
+    """A grid's estimate: serial at the host's per-bar cost, or on the pool at its measured cost
+    per cell-bar (the host's until the pool has one) spread across its workers."""
+    if cells <= SERIAL_MAX_CELLS:
+        return estimate_seconds(cells, bars, ms_per_bar)
+    from products.aegis.surface import effective_workers  # surface imports this module
+
+    rate = pool_ms_per_cell_bar or ms_per_bar
+    start = POOL_START_SECONDS + bars * POOL_PREPARE_SECONDS_PER_BAR
+    return start + cells * bars * rate / effective_workers(max(1, workers)) / 1000.0
+
+
+def pool_rate(summaries: list[dict], experiment_rate: float | None) -> float | None:
+    """The pool's cost per cell-bar to price the next grid: the latest finished pooled
+    optimization's (newest first, enough cells to measure), else the last experiment's."""
+    for summary in summaries:
+        if (
+            summary.get("status") == "done"
+            and summary.get("ms_per_cell_bar")
+            and (summary.get("cells_done") or 0) >= PRICE_MIN_CELLS
+        ):
+            return float(summary["ms_per_cell_bar"])
+    return experiment_rate
+
+
+def chunk_cells(workers: int, bars: int, rate: float) -> int:
+    """Cells per pooled unit: about TARGET_UNIT_SECONDS of work, at most CHUNK_PER_WORKER cells
+    and at least one per worker, so a cancel or a progress tick never waits minutes."""
+    per_worker = int(TARGET_UNIT_SECONDS * 1000.0 / max(1e-9, bars * rate))
+    return workers * max(1, min(CHUNK_PER_WORKER, per_worker))
+
+
+def remaining_seconds(cells_left: int, chunk_seconds: list[float], cells_run: int) -> float | None:
+    """A pooled job's remaining time from its chunks' own wall time (the start-up excluded)."""
+    if not chunk_seconds or not cells_run:
+        return None
+    return cells_left * sum(chunk_seconds) / cells_run
+
+
+def _defined(value) -> bool:
+    return value is not None and not (isinstance(value, float) and math.isnan(value))
+
+
+def _better(metric: str, value: float, than: float) -> bool:
+    """Strictly better by the metric's orientation: max drawdown lower, everything else higher."""
+    return value < than if metric == "max_drawdown" else value > than
+
+
 def heatmap(
     cells: list[dict], fast_values: list[float], slow_values: list[float], metric: str
 ) -> list[list[float | None]]:
     """Rows fast ascending, columns slow ascending; None where skipped, pending or undefined.
 
-    Cells without both axis values (a one-axis grid) have no place in a matrix and are ignored.
+    A square holds the best cell among those sharing its two values (a grid of three or more
+    parameters has several; the first of equals is kept). Cells without both axis values (a
+    one-axis grid) have no place in a matrix and are ignored.
     """
     lookup: dict[tuple[float, float], float | None] = {}
     for cell in cells:
         if cell.get("fast") is None or cell.get("slow") is None:
             continue
+        key = (float(cell["fast"]), float(cell["slow"]))
         value = cell.get("metrics", {}).get(metric)
-        lookup[(float(cell["fast"]), float(cell["slow"]))] = (
-            None
-            if value is None or (isinstance(value, float) and math.isnan(value))
-            else float(value)
-        )
+        if not _defined(value):
+            lookup.setdefault(key, None)
+            continue
+        current = lookup.get(key)
+        if current is None or _better(metric, float(value), current):
+            lookup[key] = float(value)
     return [
         [lookup.get((fast, slow)) for slow in sorted(slow_values)] for fast in sorted(fast_values)
     ]
+
+
+def best_cells(cells: list[dict], objective: str, n: int) -> list[dict]:
+    """The best `n` cells by the objective (max drawdown ascending, everything else descending),
+    undefined values last, equals in the order they were evaluated."""
+    sign = 1.0 if objective == "max_drawdown" else -1.0
+
+    def key(item: tuple[int, dict]):
+        index, cell = item
+        value = cell.get("metrics", {}).get(objective)
+        return (0, sign * float(value), index) if _defined(value) else (1, 0.0, index)
+
+    return [cell for _, cell in heapq.nsmallest(n, enumerate(cells), key=key)]
+
+
+def grid_values(side: StrategySide) -> dict[str, list[float]]:
+    """Each enabled optimization parameter's values, as the grid expands them."""
+    return {p.path: _values(p.start, p.stop, p.step) for p in side.optimization if p.enabled}
+
+
+def axis_matrix(
+    cells: list[dict],
+    rows_path: str,
+    cols_path: str,
+    values: dict[str, list[float]],
+    metrics: tuple[str, ...] = OBJECTIVES,
+) -> dict:
+    """The matrix of any two of a job's parameters (the limits change, 2026-10-20): per metric,
+    each square holds the best of the cells sharing its two values (by the metric's orientation)
+    and points into `cells`, the referenced cells; `counts` says how many cells each square holds.
+    """
+    if rows_path == cols_path:
+        raise ValueError("a matrix needs two different parameters")
+    for path in (rows_path, cols_path):
+        if path not in values:
+            raise ValueError(f"{path} is not a parameter of this optimization")
+    rows, cols = sorted(values[rows_path]), sorted(values[cols_path])
+    row_at = {float(v): i for i, v in enumerate(rows)}
+    col_at = {float(v): i for i, v in enumerate(cols)}
+    counts = [[0] * len(cols) for _ in rows]
+    best: dict[str, list[list[int | None]]] = {
+        metric: [[None] * len(cols) for _ in rows] for metric in metrics
+    }
+    for index, cell in enumerate(cells):
+        params = cell.get("params", {})
+        if rows_path not in params or cols_path not in params:
+            continue
+        r, c = row_at.get(float(params[rows_path])), col_at.get(float(params[cols_path]))
+        if r is None or c is None:
+            continue
+        counts[r][c] += 1
+        for metric in metrics:
+            value = cell.get("metrics", {}).get(metric)
+            if not _defined(value):
+                continue
+            held = best[metric][r][c]
+            if held is None or _better(metric, float(value), float(cells[held]["metrics"][metric])):
+                best[metric][r][c] = index
+    referenced = sorted({i for grid in best.values() for row in grid for i in row if i is not None})
+    position = {i: k for k, i in enumerate(referenced)}
+    return {
+        "rows_path": rows_path,
+        "cols_path": cols_path,
+        "rows": rows,
+        "cols": cols,
+        "counts": counts,
+        "metrics": {
+            metric: {
+                "values": [
+                    [None if i is None else float(cells[i]["metrics"][metric]) for i in row]
+                    for row in grid
+                ],
+                "cells": [[None if i is None else position[i] for i in row] for row in grid],
+            }
+            for metric, grid in best.items()
+        },
+        "cells": [cells[i] for i in referenced],
+    }
+
+
+def square_cell(
+    cells: list[dict], rows_path: str, cols_path: str, row: float, col: float, metric: str
+) -> dict | None:
+    """The best cell of one matrix square by the metric's orientation (the page's click on a
+    square whose cell is not among the best it was sent), or None when no cell holds a value."""
+    held = None
+    for cell in cells:
+        params = cell.get("params", {})
+        if rows_path not in params or cols_path not in params:
+            continue
+        if float(params[rows_path]) != float(row) or float(params[cols_path]) != float(col):
+            continue
+        value = cell.get("metrics", {}).get(metric)
+        if not _defined(value):
+            continue
+        if held is None or _better(metric, float(value), float(held["metrics"][metric])):
+            held = cell
+    return held
+
+
+def page_view(status: dict) -> dict:
+    """What GET /optimize/{id} sends the page, which polls it every second (the limits review):
+    the best CELLS_SENT cells, a long skipped list as its count only, and no stored matrices when
+    their squares exceed what the page draws. The saved document keeps everything."""
+    cells = status.get("cells") or []
+    done = status.get("cells_done", len(cells))
+    if len(cells) > CELLS_SENT:
+        cells = best_cells(cells, status.get("objective", "net_pnl"), CELLS_SENT)
+    view = {**status, "cells": cells, "cells_done": done, "cells_shown": len(cells)}
+    if len(status.get("skipped") or []) > SKIPPED_SENT:
+        view["skipped"] = []
+    squares = len(status.get("fast_values") or []) * max(1, len(status.get("slow_values") or []))
+    view["matrix_squares"] = squares
+    if squares > MAX_SQUARES:
+        view["matrices"] = {}
+    return view
 
 
 def engine_rows(frame: pd.DataFrame, symbol: str) -> list[dict]:
@@ -186,19 +378,52 @@ def provenance(pinned: Any) -> dict:
 
 
 class OptimizerJob:
-    """One grid optimization as a job kind: a unit is one cell; the other side is disabled."""
+    """One grid optimization as a job kind; the other side is disabled. A unit is one cell, or
+    for a grid of more than SERIAL_MAX_CELLS cells one chunk run on the process pool."""
 
     name = "optimization"
 
-    def __init__(self, request: OptimizeRequest, frame: pd.DataFrame, pinned: Any):
+    def __init__(
+        self,
+        request: OptimizeRequest,
+        frame: pd.DataFrame,
+        pinned: Any,
+        pool_factory=None,
+        ms_per_bar: float = MS_PER_BAR,
+        pool_rate: float | None = None,
+    ):
         self.request = request
         self.side = request.side
         self.plan = expand_grid(getattr(request.strategy, SIDE_KEY[request.side]))
         self.rows = engine_rows(frame, request.data.symbol)
         self.data = provenance(pinned)
-        self.bars_per_unit = len(self.rows)
-        self.total_units = len(self.plan.cells)
+        self.bars = len(self.rows)
+        self.pooled = len(self.plan.cells) > SERIAL_MAX_CELLS
+        self.pool = None
+        self.planned_seconds: float | None = None  # a pooled job's estimate until a chunk is done
+        self.save_every_seconds = 0.0  # serial grids save after every cell, as before
+        if self.pooled:
+            from products.aegis.pool import Pool, default_workers
+
+            self._pool_factory = pool_factory or Pool
+            workers = getattr(self._pool_factory(), "max_workers", None) or default_workers()
+            self.chunk = chunk_cells(workers, self.bars, pool_rate or ms_per_bar)
+            self.total_units = math.ceil(len(self.plan.cells) / self.chunk)
+            # The pool prices itself; a pooled job never teaches the host its serial cost.
+            self.bars_per_unit = 0
+            self.planned_seconds = plan_seconds(
+                len(self.plan.cells), self.bars, ms_per_bar, pool_rate, workers
+            )
+            self.save_every_seconds = POOLED_SAVE_SECONDS
+        else:
+            self.chunk = 1
+            self.total_units = len(self.plan.cells)
+            self.bars_per_unit = len(self.rows)
         self.cells: list[dict] = []
+        self.chunk_seconds: list[float] = []  # a pooled job's chunks' wall time
+        self.ms_per_cell_bar: float | None = (
+            None  # the pool's measured cost, kept for the next plan
+        )
         self.cache = IndicatorCache()
         self.cache_hits = 0
         self._side_key = SIDE_KEY[request.side]
@@ -208,7 +433,46 @@ class OptimizerJob:
             update={"enabled": False}
         )
 
-    def run_unit(self, index: int) -> dict:
+    def _pooled_unit(self, index: int) -> list[dict]:
+        if self.pool is None:
+            spec = self.request.strategy.model_copy(update={self._other_key: self._other_side})
+            self.pool = self._pool_factory()
+            self.pool.start(
+                self.rows,
+                self.request.data.symbol,
+                spec.model_dump(mode="json"),
+                self.request.settings.model_dump(mode="json"),
+                keep_rows=False,
+            )
+        first = index * self.chunk
+        batch = self.plan.cells[first : first + self.chunk]
+        started = time.perf_counter()
+        rows = self.pool.run_chunk(
+            [
+                (first + i, {f"{self._side_key}.{path}": value for path, value in params.items()})
+                for i, params in enumerate(batch)
+            ],
+            want_curve=False,
+        )
+        self.chunk_seconds.append(time.perf_counter() - started)
+        self.ms_per_cell_bar = self.pool.mean_ms_per_cell_bar
+        cells = []
+        for params, row in zip(batch, sorted(rows, key=lambda r: r["cell"]), strict=True):
+            metrics = row["metrics"][self.side] if row["valid"] else dict.fromkeys(OBJECTIVES)
+            cell = {
+                "params": params,
+                "fast": params.get(self.plan.fast_path),
+                "slow": params.get(self.plan.slow_path),
+                "metrics": metrics,
+            }
+            if not row["valid"]:
+                cell["skip_reason"] = row["skip_reason"]
+            cells.append(cell)
+        return cells
+
+    def run_unit(self, index: int):
+        if self.pooled:
+            return self._pooled_unit(index)
         params = self.plan.cells[index]
         strategy = self.request.strategy.model_copy(
             update={
@@ -227,8 +491,11 @@ class OptimizerJob:
             "metrics": result[self.side]["metrics"],
         }
 
-    def commit(self, index: int, cell: dict) -> None:
-        self.cells.append(cell)
+    def commit(self, index: int, cell) -> None:
+        if self.pooled:
+            self.cells.extend(cell)
+        else:
+            self.cells.append(cell)
         self.cache_hits = self.cache.hits
 
     def snapshot(self) -> dict:
@@ -248,6 +515,10 @@ class OptimizerJob:
             "fast_path": plan.fast_path,
             "slow_path": plan.slow_path,
             "cache_hits": self.cache_hits,
+            "cells_done": len(cells),
+            "pooled": self.pooled,
+            **({"bars": self.bars} if self.pooled else {}),
+            **(self._pooled_estimate(len(cells)) if self.pooled else {}),
             "data": self.data,
             "engine": "kernel" if kernel.AVAILABLE else "reference",
             "strategy_id": self.request.strategy.id,
@@ -256,11 +527,26 @@ class OptimizerJob:
             "settings": self.request.settings.model_dump(mode="json"),
         }
 
+    def _pooled_estimate(self, done: int) -> dict:
+        """The plan before the first chunk; afterwards the chunks' own pace, so the line
+        neither ignores the start-up nor counts it again."""
+        left = len(self.plan.cells) - done
+        measured = remaining_seconds(left, self.chunk_seconds, done)
+        estimate = measured if measured is not None else self.planned_seconds
+        fields = {"ms_per_cell_bar": self.ms_per_cell_bar}
+        if estimate is not None:
+            fields["estimated_seconds"] = round(estimate, 3)
+        return fields
+
     def finalize(self, status: str) -> dict:
         return {}
 
     def release(self) -> None:
-        """Drop the bar rows and the cache once terminal and persisted; cells and matrices stay."""
+        """Drop the bar rows, the cache and the pool once terminal and persisted; cells and
+        matrices stay."""
+        if self.pool is not None:
+            self.pool.shutdown()
+            self.pool = None
         self.rows = []
         self.cache = IndicatorCache()
 
@@ -279,18 +565,34 @@ class OptimizerRunner(JobRunner):
 
 
 __all__ = [
+    "CELLS_SENT",
+    "CHUNK_PER_WORKER",
     "MAX_CELLS",
+    "MAX_SQUARES",
     "MS_PER_BAR",
     "OBJECTIVES",
+    "POOL_PREPARE_SECONDS_PER_BAR",
+    "POOL_START_SECONDS",
+    "SERIAL_MAX_CELLS",
+    "SKIPPED_SENT",
     "UNFINISHED",
     "GridPlan",
     "JobBusy",
     "OptimizeRequest",
     "OptimizerJob",
     "OptimizerRunner",
+    "axis_matrix",
+    "best_cells",
+    "chunk_cells",
     "engine_rows",
     "estimate_seconds",
     "expand_grid",
+    "grid_values",
     "heatmap",
+    "page_view",
+    "plan_seconds",
+    "pool_rate",
     "provenance",
+    "remaining_seconds",
+    "square_cell",
 ]

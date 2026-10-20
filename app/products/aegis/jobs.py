@@ -128,6 +128,10 @@ class JobRunner:
             # Running from its first unit, on disk: a pause or a restart during a long first
             # unit (an experiment's chunk) finds the document running, not queued.
             self._save(kind.name, envelope)
+            # A kind may save on a time budget (a pooled grid's document grows with every chunk);
+            # the end always saves.
+            interval = float(getattr(kind, "save_every_seconds", 0.0) or 0.0)
+            last_saved = time.perf_counter()
             for index in range(kind.total_units):
                 if job.cancel.is_set():
                     break
@@ -138,7 +142,9 @@ class JobRunner:
                     job.elapsed_ms = int((time.perf_counter() - job.started) * 1000)
                     job.ms_per_bar = self._observed_ms_per_bar(job)
                     envelope = self._snapshot(job)
-                self._save(kind.name, envelope)  # progress survives a worker death
+                if interval <= 0 or time.perf_counter() - last_saved >= interval:
+                    self._save(kind.name, envelope)  # progress survives a worker death
+                    last_saved = time.perf_counter()
                 if self._after_unit is not None:
                     self._after_unit(job.done)
             if job.cancel.is_set() and job.done < kind.total_units:
@@ -165,9 +171,6 @@ class JobRunner:
                 job.status = final  # published before release(), which may take a while
             if final == "done" and job.ms_per_bar:
                 self.ms_per_bar = job.ms_per_bar
-            release = getattr(kind, "release", None)
-            if release is not None:
-                release()  # the kind may drop its bar rows and cache; its documents stay
         except Exception as exc:  # noqa: BLE001 - same reason: the runner must come back free
             final = "failed"
             with self._lock:
@@ -182,6 +185,14 @@ class JobRunner:
         finally:
             with self._lock:
                 job.status = final
+            # Every terminal path releases the kind (its bar rows, cache and process pool), even
+            # when the last save failed; its documents stay.
+            release = getattr(kind, "release", None)
+            if release is not None:
+                try:
+                    release()
+                except Exception as exc:  # noqa: BLE001 - the runner must come back free
+                    log.warning("job %s could not release its resources: %s", job.job_id, exc)
 
     @staticmethod
     def _observed_ms_per_bar(job: _Job) -> float | None:

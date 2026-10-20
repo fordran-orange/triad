@@ -21,6 +21,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from products.aegis import experiments as experiments_module
+from products.aegis import optimize as optimize_module
 from products.aegis import studies as studies_module
 from products.aegis.backtest import BacktestRequest, DataReference, run_backtest
 from products.aegis.compare import compare as compare_runs
@@ -38,7 +39,14 @@ from products.aegis.kinds import kind_info
 from products.aegis.library import FOLDERS as LIBRARY_FOLDERS
 from products.aegis.library import KINDS as LIBRARY_KINDS
 from products.aegis.library import Library, LibraryQuery, Refused
-from products.aegis.optimize import OptimizeRequest, OptimizerJob, engine_rows, expand_grid
+from products.aegis.optimize import (
+    SERIAL_MAX_CELLS,
+    OptimizeRequest,
+    OptimizerJob,
+    engine_rows,
+    expand_grid,
+    plan_seconds,
+)
 from products.aegis.pool import default_workers
 from products.aegis.results import envelope
 from products.aegis.runs import JsonRunRepository, RunRepository
@@ -78,6 +86,15 @@ STORE = Depends(get_store)
 REPOSITORY = Depends(get_repository)
 RUNNER = Depends(get_runner)
 CACHE = Depends(get_cache)
+
+
+def get_experiment_store(
+    repository: RunRepository = REPOSITORY,
+) -> experiments_module.ExperimentStore:
+    return experiments_module.ExperimentStore(repository)
+
+
+EXPERIMENTS = Depends(get_experiment_store)
 
 
 def warm_in_background(store) -> threading.Thread:
@@ -246,14 +263,34 @@ def _side_spec(request: OptimizeRequest):
     return request.strategy.long_side if request.side == "long" else request.strategy.short_side
 
 
+def _grid_seconds(cells: int, bars: int, runner: JobRunner, experiments) -> tuple[float, int]:
+    """A grid's estimate and the workers it runs on: serial up to SERIAL_MAX_CELLS cells, else
+    the pool at the cost per cell-bar the last experiment measured (the limits change)."""
+    if cells <= SERIAL_MAX_CELLS:
+        return plan_seconds(cells, bars, runner.ms_per_bar, None, 1), 1
+    workers = default_workers()
+    rate = _pool_rate(runner, experiments)
+    return plan_seconds(cells, bars, runner.ms_per_bar, rate, workers), workers
+
+
+def _pool_rate(runner: JobRunner, experiments) -> float | None:
+    """The pool's measured cost per cell-bar: the latest pooled optimization's, else the last
+    experiment's (the limits review: the estimate learns from pooled optimizations too)."""
+    return optimize_module.pool_rate(
+        runner.list_jobs("optimization"), experiments.last_ms_per_cell_bar()
+    )
+
+
 @router.post("/optimize/plan")
 def optimize_plan(
     request: OptimizeRequest,
     store: ArchiveStore = STORE,
     runner: JobRunner = RUNNER,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
 ):
     """What a start would do: valid cells, skipped cells, bars and the runtime estimate, priced
-    at the per-bar cost the runner last observed on this host."""
+    at the per-bar cost the runner last observed on this host (on the pool's measured cost,
+    across its workers, for a grid of more than SERIAL_MAX_CELLS cells)."""
     frame, _ = _select(
         store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
     )
@@ -261,15 +298,16 @@ def optimize_plan(
         plan = expand_grid(_side_spec(request))
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    seconds, workers = _grid_seconds(len(plan.cells), len(frame), runner, experiments)
     return {
         "total_cells": len(plan.cells),
         "skipped_cells": len(plan.skipped),
         "skip_reason": plan.skip_reason,
-        "estimated_seconds": round(
-            estimate_seconds(len(plan.cells), len(frame), runner.ms_per_bar), 3
-        ),
+        "estimated_seconds": round(seconds, 3),
         "ms_per_bar": runner.ms_per_bar,
         "bars": len(frame),
+        "pooled": len(plan.cells) > SERIAL_MAX_CELLS,
+        "workers": workers,
     }
 
 
@@ -278,12 +316,20 @@ def optimize(
     request: OptimizeRequest,
     store: ArchiveStore = STORE,
     runner: JobRunner = RUNNER,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
 ):
     frame, pinned = _select(
         store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
     )
     try:
-        job_id = runner.start(OptimizerJob(request, frame, pinned))
+        kind = OptimizerJob(
+            request,
+            frame,
+            pinned,
+            ms_per_bar=runner.ms_per_bar,
+            pool_rate=_pool_rate(runner, experiments),
+        )
+        job_id = runner.start(kind)
     except JobBusy as exc:
         raise HTTPException(409, "an optimization is already running") from exc
     except ValueError as exc:
@@ -299,12 +345,85 @@ def optimizations(runner: JobRunner = RUNNER):
     return runner.list_jobs("optimization")
 
 
-@router.get("/optimize/{job_id}")
-def optimization(job_id: str, runner: JobRunner = RUNNER):
+def _optimization(runner: JobRunner, job_id: str) -> dict:
     try:
         return runner.status(job_id, kind="optimization")
     except (KeyError, ValueError) as exc:
         raise HTTPException(404, f"unknown optimization {job_id!r}") from exc
+
+
+@router.get("/optimize/{job_id}")
+def optimization(job_id: str, runner: JobRunner = RUNNER):
+    """The job as it stands. A job of more than CELLS_SENT cells sends its best by the objective
+    (the page polls this every second); every cell pages through /cells, and the saved document
+    keeps them all."""
+    return optimize_module.page_view(_optimization(runner, job_id))
+
+
+@router.get("/optimize/{job_id}/cells")
+def optimization_cells(
+    job_id: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=5000),
+    runner: JobRunner = RUNNER,
+):
+    """Every evaluated cell, best first by the job's objective, a page at a time."""
+    status = _optimization(runner, job_id)
+    cells = status.get("cells") or []
+    ordered = optimize_module.best_cells(cells, status.get("objective", "net_pnl"), len(cells))
+    return {"total": len(ordered), "rows": ordered[offset : offset + limit]}
+
+
+def _grid_values(status: dict) -> dict:
+    spec = StrategySpec.model_validate(status["strategy"])
+    side = getattr(spec, "long_side" if status.get("side") == "long" else "short_side")
+    return optimize_module.grid_values(side)
+
+
+@router.get("/optimize/{job_id}/matrix")
+def optimization_matrix(
+    job_id: str, rows: str, cols: str, metric: str | None = None, runner: JobRunner = RUNNER
+):
+    """Any two of the job's parameters as a matrix; each square is the best of the rest. With
+    `metric`, that metric only (the page asks for the one it shows)."""
+    status = _optimization(runner, job_id)
+    if metric is not None and metric not in optimize_module.OBJECTIVES:
+        raise HTTPException(422, f"unknown metric {metric!r}")
+    metrics = (metric,) if metric else optimize_module.OBJECTIVES
+    try:
+        values = _grid_values(status)
+        squares = len(values.get(rows, [])) * len(values.get(cols, []))
+        if squares > optimize_module.MAX_SQUARES:
+            raise ValueError(
+                f"{squares} squares is more than a matrix draws ({optimize_module.MAX_SQUARES}); "
+                "choose other parameters or a coarser step"
+            )
+        return optimize_module.axis_matrix(
+            status.get("cells") or [], rows, cols, values, metrics=metrics
+        )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/optimize/{job_id}/square")
+def optimization_square(
+    job_id: str,
+    rows: str,
+    cols: str,
+    row: float,
+    col: float,
+    metric: str | None = None,
+    runner: JobRunner = RUNNER,
+):
+    """One square's best cell, for a click on a cell the page was not sent."""
+    status = _optimization(runner, job_id)
+    metric = metric or status.get("objective", "net_pnl")
+    if metric not in optimize_module.OBJECTIVES:
+        raise HTTPException(422, f"unknown metric {metric!r}")
+    cell = optimize_module.square_cell(status.get("cells") or [], rows, cols, row, col, metric)
+    if cell is None:
+        raise HTTPException(404, "no cell with a value in that square")
+    return cell
 
 
 @router.post("/optimize/{job_id}/cancel")
@@ -511,15 +630,6 @@ def delete_strategy(strategy_id: str, library: StrategyLibrary = LIBRARY):
 
 
 # --- experiments (Mission 6 spec §5.6, §6) --------------------------------------------------
-
-
-def get_experiment_store(
-    repository: RunRepository = REPOSITORY,
-) -> experiments_module.ExperimentStore:
-    return experiments_module.ExperimentStore(repository)
-
-
-EXPERIMENTS = Depends(get_experiment_store)
 
 
 def _experiment(store: experiments_module.ExperimentStore, experiment_id: str):
