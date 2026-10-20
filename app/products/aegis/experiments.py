@@ -220,6 +220,9 @@ class ExperimentStore:
     def free_id(self, name: str) -> str:
         base = slug(name)
         taken = {item.get("id") for item in self.list()}
+        # Ids in Recently deleted stay reserved until Empty (Mission 9 plan ruling P4).
+        trashed = getattr(self.repository, "trashed_ids", None)
+        taken |= trashed("experiments") if trashed is not None else set()
         if base not in taken:
             return base
         digest = hashlib.sha256(f"{name}|{_now()}".encode()).hexdigest()

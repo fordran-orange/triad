@@ -77,6 +77,8 @@ STUDY_SUMMARY_KEYS = (
     "job_id",
     "error",
 )
+# Folders that belong to one item (moved with it to Recently deleted).
+ITEM_FOLDERS = {"experiments": ("cells", "curves", "reports"), "studies": ("windows",)}
 STRATEGY_SUMMARY_KEYS = (
     "id",
     "name",
@@ -114,6 +116,12 @@ class RunRepository(Protocol):
     def study_dir(self, study_id: str) -> Path: ...
     def read_document(self, folder: str, identifier: str) -> dict: ...
     def write_summary(self, folder: str, identifier: str, summary: dict) -> None: ...
+    def move_to_trash(self, folder: str, identifier: str, meta: dict) -> None: ...
+    def restore_from_trash(self, folder: str, identifier: str) -> None: ...
+    def list_trash(self) -> list[dict]: ...
+    def read_trashed(self, folder: str, identifier: str) -> dict: ...
+    def erase_from_trash(self, folder: str, identifier: str) -> None: ...
+    def trashed_ids(self, folder: str) -> set[str]: ...
 
 
 def _check_id(identifier: str) -> str:
@@ -241,6 +249,68 @@ class JsonRunRepository:
 
     def write_summary(self, folder: str, identifier: str, summary: dict) -> None:
         self._write(self._folder(folder) / f"{_check_id(identifier)}.summary.json", summary)
+
+    # Recently deleted (Mission 9 spec §6.2, plan ruling P3): an item's document, sidecar and
+    # folders move to trash/<folder>/<id>/ with trash.json; restore moves them back.
+    def _trash(self, folder: str, identifier: str) -> Path:
+        return self.root / "trash" / folder / _check_id(identifier)
+
+    def _item_paths(self, folder: str, identifier: str) -> list[Path]:
+        base = self._folder(folder)
+        names = [f"{identifier}.json", f"{identifier}.summary.json"]
+        names += [f"{identifier}.{suffix}" for suffix in ITEM_FOLDERS.get(folder, ())]
+        return [base / name for name in names if (base / name).exists()]
+
+    def move_to_trash(self, folder: str, identifier: str, meta: dict) -> None:
+        source = self._folder(folder) / f"{_check_id(identifier)}.json"
+        if not source.is_file():
+            raise KeyError(identifier)
+        target = self._trash(folder, identifier)
+        if target.exists():
+            raise FileExistsError(f"{folder}/{identifier} is already in Recently deleted")
+        target.mkdir(parents=True)
+        self._write(target / "trash.json", meta)
+        for path in self._item_paths(folder, identifier):
+            _retry(lambda path=path: shutil.move(str(path), str(target / path.name)))
+
+    def restore_from_trash(self, folder: str, identifier: str) -> None:
+        target = self._trash(folder, identifier)
+        if not (target / "trash.json").is_file():
+            raise KeyError(identifier)
+        live = self._folder(folder)
+        if (live / f"{identifier}.json").exists():
+            raise FileExistsError(f"an item with id {identifier} exists")
+        for path in sorted(target.iterdir()):
+            if path.name != "trash.json":
+                _retry(lambda path=path: shutil.move(str(path), str(live / path.name)))
+        shutil.rmtree(target, ignore_errors=True)
+
+    def list_trash(self) -> list[dict]:
+        root = self.root / "trash"
+        items = []
+        if root.is_dir():
+            for meta in sorted(root.glob("*/*/trash.json")):
+                try:
+                    items.append({**self._read(meta), "folder": meta.parent.parent.name})
+                except (OSError, ValueError):
+                    continue
+        return items
+
+    def read_trashed(self, folder: str, identifier: str) -> dict:
+        path = self._trash(folder, identifier) / f"{identifier}.json"
+        if not path.is_file():
+            raise KeyError(identifier)
+        return self._read(path)
+
+    def erase_from_trash(self, folder: str, identifier: str) -> None:
+        target = self._trash(folder, identifier)
+        if not target.is_dir():
+            raise KeyError(identifier)
+        shutil.rmtree(target)
+
+    def trashed_ids(self, folder: str) -> set[str]:
+        root = self.root / "trash" / folder
+        return {p.name for p in root.iterdir() if p.is_dir()} if root.is_dir() else set()
 
     def save_run(self, envelope: dict) -> str:
         return self._save("runs", "run_id", envelope)

@@ -10,7 +10,9 @@ worth of blocks and reports the rest as `preparing` (P2).
 from __future__ import annotations
 
 import json
+import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -42,6 +44,10 @@ LISTERS = {
     "study": "list_studies",
 }
 VERSION = 1
+UNFINISHED_JOBS = ("queued", "running")
+UNFINISHED_DOCUMENTS = ("queued", "running", "paused")
+LABEL_MAX = 80
+NOTES_MAX = 2000
 BACKTEST_HEADLINE = ("net_pnl", "net_return", "mar", "max_drawdown", "trade_count")
 
 
@@ -63,6 +69,11 @@ class LibraryEntry(BaseModel):
     decision: dict | None = None
     headline: dict = Field(default_factory=dict)
     links: dict = Field(default_factory=dict)
+    deleted_at: str | None = None
+
+
+class Refused(Exception):
+    """A delete or restore the rules refuse (409, naming the reason)."""
 
 
 class LibraryQuery(BaseModel):
@@ -183,6 +194,8 @@ class Annotations:
         root = getattr(repository, "root", None)
         self.path = Path(root) / "library" / "annotations.json" if root is not None else None
 
+    _lock = threading.Lock()
+
     def all(self) -> dict[str, dict]:
         if self.path is None or not self.path.is_file():
             return {}
@@ -191,6 +204,35 @@ class Annotations:
         except (OSError, ValueError):
             return {}
         return data if isinstance(data, dict) else {}
+
+    def _save(self, data: dict) -> None:
+        if self.path is None:
+            raise OSError("annotations need a file-backed repository")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_text(json.dumps(data, sort_keys=True), encoding="utf-8")
+        tmp.replace(self.path)
+
+    def get(self, kind: str, identifier: str) -> dict:
+        return self.all().get(f"{kind}:{identifier}", {})
+
+    def set(self, kind: str, identifier: str, label: str, notes: str, starred: bool) -> dict:
+        if len(label) > LABEL_MAX:
+            raise ValueError(f"label longer than {LABEL_MAX} characters")
+        if len(notes) > NOTES_MAX:
+            raise ValueError(f"notes longer than {NOTES_MAX} characters")
+        with self._lock:
+            data = self.all()
+            note = {"label": label, "notes": notes, "starred": bool(starred)}
+            data[f"{kind}:{identifier}"] = note
+            self._save(data)
+        return note
+
+    def remove(self, kind: str, identifier: str) -> None:
+        with self._lock:
+            data = self.all()
+            if data.pop(f"{kind}:{identifier}", None) is not None:
+                self._save(data)
 
 
 # --- the index ------------------------------------------------------------------------------------
@@ -305,8 +347,105 @@ class Library:
             links=links,
         )
 
+    # -- housekeeping (spec §6.2) --------------------------------------------------------------
+    def _live(self, kind: str, identifier: str) -> dict:
+        if kind not in KINDS:
+            raise KeyError(kind)
+        return self.repository.read_document(FOLDERS[kind], identifier)  # KeyError when unknown
+
+    def delete(self, kind: str, identifier: str) -> None:
+        """Move an item to Recently deleted, or raise Refused naming why it cannot go."""
+        document = self._live(kind, identifier)
+        status = document.get("status")
+        if kind in ("optimization", "walkforward") and status in UNFINISHED_JOBS:
+            raise Refused(f"{kind} {identifier} is {status}; cancel it first")
+        if kind in ("experiment", "study") and status in UNFINISHED_DOCUMENTS:
+            raise Refused(f"{kind} {identifier} is {status}; cancel it first")
+        if kind == "experiment":
+            children = [
+                s.get("id")
+                for s in self._summaries("study")
+                if s.get("experiment_id") == identifier
+            ]
+            if children:
+                raise Refused(
+                    f"experiment {identifier} has studies: {', '.join(children)}; delete them first"
+                )
+        block = headline(kind, document, self.experiments)
+        name = self._entry(kind, identifier, document, {"version": VERSION, **block}, None).name
+        meta = {
+            "kind": kind,
+            "id": identifier,
+            "name": name,
+            "deleted_at": datetime.now(UTC).isoformat(),
+        }
+        try:
+            self.repository.move_to_trash(FOLDERS[kind], identifier, meta)
+        except FileExistsError as exc:
+            raise Refused(str(exc)) from exc
+
+    def restore(self, kind: str, identifier: str) -> None:
+        if kind not in KINDS:
+            raise KeyError(kind)
+        folder = FOLDERS[kind]
+        if kind == "study":
+            parent = self.repository.read_trashed(folder, identifier).get("experiment_id")
+            if parent:
+                try:
+                    self.repository.read_document(FOLDERS["experiment"], parent)
+                except KeyError as exc:
+                    raise Refused(
+                        f"study {identifier} needs its experiment {parent} restored first"
+                    ) from exc
+        try:
+            self.repository.restore_from_trash(folder, identifier)
+        except FileExistsError as exc:
+            raise Refused(str(exc)) from exc
+
+    def empty(self, items: list[tuple[str, str]] | None = None) -> int:
+        """Erase trashed items for good (all, or the named ones); their annotations go too."""
+        if items is None:
+            items = [(t.get("kind"), t.get("id")) for t in self.repository.list_trash()]
+        erased = 0
+        for kind, identifier in items:
+            if kind not in KINDS or not isinstance(identifier, str):
+                continue
+            try:
+                self.repository.erase_from_trash(FOLDERS[kind], identifier)
+            except KeyError:
+                continue
+            self.annotations.remove(kind, identifier)
+            erased += 1
+        return erased
+
+    def trashed(self) -> list[LibraryEntry]:
+        notes = self.annotations.all()
+        entries = []
+        for meta in self.repository.list_trash():
+            kind, identifier = meta.get("kind"), meta.get("id")
+            if kind not in KINDS or not isinstance(identifier, str):
+                continue
+            try:
+                document = self.repository.read_trashed(FOLDERS[kind], identifier)
+            except (KeyError, OSError, ValueError):
+                document = {}
+            try:
+                block = {"version": VERSION, **headline(kind, document, None)}
+            except Exception:  # noqa: BLE001 - a trashed document lists with "—"
+                block = {"version": VERSION, "headline": {}}
+            entry = self._entry(
+                kind, identifier, document, block, notes.get(f"{kind}:{identifier}")
+            )
+            entries.append(
+                entry.model_copy(update={"status": "deleted", "deleted_at": meta.get("deleted_at")})
+            )
+        return entries
+
     def query(self, q: LibraryQuery, budget_seconds: float = 1.5) -> dict:
-        entries, preparing = self.entries(budget_seconds)
+        if q.deleted:
+            entries, preparing = self.trashed(), 0
+        else:
+            entries, preparing = self.entries(budget_seconds)
         text = (q.q or "").strip().lower()
 
         def keep(entry: LibraryEntry) -> bool:
@@ -354,5 +493,6 @@ __all__ = [
     "Library",
     "LibraryEntry",
     "LibraryQuery",
+    "Refused",
     "headline",
 ]

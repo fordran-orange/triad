@@ -1290,3 +1290,47 @@ def test_library_route_lists_and_filters(client):
     assert c.get("/aegis/api/library", params={"q": "nothing like this"}).json()["total"] == 0
     assert c.get("/aegis/api/library", params={"limit": 500}).status_code == 422
     assert c.get("/aegis/api/library", params={"kind": "nope"}).status_code == 422
+
+
+def test_experiment_delete_now_moves_to_the_trash(client):
+    c, _, repository = client
+    _finished_experiment(repository)
+    assert c.delete("/aegis/api/experiments/four-cells").json() == {"deleted": "four-cells"}
+    assert c.get("/aegis/api/experiments/four-cells").status_code == 404
+    trashed = c.get("/aegis/api/library", params={"deleted": True}).json()
+    assert [(e["kind"], e["id"]) for e in trashed["entries"]] == [("experiment", "four-cells")]
+    assert c.post("/aegis/api/library/experiment/four-cells/restore").json() == {
+        "restored": "four-cells"
+    }
+    assert c.get("/aegis/api/experiments/four-cells").status_code == 200
+
+
+def test_library_annotation_delete_restore_and_empty_routes(client):
+    c, _, repository = client
+    _finished_experiment(repository)
+    saved = c.put(
+        "/aegis/api/library/experiment/four-cells/annotation",
+        json={"label": "the four", "notes": "routes", "starred": True},
+    )
+    assert saved.status_code == 200 and saved.json()["label"] == "the four"
+    assert (
+        c.put(
+            "/aegis/api/library/experiment/four-cells/annotation", json={"label": "x" * 81}
+        ).status_code
+        == 422
+    )
+    assert (
+        c.put("/aegis/api/library/experiment/nope/annotation", json={"label": "x"}).status_code
+        == 404
+    )
+    assert (
+        c.put("/aegis/api/library/nope/four-cells/annotation", json={"label": "x"}).status_code
+        == 404
+    )
+    assert c.delete("/aegis/api/library/experiment/four-cells").json() == {"deleted": "four-cells"}
+    assert c.delete("/aegis/api/library/experiment/four-cells").status_code == 404
+    assert c.post(
+        "/aegis/api/library/trash/empty",
+        json={"items": [{"kind": "experiment", "id": "four-cells"}]},
+    ).json() == {"erased": 1}
+    assert c.post("/aegis/api/library/experiment/four-cells/restore").status_code == 404

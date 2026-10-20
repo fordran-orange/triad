@@ -34,7 +34,9 @@ from products.aegis.data import (
 from products.aegis.indicators import IndicatorCache, compute
 from products.aegis.jobs import JobBusy, JobRunner, estimate_seconds
 from products.aegis.kinds import kind_info
-from products.aegis.library import Library, LibraryQuery
+from products.aegis.library import FOLDERS as LIBRARY_FOLDERS
+from products.aegis.library import KINDS as LIBRARY_KINDS
+from products.aegis.library import Library, LibraryQuery, Refused
 from products.aegis.optimize import OptimizeRequest, OptimizerJob, engine_rows, expand_grid
 from products.aegis.pool import default_workers
 from products.aegis.results import envelope
@@ -844,20 +846,15 @@ STUDIES = Depends(get_study_store)
 def delete_experiment(
     experiment_id: str,
     experiments: experiments_module.ExperimentStore = EXPERIMENTS,
-    studies: studies_module.StudyStore = STUDIES,
+    repository: RunRepository = REPOSITORY,
 ):
-    document = _experiment(experiments, experiment_id)
-    if document.status in experiments_module.UNFINISHED:
-        raise HTTPException(
-            409, f"experiment {experiment_id} is {document.status}; cancel it first"
-        )
-    children = [s["id"] for s in studies.list() if s.get("experiment_id") == experiment_id]
-    if children:  # plan ruling P7: a study's parent is part of its evidence
-        raise HTTPException(
-            409,
-            f"experiment {experiment_id} has studies: {', '.join(children)}; delete them first",
-        )
-    experiments.delete(experiment_id)
+    """Moves the experiment to Recently deleted (Mission 9 spec §6.2) with its existing rules:
+    unfinished experiments are cancelled first; a parent with studies cannot go."""
+    _experiment(experiments, experiment_id)
+    try:
+        Library(repository, experiments).delete("experiment", experiment_id)
+    except Refused as exc:
+        raise HTTPException(409, str(exc)) from exc
     return {"deleted": experiment_id}
 
 
@@ -1032,11 +1029,18 @@ def cancel_study(
 
 
 @router.delete("/studies/{study_id}")
-def delete_study(study_id: str, studies: studies_module.StudyStore = STUDIES):
-    document = _study(studies, study_id)
-    if document.status in studies_module.UNFINISHED:
-        raise HTTPException(409, f"study {study_id} is {document.status}; cancel it first")
-    studies.delete(study_id)
+def delete_study(
+    study_id: str,
+    studies: studies_module.StudyStore = STUDIES,
+    repository: RunRepository = REPOSITORY,
+):
+    """Moves the study to Recently deleted (Mission 9 spec §6.2); unfinished studies are
+    cancelled first."""
+    _study(studies, study_id)
+    try:
+        Library(repository).delete("study", study_id)
+    except Refused as exc:
+        raise HTTPException(409, str(exc)) from exc
     return {"deleted": study_id}
 
 
@@ -1134,6 +1138,74 @@ def library_index(
         raise HTTPException(422, exc.errors()[0]["msg"]) from exc
     result = library.query(query)
     return {**result, "entries": [e.model_dump(mode="json") for e in result["entries"]]}
+
+
+class AnnotationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = Field(default="", max_length=80)
+    notes: str = Field(default="", max_length=2000)
+    starred: bool = False
+
+
+class LibraryItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["backtest", "optimization", "walkforward", "experiment", "study"]
+    id: str
+
+
+class EmptyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[LibraryItem] | None = None
+
+
+def _library_kind(kind: str) -> str:
+    if kind not in LIBRARY_KINDS:
+        raise HTTPException(404, f"unknown kind {kind!r}")
+    return kind
+
+
+@router.put("/library/{kind}/{item_id}/annotation")
+def annotate_library_item(
+    kind: str, item_id: str, request: AnnotationRequest, library: Library = LIBRARY_INDEX
+):
+    _library_kind(kind)
+    try:
+        library.repository.read_document(LIBRARY_FOLDERS[kind], item_id)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(404, f"unknown {kind} {item_id!r}") from exc
+    note = library.annotations.set(kind, item_id, request.label, request.notes, request.starred)
+    return {"kind": kind, "id": item_id, **note}
+
+
+@router.delete("/library/{kind}/{item_id}")
+def delete_library_item(kind: str, item_id: str, library: Library = LIBRARY_INDEX):
+    _library_kind(kind)
+    try:
+        library.delete(kind, item_id)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(404, f"unknown {kind} {item_id!r}") from exc
+    except Refused as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"deleted": item_id}
+
+
+@router.post("/library/{kind}/{item_id}/restore")
+def restore_library_item(kind: str, item_id: str, library: Library = LIBRARY_INDEX):
+    _library_kind(kind)
+    try:
+        library.restore(kind, item_id)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(404, f"{kind} {item_id!r} is not in Recently deleted") from exc
+    except Refused as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"restored": item_id}
+
+
+@router.post("/library/trash/empty")
+def empty_library_trash(request: EmptyRequest, library: Library = LIBRARY_INDEX):
+    """Erase items from Recently deleted for good: the one destructive act, always explicit."""
+    items = None if request.items is None else [(i.kind, i.id) for i in request.items]
+    return {"erased": library.empty(items)}
 
 
 __all__ = [

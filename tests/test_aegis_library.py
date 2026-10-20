@@ -269,3 +269,157 @@ def test_index_survives_broken_and_legacy_documents(world):  # Review Focus 1
     entries = {e.id: e for e in library.query(LibraryQuery(kinds=["backtest"]))["entries"]}
     assert entries["legacy"].symbols == [] and entries["legacy"].headline["trade_count"] >= 0
     assert entries["broken"].headline == {} and "run-a" in entries
+
+
+# --- Task 2: labels, stars and the restorable delete ----------------------------------------------
+
+
+from products.aegis.library import Refused
+from products.aegis.strategies import StrategyLibrary, StrategyReferenced
+
+
+def test_delete_moves_each_kind_to_the_trash_and_restore_brings_it_back(world):
+    repository, library, run = world
+    (repository.root / "experiments" / "exp-a.cells").mkdir(exist_ok=True)
+    study_doc = repository.get_study("study-a")
+    repository.delete_study("study-a")  # the experiment may only go once its studies are gone
+    before = {
+        kind: repository.read_document(folder, ident)
+        for kind, folder, ident in (
+            ("backtest", "runs", "run-a"),
+            ("optimization", "optimizations", "opt-a"),
+            ("walkforward", "walkforward", "wf-a"),
+            ("experiment", "experiments", "exp-a"),
+        )
+    }
+    for kind, ident in (
+        ("backtest", "run-a"),
+        ("optimization", "opt-a"),
+        ("walkforward", "wf-a"),
+        ("experiment", "exp-a"),
+    ):
+        library.delete(kind, ident)
+    assert library.query(LibraryQuery())["total"] == 0
+    assert not (repository.root / "experiments" / "exp-a.cells").exists()
+    trashed = library.query(LibraryQuery(deleted=True))
+    assert {(e.kind, e.id) for e in trashed["entries"]} == {
+        ("backtest", "run-a"),
+        ("optimization", "opt-a"),
+        ("walkforward", "wf-a"),
+        ("experiment", "exp-a"),
+    }
+    assert all(e.status == "deleted" and e.deleted_at for e in trashed["entries"])
+    for kind, ident in (
+        ("backtest", "run-a"),
+        ("optimization", "opt-a"),
+        ("walkforward", "wf-a"),
+        ("experiment", "exp-a"),
+    ):
+        library.restore(kind, ident)
+    assert repository.get_run("run-a")["result_hash"] == run["result_hash"]
+    for kind, folder, ident in (
+        ("backtest", "runs", "run-a"),
+        ("optimization", "optimizations", "opt-a"),
+        ("walkforward", "walkforward", "wf-a"),
+        ("experiment", "experiments", "exp-a"),
+    ):
+        assert repository.read_document(folder, ident) == before[kind], kind
+    assert (repository.root / "experiments" / "exp-a.cells").is_dir()
+    assert library.query(LibraryQuery(deleted=True))["total"] == 0
+    repository.save_study(study_doc)
+    library.delete("study", "study-a")
+    library.restore("study", "study-a")
+    assert repository.get_study("study-a")["name"] == "walk breakout"
+
+
+def test_delete_refusals(world):
+    repository, library, _run = world
+    with pytest.raises(Refused, match="experiment exp-a has studies: study-a; delete them first"):
+        library.delete("experiment", "exp-a")
+    for status in ("queued", "running"):
+        doc = repository.get_optimization("opt-a")
+        repository.save_optimization({**doc, "status": status})
+        with pytest.raises(Refused, match=f"optimization opt-a is {status}; cancel it first"):
+            library.delete("optimization", "opt-a")
+        wf = repository.get_walkforward("wf-a")
+        repository.save_walkforward({**wf, "status": status})
+        with pytest.raises(Refused, match=f"walkforward wf-a is {status}; cancel it first"):
+            library.delete("walkforward", "wf-a")
+    for status in ("queued", "running", "paused"):
+        study = repository.get_study("study-a")
+        repository.save_study({**study, "status": status})
+        with pytest.raises(Refused, match=f"study study-a is {status}; cancel it first"):
+            library.delete("study", "study-a")
+    repository.delete_study("study-a")
+    for status in ("queued", "running", "paused"):
+        exp = repository.get_experiment("exp-a")
+        repository.save_experiment({**exp, "status": status})
+        with pytest.raises(Refused, match=f"experiment exp-a is {status}; cancel it first"):
+            library.delete("experiment", "exp-a")
+    with pytest.raises(KeyError):
+        library.delete("backtest", "no-such-run")
+
+
+def test_empty_erases_only_the_trash(world):
+    repository, library, _run = world
+    library.annotations.set("backtest", "run-a", "keep me", "", True)
+    library.delete("backtest", "run-a")
+    assert library.empty([("backtest", "run-a")]) == 1
+    assert not (repository.root / "trash" / "runs" / "run-a").exists()
+    assert "backtest:run-a" not in library.annotations.all()
+    assert library.query(LibraryQuery())["total"] == 4  # the live items are untouched
+    library.delete("optimization", "opt-a")
+    library.delete("walkforward", "wf-a")
+    assert library.empty(None) == 2 and library.query(LibraryQuery(deleted=True))["total"] == 0
+
+
+def test_a_trashed_id_is_never_reused(world):  # Review Focus 4
+    repository, library, _run = world
+    store = ExperimentStore(repository)
+    repository.delete_study("study-a")
+    exp = store.get("exp-a")
+    library.delete("experiment", "exp-a")
+    assert store.free_id("exp a") != "exp-a"
+    clash = exp.model_copy(update={"id": store.free_id("exp a")})
+    store.save(clash)
+    library.restore("experiment", "exp-a")
+    assert store.get("exp-a").name == exp.name and store.get(clash.id).id == clash.id
+
+
+def test_restore_order_of_an_experiment_and_its_studies(world):  # Review Focus 5
+    repository, library, _run = world
+    library.delete("study", "study-a")
+    library.delete("experiment", "exp-a")  # its only study is in the trash
+    with pytest.raises(Refused, match="study study-a needs its experiment exp-a restored first"):
+        library.restore("study", "study-a")
+    library.restore("experiment", "exp-a")
+    library.restore("study", "study-a")
+    assert repository.get_study("study-a")["experiment_id"] == "exp-a"
+
+
+def test_trashed_runs_do_not_hold_a_strategy(world):
+    repository, library, run = world
+    strategies = StrategyLibrary(repository)
+    document = strategies.create("Held by a run", default_strategy())
+    repository.save_run({**run, "run_id": "held", "strategy_id": document.id})
+    with pytest.raises(StrategyReferenced):
+        strategies.delete(document.id)
+    library.delete("backtest", "held")
+    strategies.delete(document.id)
+
+
+def test_annotations_round_trip_and_limits(world):
+    _repository, library, _run = world
+    library.annotations.set("backtest", "run-a", "baseline", "the reference run", True)
+    entry = next(e for e in library.query(LibraryQuery(starred=True))["entries"])
+    assert (entry.id, entry.label, entry.notes, entry.starred) == (
+        "run-a",
+        "baseline",
+        "the reference run",
+        True,
+    )
+    assert [e.id for e in library.query(LibraryQuery(q="reference"))["entries"]] == ["run-a"]
+    with pytest.raises(ValueError, match="label"):
+        library.annotations.set("backtest", "run-a", "x" * 81, "", False)
+    with pytest.raises(ValueError, match="notes"):
+        library.annotations.set("backtest", "run-a", "", "x" * 2001, False)
