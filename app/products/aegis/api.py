@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from products.aegis import display
 from products.aegis import experiments as experiments_module
 from products.aegis import optimize as optimize_module
 from products.aegis import studies as studies_module
@@ -147,21 +148,41 @@ def symbols(store: ArchiveStore = STORE):
     }
 
 
+def _shown(store, symbol, timeframe, start, end, frame, max_bars, from_ms, to_ms):
+    """What a window of the selection is drawn as (Mission 10 §7)."""
+    return display.choose(
+        frame,
+        timeframe,
+        max_bars,
+        from_ms,
+        to_ms,
+        lambda coarser: _select(store, symbol, coarser, start, end)[0],
+    )
+
+
 @router.get("/data/bars")
 def bars(
     symbol: str,
     timeframe: str,
     start: str = Query(..., description="inclusive YYYY-MM-DD, America/New_York"),
     end: str = Query(..., description="inclusive YYYY-MM-DD, America/New_York"),
+    max_bars: int | None = Query(None, ge=1, description="draw at most this many candles"),
+    from_ms: int | None = Query(None, description="the window drawn; default the selection"),
+    to_ms: int | None = Query(None),
     store: ArchiveStore = STORE,
 ):
     frame, pinned = _select(store, symbol, timeframe, start, end)
+    shown = _shown(store, symbol, timeframe, start, end, frame, max_bars, from_ms, to_ms)
+    candles = to_records(shown.frame.iloc[shown.first : shown.last])
     return {
         "symbol": symbol,
         "timeframe": timeframe,
         "timezone": "America/New_York",
-        "bars": to_records(frame),
-        "count": len(frame),
+        "bars": candles,
+        "count": len(frame),  # the native bars of the whole selection
+        "shown": len(candles),
+        "display_timeframe": shown.timeframe,
+        "window": shown.window,
         "data": _provenance(pinned),
     }
 
@@ -173,11 +194,27 @@ class IndicatorsRequest(BaseModel):
     start: str
     end: str
     indicators: list[IndicatorSpec] = Field(max_length=32)
+    # Mission 10: the same window and bound as GET /data/bars, so the series follow its candles
+    max_bars: int | None = Field(default=None, ge=1)
+    from_ms: int | None = None
+    to_ms: int | None = None
 
 
 @router.post("/indicators")
 def indicators(request: IndicatorsRequest, store: ArchiveStore = STORE):
     frame, pinned = _select(store, request.symbol, request.timeframe, request.start, request.end)
+    shown = _shown(
+        store,
+        request.symbol,
+        request.timeframe,
+        request.start,
+        request.end,
+        frame,
+        request.max_bars,
+        request.from_ms,
+        request.to_ms,
+    )
+    native_ms = display.times_ms(frame)
     series, outputs, panes = {}, {}, {}
     for spec in request.indicators:
         info = kind_info(spec.kind)
@@ -188,14 +225,24 @@ def indicators(request: IndicatorsRequest, store: ArchiveStore = STORE):
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         for column in produced.columns:
-            series[column] = [
-                None if math.isnan(v) else float(v) for v in produced[column].tolist()
-            ]
+            # computed on the native bars of the whole selection: the warm-up is unchanged
+            values = produced[column].to_numpy(dtype="float64")
+            if shown.starts_ms is not None:
+                sampled = display.sample_at_buckets(
+                    native_ms, values, shown.starts_ms, int(native_ms[-1])
+                )
+                series[column] = sampled[shown.first : shown.last]
+            else:
+                series[column] = [
+                    None if math.isnan(v) else v for v in values[shown.first : shown.last].tolist()
+                ]
     return {
-        "times": [record["time"] for record in to_records(frame)],
+        "times": display.times_ms(shown.frame.iloc[shown.first : shown.last]).tolist(),
         "series": series,
         "outputs": outputs,
         "pane": panes,
+        "display_timeframe": shown.timeframe,
+        "window": shown.window,
         "data": _provenance(pinned),
     }
 

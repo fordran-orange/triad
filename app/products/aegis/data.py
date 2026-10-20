@@ -188,25 +188,19 @@ def _as_date(value) -> date:
 
 
 def to_records(frame: pd.DataFrame) -> list[dict]:
-    times = (frame["timestamp"].astype("int64") // 1_000_000).tolist()
+    """The bars route's candles, built from whole columns (Mission 10), not row by row."""
+    columns = zip(
+        (frame["timestamp"].astype("int64") // 1_000_000).tolist(),
+        frame["open"].astype("float64").tolist(),
+        frame["high"].astype("float64").tolist(),
+        frame["low"].astype("float64").tolist(),
+        frame["close"].astype("float64").tolist(),
+        frame["volume"].astype("int64").tolist(),
+        strict=True,
+    )
     return [
-        {
-            "time": int(t),
-            "open": float(o),
-            "high": float(h),
-            "low": float(lo),
-            "close": float(c),
-            "volume": int(v),
-        }
-        for t, o, h, lo, c, v in zip(
-            times,
-            frame["open"],
-            frame["high"],
-            frame["low"],
-            frame["close"],
-            frame["volume"],
-            strict=True,
-        )
+        {"time": t, "open": o, "high": h, "low": lo, "close": c, "volume": v}
+        for t, o, h, lo, c, v in columns
     ]
 
 
