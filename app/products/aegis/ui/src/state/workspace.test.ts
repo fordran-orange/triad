@@ -64,6 +64,16 @@ describe('workspace reducer', () => {
     expect(state.running).toBe(false);
   });
 
+  it('RUN_KEPT marks the shown run saved and leaves another run alone (Mission 10)', () => {
+    const run = { run_id: 'r1', result_hash: 'abc', saved: false } as RunRecord;
+    let state = reducer(withStrategy(), { type: 'RUN_COMPLETED', run });
+    state = reducer(state, { type: 'RUN_KEPT', run_id: 'other' });
+    expect(state.lastRun?.saved).toBe(false);
+    state = reducer(state, { type: 'RUN_KEPT', run_id: 'r1' });
+    expect(state.lastRun?.saved).toBe(true);
+    expect(state.lastRun?.result_hash).toBe('abc');
+  });
+
   it('SET_SELECTION keeps the five timeframes and defaults to QQQ 1h', () => {
     expect(initialState.selection.symbol).toBe('QQQ');
     expect(initialState.selection.timeframe).toBe('1h');

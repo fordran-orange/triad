@@ -135,6 +135,13 @@ export interface IndicatorsResponse {
   data: Provenance;
 }
 
+/** Whether every backtest is saved or only what the operator keeps (Mission 10). */
+export type SaveMode = 'every' | 'kept';
+
+export interface Preferences {
+  save_runs: SaveMode;
+}
+
 /** The candles a chart asks for (Mission 10): at most `maxBars` over [from, to] epoch ms. */
 export interface ChartView {
   maxBars: number;
@@ -243,6 +250,9 @@ export const api = {
   backtest: (body: { strategy: StrategySpec; data: Selection; settings: Settings }) => request<RunEnvelope>('/backtest', post(body)),
   runs: () => request<RunSummary[]>('/runs'),
   run: (id: string) => request<RunEnvelope>(`/runs/${encodeURIComponent(id)}`),
+  keepRun: (id: string) => request<{ saved: string }>(`/runs/${encodeURIComponent(id)}/keep`, post({})),
+  preferences: () => request<Preferences>('/preferences'),
+  setPreferences: (save_runs: SaveMode) => request<Preferences>('/preferences', put({ save_runs })),
   optimizePlan: (body: OptimizeBody) => request<OptimizePlan>('/optimize/plan', post(body)),
   optimize: (body: OptimizeBody) => request<OptimizeStarted>('/optimize', post(body)),
   optimizations: () => request<JobSummary[]>('/optimize'),

@@ -1,7 +1,41 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api, errorMessage, type SaveMode } from '../api/client';
 import { useRunBacktest } from '../state/run';
 import { TIMEFRAMES, useDispatch, useWorkspace, type Timeframe } from '../state/workspace';
 import { OptimizePopover } from './OptimizePopover';
+
+/** Whether every backtest is saved or only what the operator keeps (Mission 10 §8). */
+function SaveModeSwitch() {
+  const [mode, setMode] = useState<SaveMode | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .preferences()
+      .then((p) => setMode(p.save_runs))
+      .catch((e: unknown) => setError(errorMessage(e)));
+  }, []);
+  const change = (next: SaveMode) => {
+    setError(null);
+    api
+      .setPreferences(next)
+      .then((p) => setMode(p.save_runs))
+      .catch((e: unknown) => setError(errorMessage(e)));
+  };
+  return (
+    <select
+      id="save-mode"
+      className={'control' + (error ? ' error' : '')}
+      value={mode ?? 'every'}
+      disabled={mode === null}
+      onChange={(e) => change(e.target.value as SaveMode)}
+      aria-label="Saving"
+      title={error ?? (mode === 'kept' ? 'Backtests are held unsaved until you keep them; the last 20 are kept in memory and gone on restart' : 'Every backtest is saved')}
+    >
+      <option value="every">Save every backtest</option>
+      <option value="kept">Save only what I keep</option>
+    </select>
+  );
+}
 
 export function TopBar({ runsOpen, onToggleRuns }: { runsOpen: boolean; onToggleRuns: () => void }) {
   const { selection, strategy, symbols, running } = useWorkspace();
@@ -64,6 +98,7 @@ export function TopBar({ runsOpen, onToggleRuns }: { runsOpen: boolean; onToggle
           </button>
           {optimizeOpen && <OptimizePopover onClose={() => setOptimizeOpen(false)} />}
         </div>
+        <SaveModeSwitch />
         <button className={'btn' + (runsOpen ? ' active' : '')} type="button" onClick={onToggleRuns} title="Saved runs" aria-pressed={runsOpen}>
           ☰ Runs
         </button>

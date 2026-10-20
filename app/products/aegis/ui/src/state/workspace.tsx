@@ -95,6 +95,7 @@ export type Action =
   | { type: 'RUN_COMPLETED'; run: RunRecord }
   | { type: 'RUN_FAILED'; error: string }
   | { type: 'LOAD_RUN'; run: RunRecord }
+  | { type: 'RUN_KEPT'; run_id: string }
   | { type: 'JOB_UPDATED'; side: Side; job: JobStatus }
   | { type: 'JOB_LOST'; side: Side; job_id: string }
   | { type: 'WALKFORWARD_UPDATED'; side: Side; job: WalkForwardStatus }
@@ -333,6 +334,8 @@ export function reducer(state: WorkspaceState, action: Action): WorkspaceState {
       return { ...state, running: false, runError: null, lastRun: action.run };
     case 'RUN_FAILED':
       return { ...state, running: false, runError: action.error };
+    case 'RUN_KEPT':
+      return state.lastRun?.run_id === action.run_id ? { ...state, lastRun: { ...state.lastRun, saved: true } } : state;
     case 'LOAD_RUN':
       return {
         ...state,

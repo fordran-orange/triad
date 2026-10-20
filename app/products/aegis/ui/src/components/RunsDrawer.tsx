@@ -11,6 +11,7 @@ export function RunsDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [kept, setKept] = useState(0); // a keep re-reads the list
 
   useEffect(() => {
     if (!open) return;
@@ -23,7 +24,7 @@ export function RunsDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     return () => {
       cancelled = true;
     };
-  }, [open, lastRun?.run_id]);
+  }, [open, lastRun?.run_id, kept]);
 
   if (!open) return null;
 
@@ -32,6 +33,20 @@ export function RunsDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     setError(null);
     try {
       dispatch({ type: 'LOAD_RUN', run: await api.run(id) });
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
+  const keep = async (id: string) => {
+    setLoadingId(id);
+    setError(null);
+    try {
+      await api.keepRun(id);
+      dispatch({ type: 'RUN_KEPT', run_id: id });
+      setKept((n) => n + 1);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -68,11 +83,18 @@ export function RunsDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             <div className="small muted">
               {r.strategy?.name ?? DASH} · {timeLabel(r.created_at)} · hash {shortHash(r.result_hash)} · vintage {r.data?.vintage ?? DASH}
             </div>
+            {r.kept === false && <div className="small warn">not kept; gone on restart</div>}
           </div>
+          {r.kept === false && (
+            <button type="button" className="btn" id={`keep-${r.run_id}`} disabled={loadingId !== null} onClick={() => keep(r.run_id)} title="Save this run">
+              {loadingId === r.run_id ? 'Keeping…' : 'Keep'}
+            </button>
+          )}
           <button
             type="button"
             className="btn"
-            title="Open this run read-only in the Library"
+            disabled={r.kept === false}
+            title={r.kept === false ? 'Keep it first: unsaved runs are not in the Library' : 'Open this run read-only in the Library'}
             onClick={() => {
               dispatch({ type: 'SET_PAGE', page: 'library', focus: { libraryKind: 'backtest', libraryId: r.run_id } });
               onClose();

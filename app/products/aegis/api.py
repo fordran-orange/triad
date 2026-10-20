@@ -56,11 +56,13 @@ from products.aegis.optimize import (
     plan_seconds,
 )
 from products.aegis.pool import default_workers, fitted_workers
+from products.aegis.preferences import Preferences
 from products.aegis.results import envelope
 from products.aegis.runs import JsonRunRepository, RunRepository
 from products.aegis.strategies import BuiltinRefused, StrategyLibrary, StrategyReferenced
 from products.aegis.strategy import IndicatorSpec, StrategySpec
 from products.aegis.study_rules import render_study_markdown
+from products.aegis.unsaved import UnsavedRuns
 from products.aegis.walkforward import WalkForwardJob, WalkForwardRequest
 from products.aegis.walkforward import plan as walkforward_plan
 
@@ -90,10 +92,25 @@ def get_cache() -> IndicatorCache:
     return IndicatorCache(max_data_keys=8)
 
 
+@lru_cache(maxsize=1)
+def get_unsaved() -> UnsavedRuns:
+    """Backtests not saved in "kept" mode; a worker restart forgets them (Mission 10 §8)."""
+    return UnsavedRuns()
+
+
 STORE = Depends(get_store)
 REPOSITORY = Depends(get_repository)
 RUNNER = Depends(get_runner)
 CACHE = Depends(get_cache)
+UNSAVED = Depends(get_unsaved)
+
+
+def get_preferences(repository: RunRepository = REPOSITORY) -> Preferences:
+    """The worker's preferences live beside its saved runs."""
+    return Preferences(getattr(repository, "root", None))
+
+
+PREFERENCES = Depends(get_preferences)
 
 
 def get_experiment_store(
@@ -275,21 +292,75 @@ def _envelope(request: BacktestRequest, store: ArchiveStore, cache: IndicatorCac
     )
 
 
+class BacktestBody(BacktestRequest):
+    """POST /backtest: the engine's request and, for this request only, whether to save the
+    run whatever the save preference says (Mission 10 §8)."""
+
+    save: bool | None = None
+
+
+class PreferencesBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    save_runs: Literal["every", "kept"]
+
+
+@router.get("/preferences")
+def preferences(prefs: Preferences = PREFERENCES):
+    return prefs.get()
+
+
+@router.put("/preferences")
+def set_preferences(body: PreferencesBody, prefs: Preferences = PREFERENCES):
+    return prefs.set(body.save_runs)
+
+
 @router.post("/backtest")
 def backtest(
-    request: BacktestRequest,
+    request: BacktestBody,
     store: ArchiveStore = STORE,
     repository: RunRepository = REPOSITORY,
     cache: IndicatorCache = CACHE,
+    unsaved: UnsavedRuns = UNSAVED,
+    prefs: Preferences = PREFERENCES,
 ):
     envelope = _envelope(request, store, cache)
-    repository.save_run(envelope)
-    return envelope
+    save = request.save if request.save is not None else prefs.get()["save_runs"] == "every"
+    if save:
+        repository.save_run(envelope)
+    else:
+        unsaved.add(envelope)  # "kept" mode: held until kept, or forgotten on restart
+    return {**envelope, "saved": save}
 
 
 @router.get("/runs")
-def runs(repository: RunRepository = REPOSITORY):
-    return repository.list_runs()
+def runs(repository: RunRepository = REPOSITORY, unsaved: UnsavedRuns = UNSAVED):
+    listed = unsaved.list() + repository.list_runs()
+    return sorted(listed, key=lambda item: item.get("created_at", ""), reverse=True)
+
+
+@router.post("/runs/{run_id}/keep")
+def keep_run(
+    run_id: str,
+    repository: RunRepository = REPOSITORY,
+    unsaved: UnsavedRuns = UNSAVED,
+):
+    """Save a run held unsaved; a run already saved is fine; a forgotten one is 404."""
+    try:
+        envelope = unsaved.pop(run_id)
+    except KeyError:
+        try:
+            repository.get_run(run_id)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(
+                404, f"run {run_id!r} is not held: unsaved runs are forgotten on restart"
+            ) from exc
+        return {"saved": run_id}
+    try:
+        repository.save_run(envelope)
+    except Exception:
+        unsaved.add(envelope)  # a failed write never loses the run
+        raise
+    return {"saved": run_id}
 
 
 @router.get("/runs/{run_id}")
@@ -297,11 +368,16 @@ def run(
     run_id: str,
     store: ArchiveStore = STORE,
     repository: RunRepository = REPOSITORY,
+    unsaved: UnsavedRuns = UNSAVED,
 ):
     try:
-        envelope = repository.get_run(run_id)
+        envelope, saved = repository.get_run(run_id), True
     except (KeyError, ValueError) as exc:
-        raise HTTPException(404, f"unknown run {run_id!r}") from exc
+        try:
+            envelope, saved = unsaved.get(run_id), False
+        except KeyError:
+            raise HTTPException(404, f"unknown run {run_id!r}") from exc
+    envelope["saved"] = saved
     data = envelope.get("data") or {}
     if data.get("source") == "raw_archive":
         try:

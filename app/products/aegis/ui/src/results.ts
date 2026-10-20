@@ -98,6 +98,7 @@ export type RunState = 'ok' | 'source_unavailable';
 
 export interface RunEnvelope {
   run_id: string;
+  saved?: boolean; // Mission 10: false while a "kept"-mode run is held unsaved (gone on restart)
   created_at: string;
   elapsed_ms: number;
   result_hash: string;
@@ -125,6 +126,7 @@ export interface StoredFormat {
 /** What GET /aegis/api/runs lists: the envelope without result, series or markers. */
 export interface RunSummary {
   run_id: string;
+  kept?: false; // Mission 10: present only on a run held unsaved
   created_at?: string;
   elapsed_ms?: number;
   result_hash: string;
