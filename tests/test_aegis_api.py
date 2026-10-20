@@ -192,8 +192,8 @@ def test_backtest_requires_exactly_one_of_data_or_bars(client):
 def test_backtest_bars_over_bound_is_422(client):
     c, _, _ = client
     strategy = default_strategy()
-    with pytest.raises(ValidationError, match="at most 200000"):
-        BacktestRequest(strategy=strategy, bars=[{}] * 200_001)
+    with pytest.raises(ValidationError, match="at most 2000000"):
+        BacktestRequest(strategy=strategy, bars=[{}] * 2_000_001)
     events = [{"event_type": "FOMC", "timestamp": "2026-01-05T15:00:00Z"}] * 10_001
     response = c.post(
         "/aegis/api/backtest",

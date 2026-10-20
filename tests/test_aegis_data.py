@@ -126,7 +126,7 @@ def test_bars_over_cap_returns_422_with_hint(root, monkeypatch):
         store.bars("SPY", "1m", "2026-10-30", "2026-11-02")
     assert info.value.count == 780 and info.value.cap == 100
     assert "narrow the range" in str(info.value)
-    assert BAR_CAP == 200_000 and TIMEFRAMES == ("1m", "15m", "30m", "1h", "1D")
+    assert BAR_CAP == 2_000_000 and TIMEFRAMES == ("1m", "15m", "30m", "1h", "1D")
 
 
 def test_pinned_source_has_file_sha_and_data_hash(root):
@@ -230,3 +230,13 @@ def test_archive_frame_equals_the_rows_path(root):
 
     wave = pd.DataFrame(wave_bars(n=300))
     assert prepare_archive_frame(wave, "QQQ").equals(_prepare_frame(engine_rows(wave, "QQQ")))
+
+
+def test_ten_years_of_one_minute_bars_select():  # Mission 10 Task 3, on the real archive
+    store = ArchiveStore()
+    try:
+        store.source("QQQ")
+    except KeyError:
+        pytest.skip("the QQQ archive is not on this machine")
+    frame, pinned = store.bars("QQQ", "1m", "2016-09-19", "2026-09-18")
+    assert len(frame) == pinned.bar_count == 947_519

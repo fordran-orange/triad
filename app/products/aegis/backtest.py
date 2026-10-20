@@ -115,7 +115,7 @@ class BacktestRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     strategy: StrategySpec
     data: DataReference | None = None
-    bars: list[dict] = Field(default_factory=list, max_length=200_000)
+    bars: list[dict] = Field(default_factory=list, max_length=2_000_000)  # the bar cap's guard
     events: list[EventPoint] = Field(default_factory=list, max_length=10_000)
     settings: BacktestSettings = Field(default_factory=BacktestSettings)
     # The compiled kernel is the default (Mission 6 spec §4.2); the reference engine stays as the
