@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from products.aegis import experiments as experiments_module
 from products.aegis import studies as studies_module
 from products.aegis.backtest import BacktestRequest, DataReference, run_backtest
+from products.aegis.compare import compare as compare_runs
 from products.aegis.data import (
     TIMEFRAMES,
     ArchiveStore,
@@ -1199,6 +1200,25 @@ def restore_library_item(kind: str, item_id: str, library: Library = LIBRARY_IND
     except Refused as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"restored": item_id}
+
+
+@router.get("/library/compare")
+def compare_library_backtests(a: str, b: str, library: Library = LIBRARY_INDEX):
+    """Two saved backtests side by side (spec §7): computed here, sent back compact; reads only."""
+    if a == b:
+        raise HTTPException(422, "compare two different runs")
+    runs = {}
+    for key, run_id in (("a", a), ("b", b)):
+        try:
+            runs[key] = library.repository.get_run(run_id)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(404, f"unknown run {run_id!r}") from exc
+    result = compare_runs(runs["a"], runs["b"])
+    for key, run_id in (("a", a), ("b", b)):
+        result["identity"][key]["label"] = library.annotations.get("backtest", run_id).get(
+            "label", ""
+        )
+    return result
 
 
 @router.post("/library/trash/empty")

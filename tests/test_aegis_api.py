@@ -1334,3 +1334,22 @@ def test_library_annotation_delete_restore_and_empty_routes(client):
         json={"items": [{"kind": "experiment", "id": "four-cells"}]},
     ).json() == {"erased": 1}
     assert c.post("/aegis/api/library/experiment/four-cells/restore").status_code == 404
+
+
+def test_library_compare_route(client):
+    c, _, _repository = client
+    payload = {
+        "strategy": default_strategy().model_dump(mode="json"),
+        "data": {"symbol": "QQQ", "timeframe": "15m", **RANGE},
+    }
+    first = c.post("/aegis/api/backtest", json=payload).json()["run_id"]
+    second = c.post("/aegis/api/backtest", json=payload).json()["run_id"]
+    body = c.get("/aegis/api/library/compare", params={"a": first, "b": second}).json()
+    assert "identical result" in body["notes"] and body["differences"] == []
+    assert body["identity"]["a"]["run_id"] == first and set(body["metrics"]) == {
+        "combined",
+        "long",
+        "short",
+    }
+    assert c.get("/aegis/api/library/compare", params={"a": first, "b": first}).status_code == 422
+    assert c.get("/aegis/api/library/compare", params={"a": first, "b": "nope"}).status_code == 404
