@@ -1,11 +1,16 @@
 import { timeLabel } from '../format';
 import type { EquityPoint } from '../results';
-import { useWorkspace } from '../state/workspace';
+import { useWorkspace, type RunRecord } from '../state/workspace';
 import { StaleNotice } from './RunContext';
 
 /** Plain SVG polylines; no chart library involved (spec §4.2). */
 export function EquityTab() {
   const { lastRun } = useWorkspace();
+  return <EquityView run={lastRun} stale />;
+}
+
+/** One run's view; the Library feeds it a saved run without touching the workspace (Mission 9). */
+export function EquityView({ run: lastRun, stale = false }: { run: RunRecord | null; stale?: boolean }) {
   const result = lastRun?.result;
   const series: Array<[string, string, EquityPoint[]]> = result
     ? [
@@ -34,7 +39,7 @@ export function EquityTab() {
   return (
     <div className="result-body single">
       <div className="results-table">
-        <StaleNotice />
+        {stale && <StaleNotice />}
         <div className="legend">
           {drawn.map(([name, color, points]) => (
             <b key={name} style={{ color }}>

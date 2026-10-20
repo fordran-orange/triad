@@ -4,7 +4,7 @@ import type { StrategySide } from '../contracts';
 import { DASH, money, num, pct, shortHash, timeLabel } from '../format';
 import { METRIC_LABELS, TERMINAL_JOB_STATES, type EquityPoint, type Trade, type WalkForwardStatus, type WindowRecord } from '../results';
 import { useRunBacktest } from '../state/run';
-import { applyConfigs, canonical, SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
+import { applyConfigs, canonical, selectionFromData, SIDES, SIDE_KEY, unsavedEdits, useDispatch, useWorkspace, type Side } from '../state/workspace';
 import { formatSeconds } from './OptimizePopover';
 
 const MIN_BARS = 35;
@@ -110,7 +110,9 @@ function StitchedEquity({ records }: { records: WindowRecord[] }) {
   );
 }
 
-function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
+/** One walk-forward job's windows, stitched equity and stability; in the Library it loads its
+ *  own strategy and data with the final window's configuration (Mission 9). */
+export function WalkForwardJobView({ side, job, library = false }: { side: Side; job: WalkForwardStatus; library?: boolean }) {
   const state = useWorkspace();
   const dispatch = useDispatch();
   const run = useRunBacktest();
@@ -135,6 +137,14 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
       setCancelError(errorMessage(e));
     }
   };
+  const loadFinal = () => {
+    if (!choice) return;
+    if (unsavedEdits(state) && !window.confirm('Load this walk-forward into the workspace? Unsaved strategy edits will be replaced.')) return;
+    dispatch({ type: 'SET_STRATEGY', strategy: applyConfigs(job.strategy, { long: side === 'long' ? choice : null, short: side === 'short' ? choice : null }) });
+    dispatch({ type: 'SET_SELECTION', selection: selectionFromData(job.data, state.selection) });
+    dispatch({ type: 'SET_LINK_SIDES', linked: false });
+    dispatch({ type: 'SET_PAGE', page: 'charts' });
+  };
   const apply = () => {
     if (!state.strategy || !choice) return;
     const applied = applyConfigs(state.strategy, { long: side === 'long' ? choice : null, short: side === 'short' ? choice : null });
@@ -155,7 +165,7 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
           {(job.elapsed_ms / 1000).toFixed(1)} s elapsed{live ? ` · ≈ ${formatSeconds(job.estimated_seconds)} remaining` : ''} · cache hits {job.cache_hits}
           {job.unused_tail_bars > 0 ? ` · ${job.unused_tail_bars} tail bars unused` : ''}
         </span>
-        {live && (
+        {live && !library && (
           <button type="button" className="btn" id="cancel-walkforward" onClick={cancel}>
             Cancel
           </button>
@@ -167,7 +177,7 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
       {job.error && <div className="error">{job.error}</div>}
       {job.status === 'lost' && <div className="notice warn">This walk-forward was still running when the worker restarted; its completed windows are what was saved.</div>}
       {cancelError && <div className="error">{cancelError}</div>}
-      {(movedSelection || movedStrategy) && (
+      {!library && (movedSelection || movedStrategy) && (
         <div className="notice warn" role="status">
           Stale: this walk-forward ran on {d.symbol} · {d.timeframe} {d.start} → {d.end}; {[movedSelection && 'the selection', movedStrategy && 'the strategy'].filter(Boolean).join(' and ')} changed since.
         </div>
@@ -302,14 +312,14 @@ function JobView({ side, job }: { side: Side; job: WalkForwardStatus }) {
           <div className="legend" style={{ marginTop: 12 }}>
             <span className="muted">Final window's configuration: {describe(choice, planned)}</span>
             <button
-              id="apply-walkforward"
+              id={library ? 'library-load' : 'apply-walkforward'}
               type="button"
               className="btn btn-primary"
-              disabled={!choice || !state.strategy || state.running}
-              onClick={apply}
-              title="Write the last window's configuration into this side and rerun the combined backtest"
+              disabled={library ? !choice : !choice || !state.strategy || state.running}
+              onClick={library ? loadFinal : apply}
+              title={library ? "Load this walk-forward's strategy and data with the final window's configuration" : "Write the last window's configuration into this side and rerun the combined backtest"}
             >
-              Apply final configuration
+              {library ? "Load the final window's settings into the workspace" : 'Apply final configuration'}
             </button>
           </div>
         </div>
@@ -336,7 +346,7 @@ export function WalkForwardTab() {
           })}
         </div>
         {!job && <div className="empty-state">No walk-forward has been run for the {side.toUpperCase()} side — choose "Walk-forward" in the Optimize popover.</div>}
-        {job && <JobView key={job.job_id} side={side} job={job} />}
+        {job && <WalkForwardJobView key={job.job_id} side={side} job={job} />}
       </div>
     </div>
   );

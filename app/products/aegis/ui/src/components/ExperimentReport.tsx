@@ -15,10 +15,11 @@ interface Props {
   onUse: (cell: number, params: Record<string, number>) => void;
   onChanged: () => void;
   onRefined: (childId: string) => void;
+  focusStudyId?: string | null;
 }
 
 /** The report (spec §8.2): recommendation first, then the maps, the cells, the decision. */
-export function ExperimentReportView({ experiment, report, onUse, onChanged, onRefined }: Props) {
+export function ExperimentReportView({ experiment, report, onUse, onChanged, onRefined, focusStudyId = null }: Props) {
   const [objective, setObjective] = useState<Objective>(report.objective);
   const [tolerance, setTolerance] = useState(report.tolerance);
   const [verdict, setVerdict] = useState<'accepted' | 'rejected' | 'deferred'>(experiment.decision?.verdict ? (experiment.decision.verdict as 'accepted') : 'accepted');
@@ -229,7 +230,7 @@ export function ExperimentReportView({ experiment, report, onUse, onChanged, onR
         </div>
       </div>
 
-      <ExperimentStudies experiment={experiment} />
+      <ExperimentStudies experiment={experiment} initialStudyId={focusStudyId} />
       <div className="report-section" id="decision">
         <h4>Decision</h4>
         {experiment.decision ? (

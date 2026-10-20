@@ -109,6 +109,9 @@ export interface RunEnvelope {
   settings?: { initial_capital: number; allocation_fraction: number }; // absent on runs persisted before the fix pass
   state: RunState;
   state_detail?: string;
+  strategy_id?: string | null;
+  strategy_hash?: string; // absent on runs persisted before Mission 5
+  engine?: string;
 }
 
 /** What GET /aegis/api/runs lists: the envelope without result, series or markers. */
@@ -546,4 +549,102 @@ export interface StudySummary {
   decision: ExperimentDecision | null;
   job_id?: string | null;
   error?: string | null;
+}
+
+// --- the Results library (Mission 9) --------------------------------------------------------------
+
+export type LibraryKind = 'backtest' | 'optimization' | 'walkforward' | 'experiment' | 'study';
+export const LIBRARY_KINDS: LibraryKind[] = ['backtest', 'optimization', 'walkforward', 'experiment', 'study'];
+
+export interface LibraryEntry {
+  kind: LibraryKind;
+  id: string;
+  name: string;
+  label: string;
+  notes: string;
+  starred: boolean;
+  symbols: string[];
+  timeframe: string | null;
+  start: string | null;
+  end: string | null;
+  strategy_id: string | null;
+  strategy_name: string | null;
+  created_at: string | null;
+  status: string | null;
+  decision: ExperimentDecision | null;
+  headline: Record<string, unknown>;
+  links: Record<string, unknown>;
+  deleted_at?: string | null;
+}
+
+export interface LibraryPage {
+  total: number;
+  entries: LibraryEntry[];
+  preparing: number;
+  counts_by_kind: Record<LibraryKind, number>;
+}
+
+export interface LibraryFilters {
+  kinds: LibraryKind[];
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  starred: boolean;
+  decision: string;
+  q: string;
+  sort: 'created' | 'net_pnl' | 'mar';
+  offset: number;
+  limit: number;
+  deleted: boolean;
+}
+
+export type CompareMark = 'better' | 'worse' | null;
+
+export interface CompareMetricRow {
+  metric: string;
+  a: number | null;
+  b: number | null;
+  diff: number | null;
+  mark: CompareMark;
+}
+
+export interface ComparePoint {
+  t: string;
+  pct: number;
+  usd: number;
+  dd: number;
+}
+
+export interface CompareSideTrades {
+  count: number;
+  avg_net: number | null;
+  win_rate: number | null;
+  avg_hold_hours: number | null;
+  max_hold_hours: number | null;
+}
+
+export interface CompareIdentity {
+  run_id: string;
+  label?: string;
+  symbol: string | null;
+  timeframe: string | null;
+  start: string | null;
+  end: string | null;
+  strategy_name: string | null;
+  strategy_hash: string | null;
+  result_hash: string | null;
+  data_hash: string | null;
+  initial_capital: number;
+  created_at: string | null;
+}
+
+export interface CompareResult {
+  identity: { a: CompareIdentity; b: CompareIdentity };
+  notes: string[];
+  differences: Array<{ path: string; a: unknown; b: unknown }>;
+  metrics: Record<'combined' | 'long' | 'short', CompareMetricRow[]>;
+  equity: { a: ComparePoint[]; b: ComparePoint[] };
+  domain: { start: string; end: string } | null;
+  trades: { a: Record<'long' | 'short', CompareSideTrades>; b: Record<'long' | 'short', CompareSideTrades> };
+  capital_assumed: { a: boolean; b: boolean };
 }

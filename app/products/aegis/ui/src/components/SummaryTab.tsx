@@ -1,7 +1,7 @@
 import { Fragment } from 'react';
 import { DASH, money, num, pct } from '../format';
 import type { Breakdown, Metrics, ResultSide } from '../results';
-import { useWorkspace } from '../state/workspace';
+import { useWorkspace, type RunRecord } from '../state/workspace';
 import { StaleNotice } from './RunContext';
 
 const SIDES: Array<[ResultSide, string]> = [
@@ -46,13 +46,18 @@ export function breakdownRows(temporal: Record<ResultSide, Record<string, Breakd
 
 export function SummaryTab() {
   const { lastRun } = useWorkspace();
+  return <SummaryView run={lastRun} stale />;
+}
+
+/** One run's view; the Library feeds it a saved run without touching the workspace (Mission 9). */
+export function SummaryView({ run: lastRun, stale = false }: { run: RunRecord | null; stale?: boolean }) {
   const result = lastRun?.result ?? null;
   const rows = result ? breakdownRows(result.temporal) : [];
   return (
     <div className="result-body single">
       <div className="results-table">
         {!result && <div className="empty-state">No backtest run yet — press Run Backtest in the top bar.</div>}
-        <StaleNotice />
+        {stale && <StaleNotice />}
         <table id="summary-metrics">
           <thead>
             <tr>

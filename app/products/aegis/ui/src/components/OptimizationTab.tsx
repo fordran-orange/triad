@@ -43,18 +43,31 @@ export function rankCells(cells: Cell[], objective: Metric): Cell[] {
 const sameParams = (a: Record<string, number> | null, b: Record<string, number>) =>
   a !== null && Object.keys(b).length === Object.keys(a).length && Object.entries(b).every(([k, v]) => a[k] === v);
 
-function JobView({ side, job }: { side: Side; job: JobStatus }) {
+/** One optimization job's matrix and table; the Library passes its own pick (Mission 9). */
+export function OptimizationJobView({
+  side,
+  job,
+  selected: chosen,
+  onPick,
+  library = false,
+}: {
+  side: Side;
+  job: JobStatus;
+  selected?: Record<string, number> | null;
+  onPick?: (cell: Cell) => void;
+  library?: boolean;
+}) {
   const { selectedConfigs } = useWorkspace();
   const dispatch = useDispatch();
   const [metric, setMetric] = useState<Metric>(job.objective);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const live = !TERMINAL_JOB_STATES.has(job.status);
-  const pickedSelection = selectedConfigs[side];
+  const pickedSelection = chosen !== undefined ? chosen : selectedConfigs[side];
   const selected = pickedSelection && pickedSelection !== 'none' ? pickedSelection : null;
   const planned = job.strategy[SIDE_KEY[side]];
   const matrix = job.matrices[metric]?.[side] ?? null;
   const selectedCell = selected ? { fast: selected[job.fast_path], slow: selected[job.slow_path] } : null;
-  const pick = (cell: Cell) => dispatch({ type: 'SELECT_CONFIG', side, params: sameParams(selected, cell.params) ? null : cell.params });
+  const pick = (cell: Cell) => (onPick ? onPick(cell) : dispatch({ type: 'SELECT_CONFIG', side, params: sameParams(selected, cell.params) ? null : cell.params }));
   const cancel = async () => {
     setCancelError(null);
     try {
@@ -75,7 +88,7 @@ function JobView({ side, job }: { side: Side; job: JobStatus }) {
         <span className="muted">
           {(job.elapsed_ms / 1000).toFixed(1)} s elapsed{live ? ` · ≈ ${formatSeconds(job.estimated_seconds)} remaining` : ''} · cache hits {job.cache_hits}
         </span>
-        {live && (
+        {live && !library && (
           <button type="button" className="btn" id="cancel-optimization" onClick={cancel}>
             Cancel
           </button>
@@ -214,7 +227,7 @@ export function OptimizationTab() {
           </button>
         </div>
         {!job && <div className="empty-state">No optimization has been run for the {side.toUpperCase()} side — use Optimize in the top bar.</div>}
-        {job && <JobView key={job.job_id} side={side} job={job} />}
+        {job && <OptimizationJobView key={job.job_id} side={side} job={job} />}
       </div>
     </div>
   );

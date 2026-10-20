@@ -69,6 +69,17 @@ export function RunsDrawer({ open, onClose }: { open: boolean; onClose: () => vo
               {r.strategy?.name ?? DASH} · {timeLabel(r.created_at)} · hash {shortHash(r.result_hash)} · vintage {r.data?.vintage ?? DASH}
             </div>
           </div>
+          <button
+            type="button"
+            className="btn"
+            title="Open this run read-only in the Library"
+            onClick={() => {
+              dispatch({ type: 'SET_PAGE', page: 'library', focus: { libraryKind: 'backtest', libraryId: r.run_id } });
+              onClose();
+            }}
+          >
+            Open in Library
+          </button>
           <button type="button" className="btn btn-primary" disabled={loadingId !== null} onClick={() => load(r.run_id)}>
             {loadingId === r.run_id ? 'Loading…' : 'Load'}
           </button>

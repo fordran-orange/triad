@@ -17,6 +17,7 @@ export function ExperimentsPage() {
   const [items, setItems] = useState<ExperimentSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focusStudy, setFocusStudy] = useState<string | null>(null);
   const [selected, setSelected] = useState<ExperimentDocument | null>(null);
   const [report, setReport] = useState<ExperimentReport | null>(null);
   const [planning, setPlanning] = useState(false);
@@ -35,6 +36,13 @@ export function ExperimentsPage() {
     setReport(doc.latest_report ? await api.experimentReport(id) : null);
   }, []);
   useEffect(refresh, [refresh]);
+  const { focus } = state;
+  useEffect(() => {
+    if (!focus?.experimentId) return;
+    setSelectedId(focus.experimentId); // a deep link from the Library (Mission 9)
+    setFocusStudy(focus.studyId ?? null);
+    dispatch({ type: 'CLEAR_FOCUS' });
+  }, [focus, dispatch]);
   useEffect(() => {
     if (!selectedId) {
       setSelected(null);
@@ -223,6 +231,7 @@ export function ExperimentsPage() {
         <ExperimentReportView
           experiment={selected}
           report={report}
+          focusStudyId={focusStudy}
           onUse={use}
           onChanged={() => {
             refresh();

@@ -3,6 +3,7 @@ import { api } from './api/client';
 import { ChartPanel } from './components/ChartPanel';
 import { ExperimentsPage } from './components/ExperimentsPage';
 import { LabPage } from './components/LabPage';
+import { LibraryPage } from './components/LibraryPage';
 import { JobPoller } from './components/JobPoller';
 import { ResultsTabs } from './components/ResultsTabs';
 import { RunsDrawer } from './components/RunsDrawer';
@@ -92,13 +93,17 @@ export function App() {
       <TopBar runsOpen={runsOpen} onToggleRuns={() => setRunsOpen((v) => !v)} />
       <SideNav />
       <main
-        className={'main' + (page !== 'lab' && page !== 'experiments' && maximized ? ' results-max' : '')}
-        style={page !== 'lab' && page !== 'experiments' ? { gridTemplateRows: maximized ? '0px minmax(0, 1fr)' : `minmax(0, 1fr) ${resultsHeight}px` } : undefined}
+        className={'main' + (page === 'charts' && maximized ? ' results-max' : '')}
+        style={page === 'library' ? { gridTemplateRows: 'minmax(0, 1fr)' } : page === 'charts' ? { gridTemplateRows: maximized ? '0px minmax(0, 1fr)' : `minmax(0, 1fr) ${resultsHeight}px` } : undefined}
       >
         {page === 'lab' ? (
           <section className="workspace">
             <LabPage />
             <StrategyPanel />
+          </section>
+        ) : page === 'library' ? (
+          <section className="library-main">
+            <LibraryPage />
           </section>
         ) : page === 'experiments' ? (
           <section className="workspace">

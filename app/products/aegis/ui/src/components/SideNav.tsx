@@ -1,9 +1,10 @@
-import { useDispatch, useWorkspace } from '../state/workspace';
+import { useDispatch, useWorkspace, type Page } from '../state/workspace';
 
-const ITEMS: Array<{ label: string; page?: 'charts' | 'lab' | 'experiments'; id?: string; disabled?: boolean }> = [
+const ITEMS: Array<{ label: string; page?: Page; id?: string; disabled?: boolean }> = [
   { label: 'Dashboard', disabled: true },
   { label: 'Charts', page: 'charts', id: 'nav-charts' },
   { label: 'Strategy Lab', page: 'lab', id: 'nav-lab' },
+  { label: 'Library', page: 'library', id: 'nav-library' },
   { label: 'Indicators', disabled: true },
   { label: 'Data', disabled: true },
   { label: 'Experiments', page: 'experiments', id: 'nav-experiments' },

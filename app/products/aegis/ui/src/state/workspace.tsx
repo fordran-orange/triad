@@ -3,13 +3,23 @@ import type { SymbolInfo } from '../api/client';
 import { INDICATOR_KINDS, type IndicatorSpec, type OptimizationParameter, type StrategyDocument, type StrategySpec, type WindowMode } from '../contracts';
 import { ruleReferences, type Rule } from '../rules';
 import { DASH } from '../format';
-import type { JobStatus, RunEnvelope, WalkForwardStatus } from '../results';
+import type { JobStatus, LibraryKind, Provenance, RunEnvelope, WalkForwardStatus } from '../results';
 
 export const TIMEFRAMES = ['1m', '15m', '30m', '1h', '1D'] as const;
 export type Timeframe = (typeof TIMEFRAMES)[number];
 export type Side = 'long' | 'short';
 export const SIDES: Side[] = ['long', 'short'];
 export const SIDE_KEY: Record<Side, 'long_side' | 'short_side'> = { long: 'long_side', short: 'short_side' };
+
+export type Page = 'charts' | 'lab' | 'library' | 'experiments';
+
+/** A deep link the target page consumes once (Mission 9 plan ruling P10). */
+export interface Focus {
+  experimentId?: string;
+  studyId?: string;
+  libraryKind?: LibraryKind;
+  libraryId?: string;
+}
 
 export interface Selection {
   symbol: string;
@@ -62,7 +72,8 @@ export interface WorkspaceState {
   selectedConfigs: SelectedConfigs;
   focusSide: Side; // the side the chart and the Indicators tab show (plan ruling P9)
   rightTab: 'strategy' | 'indicators';
-  page: 'charts' | 'lab' | 'experiments';
+  page: Page;
+  focus: Focus | null;
   document: StrategyDocument | null; // the saved document the workspace strategy came from
   latest: { key: string; values: Record<string, number | null> }; // last value per drawn series, for the chartKey it was fetched under
 }
@@ -95,7 +106,8 @@ export type Action =
   | { type: 'ADD_INDICATOR'; side: Side; kind: string }
   | { type: 'REMOVE_INDICATOR'; side: Side; id: string }
   | { type: 'SET_RULE'; side: Side; which: 'entry' | 'exit'; rule: Rule }
-  | { type: 'SET_PAGE'; page: 'charts' | 'lab' | 'experiments' }
+  | { type: 'SET_PAGE'; page: Page; focus?: Focus | null }
+  | { type: 'CLEAR_FOCUS' }
   | { type: 'SET_DOCUMENT'; document: StrategyDocument }
   | { type: 'ADOPT_DOCUMENT'; document: StrategyDocument | null }
   | { type: 'DOCUMENT_RENAMED'; document: StrategyDocument };
@@ -118,6 +130,7 @@ export const initialState: WorkspaceState = {
   focusSide: 'long',
   rightTab: 'strategy',
   page: 'charts',
+  focus: null,
   document: null,
   latest: { key: '', values: {} },
 };
@@ -221,7 +234,11 @@ function isTimeframe(value: unknown): value is Timeframe {
 
 /** The selection a persisted run was made against, when its pinned source carries one. */
 export function selectionOf(run: RunRecord, fallback: Selection): Selection {
-  const d = run.data;
+  return selectionFromData(run.data, fallback);
+}
+
+/** The selection a saved result ran on, or the fallback when its data names none. */
+export function selectionFromData<F extends Selection | null>(d: Provenance | undefined | null, fallback: F): Selection | F {
   if (!d || typeof d.symbol !== 'string' || !isTimeframe(d.timeframe) || typeof d.start !== 'string' || typeof d.end !== 'string') {
     return fallback;
   }
@@ -347,7 +364,9 @@ export function reducer(state: WorkspaceState, action: Action): WorkspaceState {
     case 'SET_RIGHT_TAB':
       return { ...state, rightTab: action.tab };
     case 'SET_PAGE':
-      return { ...state, page: action.page };
+      return { ...state, page: action.page, focus: action.focus ?? null };
+    case 'CLEAR_FOCUS':
+      return { ...state, focus: null };
     case 'SET_DOCUMENT':
       return { ...state, document: action.document, strategy: action.document.spec };
     case 'ADOPT_DOCUMENT':

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { DASH, money, num, timeLabel } from '../format';
 import type { ResultSide, Trade } from '../results';
-import { useWorkspace } from '../state/workspace';
+import { useWorkspace, type RunRecord } from '../state/workspace';
 import { StaleNotice } from './RunContext';
 
 const FILTERS: Array<[ResultSide, string]> = [
@@ -12,13 +12,18 @@ const FILTERS: Array<[ResultSide, string]> = [
 
 export function TradesTab() {
   const { lastRun } = useWorkspace();
+  return <TradesView run={lastRun} stale />;
+}
+
+/** One run's view; the Library feeds it a saved run without touching the workspace (Mission 9). */
+export function TradesView({ run: lastRun, stale = false }: { run: RunRecord | null; stale?: boolean }) {
   const [filter, setFilter] = useState<ResultSide>('combined');
   const result = lastRun?.result;
   const trades: Trade[] = result ? result[filter].trades : [];
   return (
     <div className="result-body single">
       <div className="results-table">
-        <StaleNotice />
+        {stale && <StaleNotice />}
         {result && (
           <div className="legend">
             {FILTERS.map(([side, label]) => (

@@ -8,10 +8,13 @@ import { StudyView } from './StudyView';
 
 /** "Walk forward" on an experiment's report (Mission 8 spec §8): the planner, the experiment's
  *  studies with their decisions, and the selected study. */
-export function ExperimentStudies({ experiment }: { experiment: ExperimentDocument }) {
+export function ExperimentStudies({ experiment, initialStudyId = null }: { experiment: ExperimentDocument; initialStudyId?: string | null }) {
   const [items, setItems] = useState<StudySummary[] | null>(null);
   const [planning, setPlanning] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialStudyId);
+  useEffect(() => {
+    if (initialStudyId) setSelectedId(initialStudyId);
+  }, [initialStudyId]);
   const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(() => {
     api

@@ -2,10 +2,14 @@
 import type { ExperimentDocument, IndicatorSpec, Plan, StrategyDocument, StrategySpec, StudyDocument, StudyPlan } from '../contracts';
 import type {
   CellsPage,
+  CompareResult,
   ExperimentReport,
   ExperimentSummary,
   JobStatus,
   JobSummary,
+  LibraryFilters,
+  LibraryKind,
+  LibraryPage,
   Metric,
   Objective,
   OptimizePlan,
@@ -19,6 +23,7 @@ import type {
   WalkForwardStatus,
   WalkForwardSummary,
 } from '../results';
+import { queryString } from '../library';
 import type { Selection, Settings, Side } from '../state/workspace';
 
 export type { Provenance } from '../results';
@@ -265,4 +270,11 @@ export const api = {
   studyWindowCells: (id: string, symbol: string, w: number, query: { offset?: number; limit?: number } = {}) =>
     request<StudyCellsPage>(`${study(id)}/windows/${encodeURIComponent(symbol)}/${w}/cells?offset=${query.offset ?? 0}&limit=${query.limit ?? 200}`),
   studyMarkdownUrl: (id: string) => `${BASE}${study(id)}/report.md`,
+  library: (filters: LibraryFilters) => request<LibraryPage>(`/library?${queryString(filters)}`),
+  annotate: (kind: LibraryKind, id: string, body: { label: string; notes: string; starred: boolean }) =>
+    request<{ kind: LibraryKind; id: string; label: string; notes: string; starred: boolean }>(`/library/${kind}/${encodeURIComponent(id)}/annotation`, put(body)),
+  libraryDelete: (kind: LibraryKind, id: string) => request<{ deleted: string }>(`/library/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  libraryRestore: (kind: LibraryKind, id: string) => request<{ restored: string }>(`/library/${kind}/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
+  libraryEmpty: (items: Array<{ kind: LibraryKind; id: string }> | null) => request<{ erased: number }>('/library/trash/empty', post({ items })),
+  libraryCompare: (a: string, b: string) => request<CompareResult>(`/library/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
 };
