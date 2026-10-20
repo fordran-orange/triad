@@ -4,7 +4,10 @@ One side at a time: the grid is the cartesian product of that side's enabled opt
 parameters; cells whose entry-rule fast length is not below the slow length are skipped and
 reported. Cells run as units of a `JobRunner` job (`jobs.py`): one worker thread, progressive
 results, cooperative cancel, persistence from start, `lost` on restart, learned per-bar cost.
-No process pools, no vectorized rewrite.
+
+A grid of more than SERIAL_MAX_CELLS cells (the limits change, 2026-10-20) runs in chunks on the
+experiments' process pool instead: a unit is a chunk of `workers x CHUNK_PER_WORKER` cells, and
+progress, cancel and the save follow the chunk. Its cells equal the serial path's.
 """
 
 from __future__ import annotations
@@ -25,7 +28,9 @@ from products.aegis.results import strategy_hash
 from products.aegis.runs import RunRepository
 from products.aegis.strategy import RuleSpec, StrategySide, StrategySpec, apply_parameters
 
-MAX_CELLS = 400
+SERIAL_MAX_CELLS = 400  # up to here a grid runs serially, one cell per unit, as before
+MAX_CELLS = 100_000  # a grid is enumerated in memory; larger surfaces are an experiment's
+CHUNK_PER_WORKER = 32  # cells per pool worker in one unit of a pooled grid
 OBJECTIVES = ("net_pnl", "mar", "max_drawdown", "trade_count")
 
 Side = Literal["long", "short"]
@@ -101,7 +106,10 @@ def expand_grid(side: StrategySide) -> GridPlan:
     axes = [(p.path, _values(p.start, p.stop, p.step)) for p in parameters]
     total = math.prod(len(values) for _, values in axes)
     if total > MAX_CELLS:
-        raise ValueError(f"grid too large: {total} cells over cap {MAX_CELLS}; narrow the ranges")
+        raise ValueError(
+            f"grid too large: {total} cells over cap {MAX_CELLS}; narrow the ranges, or run an "
+            "experiment, which samples a larger surface and refines it"
+        )
     by_path = dict(axes)
     crossover = _crossover_axes(side, by_path)
     if crossover is not None:
@@ -150,6 +158,21 @@ def _crossover_axes(side: StrategySide, by_path: dict) -> tuple[str, str] | None
     return (fast, slow) if fast in by_path and slow in by_path else None
 
 
+def plan_seconds(
+    cells: int,
+    bars: int,
+    ms_per_bar: float,
+    pool_ms_per_cell_bar: float | None,
+    workers: int,
+) -> float:
+    """A grid's estimate: serial at the host's per-bar cost, or on the pool at its measured cost
+    per cell-bar (the host's until the pool has one) spread across its workers."""
+    if cells <= SERIAL_MAX_CELLS:
+        return estimate_seconds(cells, bars, ms_per_bar)
+    rate = pool_ms_per_cell_bar or ms_per_bar
+    return cells * bars * rate / max(1, workers) / 1000.0
+
+
 def heatmap(
     cells: list[dict], fast_values: list[float], slow_values: list[float], metric: str
 ) -> list[list[float | None]]:
@@ -186,19 +209,37 @@ def provenance(pinned: Any) -> dict:
 
 
 class OptimizerJob:
-    """One grid optimization as a job kind: a unit is one cell; the other side is disabled."""
+    """One grid optimization as a job kind; the other side is disabled. A unit is one cell, or
+    for a grid of more than SERIAL_MAX_CELLS cells one chunk run on the process pool."""
 
     name = "optimization"
 
-    def __init__(self, request: OptimizeRequest, frame: pd.DataFrame, pinned: Any):
+    def __init__(
+        self, request: OptimizeRequest, frame: pd.DataFrame, pinned: Any, pool_factory=None
+    ):
         self.request = request
         self.side = request.side
         self.plan = expand_grid(getattr(request.strategy, SIDE_KEY[request.side]))
         self.rows = engine_rows(frame, request.data.symbol)
         self.data = provenance(pinned)
-        self.bars_per_unit = len(self.rows)
-        self.total_units = len(self.plan.cells)
+        self.bars = len(self.rows)
+        self.pooled = len(self.plan.cells) > SERIAL_MAX_CELLS
+        self.pool = None
+        if self.pooled:
+            from products.aegis.pool import Pool, default_workers
+
+            self._pool_factory = pool_factory or Pool
+            workers = getattr(self._pool_factory(), "max_workers", None) or default_workers()
+            self.chunk = max(1, workers * CHUNK_PER_WORKER)
+            self.total_units = math.ceil(len(self.plan.cells) / self.chunk)
+            # The pool prices itself; a pooled job never teaches the host its serial cost.
+            self.bars_per_unit = 0
+        else:
+            self.chunk = 1
+            self.total_units = len(self.plan.cells)
+            self.bars_per_unit = len(self.rows)
         self.cells: list[dict] = []
+        self.planned_seconds: float | None = None  # a pooled job's estimate until a chunk is done
         self.cache = IndicatorCache()
         self.cache_hits = 0
         self._side_key = SIDE_KEY[request.side]
@@ -208,7 +249,42 @@ class OptimizerJob:
             update={"enabled": False}
         )
 
-    def run_unit(self, index: int) -> dict:
+    def _pooled_unit(self, index: int) -> list[dict]:
+        if self.pool is None:
+            spec = self.request.strategy.model_copy(update={self._other_key: self._other_side})
+            self.pool = self._pool_factory()
+            self.pool.start(
+                self.rows,
+                self.request.data.symbol,
+                spec.model_dump(mode="json"),
+                self.request.settings.model_dump(mode="json"),
+            )
+        first = index * self.chunk
+        batch = self.plan.cells[first : first + self.chunk]
+        rows = self.pool.run_chunk(
+            [
+                (first + i, {f"{self._side_key}.{path}": value for path, value in params.items()})
+                for i, params in enumerate(batch)
+            ],
+            want_curve=False,
+        )
+        cells = []
+        for params, row in zip(batch, sorted(rows, key=lambda r: r["cell"]), strict=True):
+            metrics = row["metrics"][self.side] if row["valid"] else dict.fromkeys(OBJECTIVES)
+            cell = {
+                "params": params,
+                "fast": params.get(self.plan.fast_path),
+                "slow": params.get(self.plan.slow_path),
+                "metrics": metrics,
+            }
+            if not row["valid"]:
+                cell["skip_reason"] = row["skip_reason"]
+            cells.append(cell)
+        return cells
+
+    def run_unit(self, index: int):
+        if self.pooled:
+            return self._pooled_unit(index)
         params = self.plan.cells[index]
         strategy = self.request.strategy.model_copy(
             update={
@@ -227,8 +303,11 @@ class OptimizerJob:
             "metrics": result[self.side]["metrics"],
         }
 
-    def commit(self, index: int, cell: dict) -> None:
-        self.cells.append(cell)
+    def commit(self, index: int, cell) -> None:
+        if self.pooled:
+            self.cells.extend(cell)
+        else:
+            self.cells.append(cell)
         self.cache_hits = self.cache.hits
 
     def snapshot(self) -> dict:
@@ -248,6 +327,14 @@ class OptimizerJob:
             "fast_path": plan.fast_path,
             "slow_path": plan.slow_path,
             "cache_hits": self.cache_hits,
+            "cells_done": len(cells),
+            "pooled": self.pooled,
+            **({"bars": self.bars} if self.pooled else {}),
+            **(
+                {"estimated_seconds": round(self.planned_seconds, 3)}
+                if self.pooled and not cells and self.planned_seconds is not None
+                else {}
+            ),
             "data": self.data,
             "engine": "kernel" if kernel.AVAILABLE else "reference",
             "strategy_id": self.request.strategy.id,
@@ -260,7 +347,11 @@ class OptimizerJob:
         return {}
 
     def release(self) -> None:
-        """Drop the bar rows and the cache once terminal and persisted; cells and matrices stay."""
+        """Drop the bar rows, the cache and the pool once terminal and persisted; cells and
+        matrices stay."""
+        if self.pool is not None:
+            self.pool.shutdown()
+            self.pool = None
         self.rows = []
         self.cache = IndicatorCache()
 
@@ -279,9 +370,11 @@ class OptimizerRunner(JobRunner):
 
 
 __all__ = [
+    "CHUNK_PER_WORKER",
     "MAX_CELLS",
     "MS_PER_BAR",
     "OBJECTIVES",
+    "SERIAL_MAX_CELLS",
     "UNFINISHED",
     "GridPlan",
     "JobBusy",
@@ -292,5 +385,6 @@ __all__ = [
     "estimate_seconds",
     "expand_grid",
     "heatmap",
+    "plan_seconds",
     "provenance",
 ]

@@ -90,9 +90,9 @@ def test_plan_caps_windows_and_grid_and_counts_units():
     assert (MAX_WINDOWS, MIN_OOS_BARS) == (50, 20)
     with pytest.raises(ValueError, match="windows 60 over cap 50"):
         plan(make_request(in_sample_bars=135, out_of_sample_bars=20), 135 + 60 * 20)
-    too_big = small_ranges(fast=(1, 25, 1), slow=(30, 200, 10))  # 25 x 18 = 450
+    too_big = small_ranges(fast=(1, 400, 1), slow=(401, 700, 1))  # 120,000 over the 100,000 bound
     with pytest.raises(ValueError, match="grid too large"):
-        plan(make_request(in_sample_bars=240, out_of_sample_bars=20, ranges=too_big), 500)
+        plan(make_request(in_sample_bars=800, out_of_sample_bars=20, ranges=too_big), 900)
     with pytest.raises(ValueError, match="out_of_sample_bars 10 below 20"):
         WalkForwardRequest(
             strategy=default_strategy(),

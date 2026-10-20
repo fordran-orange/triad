@@ -281,12 +281,20 @@ def test_optimize_returns_202_with_plan(client):
     assert done["data"]["symbol"] == "QQQ" and done["data"]["research_eligible"] is False
     assert set(done["matrices"]) == {"net_pnl", "mar", "max_drawdown", "trade_count"}
     assert [j["job_id"] for j in c.get("/aegis/api/optimize").json()] == [body["job_id"]]
-    too_big = _optimize_payload()
-    too_big["strategy"]["long_side"]["optimization"][0].update({"start": 1, "stop": 25, "step": 1})
-    too_big["strategy"]["long_side"]["optimization"][1].update(
+    pooled = _optimize_payload()  # 25 x 18 = 450 cells: planned for the pool (the limits change)
+    pooled["strategy"]["long_side"]["optimization"][0].update({"start": 1, "stop": 25, "step": 1})
+    pooled["strategy"]["long_side"]["optimization"][1].update(
         {"start": 30, "stop": 200, "step": 10}
     )
-    assert c.post("/aegis/api/optimize", json=too_big).status_code == 422
+    planned = c.post("/aegis/api/optimize/plan", json=pooled).json()
+    assert planned["total_cells"] == 450 and planned["pooled"] is True and planned["workers"] >= 1
+    too_big = _optimize_payload()  # 400 x 300 = 120,000 cells: over the 100,000 bound
+    too_big["strategy"]["long_side"]["optimization"][0].update({"start": 1, "stop": 400, "step": 1})
+    too_big["strategy"]["long_side"]["optimization"][1].update(
+        {"start": 401, "stop": 700, "step": 1}
+    )
+    refused = c.post("/aegis/api/optimize", json=too_big)
+    assert refused.status_code == 422 and "experiment" in refused.json()["detail"]
     assert c.get("/aegis/api/optimize/does-not-exist").status_code == 404
 
 

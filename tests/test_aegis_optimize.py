@@ -3,6 +3,7 @@
 DB-free; synthetic bars from test_aegis_backtest; JSON repository on tmp_path.
 """
 
+import json
 import threading
 import time
 
@@ -12,13 +13,16 @@ from products.aegis.backtest import DataReference
 from products.aegis.optimize import (
     MAX_CELLS,
     MS_PER_BAR,
+    SERIAL_MAX_CELLS,
     GridPlan,
     JobBusy,
     OptimizeRequest,
+    OptimizerJob,
     OptimizerRunner,
     estimate_seconds,
     expand_grid,
     heatmap,
+    plan_seconds,
 )
 from products.aegis.runs import JsonRunRepository
 from products.aegis.strategy import OptimizationParameter, default_strategy
@@ -75,11 +79,90 @@ def test_grid_expands_from_side_ranges_and_skips_fast_ge_slow():
     assert all(s["indicators.ema.length"] >= s["indicators.sma.length"] for s in plan.skipped)
 
 
-def test_grid_over_400_cells_is_rejected():
+def test_a_grid_over_400_cells_is_planned_for_the_pool():  # the limits change (2026-10-20)
     strategy = small_strategy(fast=(1, 25, 1), slow=(30, 200, 10))  # 25 * 18 = 450 > 400
-    assert MAX_CELLS == 400
-    with pytest.raises(ValueError, match="grid too large"):
+    assert (MAX_CELLS, SERIAL_MAX_CELLS) == (100_000, 400)
+    assert len(expand_grid(strategy.long_side).cells) == 450
+
+
+def test_grid_bound_names_the_count_and_points_to_experiments():
+    strategy = small_strategy(fast=(1, 400, 1), slow=(401, 700, 1))  # 400 * 300 = 120,000
+    with pytest.raises(ValueError, match="120000 cells over cap 100000") as info:
         expand_grid(strategy.long_side)
+    assert "experiment" in str(info.value)
+
+
+def test_plan_prices_a_pooled_grid_across_workers():
+    assert plan_seconds(100, 1000, 0.02, None, 10) == pytest.approx(2.0)  # serial: the host rate
+    assert plan_seconds(1000, 1000, 0.02, 0.03, 10) == pytest.approx(3.0)  # pooled: the pool rate
+    assert plan_seconds(1000, 1000, 0.02, None, 10) == pytest.approx(2.0)  # no pool rate yet
+
+
+def _grid_strategy():
+    return small_strategy(fast=(3, 8, 1), slow=(9, 14, 1))  # 6 x 6 = 36 cells
+
+
+def _run_to_end(tmp_path, kind):
+    runner = OptimizerRunner(JsonRunRepository(tmp_path))
+    job_id = runner.start(kind)
+    assert wait_for(lambda: runner.status(job_id)["status"] in ("done", "failed"), 120)
+    return runner.status(job_id)
+
+
+def test_pooled_cells_equal_serial_cells(tmp_path, monkeypatch):  # Review Focus 1
+    import products.aegis.optimize as module
+    from products.aegis.pool import Pool
+
+    frame = pd.DataFrame(bars())
+    serial = _run_to_end(
+        tmp_path / "serial", OptimizerJob(request(_grid_strategy()), frame, PINNED)
+    )
+    monkeypatch.setattr(module, "SERIAL_MAX_CELLS", 10)
+    kind = OptimizerJob(
+        request(_grid_strategy()), frame, PINNED, pool_factory=lambda: Pool(max_workers=2)
+    )
+    assert kind.pooled and kind.total_units < 36
+    pooled = _run_to_end(tmp_path / "pooled", kind)
+    assert serial["status"] == pooled["status"] == "done", (serial["error"], pooled["error"])
+    assert pooled["cells_done"] == serial["cells_done"] == 36
+    by_params = {json.dumps(c["params"], sort_keys=True): c for c in serial["cells"]}
+    for cell in pooled["cells"]:
+        twin = by_params[json.dumps(cell["params"], sort_keys=True)]
+        assert (cell["fast"], cell["slow"]) == (twin["fast"], twin["slow"])
+        assert cell["metrics"] == pytest.approx(twin["metrics"], nan_ok=True)
+    assert pooled["bars"] == serial["bars"] == len(frame)
+
+
+def test_pooled_job_progresses_and_cancels_by_chunk(tmp_path, monkeypatch):  # Review Focus 2
+    import products.aegis.optimize as module
+    from products.aegis.pool import Pool
+
+    monkeypatch.setattr(module, "SERIAL_MAX_CELLS", 10)
+    monkeypatch.setattr(module, "CHUNK_PER_WORKER", 4)  # 2 workers x 4 = 8 cells per unit
+    gate = threading.Event()
+
+    def after_chunk(done):
+        if done == 1:
+            gate.wait(30)
+
+    repository = JsonRunRepository(tmp_path)
+    runner = OptimizerRunner(repository, after_cell=after_chunk)
+    kind = OptimizerJob(
+        request(_grid_strategy()),
+        pd.DataFrame(bars()),
+        PINNED,
+        pool_factory=lambda: Pool(max_workers=2),
+    )
+    job_id = runner.start(kind)
+    assert wait_for(lambda: runner.status(job_id)["progress"]["done"] == 1, 120)
+    mid = runner.status(job_id)
+    assert mid["progress"] == {"done": 1, "total": 5} and mid["cells_done"] == 8
+    assert mid["total_cells"] == 36 and mid["ms_per_bar"] is None  # the pool never prices the host
+    assert runner.cancel(job_id) is True
+    gate.set()
+    assert wait_for(lambda: runner.status(job_id)["status"] == "cancelled", 60)
+    saved = repository.get_optimization(job_id)
+    assert saved["status"] == "cancelled" and len(saved["cells"]) == 8
 
 
 def test_estimate_uses_cells_bars_and_ms_per_bar():

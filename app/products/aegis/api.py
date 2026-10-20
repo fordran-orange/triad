@@ -38,7 +38,14 @@ from products.aegis.kinds import kind_info
 from products.aegis.library import FOLDERS as LIBRARY_FOLDERS
 from products.aegis.library import KINDS as LIBRARY_KINDS
 from products.aegis.library import Library, LibraryQuery, Refused
-from products.aegis.optimize import OptimizeRequest, OptimizerJob, engine_rows, expand_grid
+from products.aegis.optimize import (
+    SERIAL_MAX_CELLS,
+    OptimizeRequest,
+    OptimizerJob,
+    engine_rows,
+    expand_grid,
+    plan_seconds,
+)
 from products.aegis.pool import default_workers
 from products.aegis.results import envelope
 from products.aegis.runs import JsonRunRepository, RunRepository
@@ -78,6 +85,15 @@ STORE = Depends(get_store)
 REPOSITORY = Depends(get_repository)
 RUNNER = Depends(get_runner)
 CACHE = Depends(get_cache)
+
+
+def get_experiment_store(
+    repository: RunRepository = REPOSITORY,
+) -> experiments_module.ExperimentStore:
+    return experiments_module.ExperimentStore(repository)
+
+
+EXPERIMENTS = Depends(get_experiment_store)
 
 
 def warm_in_background(store) -> threading.Thread:
@@ -246,14 +262,26 @@ def _side_spec(request: OptimizeRequest):
     return request.strategy.long_side if request.side == "long" else request.strategy.short_side
 
 
+def _grid_seconds(cells: int, bars: int, runner: JobRunner, experiments) -> tuple[float, int]:
+    """A grid's estimate and the workers it runs on: serial up to SERIAL_MAX_CELLS cells, else
+    the pool at the cost per cell-bar the last experiment measured (the limits change)."""
+    if cells <= SERIAL_MAX_CELLS:
+        return plan_seconds(cells, bars, runner.ms_per_bar, None, 1), 1
+    workers = default_workers()
+    rate = experiments.last_ms_per_cell_bar()
+    return plan_seconds(cells, bars, runner.ms_per_bar, rate, workers), workers
+
+
 @router.post("/optimize/plan")
 def optimize_plan(
     request: OptimizeRequest,
     store: ArchiveStore = STORE,
     runner: JobRunner = RUNNER,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
 ):
     """What a start would do: valid cells, skipped cells, bars and the runtime estimate, priced
-    at the per-bar cost the runner last observed on this host."""
+    at the per-bar cost the runner last observed on this host (on the pool's measured cost,
+    across its workers, for a grid of more than SERIAL_MAX_CELLS cells)."""
     frame, _ = _select(
         store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
     )
@@ -261,15 +289,16 @@ def optimize_plan(
         plan = expand_grid(_side_spec(request))
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    seconds, workers = _grid_seconds(len(plan.cells), len(frame), runner, experiments)
     return {
         "total_cells": len(plan.cells),
         "skipped_cells": len(plan.skipped),
         "skip_reason": plan.skip_reason,
-        "estimated_seconds": round(
-            estimate_seconds(len(plan.cells), len(frame), runner.ms_per_bar), 3
-        ),
+        "estimated_seconds": round(seconds, 3),
         "ms_per_bar": runner.ms_per_bar,
         "bars": len(frame),
+        "pooled": len(plan.cells) > SERIAL_MAX_CELLS,
+        "workers": workers,
     }
 
 
@@ -278,12 +307,18 @@ def optimize(
     request: OptimizeRequest,
     store: ArchiveStore = STORE,
     runner: JobRunner = RUNNER,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
 ):
     frame, pinned = _select(
         store, request.data.symbol, request.data.timeframe, request.data.start, request.data.end
     )
     try:
-        job_id = runner.start(OptimizerJob(request, frame, pinned))
+        kind = OptimizerJob(request, frame, pinned)
+        if kind.pooled:
+            kind.planned_seconds, _ = _grid_seconds(
+                len(kind.plan.cells), len(frame), runner, experiments
+            )
+        job_id = runner.start(kind)
     except JobBusy as exc:
         raise HTTPException(409, "an optimization is already running") from exc
     except ValueError as exc:
@@ -511,15 +546,6 @@ def delete_strategy(strategy_id: str, library: StrategyLibrary = LIBRARY):
 
 
 # --- experiments (Mission 6 spec §5.6, §6) --------------------------------------------------
-
-
-def get_experiment_store(
-    repository: RunRepository = REPOSITORY,
-) -> experiments_module.ExperimentStore:
-    return experiments_module.ExperimentStore(repository)
-
-
-EXPERIMENTS = Depends(get_experiment_store)
 
 
 def _experiment(store: experiments_module.ExperimentStore, experiment_id: str):
