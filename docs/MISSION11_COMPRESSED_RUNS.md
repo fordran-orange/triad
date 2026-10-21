@@ -72,6 +72,56 @@ Before the full walk, items 79 and 82–88 ran alone against the store three tim
    both the acceptance and an operator switching the mode during a backtest meet it. Item 85 always
    restores "every". Cost if wrong: none; the fix only adds retries.
 
+## Milestone QA and whole-branch review (Fable 5.1, read-only, at `eb6bedf`)
+
+The operator chose Fable 5.1 for both.
+
+**QA: PASS_WITH_OBSERVATIONS, no defect.** Recomputed independently:
+- A new save matches byte for byte (re-compressing the inflated text reproduces the file) and keeps
+  its hash (`cdbc9abd2238…`). Sizes: 7.1× for item 22's run, 7.5× for a ten-year 1m run.
+- Every route over plain documents works: the API, the Library (list, open, equity, compare plain
+  against compressed), Load from the drawer, and the plain-only optimization, walk-forward, strategy,
+  experiment and study.
+- A temporary repository seeded with real documents passed 76 of 76 checks (both forms, corrupt
+  files, trash, restore, heal, erase, deletes, clashes).
+- A 40-second hammer of the preference switch (918 writes, 1,552 reads, 215 backtests) answered no
+  error and no wrong mode.
+- Aegis scope 446/1, vitest 115, `tsc` clean, governance unchanged.
+
+The QA saved runs `3b5359d6` and `bba0e913` and a strategy "QA M11 compressed v2"
+(`qa-m11-compressed`) in the store, and deleted nothing.
+
+**Review: "Yes", 0 Critical, 0 Important, 6 Minor.** Re-graded by their effect on the operator, whose
+store holds paused experiments saved before this mission: minors 1 and 2 became one Important
+finding. Resuming such an experiment makes its first save replace the plain document. A held or
+already-removed plain file failed the whole save (the job reads "failed"), and a read racing that
+save answered 500.
+
+## Fix pass (the operator: "go ahead with the fixes")
+
+| Commit | Fix |
+|---|---|
+| `f80b455` | Removing the superseded plain document is best effort: logged and left for the next save, never failing the save. A read that loses its plain file to a concurrent first save looks again and reads the compressed one. Tests `test_the_first_save_over_a_plain_document_never_fails_on_its_predecessor` and `test_a_read_racing_the_first_save_finds_the_new_document` failed first. |
+
+After the fix: Aegis scope 448 passed, 1 skipped. The walk again:
+`docs/evidence/aegis-acceptance-20261021T163458Z.json`, **88/88 PASS, no page errors**, 852 s.
+`tools\verify.ps1` on the branch after the fix: lint and format passed; inventory core 557, triad
+1,058, aegis 449; all three scopes green (core 386 / 171 skipped; triad 634 / 424 with 209
+subtests; aegis 448 / 1); it stopped at the main-branch check, by design.
+
+## Deferred minors
+
+- Two concurrent saves of one document share `<id>.json.gz.tmp` (as `<id>.json.tmp` did before).
+- `preferences.py` imports the private `_retry` from `runs.py`.
+- A comment in `runs.py` ("one JSON file per document under strategies/") predates the compressed
+  form.
+- Item 85 loses its first error if restoring the mode itself fails.
+- With two writers at once, PUT /preferences answers the store's state, which the other may have
+  changed.
+- A re-saved id whose old copy is in Recently deleted keeps its sidecar in the trash folder after a
+  restore, and the next delete refuses (Mission 9 behaviour, unchanged).
+- GET /runs/{id} of a ten-year 1m run takes about 3.7 s, almost all of it serializing the response.
+
 ## Deferred and noted for the review
 
 - Converting the 509 existing plain runs (1.04 GB → about 0.2 GB) is not done (decision 2).
