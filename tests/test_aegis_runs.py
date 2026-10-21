@@ -322,3 +322,60 @@ def test_deletes_take_either_form(tmp_path):
         assert not any(p.name.startswith(("zipped.", "flat.")) for p in folder.iterdir()), kind
         with pytest.raises(KeyError):
             delete("zipped")
+
+
+def test_the_first_save_over_a_plain_document_never_fails_on_its_predecessor(tmp_path, monkeypatch):
+    """Review I1 (re-graded): resuming an experiment saved before Mission 11 replaces its plain
+    document; a plain file held by a reader, or already removed by another save, must not fail the
+    save (the job would read "failed" though the document was written)."""
+    from pathlib import Path
+
+    repo = JsonRunRepository(tmp_path / "aegis")
+    folder = tmp_path / "aegis" / "experiments"
+    folder.mkdir(parents=True)
+    real_unlink = Path.unlink
+    for refusal in (PermissionError(5, "Access is denied"), FileNotFoundError(2, "gone")):
+        (folder / "x.json").write_text(
+            json.dumps({"id": "x", "status": "paused"}), encoding="utf-8"
+        )
+
+        def unlink(self, *args, refusal=refusal, **kwargs):
+            if self.name == "x.json":
+                raise refusal
+            return real_unlink(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", unlink)
+        repo.save_experiment({"id": "x", "status": "running"})  # does not raise
+        monkeypatch.setattr(Path, "unlink", real_unlink)
+        assert repo.get_experiment("x")["status"] == "running"  # the compressed one wins
+        assert (
+            json.loads((folder / "x.summary.json").read_text(encoding="utf-8"))["status"]
+            == "running"
+        )
+        repo.save_experiment(
+            {"id": "x", "status": "running"}
+        )  # the next save removes the plain one
+        assert sorted(p.name for p in folder.iterdir()) == ["x.json.gz", "x.summary.json"]
+        (folder / "x.json.gz").unlink()
+
+
+def test_a_read_racing_the_first_save_finds_the_new_document(tmp_path, monkeypatch):
+    """Review I2 (re-graded): a read that found the plain document just before a save swapped in
+    the compressed one and removed the plain file reads the new document, not a 500."""
+    from products.aegis import runs as runs_module
+
+    repo = JsonRunRepository(tmp_path / "aegis")
+    folder = tmp_path / "aegis" / "experiments"
+    folder.mkdir(parents=True)
+    (folder / "x.json").write_text(json.dumps({"id": "x", "status": "paused"}), encoding="utf-8")
+    real_read = JsonRunRepository._read
+
+    def read(path):
+        if path.name == "x.json":  # the save lands between finding and reading the plain file
+            repo.save_experiment({"id": "x", "status": "running"})
+        return real_read(path)
+
+    monkeypatch.setattr(runs_module.JsonRunRepository, "_read", staticmethod(read))
+    assert repo.get_experiment("x")["status"] == "running"
+    with pytest.raises(KeyError):
+        repo.get_experiment("nope")

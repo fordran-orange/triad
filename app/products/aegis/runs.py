@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import logging
 import re
 import shutil
 import threading
@@ -18,6 +19,8 @@ from pathlib import Path
 from typing import Protocol
 
 from products.aegis.data import DATA_ROOT
+
+log = logging.getLogger("aegis")
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SUMMARY_KEYS = (
@@ -201,6 +204,16 @@ def _strategy_summary(document: dict) -> dict:
 _SIDECARS = threading.RLock()
 
 
+def _drop_superseded(plain: Path) -> None:
+    """Remove the plain document a compressed save replaced. Best effort: a leftover is harmless
+    (the compressed one wins every read) and the next save removes it, so a held or already
+    removed file never fails the save (Mission 11 review)."""
+    try:
+        _retry(lambda: plain.unlink(missing_ok=True))
+    except OSError as exc:
+        log.warning("superseded %s kept for the next save: %s", plain.name, exc)
+
+
 def _unlink_document(folder: Path, identifier: str) -> None:
     """Remove an item's document in either form (both when a crash left both); KeyError if none."""
     paths = [folder / f"{identifier}{suffix}" for suffix in DOCUMENT_FORMS]
@@ -259,9 +272,7 @@ class JsonRunRepository:
         text = json.dumps(payload, sort_keys=True, allow_nan=False).encode("utf-8")
         tmp.write_bytes(gzip.compress(text, compresslevel=COMPRESS_LEVEL, mtime=0))
         _retry(lambda: tmp.replace(path))
-        plain = folder / f"{identifier}.json"
-        if plain.exists():
-            _retry(plain.unlink)
+        _drop_superseded(folder / f"{identifier}.json")
 
     @staticmethod
     def _read(path: Path) -> dict:
@@ -277,10 +288,19 @@ class JsonRunRepository:
         return _retry(load)
 
     def _get(self, kind: str, identifier: str) -> dict:
-        path = document_path(self._folder(kind), _check_id(identifier))
+        folder = self._folder(kind)
+        path = document_path(folder, _check_id(identifier))
         if path is None:
             raise KeyError(identifier)
-        return self._read(path)
+        try:
+            return self._read(path)
+        except FileNotFoundError:
+            # a save swapped in the compressed form and removed this plain one between finding
+            # and reading it (a document's first save since Mission 11): read the new one
+            path = document_path(folder, identifier)
+            if path is None:
+                raise KeyError(identifier) from None
+            return self._read(path)
 
     def _list(self, kind: str, summarize=_summary) -> list[dict]:
         folder = self._folder(kind)
