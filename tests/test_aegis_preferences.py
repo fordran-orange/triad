@@ -159,3 +159,33 @@ def test_unsaved_runs_hold_a_bounded_number_of_bytes():  # Mission 10 review I2
     assert unsaved.pop("r9")["run_id"] == "r9" and unsaved.list() == []
     unsaved.add(_sized_run(1, 1_000))
     assert [r["run_id"] for r in unsaved.list()] == ["r1"]  # popping gave its bytes back
+
+
+def test_preferences_survive_a_file_held_by_another_reader(tmp_path, monkeypatch):
+    """Windows refuses to swap or read a file another handle holds: a PUT then answered 500 and a
+    read fell back to "every" (seen in the Mission 11 trial). Both retry, as the run store does."""
+    from pathlib import Path
+
+    from products.aegis.preferences import Preferences
+
+    prefs = Preferences(tmp_path)
+    real_replace, real_read = Path.replace, Path.read_text
+    refusals = {"replace": 1, "read": 1}
+
+    def replace(self, target):
+        if refusals["replace"]:
+            refusals["replace"] -= 1
+            raise PermissionError(5, "Access is denied")
+        return real_replace(self, target)
+
+    def read_text(self, *args, **kwargs):
+        if self.name == "preferences.json" and refusals["read"]:
+            refusals["read"] -= 1
+            raise PermissionError(5, "Access is denied")
+        return real_read(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "replace", replace)
+    assert prefs.set("kept") == {"save_runs": "kept"} and refusals["replace"] == 0
+    monkeypatch.setattr(Path, "read_text", read_text)
+    assert prefs.get() == {"save_runs": "kept"} and refusals["read"] == 0  # not the default
+    assert not list(tmp_path.glob("*.tmp"))
