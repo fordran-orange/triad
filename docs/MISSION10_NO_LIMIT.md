@@ -193,3 +193,10 @@ stopped at the "Wrong Git branch" check, by design.
 
 Follow-ups: studies on frames end to end (lifting their 200,000-bar cap); compressing saved runs
 (a ten-year 1m run is 38–42 MB, nearly all of it trades).
+
+## Merged (2026-10-21)
+
+The operator answered "merge yes": `main` fast-forwarded from `b6960b8` to `2e77e4b` (Mission 10's
+twelve commits on top of its spec and plan). `tools\verify.ps1` on `main` exited 0: lint and format
+passed; inventory core 557, triad 1,058, aegis 439; core 386 passed / 171 skipped, triad 634 / 424
+with 209 subtests, aegis 438 / 1; "all three scopes green".
