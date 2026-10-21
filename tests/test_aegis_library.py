@@ -8,7 +8,7 @@ from products.aegis.backtest import BacktestRequest, BacktestSettings, run_backt
 from products.aegis.experiments import ExperimentStore
 from products.aegis.library import VERSION, Library, LibraryQuery
 from products.aegis.results import envelope
-from products.aegis.runs import JsonRunRepository
+from products.aegis.runs import JsonRunRepository, document_path
 from products.aegis.strategy import default_strategy
 from test_aegis_studies import experiment
 from test_aegis_walkforward import wave_bars
@@ -526,7 +526,8 @@ def test_an_interrupted_restore_is_finished_not_stranded(world):  # final review
     library.delete("study", "study-a")
     library.delete("experiment", "exp-a")
     assert "exp-a.reports" in _pieces(trash)
-    shutil.move(str(trash / "exp-a.json"), str(live / "exp-a.json"))  # stopped after the document
+    document = document_path(trash, "exp-a")
+    shutil.move(str(document), str(live / document.name))  # stopped after the document
     assert "exp-a" not in [e.id for e in library.trashed()]  # the document's place decides
     assert library.empty([("experiment", "exp-a")]) == 0 and "exp-a.reports" in _pieces(trash)
     library.restore("experiment", "exp-a")
@@ -546,8 +547,8 @@ def test_an_interrupted_delete_is_finished_by_the_next_delete(world):  # final r
     assert "exp-a" in [e.id for e in library.entries()[0]]
     assert "exp-a" not in [e.id for e in library.trashed()]
     library.delete("experiment", "exp-a")
-    assert {"exp-a.json", "exp-a.reports", "exp-a.summary.json"} <= set(_pieces(trash))
-    assert not (live / "exp-a.json").exists()
+    assert {"exp-a.json.gz", "exp-a.reports", "exp-a.summary.json"} <= set(_pieces(trash))
+    assert document_path(live, "exp-a") is None
     library.restore("experiment", "exp-a")
     assert not trash.exists() and "exp-a.reports" in _pieces(live)
 
@@ -558,7 +559,8 @@ def test_startup_finishes_a_stranded_move(world):  # final review I4
     repository, library, _run = world
     trash = repository.root / "trash" / "studies" / "study-a"
     library.delete("study", "study-a")
-    shutil.move(str(trash / "study-a.json"), str(repository.root / "studies" / "study-a.json"))
+    document = document_path(trash, "study-a")
+    shutil.move(str(document), str(repository.root / "studies" / document.name))
     repository.heal_trash()
     assert not trash.exists() and repository.read_document("studies", "study-a")["id"] == "study-a"
 

@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from products.aegis.runs import JsonRunRepository
+from products.aegis.runs import JsonRunRepository, document_path
 
 pytestmark = pytest.mark.aegis
 
@@ -31,7 +31,7 @@ def test_json_repository_round_trips_run_and_lists_newest_first(tmp_path):
     assert [r["run_id"] for r in listed] == ["r-new", "r-old"]
     assert set(listed[0]) >= {"run_id", "created_at", "result_hash", "data", "strategy"}
     assert "result" not in listed[0]  # summaries stay small
-    stored = json.loads((tmp_path / "aegis" / "runs" / "r-new.json").read_text(encoding="utf-8"))
+    stored = JsonRunRepository._read(document_path(tmp_path / "aegis" / "runs", "r-new"))
     assert stored == newer
 
 
@@ -65,7 +65,7 @@ def test_list_runs_reads_sidecar_summaries_and_tolerates_legacy_files(tmp_path):
         }
     )
     assert (tmp_path / "runs" / "a.summary.json").is_file()
-    (tmp_path / "runs" / "a.json").unlink()  # listing must not need the full envelope
+    document_path(tmp_path / "runs", "a").unlink()  # listing must not need the full envelope
     assert [r["run_id"] for r in repository.list_runs()] == ["a"]
     legacy = {"run_id": "b", "created_at": "2026-01-01T00:00:00+00:00", "result_hash": "h2"}
     (tmp_path / "runs" / "b.json").write_text(json.dumps(legacy), encoding="utf-8")
@@ -191,3 +191,134 @@ def test_studies_kind_round_trips_and_deletes_its_windows(tmp_path):
     assert repo.list_studies() == [] and not windows.exists()
     with pytest.raises(KeyError):
         repo.delete_study("walk-qqq")
+
+
+# --- Mission 11: compressed saved documents ------------------------------------------------------
+
+
+def _canonical(document) -> bytes:
+    return json.dumps(document, sort_keys=True, allow_nan=False).encode("utf-8")
+
+
+def _gz(path, document) -> None:
+    import gzip
+
+    path.write_bytes(gzip.compress(_canonical(document), compresslevel=6, mtime=0))
+
+
+def test_a_saved_document_is_compressed_and_reads_back_equal(tmp_path):
+    import gzip
+
+    from products.aegis.runs import COMPRESS_LEVEL, document_path
+
+    repo = JsonRunRepository(tmp_path / "aegis")
+    run = envelope("r1", "2026-10-21T01:00:00+00:00", note="é")
+    repo.save_run(run)
+    folder = tmp_path / "aegis" / "runs"
+    assert COMPRESS_LEVEL == 6
+    assert (
+        document_path(folder, "r1") == folder / "r1.json.gz" and not (folder / "r1.json").exists()
+    )
+    raw = (folder / "r1.json.gz").read_bytes()
+    assert gzip.decompress(raw) == _canonical(run) and raw[4:8] == b"\0\0\0\0"  # mtime 0
+    assert repo.get_run("r1") == run
+    sidecar = json.loads((folder / "r1.summary.json").read_text(encoding="utf-8"))
+    assert sidecar["run_id"] == "r1"  # the sidecar stays plain JSON
+    assert document_path(folder, "absent") is None
+
+
+def test_a_plain_document_still_reads(tmp_path):
+    repo = JsonRunRepository(tmp_path / "aegis")
+    folder = tmp_path / "aegis" / "runs"
+    folder.mkdir(parents=True)
+    old = envelope("old", "2026-10-01T01:00:00+00:00")
+    (folder / "old.json").write_text(json.dumps(old), encoding="utf-8")
+    assert repo.get_run("old") == old
+    assert [r["run_id"] for r in repo.list_runs()] == ["old"]
+
+
+def test_saving_again_leaves_one_compressed_document(tmp_path):  # Review Focus 4
+    repo = JsonRunRepository(tmp_path / "aegis")
+    folder = tmp_path / "aegis" / "experiments"
+    folder.mkdir(parents=True)
+    (folder / "x.json").write_text(json.dumps({"id": "x", "status": "queued"}), encoding="utf-8")
+    for status in ("running", "running", "done"):
+        repo.save_experiment({"id": "x", "status": status})
+    assert sorted(p.name for p in folder.iterdir()) == ["x.json.gz", "x.summary.json"]
+    assert repo.get_experiment("x")["status"] == "done"
+
+
+def test_both_forms_read_the_compressed_one(tmp_path):  # Review Focus 1
+    repo = JsonRunRepository(tmp_path / "aegis")
+    folder = tmp_path / "aegis" / "runs"
+    folder.mkdir(parents=True)
+    old = envelope("x", "2026-10-01T01:00:00+00:00", version="old")
+    new = envelope("x", "2026-10-01T01:00:00+00:00", version="new")
+    (folder / "x.json").write_text(json.dumps(old), encoding="utf-8")
+    _gz(folder / "x.json.gz", new)  # a crash after writing the new form, before removing the old
+    assert repo.get_run("x")["version"] == "new"
+    assert [r["run_id"] for r in repo.list_runs()] == ["x"]
+    repo.move_to_trash("runs", "x", {"deleted_at": "2026-10-21T02:00:00+00:00"})
+    assert not (folder / "x.json").exists() and not (folder / "x.json.gz").exists()
+    repo.restore_from_trash("runs", "x")
+    assert (folder / "x.json").exists() and (folder / "x.json.gz").exists()
+    assert repo.get_run("x")["version"] == "new"
+
+
+def test_a_corrupt_compressed_document_reads_as_torn(tmp_path):  # Review Focus 3
+    repo = JsonRunRepository(tmp_path / "aegis")
+    repo.save_run(envelope("good", "2026-10-21T01:00:00+00:00"))
+    folder = tmp_path / "aegis" / "runs"
+    (folder / "bad.json.gz").write_bytes(b"\x1f\x8b\x08\x00not really gzip")
+    with pytest.raises(ValueError):
+        repo.get_run("bad")
+    assert [r["run_id"] for r in repo.list_runs()] == ["good"]  # no sidecar: skipped, not fatal
+
+
+def test_trash_and_restore_keep_each_form(tmp_path):  # Review Focus 2
+    repo = JsonRunRepository(tmp_path / "aegis")
+    folder = tmp_path / "aegis" / "runs"
+    compressed = envelope("c", "2026-10-21T01:00:00+00:00")
+    repo.save_run(compressed)
+    plain = envelope("p", "2026-10-01T01:00:00+00:00")
+    (folder / "p.json").write_text(json.dumps(plain), encoding="utf-8")
+    for run_id in ("c", "p"):
+        repo.move_to_trash("runs", run_id, {"deleted_at": "2026-10-21T02:00:00+00:00"})
+    assert sorted(i["id"] for i in repo.list_trash()) == ["c", "p"]
+    assert repo.read_trashed("runs", "c") == compressed and repo.read_trashed("runs", "p") == plain
+    for run_id in ("c", "p"):
+        repo.restore_from_trash("runs", run_id)
+    assert (folder / "c.json.gz").exists() and (folder / "p.json").exists()
+    assert repo.get_run("c")["result_hash"] == "h-c" and repo.get_run("p")["result_hash"] == "h-p"
+    # restoring over a live item in either form refuses
+    repo.move_to_trash("runs", "c", {})
+    repo.save_run(compressed)
+    with pytest.raises(FileExistsError):
+        repo.restore_from_trash("runs", "c")
+    repo.erase_from_trash("runs", "c")
+    assert repo.list_trash() == []
+    # a delete that stopped before moving the compressed document heals back at startup
+    repo.save_run(compressed)
+    repo.move_to_trash("runs", "c", {})
+    trash = tmp_path / "aegis" / "trash" / "runs" / "c"
+    (trash / "c.json.gz").replace(folder / "c.json.gz")  # the document is live; its sidecar is not
+    assert repo.heal_trash() == ["runs/c"] and not trash.exists()
+    assert repo.get_run("c") == compressed and (folder / "c.summary.json").exists()
+
+
+def test_deletes_take_either_form(tmp_path):
+    repo = JsonRunRepository(tmp_path / "aegis")
+    for kind, save, delete in (
+        ("experiments", repo.save_experiment, repo.delete_experiment),
+        ("studies", repo.save_study, repo.delete_study),
+        ("strategies", repo.save_strategy, repo.delete_strategy),
+    ):
+        folder = tmp_path / "aegis" / kind
+        save({"id": "zipped", "name": "z"})
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "flat.json").write_text(json.dumps({"id": "flat"}), encoding="utf-8")
+        delete("zipped")
+        delete("flat")
+        assert not any(p.name.startswith(("zipped.", "flat.")) for p in folder.iterdir()), kind
+        with pytest.raises(KeyError):
+            delete("zipped")

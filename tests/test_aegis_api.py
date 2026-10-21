@@ -1111,10 +1111,14 @@ def test_a_stored_strategy_that_no_longer_parses_is_422_naming_the_field(client,
         json={"name": "Breakout", "spec": default_strategy().model_dump(mode="json")},
     )
     assert created.status_code == 201, created.text
-    path = tmp_path / "aegis" / "strategies" / "breakout.json"
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    import gzip
+
+    from products.aegis.runs import JsonRunRepository, document_path
+
+    path = document_path(tmp_path / "aegis" / "strategies", "breakout")
+    raw = JsonRunRepository._read(path)
     raw["spec"]["long_side"]["entry"]["right"] = "nope"
-    path.write_text(json.dumps(raw), encoding="utf-8")
+    path.write_bytes(gzip.compress(json.dumps(raw).encode("utf-8")))
     for response in (
         c.get("/aegis/api/strategies/breakout"),
         c.put("/aegis/api/strategies/breakout", json={"name": "Breakout v2"}),

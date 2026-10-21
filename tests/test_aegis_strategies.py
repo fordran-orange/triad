@@ -115,11 +115,15 @@ def test_get_lets_a_document_that_no_longer_parses_through_as_a_validation_error
     from pydantic import ValidationError
 
     doc = library.create("Breakout", default_strategy())
-    path = tmp_path / "aegis" / "strategies" / f"{doc.id}.json"
-    assert path.is_file()
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    import gzip
+
+    from products.aegis.runs import JsonRunRepository, document_path
+
+    path = document_path(tmp_path / "aegis" / "strategies", doc.id)
+    assert path is not None and path.name.endswith(".json.gz")  # Mission 11
+    raw = JsonRunRepository._read(path)
     raw["spec"]["long_side"]["entry"]["right"] = "nope"
-    path.write_text(json.dumps(raw), encoding="utf-8")
+    path.write_bytes(gzip.compress(json.dumps(raw).encode("utf-8")))
     with pytest.raises(ValidationError):
         library.get(doc.id)
     with pytest.raises(KeyError):  # an unknown id is still unknown, not a parse failure

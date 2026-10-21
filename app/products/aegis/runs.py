@@ -7,11 +7,13 @@ a future option behind the same interface and is not built here.
 
 from __future__ import annotations
 
+import gzip
 import json
 import re
 import shutil
 import threading
 import time
+import zlib
 from pathlib import Path
 from typing import Protocol
 
@@ -135,6 +137,21 @@ def _check_id(identifier: str) -> str:
     return identifier
 
 
+# Mission 11: a document is saved gzip-compressed as `<id>.json.gz`; one saved before is a plain
+# `<id>.json` and still reads. Sidecars, trash.json and every other small file stay plain.
+COMPRESS_LEVEL = 6
+DOCUMENT_FORMS = (".json.gz", ".json")  # the compressed form first: it is the newer one
+
+
+def document_path(folder: Path, identifier: str) -> Path | None:
+    """Where an item's document is in `folder`: compressed, else plain, else None."""
+    for suffix in DOCUMENT_FORMS:
+        path = folder / f"{identifier}{suffix}"
+        if path.is_file():
+            return path
+    return None
+
+
 def _summary(envelope: dict) -> dict:
     return {key: envelope[key] for key in SUMMARY_KEYS if key in envelope}
 
@@ -184,6 +201,16 @@ def _strategy_summary(document: dict) -> dict:
 _SIDECARS = threading.RLock()
 
 
+def _unlink_document(folder: Path, identifier: str) -> None:
+    """Remove an item's document in either form (both when a crash left both); KeyError if none."""
+    paths = [folder / f"{identifier}{suffix}" for suffix in DOCUMENT_FORMS]
+    present = [path for path in paths if path.is_file()]
+    if not present:
+        raise KeyError(identifier)
+    for path in present:
+        _retry(path.unlink)
+
+
 def _retry(action, attempts: int = 50, delay: float = 0.01):
     """Run a file operation that Windows may refuse while another handle is open on the file."""
     for attempt in range(attempts):
@@ -197,7 +224,8 @@ def _retry(action, attempts: int = 50, delay: float = 0.01):
 
 
 class JsonRunRepository:
-    """One JSON file per run (`runs/<run_id>.json`) and per optimization (`optimizations/`)."""
+    """One document per run (`runs/<run_id>.json.gz`, plain `.json` before Mission 11) and per
+    optimization (`optimizations/`), each with a plain summary sidecar."""
 
     def __init__(self, root: Path | None = None):
         self.root = Path(root) if root is not None else DATA_ROOT / "data" / "aegis"
@@ -210,7 +238,7 @@ class JsonRunRepository:
     def _save(self, kind: str, key: str, envelope: dict, summarize=_summary) -> str:
         identifier = _check_id(envelope[key])
         folder = self._folder(kind)
-        self._write(folder / f"{identifier}.json", envelope)
+        self._write_document(folder, identifier, envelope)
         # Sidecar summary: listing never has to parse full envelopes (series, equity, cells).
         with _SIDECARS:
             self._write(folder / f"{identifier}.summary.json", summarize(envelope))
@@ -223,12 +251,34 @@ class JsonRunRepository:
         _retry(lambda: tmp.replace(path))  # Windows refuses the swap while a reader holds the file
 
     @staticmethod
+    def _write_document(folder: Path, identifier: str, payload: dict) -> None:
+        """The document as today's JSON, gzip-compressed and swapped in whole; a plain predecessor
+        is removed only after (a crash in between leaves both, and the compressed one wins)."""
+        path = folder / f"{identifier}.json.gz"
+        tmp = path.with_name(path.name + ".tmp")
+        text = json.dumps(payload, sort_keys=True, allow_nan=False).encode("utf-8")
+        tmp.write_bytes(gzip.compress(text, compresslevel=COMPRESS_LEVEL, mtime=0))
+        _retry(lambda: tmp.replace(path))
+        plain = folder / f"{identifier}.json"
+        if plain.exists():
+            _retry(plain.unlink)
+
+    @staticmethod
     def _read(path: Path) -> dict:
-        return _retry(lambda: json.loads(path.read_text(encoding="utf-8")))
+        if not path.name.endswith(".gz"):
+            return _retry(lambda: json.loads(path.read_text(encoding="utf-8")))
+
+        def load() -> dict:
+            try:
+                return json.loads(gzip.decompress(path.read_bytes()))
+            except (gzip.BadGzipFile, EOFError, zlib.error) as exc:  # torn like a plain file
+                raise ValueError(f"unreadable compressed document {path.name}: {exc}") from exc
+
+        return _retry(load)
 
     def _get(self, kind: str, identifier: str) -> dict:
-        path = self._folder(kind) / f"{_check_id(identifier)}.json"
-        if not path.is_file():
+        path = document_path(self._folder(kind), _check_id(identifier))
+        if path is None:
             raise KeyError(identifier)
         return self._read(path)
 
@@ -240,16 +290,22 @@ class JsonRunRepository:
                 items[path.name[: -len(".summary.json")]] = self._read(path)
             except (OSError, ValueError):
                 continue  # a torn write never hides the rest of the history
-        for path in folder.glob("*.json"):
-            if path.name.endswith(".summary.json") or path.stem in items:
+        # a document without a sidecar: summarize once and keep the sidecar; the compressed form
+        # first, so an item in both forms is summarized from its newer document, once
+        for path in [*folder.glob("*.json.gz"), *folder.glob("*.json")]:
+            name = path.name
+            if name.endswith(".summary.json"):
                 continue
-            try:  # legacy envelope without a sidecar: summarize once and keep the sidecar
+            identifier = name[: -len(".json.gz")] if name.endswith(".gz") else name[: -len(".json")]
+            if identifier in items:
+                continue
+            try:
                 summary = summarize(self._read(path))
             except (OSError, ValueError):
                 continue
-            items[path.stem] = summary
+            items[identifier] = summary
             try:
-                self._write(folder / f"{path.stem}.summary.json", summary)
+                self._write(folder / f"{identifier}.summary.json", summary)
             except OSError:
                 pass
         return sorted(items.values(), key=lambda item: item.get("created_at", ""), reverse=True)
@@ -280,7 +336,8 @@ class JsonRunRepository:
 
     def _item_paths(self, folder: str, identifier: str) -> list[Path]:
         base = self._folder(folder)
-        names = [f"{identifier}.json", f"{identifier}.summary.json"]
+        names = [f"{identifier}{suffix}" for suffix in DOCUMENT_FORMS]
+        names += [f"{identifier}.summary.json"]
         names += [f"{identifier}.{suffix}" for suffix in ITEM_FOLDERS.get(folder, ())]
         return [base / name for name in names if (base / name).exists()]
 
@@ -290,7 +347,7 @@ class JsonRunRepository:
     # those pieces back; nothing is overwritten and Empty never sees them.
     def _stranded(self, folder: str, identifier: str) -> bool:
         target = self._trash(folder, identifier)
-        return target.is_dir() and not (target / f"{identifier}.json").exists()
+        return target.is_dir() and document_path(target, identifier) is None
 
     def _bring_back(self, folder: str, identifier: str) -> None:
         """Move a trash folder's remaining pieces back beside the live document; a piece present
@@ -308,11 +365,11 @@ class JsonRunRepository:
             shutil.rmtree(target, ignore_errors=True)
 
     def move_to_trash(self, folder: str, identifier: str, meta: dict) -> None:
-        source = self._folder(folder) / f"{_check_id(identifier)}.json"
-        if not source.is_file():
+        source = document_path(self._folder(folder), _check_id(identifier))
+        if source is None:
             raise KeyError(identifier)
         target = self._trash(folder, identifier)
-        if (target / f"{identifier}.json").exists():
+        if document_path(target, identifier) is not None:
             raise FileExistsError(f"{folder}/{identifier} is already in Recently deleted")
         if target.exists():
             self._bring_back(folder, identifier)  # an earlier move stopped part way
@@ -329,13 +386,13 @@ class JsonRunRepository:
     def restore_from_trash(self, folder: str, identifier: str) -> None:
         target = self._trash(folder, identifier)
         live = self._folder(folder)
-        document = target / f"{_check_id(identifier)}.json"
-        if not document.is_file():
-            if self._stranded(folder, identifier) and (live / f"{identifier}.json").is_file():
+        document = document_path(target, _check_id(identifier))
+        if document is None:
+            if self._stranded(folder, identifier) and document_path(live, identifier) is not None:
                 self._bring_back(folder, identifier)  # an earlier move stopped part way
                 return
             raise KeyError(identifier)
-        if (live / f"{identifier}.json").exists():
+        if document_path(live, identifier) is not None:
             raise FileExistsError(f"an item with id {identifier} exists")
         _retry(lambda: shutil.move(str(document), str(live / document.name)))  # now live
         self._bring_back(folder, identifier)
@@ -348,7 +405,7 @@ class JsonRunRepository:
             folder, identifier = target.parent.name, target.name
             if not target.is_dir() or not self._stranded(folder, identifier):
                 continue
-            if (self._folder(folder) / f"{identifier}.json").is_file():
+            if document_path(self._folder(folder), identifier) is not None:
                 self._bring_back(folder, identifier)
                 healed.append(f"{folder}/{identifier}")
         return healed
@@ -360,7 +417,7 @@ class JsonRunRepository:
         items = []
         for target in sorted(root.glob("*/*")) if root.is_dir() else []:
             folder, identifier = target.parent.name, target.name
-            if not (target / f"{identifier}.json").is_file():
+            if document_path(target, identifier) is None:
                 continue
             try:
                 meta = self._read(target / "trash.json")
@@ -370,14 +427,14 @@ class JsonRunRepository:
         return items
 
     def read_trashed(self, folder: str, identifier: str) -> dict:
-        path = self._trash(folder, identifier) / f"{identifier}.json"
-        if not path.is_file():
+        path = document_path(self._trash(folder, identifier), identifier)
+        if path is None:
             raise KeyError(identifier)
         return self._read(path)
 
     def erase_from_trash(self, folder: str, identifier: str) -> None:
         target = self._trash(folder, identifier)
-        if not (target / f"{_check_id(identifier)}.json").is_file():
+        if document_path(target, _check_id(identifier)) is None:
             raise KeyError(identifier)  # only a trashed item, never a live item's stranded piece
         shutil.rmtree(target)
 
@@ -439,10 +496,7 @@ class JsonRunRepository:
     def delete_experiment(self, experiment_id: str) -> None:
         folder = self._folder("experiments")
         identifier = _check_id(experiment_id)
-        path = folder / f"{identifier}.json"
-        if not path.is_file():
-            raise KeyError(experiment_id)
-        _retry(path.unlink)
+        _unlink_document(folder, identifier)
         sidecar = folder / f"{identifier}.summary.json"
         if sidecar.is_file():
             _retry(sidecar.unlink)
@@ -468,10 +522,7 @@ class JsonRunRepository:
     def delete_study(self, study_id: str) -> None:
         folder = self._folder("studies")
         identifier = _check_id(study_id)
-        path = folder / f"{identifier}.json"
-        if not path.is_file():
-            raise KeyError(study_id)
-        _retry(path.unlink)
+        _unlink_document(folder, identifier)
         sidecar = folder / f"{identifier}.summary.json"
         if sidecar.is_file():
             _retry(sidecar.unlink)
@@ -481,10 +532,7 @@ class JsonRunRepository:
 
     def delete_strategy(self, strategy_id: str) -> None:
         folder = self._folder("strategies")
-        path = folder / f"{_check_id(strategy_id)}.json"
-        if not path.is_file():
-            raise KeyError(strategy_id)
-        _retry(path.unlink)
+        _unlink_document(folder, _check_id(strategy_id))
         sidecar = folder / f"{strategy_id}.summary.json"
         if sidecar.is_file():
             _retry(sidecar.unlink)
