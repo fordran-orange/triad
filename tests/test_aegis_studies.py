@@ -589,3 +589,20 @@ def test_frozen_centre_comes_from_the_parents_report_on_its_own_objective(tmp_pa
         absent.frozen_absent
         == "the parent has no report on its own objective net_pnl at tolerance 0.15"
     )
+
+
+# --- Mission 10 review I1: studies keep a memory guard -------------------------------------------
+
+
+def test_study_workers_fit_free_memory(tmp_path, monkeypatch):
+    from products.aegis import pool
+    from products.aegis.runs import JsonRunRepository
+
+    repository = JsonRunRepository(tmp_path / "aegis")
+    document = new_study(repository)
+    one = pool.POOL_WORKER_BYTES + max(LENGTHS.values()) * pool.POOL_BYTES_PER_BAR
+    monkeypatch.setattr(pool, "free_memory_bytes", lambda: int(one / pool.MEMORY_HEADROOM) + 1)
+    assert job_for(repository, document).workers == 1  # two asked, one fits
+    monkeypatch.setattr(pool, "free_memory_bytes", lambda: one // 4)
+    with pytest.raises(ValueError, match="free"):
+        job_for(repository, document)

@@ -26,7 +26,7 @@ from products.aegis.backtest import MIN_BARS, BacktestSettings
 from products.aegis.experiments import ExperimentDocument, ExperimentStore, _cells_table
 from products.aegis.indicators import IndicatorCache
 from products.aegis.optimize import provenance
-from products.aegis.pool import Pool, default_workers
+from products.aegis.pool import Pool, default_workers, fitted_workers
 from products.aegis.results import _clean
 from products.aegis.runs import RunRepository
 from products.aegis.strategies import slug
@@ -568,6 +568,12 @@ def compact(record: dict) -> dict:
     return out
 
 
+# Studies still hold every bar as a row (Mission 10 ruling: their frames are a follow-up), so they
+# keep the bound per symbol they were built and measured under; GET /data/bars' 2,000,000-bar
+# guard is not theirs (review I1).
+STUDY_BAR_CAP = 200_000
+
+
 class StudyJob:
     """The runner's fourth kind (spec §6): a unit is one window of one symbol — its in-sample
     map, the choice, and each rule's out-of-sample window on its chains. Symbols run in order and
@@ -592,7 +598,10 @@ class StudyJob:
         self.pinned = {symbol: provenance(p) for symbol, p in pinned_by_symbol.items()}
         self.repository = repository
         self.store = StudyStore(repository)
-        self.workers = max_workers or default_workers()
+        # Mission 10 review I1: the pool takes only the workers free memory holds for the
+        # longest symbol's bars (a ValueError naming the shortfall when none fits).
+        longest = max((len(rows) for rows in rows_by_symbol.values()), default=0)
+        self.workers = fitted_workers(longest, max_workers or default_workers())
         self.grid = build_grid(document.spec, document.surface, document.in_sample_bars)
         self.rules = [r for r in RULES if r != "frozen" or document.frozen_centre is not None]
         self.windows = {

@@ -55,7 +55,7 @@ from products.aegis.optimize import (
     expand_grid,
     plan_seconds,
 )
-from products.aegis.pool import default_workers, fitted_workers
+from products.aegis.pool import fitted_workers
 from products.aegis.preferences import Preferences
 from products.aegis.results import envelope
 from products.aegis.runs import JsonRunRepository, RunRepository
@@ -352,7 +352,9 @@ def keep_run(
             repository.get_run(run_id)
         except (KeyError, ValueError) as exc:
             raise HTTPException(
-                404, f"run {run_id!r} is not held: unsaved runs are forgotten on restart"
+                404,
+                f"run {run_id!r} is not held: unsaved runs are forgotten after newer ones and on "
+                "restart",
             ) from exc
         return {"saved": run_id}
     try:
@@ -1136,9 +1138,28 @@ def _study_bars(store: ArchiveStore, symbols: list[str], timeframe: str, start, 
         if symbol not in known:
             continue
         frame, source = _select(store, symbol, timeframe, start, end)
+        if len(frame) > studies_module.STUDY_BAR_CAP:
+            raise HTTPException(
+                422,
+                f"a study runs on at most {studies_module.STUDY_BAR_CAP:,} bars per symbol; "
+                f"{symbol} {timeframe} {start} → {end} has {len(frame):,}: narrow the range or use "
+                "a coarser timeframe",
+            )
         rows[symbol] = engine_rows(frame, symbol)
         pinned[symbol] = source
     return rows, pinned
+
+
+def _study_workers(rows: dict[str, list[dict]]) -> int:
+    """The workers a study's pool would run on now (Mission 10 review I1)."""
+    return fitted_workers(max((len(r) for r in rows.values()), default=0))
+
+
+def _study_job(document, rows, pinned, repository) -> studies_module.StudyJob:
+    try:
+        return studies_module.StudyJob(document, rows, pinned, repository)
+    except ValueError as exc:  # not even one pool worker fits in free memory now
+        raise HTTPException(422, str(exc)) from exc
 
 
 def _timestamps(rows: dict[str, list[dict]]) -> dict[str, list[str]]:
@@ -1161,7 +1182,7 @@ def study_plan(
             experiment,
             _timestamps(rows),
             experiments.last_ms_per_cell_bar(),
-            default_workers(),
+            _study_workers(rows),
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -1186,14 +1207,14 @@ def create_study(
             experiments,
             request,
             _timestamps(rows),
-            default_workers(),
+            _study_workers(rows),
             start,
             end,
             data={symbol: _provenance(source) for symbol, source in pinned.items()},
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    job = studies_module.StudyJob(document, rows, pinned, repository)
+    job = _study_job(document, rows, pinned, repository)
     try:
         job_id = runner.start(job)
     except JobBusy as exc:
@@ -1251,7 +1272,7 @@ def resume_study(
     rows, pinned = _study_bars(
         store, document.symbols, document.timeframe, document.start, document.end
     )
-    job = studies_module.StudyJob(document, rows, pinned, repository)
+    job = _study_job(document, rows, pinned, repository)
     try:
         job_id = runner.start(job)
     except JobBusy as exc:

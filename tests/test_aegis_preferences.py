@@ -127,6 +127,35 @@ def test_keep_of_a_forgotten_run_is_404(kept):  # Review Focus 5
     c, _ = kept
     run_id = _backtest(c)["run_id"]
     server.app.dependency_overrides[api.get_unsaved] = lambda: UnsavedRuns()  # a worker restart
-    assert c.post(f"/aegis/api/runs/{run_id}/keep").status_code == 404
+    forgotten = c.post(f"/aegis/api/runs/{run_id}/keep")
+    assert forgotten.status_code == 404 and "newer" in forgotten.json()["detail"], forgotten.text
     assert c.get(f"/aegis/api/runs/{run_id}").status_code == 404
     assert c.post("/aegis/api/runs/not-a-run/keep").status_code == 404
+
+
+def _sized_run(i, trades):
+    return {
+        "run_id": f"r{i}",
+        "created_at": f"2026-10-20T00:00:{i:02d}+00:00",
+        "markers": [{}] * (2 * trades),
+        "result": {
+            s: {"trades": [{}] * trades, "equity": []} for s in ("long", "short", "combined")
+        },
+    }
+
+
+def test_unsaved_runs_hold_a_bounded_number_of_bytes():  # Mission 10 review I2
+    from products.aegis.unsaved import BYTES_PER_ITEM, MAX_BYTES, UnsavedRuns, weight
+
+    assert MAX_BYTES == 512_000_000 and BYTES_PER_ITEM == 640
+    big = _sized_run(0, 1_000)
+    assert weight(big) == (3 * 1_000 + 2 * 1_000) * BYTES_PER_ITEM
+    unsaved = UnsavedRuns(limit=20, max_bytes=2 * weight(big))
+    for i in range(3):
+        unsaved.add(_sized_run(i, 1_000))
+    assert [r["run_id"] for r in unsaved.list()] == ["r2", "r1"]  # the oldest went first
+    unsaved.add(_sized_run(9, 10_000))  # over the budget alone: held, as the only one
+    assert [r["run_id"] for r in unsaved.list()] == ["r9"]
+    assert unsaved.pop("r9")["run_id"] == "r9" and unsaved.list() == []
+    unsaved.add(_sized_run(1, 1_000))
+    assert [r["run_id"] for r in unsaved.list()] == ["r1"]  # popping gave its bytes back
