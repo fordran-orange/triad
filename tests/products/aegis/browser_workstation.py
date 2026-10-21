@@ -3409,24 +3409,35 @@ class Acceptance:
             assert all(n <= 2_000 for n in points.values()), points
             assert size < 1_000_000, size
             assert stored["result_hash"] == RECORDED_IDENTICAL_HASH, stored["result_hash"]
+            # The Library lists 50 rows a page, newest first: narrow to item 22's pair first.
             self.open_library()
+            self.pair_filters()
             self.library_open("backtest", a["run_id"])
             slim = self.library_equity()
             per_bar = stored["stored"]["equity_points"]["long"]
             assert f"drawn from 2,000 of {per_bar:,} points" in slim, slim
+            runs = self.api("runs")
+            named = {}
+            for r in runs:
+                name = (r.get("strategy") or {}).get("name")
+                named[name] = named.get(name, 0) + 1
             older = [
                 r
-                for r in self.api("runs")
+                for r in runs
                 if r.get("created_at", "") < MISSION10_STARTED
                 and (r.get("data") or {}).get("timeframe") == "1h"
                 and r.get("kept") is not False
+                and (r.get("strategy") or {}).get("name")
             ]
             assert older, "no run saved before Mission 10 to open"
-            old = older[0]
+            # the one whose strategy has the fewest runs, found by searching that strategy's name
+            old = min(older, key=lambda r: named[r["strategy"]["name"]])
             old_envelope = self.api(f"runs/{old['run_id']}")
             assert "stored" not in old_envelope and "series" in old_envelope, sorted(old_envelope)
             full = len(old_envelope["result"]["long"]["equity"])
             self.open_library()
+            self.library_kind("backtest")
+            self.library_search(old["strategy"]["name"])
             self.library_open("backtest", old["run_id"])
             shown = self.library_equity()
             assert f"long ({full})" in shown and "drawn from" not in shown, shown
