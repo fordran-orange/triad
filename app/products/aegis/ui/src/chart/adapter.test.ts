@@ -25,6 +25,12 @@ class MockAdapter implements ChartAdapter {
   capacity() {
     return 1_000;
   }
+  onZoomOutLimit() {
+    this.calls.push('onZoomOutLimit');
+  }
+  onZoomIn() {
+    this.calls.push('onZoomIn');
+  }
   setOverlays(series: Overlay[]) {
     this.calls.push('setOverlays');
     this.overlays = series;

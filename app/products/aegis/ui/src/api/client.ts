@@ -147,16 +147,27 @@ export interface ChartView {
   maxBars: number;
   from?: number;
   to?: number;
+  atLeast?: string; // candles at least this coarse (QA D1)
 }
 
 function viewQuery(view?: ChartView): string {
   if (!view) return '';
-  return `&max_bars=${view.maxBars}` + (view.from !== undefined ? `&from_ms=${Math.floor(view.from)}` : '') + (view.to !== undefined ? `&to_ms=${Math.ceil(view.to)}` : '');
+  return (
+    `&max_bars=${view.maxBars}` +
+    (view.from !== undefined ? `&from_ms=${Math.floor(view.from)}` : '') +
+    (view.to !== undefined ? `&to_ms=${Math.ceil(view.to)}` : '') +
+    (view.atLeast ? `&at_least=${view.atLeast}` : '')
+  );
 }
 
-function viewBody(view?: ChartView): Record<string, number> {
+function viewBody(view?: ChartView): Record<string, number | string> {
   if (!view) return {};
-  return { max_bars: view.maxBars, ...(view.from !== undefined ? { from_ms: Math.floor(view.from) } : {}), ...(view.to !== undefined ? { to_ms: Math.ceil(view.to) } : {}) };
+  return {
+    max_bars: view.maxBars,
+    ...(view.from !== undefined ? { from_ms: Math.floor(view.from) } : {}),
+    ...(view.to !== undefined ? { to_ms: Math.ceil(view.to) } : {}),
+    ...(view.atLeast ? { at_least: view.atLeast } : {}),
+  };
 }
 
 /** POST /optimize and /optimize/plan body (OptimizeRequest in contracts.ts, selection as the data reference). */

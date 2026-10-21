@@ -9,6 +9,7 @@ export const MAX_DISPLAY_BARS = 20_000;
  *  seven 1h candles), so an estimate never says "fits" where the worker would refuse. */
 const FINER_PER_CANDLE: Record<string, number> = { '1D': 7, '1h': 2, '30m': 2, '15m': 15 };
 const COARSEST = '1D';
+const STANDARD = ['1m', '15m', '30m', '1h', '1D'];
 /** The chart cannot zoom out past its capacity (Vela keeps candles at least 0.5 px apart): at
  *  this share of it the view is at the limit and coarser candles let it keep widening. */
 const AT_LIMIT = 0.85;
@@ -76,6 +77,7 @@ export interface LoadedView {
   displayTimeframe: string;
   nativeTimeframe: string;
   barTimes: number[]; // the drawn candles' times
+  finerBlocked?: boolean; // after a coarser swap: no finer candles until the operator zooms in
 }
 
 /** How close to an end of the loaded candles, as a share of their span, counts as reaching it. */
@@ -84,6 +86,7 @@ const EDGE = 0.02;
 /** A zoom's request: the window and the candles the worker may answer with over it. */
 export interface ChartAsk extends Span {
   maxBars: number;
+  atLeast?: string; // candles at least this coarse, even where finer ones would fit
 }
 
 /** What a view change asks the worker for, or null to keep what is drawn:
@@ -95,14 +98,35 @@ export interface ChartAsk extends Span {
  *  three spans, i.e. at most half the chart over the visible one. */
 export function nextRequest(visible: Span, selection: Span, view: LoadedView, capacity: number): ChartAsk | null {
   const ask = { ...viewWindow(visible, selection), maxBars: Math.max(1, Math.round(capacity * 3 * FINER_FILL)) };
+  // Only the finer rule may bring finer candles; the others keep at least these (QA D1).
+  const same = { ...ask, atLeast: view.displayTimeframe };
   const shown = inWindow(view.barTimes, visible);
-  if (shown >= capacity * AT_LIMIT && view.displayTimeframe !== COARSEST) return ask;
+  if (shown >= capacity * AT_LIMIT && view.displayTimeframe !== COARSEST) return same;
+  const finer =
+    view.displayTimeframe !== view.nativeTimeframe &&
+    !view.finerBlocked &&
+    shown * (FINER_PER_CANDLE[view.displayTimeframe] ?? Infinity) <= capacity * FINER_FILL;
+  if (finer) return ask;
   const first = view.barTimes.length ? view.barTimes[0] : view.window.from;
   const last = view.barTimes.length ? view.barTimes[view.barTimes.length - 1] : view.window.to;
   const slack = (last - first) * EDGE;
   const moreLeft = view.window.from > selection.from && visible.from <= first + slack;
   const moreRight = view.window.to < selection.to && visible.to >= last - slack;
-  if (moreLeft || moreRight) return ask;
-  if (view.displayTimeframe === view.nativeTimeframe) return null;
-  return shown * (FINER_PER_CANDLE[view.displayTimeframe] ?? Infinity) <= capacity * FINER_FILL ? ask : null;
+  return moreLeft || moreRight ? same : null;
+}
+
+/** A wheel-out the chart could not follow (QA D1): the view is at its zoom-out limit, either all
+ *  the loaded candles shown or as many as the chart draws at once, so only coarser candles let it
+ *  widen. The ask is three visible spans in candles at least the next coarser timeframe, which
+ *  holds even when the wider window holds nothing new (an overnight gap). Daily candles have
+ *  nothing coarser: they ask for more of the selection, or nothing once it is all loaded. */
+export function coarserRequest(visible: Span, selection: Span, view: LoadedView, capacity: number): ChartAsk | null {
+  const window = viewWindow(visible, selection);
+  const most = Math.max(1, Math.round(capacity * 3 * FINER_FILL));
+  if (view.displayTimeframe === COARSEST) {
+    const all = view.window.from <= selection.from && view.window.to >= selection.to;
+    return all ? null : { ...window, maxBars: most, atLeast: COARSEST };
+  }
+  const next = STANDARD[STANDARD.indexOf(view.displayTimeframe) + 1] ?? COARSEST;
+  return { ...window, maxBars: most, atLeast: next };
 }

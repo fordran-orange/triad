@@ -8,7 +8,7 @@ import type { IndicatorSpec } from '../contracts';
 import type { Provenance } from '../results';
 import type { Selection, Timeframe } from '../state/workspace';
 import type { ChartAdapter, Marker, VisibleSpan } from './adapter';
-import { MAX_DISPLAY_BARS, isLongRange, nextRequest, placeMarkers, type LoadedView, type Span } from './longRange';
+import { MAX_DISPLAY_BARS, coarserRequest, isLongRange, nextRequest, placeMarkers, type ChartAsk, type LoadedView, type Span } from './longRange';
 import { chartMeta, overlaysFromSeries, syncChart, type OverlayMeta } from './sync';
 
 const DEBOUNCE_MS = 400;
@@ -114,30 +114,35 @@ export function useLongRange(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adapter, selectionKey, indicatorKey]);
 
-  // A pan or zoom: ask for the visible window when it fits finer candles or leaves what is loaded.
+  // A pan or zoom: ask for the visible window when it fits finer candles or leaves what is loaded;
+  // a wheel-out at the chart's limit asks for coarser candles (QA D1).
   useEffect(() => {
     if (!adapter) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const reload = () => {
-      const v = view.current;
-      const visible = visibleNow.current;
+    // One zoom request at a time: a view change while one is in flight is decided again on the
+    // view its answer draws, never on the one it replaces (QA D1: a stale ask undid a coarser swap).
+    let inFlight = false;
+    let again = false;
+    const fetchView = (window: ChartAsk, visible: VisibleSpan, coarser: boolean) => {
       const { selection: sel, indicators: specs } = latest.current;
-      if (!v || !v.zooms || !visible || !sel) return;
-      const window = nextRequest(visible, v.selection, v, adapter.capacity());
-      if (!window) return;
-      const tag = `${window.from}:${window.to}:${window.maxBars}`;
+      if (!sel) return;
+      const tag = `${window.from}:${window.to}:${window.maxBars}:${window.atLeast ?? ''}`;
       if (tag === asked.current) return; // the worker already answered this request
       asked.current = tag;
       const gen = generation.current;
       const mine = ++zoom.current;
-      const ask = { maxBars: window.maxBars, from: window.from, to: window.to };
+      inFlight = true;
+      const ask = { maxBars: window.maxBars, from: window.from, to: window.to, atLeast: window.atLeast };
       Promise.all([api.bars(sel, ask), api.indicators(sel, specs, ask)])
         .then(([bars, series]) => {
           const current = view.current;
           if (gen !== generation.current || mine !== zoom.current || !current) return;
           const barTimes = bars.bars.map((b) => b.time);
           const loaded = { from: bars.window.from_ms ?? window.from, to: bars.window.to_ms ?? window.to };
-          view.current = { ...current, window: loaded, displayTimeframe: bars.display_timeframe, barTimes };
+          // After a coarser swap, finer candles wait for the operator's next zoom-in, so a swap
+          // never undoes itself (the chart re-fits a view of few candles on its own).
+          const finerBlocked = coarser || current.finerBlocked;
+          view.current = { ...current, window: loaded, displayTimeframe: bars.display_timeframe, barTimes, finerBlocked };
           adapter.replaceBars(bars.bars, bars.display_timeframe as Timeframe, visibleNow.current ?? visible);
           adapter.setOverlays(overlaysFromSeries(series.times, series.series, current.meta));
           adapter.setMarkers(placeMarkers(inside(latest.current.markers, loaded), barTimes));
@@ -145,16 +150,47 @@ export function useLongRange(
         })
         .catch(() => {
           asked.current = ''; // a failed zoom keeps what is drawn; the next view change asks again
+        })
+        .finally(() => {
+          if (mine !== zoom.current) return; // a newer request owns the flag
+          inFlight = false;
+          if (again) {
+            again = false;
+            reload();
+          }
         });
+    };
+    const reload = () => {
+      if (inFlight) {
+        again = true;
+        return;
+      }
+      const v = view.current;
+      const visible = visibleNow.current;
+      if (!v || !v.zooms || !visible) return;
+      const window = nextRequest(visible, v.selection, v, adapter.capacity());
+      if (window) fetchView(window, visible, false);
     };
     adapter.onViewport((span) => {
       visibleNow.current = span;
       clearTimeout(timer);
       timer = setTimeout(reload, DEBOUNCE_MS);
     });
+    adapter.onZoomIn(() => {
+      if (view.current?.finerBlocked) view.current = { ...view.current, finerBlocked: false };
+    });
+    adapter.onZoomOutLimit((span) => {
+      const v = view.current;
+      visibleNow.current = span;
+      if (!v || !v.zooms) return;
+      const window = coarserRequest(span, v.selection, v, adapter.capacity());
+      if (window) fetchView(window, span, true);
+    });
     return () => {
       clearTimeout(timer);
       adapter.onViewport(() => {});
+      adapter.onZoomOutLimit(() => {});
+      adapter.onZoomIn(() => {});
     };
   }, [adapter]);
 

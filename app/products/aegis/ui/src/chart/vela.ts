@@ -11,6 +11,7 @@ const TIMEFRAME_TO_VELA: Record<Timeframe, string> = { '1m': '1', '15m': '15', '
 // most its plot width / 0.5 candles; the price scale takes about PRICE_SCALE_PX of the mount.
 const MIN_BAR_SPACING = 0.5;
 const PRICE_SCALE_PX = 64;
+const WHEEL_SETTLE_MS = 250; // longer than Vela's zoom easing takes to move the view
 
 // Module-level registries read by the native indicator instances (one chart per page in Aegis).
 const overlayRegistry = new Map<string, Overlay>();
@@ -173,10 +174,39 @@ export class VelaAdapter implements ChartAdapter {
   private viewport: ((span: VisibleSpan) => void) | null = null;
   private stopViewport: (() => void) | null = null;
   private swapping: Promise<void> | null = null; // an in-place swap of candles in flight
+  private zoomOutLimit: ((span: VisibleSpan) => void) | null = null;
+  private zoomIn: (() => void) | null = null;
+  private wheelTimer: ReturnType<typeof setTimeout> | undefined;
 
   mount(el: HTMLElement): void {
     this.el = el;
     registerNatives();
+    el.addEventListener('wheel', this.onWheel, { passive: true, capture: true });
+  }
+
+  /** A wheel-out the chart did not follow means it is at its zoom-out limit: Vela clamps the zoom
+   *  to the candles it holds (at most one per 0.5 px, scaled), so the page must offer coarser
+   *  ones. Read after the zoom's easing has had time to move the view. */
+  private onWheel = (e: WheelEvent) => {
+    const chart = this.chart;
+    if (e.deltaY < 0) this.zoomIn?.();
+    if (e.deltaY <= 0 || !chart || !this.zoomOutLimit) return;
+    const before = chart.getVisibleRange();
+    clearTimeout(this.wheelTimer);
+    this.wheelTimer = setTimeout(() => {
+      const after = this.chart === chart ? chart.getVisibleRange() : null;
+      if (before && after && after.to - after.from <= (before.to - before.from) * 1.001) {
+        this.zoomOutLimit?.({ from: after.from, to: after.to });
+      }
+    }, WHEEL_SETTLE_MS);
+  };
+
+  onZoomOutLimit(cb: (span: VisibleSpan) => void): void {
+    this.zoomOutLimit = cb;
+  }
+
+  onZoomIn(cb: () => void): void {
+    this.zoomIn = cb;
   }
 
   setBars(bars: Bar[], timeframe: Timeframe): void {
@@ -349,6 +379,8 @@ export class VelaAdapter implements ChartAdapter {
   }
 
   destroy(): void {
+    clearTimeout(this.wheelTimer);
+    this.el?.removeEventListener('wheel', this.onWheel, { capture: true });
     this.clear();
     this.el = null;
   }

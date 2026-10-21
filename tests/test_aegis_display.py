@@ -73,3 +73,34 @@ def test_indicators_follow_the_display_bars(client):  # noqa: F811
         end = shown["times"][k + 1] if k + 1 < len(shown["times"]) else times[-1] + 1
         last = int(np.searchsorted(times, end, side="left")) - 1
         assert times[last] >= start and shown["series"]["s"][k] == native["series"]["s"][last]
+
+
+def test_at_least_keeps_the_candles_this_coarse(client):  # noqa: F811 - QA D1
+    """A zoom that must not go finer (more of the selection after a coarser swap, or a zoom-out at
+    the chart's limit) asks for candles at least this coarse, even where finer ones would fit."""
+    c, _, _ = client
+    native = _bars(c)
+    coarse = _bars(c, max_bars=100_000, at_least="15m")
+    assert coarse["display_timeframe"] == "15m" and coarse["shown"] == 52 and coarse["count"] == 780
+    assert (
+        _bars(c, max_bars=100_000, at_least="1m")["bars"] == native["bars"]
+    )  # the native one: no-op
+    assert (
+        _bars(c, max_bars=10, at_least="15m")["display_timeframe"] == "1D"
+    )  # still within max_bars
+    bad = c.get(
+        "/aegis/api/data/bars",
+        params={"symbol": "QQQ", "timeframe": "1m", **RANGE, "max_bars": 100, "at_least": "2h"},
+    )
+    assert bad.status_code == 422
+    body = {
+        "symbol": "QQQ",
+        "timeframe": "1m",
+        **RANGE,
+        "indicators": [{"id": "s", "kind": "SMA", "length": 5}],
+        "max_bars": 100_000,
+        "at_least": "15m",
+    }
+    series = c.post("/aegis/api/indicators", json=body).json()
+    assert series["display_timeframe"] == "15m"
+    assert series["times"] == [bar["time"] for bar in coarse["bars"]]

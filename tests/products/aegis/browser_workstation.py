@@ -114,7 +114,7 @@ ITEMS = [
     "governance unchanged since the limits plan and items 1–76 still pass",
     # Mission 10: no limit (spec §10)
     "a saved run is slim: no per-bar series, side equity at most 2,000 points, format 2, under 1 MB, its hash unchanged; a run saved before the mission opens with its equity",
-    "ten years of 1m in the page: 947,519 bars shown as aggregated candles; a wheel zoom swaps to finer candles; indicators and markers follow; Run Backtest completes",
+    "ten years of 1m in the page: 947,519 bars shown as aggregated candles; a wheel zoom swaps to native candles and back out to aggregated ones; indicators and markers follow; Run Backtest completes",
     "the ten-year run opens in the Library and compares with item 22's run",
     "Save only what I keep: a backtest is not in the Library until Keep; the mode switches back to every",
     "governance unchanged since the Mission 10 plan and items 1–81 still pass",
@@ -3372,7 +3372,24 @@ class Acceptance:
         return self.js("document.querySelector('#library-view .result-body')?.innerText ?? ''")
 
     def chart_badge(self) -> str:
+        """The header's "shown as" badge ('' for native candles), read with the mouse off the chart:
+        over it the crosshair readout replaces the header (QA O1)."""
+        self.page.mouse.move(5, 5)
+        self.page.wait_for_timeout(300)
         return self.js("document.getElementById('chart-shown-as')?.innerText ?? ''")
+
+    def wheel_until(self, delta: int, done, batches: int = 15) -> bool:
+        """Wheel over the chart in batches of four notches until `done()` holds."""
+        box = self.page.locator("#chart-mount").bounding_box()
+        for _ in range(batches):
+            self.page.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.4)
+            for _ in range(4):
+                self.page.mouse.wheel(0, delta)
+                self.page.wait_for_timeout(120)
+            self.page.wait_for_timeout(1200)
+            if done():
+                return True
+        return False
 
     # -- Mission 10 items 82-86 ---------------------------------------------------------------------
     def no_limit(self):
@@ -3461,17 +3478,28 @@ class Acceptance:
             ).json()
             candles = [b["time"] for b in view["bars"]]
             assert series["times"] == candles and len(series["series"]["ema"]) == len(candles)
-            box = page.locator("#chart-mount").bounding_box()
-            page.mouse.move(box["x"] + box["width"] * 0.7, box["y"] + box["height"] * 0.4)
-            for _ in range(12):
-                page.mouse.wheel(0, -400)
-                page.wait_for_timeout(80)
-            page.wait_for_function(
-                "(document.getElementById('chart-shown-as')?.innerText ?? '') !== "
-                + json.dumps(first),
-                timeout=60_000,
-            )
-            zoomed = self.chart_badge() or "native 1m candles"
+            # The zoom is read from the worker's answers, not only the badge (QA O1): a wheel-in
+            # must bring native 1m candles, a wheel-out back to aggregated ones (QA D1).
+            answers: list[str] = []
+
+            def on_bars(response):
+                if "/aegis/api/data/bars?" in response.url and "from_ms=" in response.url:
+                    try:
+                        answers.append(response.json()["display_timeframe"])
+                    except Exception:  # noqa: BLE001, S110 - a body still streaming is skipped
+                        pass
+
+            page.on("response", on_bars)
+            try:
+                assert self.wheel_until(-400, lambda: "1m" in answers and self.chart_badge() == "")
+                zoomed = f"native 1m candles (answers {answers})"
+                del answers[:]
+                assert self.wheel_until(400, lambda: self.chart_badge().startswith("shown as")), (
+                    answers
+                )
+                unzoomed = f"{self.chart_badge()} (answers {answers})"
+            finally:
+                page.remove_listener("response", on_bars)
             before = self.worker_memory()
             previous = self.run_state()
             ran = time.perf_counter()
@@ -3500,6 +3528,7 @@ class Acceptance:
                 "shown": view["shown"],
                 "display_timeframe": view["display_timeframe"],
                 "zoomed": zoomed,
+                "unzoomed": unzoomed,
                 "backtest_server_ms": envelope["elapsed_ms"],
                 "backtest_wall_s": wall_s,
                 "run_file_bytes": size,
@@ -3509,7 +3538,8 @@ class Acceptance:
             }
             return (
                 f"QQQ 1m {STUDY_RANGE[0]} → {STUDY_RANGE[1]}: {bars:,} bars in {chart_s} s, "
-                f"{first} ({view['shown']:,} candles); zoom → {zoomed}; indicators on the same "
+                f"{first} ({view['shown']:,} candles); zoom in → {zoomed}; out → {unzoomed}; "
+                f"indicators on the same "
                 f"{len(candles):,} candles; run {run_id[:8]} in {envelope['elapsed_ms']:,} ms server / "
                 f"{wall_s} s wall, {markers:,} markers in the legend, file {size / 1e6:.1f} MB; worker "
                 f"working set {before['working_set_mb']:,} → {after['working_set_mb']:,} MB, peak "

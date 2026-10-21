@@ -165,8 +165,10 @@ def symbols(store: ArchiveStore = STORE):
     }
 
 
-def _shown(store, symbol, timeframe, start, end, frame, max_bars, from_ms, to_ms):
+def _shown(store, symbol, timeframe, start, end, frame, max_bars, from_ms, to_ms, at_least=None):
     """What a window of the selection is drawn as (Mission 10 §7)."""
+    if at_least is not None:
+        _timeframe(at_least)
     return display.choose(
         frame,
         timeframe,
@@ -174,6 +176,7 @@ def _shown(store, symbol, timeframe, start, end, frame, max_bars, from_ms, to_ms
         from_ms,
         to_ms,
         lambda coarser: _select(store, symbol, coarser, start, end)[0],
+        at_least,
     )
 
 
@@ -186,10 +189,11 @@ def bars(
     max_bars: int | None = Query(None, ge=1, description="draw at most this many candles"),
     from_ms: int | None = Query(None, description="the window drawn; default the selection"),
     to_ms: int | None = Query(None),
+    at_least: str | None = Query(None, description="candles at least this coarse"),
     store: ArchiveStore = STORE,
 ):
     frame, pinned = _select(store, symbol, timeframe, start, end)
-    shown = _shown(store, symbol, timeframe, start, end, frame, max_bars, from_ms, to_ms)
+    shown = _shown(store, symbol, timeframe, start, end, frame, max_bars, from_ms, to_ms, at_least)
     candles = to_records(shown.frame.iloc[shown.first : shown.last])
     return {
         "symbol": symbol,
@@ -215,6 +219,7 @@ class IndicatorsRequest(BaseModel):
     max_bars: int | None = Field(default=None, ge=1)
     from_ms: int | None = None
     to_ms: int | None = None
+    at_least: str | None = None
 
 
 @router.post("/indicators")
@@ -230,6 +235,7 @@ def indicators(request: IndicatorsRequest, store: ArchiveStore = STORE):
         request.max_bars,
         request.from_ms,
         request.to_ms,
+        request.at_least,
     )
     native_ms = display.times_ms(frame)
     series, outputs, panes = {}, {}, {}

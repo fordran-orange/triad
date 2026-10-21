@@ -100,10 +100,12 @@ def choose(
     from_ms: int | None,
     to_ms: int | None,
     frame_for: Callable[[str], pd.DataFrame],
+    at_least: str | None = None,
 ) -> Shown:
     """The native bars of the window when they fit `max_bars` (or no bound is asked), else the
     candles of the finest coarser timeframe that fits; `frame_for(tf)` selects a timeframe over
-    the same selection."""
+    the same selection. `at_least` (a standard timeframe) keeps the candles at least that coarse
+    even where finer ones would fit (QA D1: a zoom-out never comes back finer)."""
     native_ms = times_ms(native)
     if not len(native_ms):
         return Shown(timeframe, native, 0, 0, None, {"from_ms": from_ms, "to_ms": to_ms})
@@ -111,17 +113,21 @@ def choose(
     hi = int(native_ms[-1]) if to_ms is None else int(to_ms)
     window = {"from_ms": lo, "to_ms": hi}
     first, last = native_window(native_ms, lo, hi)
-    if max_bars is None or last - first <= max_bars:
+    floor = TIMEFRAMES.index(at_least) if at_least in TIMEFRAMES else 0
+    coarse_only = floor > TIMEFRAMES.index(timeframe)
+    if not coarse_only and (max_bars is None or last - first <= max_bars):
         return Shown(timeframe, native, first, last, None, window)
     counts, candidates = {timeframe: last - first}, {}
-    for coarser in TIMEFRAMES[TIMEFRAMES.index(timeframe) + 1 :]:
+    for coarser in TIMEFRAMES[max(TIMEFRAMES.index(timeframe) + 1, floor) :]:
         frame = frame_for(coarser)
         starts = bucket_starts_ms(frame, coarser)
         span = candle_window(starts, lo, hi)
         counts[coarser], candidates[coarser] = span[1] - span[0], (frame, span, starts)
-        if counts[coarser] <= max_bars:
+        if max_bars is None or counts[coarser] <= max_bars:
             break
-    chosen = choose_timeframe(timeframe, counts, max_bars)
+    if coarse_only:
+        counts.pop(timeframe)
+    chosen = choose_timeframe(timeframe, counts, max_bars if max_bars is not None else len(native))
     if chosen == timeframe:  # a native 1D selection is never aggregated
         return Shown(timeframe, native, first, last, None, window)
     frame, (first, last), starts = candidates[chosen]

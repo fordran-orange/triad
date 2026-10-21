@@ -57,6 +57,11 @@ export interface ChartAdapter {
   onViewport(cb: (span: VisibleSpan) => void): void;
   /** How many candles the chart can show at once at its widest zoom. */
   capacity(): number;
+  /** Called with the visible span when a wheel-out leaves the view unchanged: the chart is at its
+   *  zoom-out limit for the candles it holds (QA D1). */
+  onZoomOutLimit(cb: (span: VisibleSpan) => void): void;
+  /** Called when the operator wheels in (zooms in) over the chart. */
+  onZoomIn(cb: () => void): void;
   setOverlays(series: Overlay[]): void;
   setMarkers(markers: Marker[]): void;
   onCrosshair(cb: (p: CrosshairPoint | null) => void): void;
