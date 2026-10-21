@@ -30,7 +30,7 @@ changed (acceptance item 86). No package or environment change. Exchange CLOSED;
 | `3aa7f11` | 5 | The long-range chart, shared by the Charts page and the Library: "N bars · shown as 1h candles", markers on the candle that contains them, zoom that swaps candles in place (Vela `setMarket`) |
 | `56b7eea` | 6 | Save every backtest, or only what I keep: `data/aegis/preferences.json`, the last 20 unsaved runs in memory, `POST /runs/{id}/keep`, `save` on one request; the top bar's switch, Keep in the status strip and the Runs drawer |
 | `7a36e7d` | 6 | Follow-up from the browser check: the open Runs drawer re-reads after a Keep in the status strip |
-| (this commit) | 7 | Acceptance items 82–86 (77 and 80 moved to the guard) and this record |
+| `2107d3b` | 7 | Acceptance items 82–86 (77 and 80 moved to the guard) and this record |
 
 ## Measured on this laptop (QQQ, the raw archive; 15.8 GB, about 2.3 GB free, 12 CPUs)
 
@@ -121,13 +121,75 @@ pool (7 workers)"): the pool now takes only the workers free memory holds at the
 18. Task 6: the Runs drawer opens only kept runs in the Library.
 19. Task 7: the drawer's stale "not kept" row after a Keep in the status strip was fixed
     (`7a36e7d`).
+20. Fix pass: review I1 is closed by a study bar cap (200,000 per symbol) and memory-sized study
+    workers, not by moving studies onto frames; that is a follow-up. Cost if wrong: a ten-year 1m
+    study is refused until then.
+21. Fix pass: D1 detects the zoom-out limit from a wheel-out the chart did not follow (Vela's
+    spacing scale makes a capacity estimate unreliable), adds `at_least` to the two data routes,
+    checks the finer rule before the edge rule, and blocks finer candles after a coarser swap until
+    the operator's next wheel-in (width-based guards misfire because Vela spaces candles by index
+    across gaps). Cost if wrong: after a coarser swap, a zoom-in by keyboard keeps coarser candles
+    until a wheel-in or a new selection.
+22. Fix pass: the reviewer's "declined to judge" lines stand as rulings: coarser than 1D,
+    pruning and converting runs (spec §11); bars without `max_bars` (as today); the daily bucket
+    for a pre-market marker (no such bars); the save switch read once per mount.
 
-## Deferred and noted for the review
+## Milestone QA and whole-branch review (Fable 5.1, read-only, at `2107d3b`)
 
-- `optimize.POOL_PREPARE_SECONDS_PER_BAR` still prices each worker preparing rows; workers now only
-  unpickle the frame, so a pooled plan over-states its start-up by seconds on ten years (the
-  estimate re-learns from the first chunk).
-- The unsaved-runs memory holds 20 runs by count (spec §8); twenty ten-year 1m runs (38–42 MB each
-  stored) could hold a few GB in the worker.
-- A ten-year 1m run of a fast-trading strategy carries 70–80 thousand markers; the chart draws them
-  (on aggregated candles they stack), and the page stayed responsive in the walk.
+The operator chose Fable 5.1 for both.
+
+**QA: FAIL on one defect, everything else verified independently.** The QA recomputed:
+- the hash definition on a format-1 run and on fresh runs;
+- frames against rows on real 1m, 15m, 1h and 1D selections, the pool, walk-forward, experiments
+  and materialize;
+- the memory probe (1,180 B/bar and a 1,491 MB peak, the record's numbers);
+- display candles at the boundaries, across DST and for daily buckets;
+- "Save only what I keep" end to end; the tests and the build; governance.
+
+**D1:** after a wheel zoom to native 1m candles, zooming out stalled and never came back to coarser
+candles. Observation O1: item 83 could pass without a real zoom, because over the chart the
+crosshair readout hides the badge.
+
+**Review: "With fixes", 0 Critical, 2 Important, 5 Minor.**
+- **I1:** the 2,000,000-bar guard made a ten-year 1m study reachable while studies still hold a dict
+  per bar and start their default workers.
+- **I2:** the unsaved-runs memory was bounded by count only, so twenty ten-year runs (about 111 MB
+  each in memory) exceed this laptop's free memory.
+
+## Fix pass (the operator: "go ahead with the fixes")
+
+| Commit | Fix |
+|---|---|
+| `83aa30f` | I1: a study runs on at most 200,000 bars per symbol (422 naming the cap on plan, start and resume) and its pool takes only the workers free memory holds. I2: unsaved runs stay under about 512 MB as well as 20 runs, the oldest going first; the keep 404 says unsaved runs are forgotten after newer ones too |
+| `ed3d358` | D1: the chart reports a wheel-out it did not follow (its zoom-out limit), and the page then asks for candles at least the next coarser timeframe (`at_least` on GET /data/bars and POST /indicators); asks never come back finer except from the finer rule, which waits for the operator's next wheel-in after a coarser swap; one zoom request at a time. O1: item 83 reads the badge off the chart and requires the worker's answers (native 1m, then aggregated) |
+| `9d34afe` | Item 82 finds its runs past the Library's first page (more walks had pushed them off) |
+
+Measured with real wheel events on ten years of QQQ 1m: a deep and a gentle zoom to native candles
+both come back out to 1h candles within 12 notches, and zoom in to native again.
+
+After the fix pass: Aegis scope 438 passed, 1 skipped; vitest 17 files, 115 cases; `tsc` clean;
+the build succeeds. The walk again: `docs/evidence/aegis-acceptance-20261021T020455Z.json`,
+**86/86 PASS, no page errors**, 821 s. Item 83 now reads "zoom in → native 1m candles (answers
+['1m']); out → shown as 15m candles"; the ten-year backtest ran in 17,942 ms on the worker with a
+38.3 MB file; the worker's peak working set went from 615 to 1,669 MB. `tools\verify.ps1` on the
+branch after the fix pass: lint and format passed; inventory core 557, triad 1,058, aegis 439; all
+three scopes green (core 386 / 171 skipped; triad 634 / 424 with 209 subtests; aegis 438 / 1); it
+stopped at the "Wrong Git branch" check, by design.
+
+## Deferred minors
+
+- Walk-forward still holds one ISO string per bar (~75 MB on ten years of 1m).
+- `VelaAdapter.replaceBars` has no rejection path.
+- Item 82 needs a 1h run saved before Mission 10 in the store.
+- `Preferences.set` shares one temporary file name across concurrent writes.
+- A windowed bars or indicators request re-selects the coarser frames to count candles.
+- The host's indicator caches (serial optimizer, walk-forward, the shared cache of 8 selections)
+  are not bounded by bytes.
+- A zoom made while the chart reloads is discarded.
+- `display.choose` answers 1D above `max_bars` when even daily candles exceed it (unreachable from
+  the page).
+- `optimize.POOL_PREPARE_SECONDS_PER_BAR` over-states a pooled plan's start-up by seconds on ten
+  years.
+
+Follow-ups: studies on frames end to end (lifting their 200,000-bar cap); compressing saved runs
+(a ten-year 1m run is 38–42 MB, nearly all of it trades).
