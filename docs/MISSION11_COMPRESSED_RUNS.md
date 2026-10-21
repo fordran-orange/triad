@@ -126,3 +126,10 @@ subtests; aegis 448 / 1); it stopped at the main-branch check, by design.
 
 - Converting the 509 existing plain runs (1.04 GB → about 0.2 GB) is not done (decision 2).
 - A save of a ten-year 1m run takes about 0.8 s longer than a plain save.
+
+## Merged (2026-10-21)
+
+The operator answered "merge yes": `main` fast-forwarded from `caf1caa` to `b7fdc9f` (Mission 11's
+seven commits on top of its spec and plan). `tools\verify.ps1` on `main` exited 0: lint and format
+passed; inventory core 557, triad 1,058, aegis 449; core 386 passed / 171 skipped, triad 634 / 424
+with 209 subtests, aegis 448 / 1; "all three scopes green".
