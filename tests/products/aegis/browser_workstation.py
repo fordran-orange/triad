@@ -1,11 +1,11 @@
 """Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items, the 14 Mission 4
 items, the 11 Mission 5 items, the 13 Mission 6 items, the 9 Mission 8 items, the 7 Mission 9
-items, the 5 limits items and the 5 Mission 10 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
+items, the 5 limits items, the 5 Mission 10 items and the 2 Mission 11 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
 (indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
 Items 51 and 63 restart the worker detached through WMI (tools/start_product.ps1), as the DoD asks.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
-Exit code 0 only when all 86 items PASS with no page errors.
+Exit code 0 only when all 88 items PASS with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
 
@@ -118,6 +118,9 @@ ITEMS = [
     "the ten-year run opens in the Library and compares with item 22's run",
     "Save only what I keep: a backtest is not in the Library until Keep; the mode switches back to every",
     "governance unchanged since the Mission 10 plan and items 1–81 still pass",
+    # Mission 11: compressed saved documents (spec §5)
+    "a run saved now is <id>.json.gz, at least 3x smaller than its JSON, with its hash; a plain run from before still opens; delete → Recently deleted → restore keeps form and hash",
+    "governance unchanged since the Mission 11 plan and items 1–86 still pass",
 ]
 RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
 MISSION5_BASE = (
@@ -145,6 +148,10 @@ LIMITS_BASE = "9d13297"  # the limits design and plan commit; Core, platform hos
 NO_LIMIT_BASE = "b6960b8"  # the Mission 10 plan commit; Core, platform host and Triad frozen since
 TEN_YEARS_1M = 947_519  # QQQ 1m bars over STUDY_RANGE in the 20260919 vintage
 MISSION10_STARTED = "2026-10-20T20:00:00"  # runs saved before this are format 1 (per-bar series)
+COMPRESSED_BASE = (
+    "caf1caa"  # the Mission 11 plan commit; Core, platform host and Triad frozen since
+)
+MISSION11_STARTED = "2026-10-21T11:30:00"  # documents saved before this are plain JSON
 THREE_PARAMETERS = [  # 7 x 4 x 20 = 560 cells: more than 400, so the pool runs it
     ("indicators.donchian.length", 10, 40, 5),
     ("indicators.rsi.length", 7, 28, 7),
@@ -3215,11 +3222,7 @@ class Acceptance:
             rest = self.api(f"optimize/{job['job_id']}/cells?offset=1000&limit=1000")
             assert rest["total"] == 2560 and len(rest["rows"]) == 1000
             assert (rest["rows"][0]["metrics"]["mar"] or -1e9) <= defined[-1]
-            saved = json.loads(
-                (ROOT / "data" / "aegis" / "optimizations" / f"{job['job_id']}.json").read_text(
-                    encoding="utf-8"
-                )
-            )
+            saved = self.document_json("optimizations", job["job_id"])
             assert len(saved["cells"]) == 2560
             self.open_library()
             self.library_kind("optimization")
@@ -3363,8 +3366,37 @@ class Acceptance:
             "peak_working_set_mb": round(info["PeakWorkingSet64"] / 1e6),
         }
 
+    def document_file(self, folder: str, identifier: str) -> Path:
+        """A saved document in either form: `<id>.json.gz` (Mission 11), else a plain `<id>.json`."""
+        base = ROOT / "data" / "aegis" / folder
+        compressed = base / f"{identifier}.json.gz"
+        return compressed if compressed.is_file() else base / f"{identifier}.json"
+
+    def document_json(self, folder: str, identifier: str) -> dict:
+        import gzip
+
+        path = self.document_file(folder, identifier)
+        raw = path.read_bytes()
+        return json.loads(gzip.decompress(raw) if path.name.endswith(".gz") else raw)
+
     def run_file(self, run_id: str) -> Path:
-        return ROOT / "data" / "aegis" / "runs" / f"{run_id}.json"
+        return self.document_file("runs", run_id)
+
+    def restore_save_mode(self) -> str:
+        """Back to "Save every backtest" through the page's switch, or through the API when the
+        switch does not take: a walk never leaves the operator's worker in "kept" mode."""
+        page = self.page
+        if page.locator("#save-mode").input_value() != "every":
+            page.locator("#save-mode").select_option("every")
+        if self.wait_until(lambda: self.api("preferences")["save_runs"] == "every", 10):
+            return "page"
+        put = page.request.put(
+            self.base + "api/preferences",
+            data=json.dumps({"save_runs": "every"}),
+            headers={"content-type": "application/json"},
+        )
+        assert put.ok and self.api("preferences")["save_runs"] == "every", put.text()
+        return f"api (the switch read {page.locator('#save-mode').input_value()!r})"
 
     def library_equity(self) -> str:
         self.page.locator("#library-tab-equity").click()
@@ -3398,8 +3430,9 @@ class Acceptance:
         def item82():
             a = self.identical_runs[0]
             path = self.run_file(a["run_id"])
-            stored = json.loads(path.read_text(encoding="utf-8"))
-            size = path.stat().st_size
+            stored = self.document_json("runs", a["run_id"])
+            size = path.stat().st_size  # on disk (compressed since Mission 11)
+            text = len(json.dumps(stored, sort_keys=True, allow_nan=False).encode("utf-8"))
             sides = ("long", "short")
             assert "series" not in stored and all(
                 "series" not in stored["result"][x] for x in sides
@@ -3442,7 +3475,8 @@ class Acceptance:
             shown = self.library_equity()
             assert f"long ({full})" in shown and "drawn from" not in shown, shown
             return (
-                f"item 22's run {a['run_id'][:8]}: {size:,} bytes, format 2, side equity {points} "
+                f"item 22's run {a['run_id'][:8]}: {size:,} bytes on disk ({text:,} as JSON), "
+                f"format 2, side equity {points} "
                 f"of {per_bar:,} bars, hash {stored['result_hash'][:12]}… unchanged; format-1 run "
                 f"{old['run_id'][:8]} ({old['created_at'][:16]}) opens with its {full:,}-point equity"
             )
@@ -3615,9 +3649,13 @@ class Acceptance:
                 timeout=90_000,
             )
             self.wait_bars()
+            failure: Exception | None = None
             try:
+                before = page.locator("#save-mode").input_value()
                 page.locator("#save-mode").select_option("kept")
-                assert self.wait_until(lambda: self.api("preferences")["save_runs"] == "kept", 10)
+                assert self.wait_until(
+                    lambda: self.api("preferences")["save_runs"] == "kept", 10
+                ), f"the switch read {before!r} and the worker did not turn to kept"
                 envelope = self.run_backtest()
                 run_id = envelope["run_id"]
                 assert envelope["saved"] is False, envelope.get("saved")
@@ -3629,7 +3667,7 @@ class Acceptance:
                     entries = self.api("library?kind=backtest")["entries"]
                     return run_id in [e["id"] for e in entries]
 
-                assert not in_library()
+                assert not in_library(), "an unsaved run is listed in the Library"
                 with page.expect_response(
                     lambda r: r.url.endswith("/keep"), timeout=30_000
                 ) as kept:
@@ -3637,9 +3675,12 @@ class Acceptance:
                 assert kept.value.ok and kept.value.json() == {"saved": run_id}, kept.value.text()
                 assert self.wait_until(in_library, 10), "kept run not in the Library"
                 assert "NOT KEPT" not in self.run_state(), self.run_state()
-            finally:
-                page.locator("#save-mode").select_option("every")
-                assert self.wait_until(lambda: self.api("preferences")["save_runs"] == "every", 10)
+            except Exception as exc:  # noqa: BLE001 - reported after the mode is restored
+                failure = exc
+            restored = self.restore_save_mode()
+            if failure is not None:
+                raise failure
+            assert restored == "page", restored
             return (
                 f"in 'Save only what I keep' run {run_id[:8]} answered saved=false, listed kept=false "
                 "and stayed out of the Library; Keep saved it and the Library lists it; the mode is "
@@ -3674,6 +3715,129 @@ class Acceptance:
             )
 
         self.item(86, item86)
+        self.compressed()
+
+    # -- Mission 11 items 87-88 ---------------------------------------------------------------------
+    def compressed(self):
+        page = self.page
+
+        def item87():
+            a = self.identical_runs[0]
+            path = self.run_file(a["run_id"])
+            stored = self.document_json("runs", a["run_id"])
+            text = len(json.dumps(stored, sort_keys=True, allow_nan=False).encode("utf-8"))
+            size = path.stat().st_size
+            assert path.name.endswith(".json.gz"), path.name
+            assert text >= 3 * size, (text, size)
+            assert stored["result_hash"] == RECORDED_IDENTICAL_HASH, stored["result_hash"]
+            # a plain run from before the mission still opens in the Library
+            runs = self.api("runs")
+            named: dict = {}
+            for r in runs:
+                name = (r.get("strategy") or {}).get("name")
+                named[name] = named.get(name, 0) + 1
+            plain = [
+                r
+                for r in runs
+                if r.get("created_at", "") < MISSION11_STARTED
+                and (r.get("data") or {}).get("timeframe") == "1h"
+                and r.get("kept") is not False
+                and (r.get("strategy") or {}).get("name")
+                and self.run_file(r["run_id"]).name.endswith(".json")
+            ]
+            assert plain, "no plain run saved before Mission 11 to open"
+            old = min(plain, key=lambda r: named[r["strategy"]["name"]])
+            self.open_library()
+            self.library_kind("backtest")
+            self.library_search(old["strategy"]["name"])
+            self.library_open("backtest", old["run_id"])
+            shown = self.library_equity()
+            assert "long (" in shown, shown
+            # a fresh compressed run of item 22's request: delete and restore through the page
+            body = {
+                "strategy": a["strategy"],
+                "settings": a["settings"],
+                "data": {
+                    "symbol": "QQQ",
+                    "timeframe": "1h",
+                    "start": "2023-01-01",
+                    "end": "2024-12-31",
+                },
+            }
+            created = self.post("backtest", body)
+            assert created.ok, created.text()
+            rid = created.json()["run_id"]
+            assert created.json()["result_hash"] == RECORDED_IDENTICAL_HASH
+            assert self.run_file(rid).name.endswith(".json.gz"), self.run_file(rid).name
+            self.open_library()
+            self.library_kind("backtest")
+            self.library_open("backtest", rid)
+            asked: list[str] = []
+
+            def accept(dialog):
+                asked.append(dialog.message)
+                dialog.accept()
+
+            page.on("dialog", accept)
+            try:
+                with page.expect_response(
+                    lambda r: r.request.method == "DELETE" and f"/library/backtest/{rid}" in r.url,
+                    timeout=30_000,
+                ) as deleted:
+                    page.locator("#library-delete").click()
+            finally:
+                page.remove_listener("dialog", accept)
+            assert deleted.value.ok and asked, asked
+            trashed = ROOT / "data" / "aegis" / "trash" / "runs" / rid / f"{rid}.json.gz"
+            assert trashed.is_file(), trashed
+            page.wait_for_selector(f'[id="lib-backtest-{rid}"]', state="detached", timeout=30_000)
+            self.library_change(lambda: page.locator("#library-deleted").check())
+            self.library_row("backtest", rid).click()
+            with page.expect_response(
+                lambda r: r.url.endswith(f"/library/backtest/{rid}/restore"), timeout=30_000
+            ) as restored:
+                page.locator("#library-restore").click()
+            assert restored.value.ok, restored.value.text()
+            back = self.api(f"runs/{rid}")
+            assert back["result_hash"] == RECORDED_IDENTICAL_HASH and self.run_file(
+                rid
+            ).name.endswith(".json.gz")
+            self.timings["compressed"] = {"item22_disk": size, "item22_json": text}
+            return (
+                f"item 22's run {a['run_id'][:8]}: {size:,} bytes on disk, {text:,} as JSON "
+                f"({text / size:.1f}x), hash {RECORDED_IDENTICAL_HASH[:12]}…; plain run "
+                f"{old['run_id'][:8]} ({old['created_at'][:16]}) opens; run {rid[:8]} "
+                "compressed → Recently deleted (compressed) → restored with its hash"
+            )
+
+        self.item(87, item87)
+
+        def item88():
+            import subprocess
+
+            def git(*args) -> str:
+                return subprocess.run(
+                    ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
+                ).stdout
+
+            status = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
+            assert status["mode"] == "human_directed" and status["exchange"] == "CLOSED", status
+            schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
+            assert schedule["enabled"] is False and schedule["id"].startswith("c99fa831"), schedule
+            paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
+            committed = git("diff", "--name-only", COMPRESSED_BASE, "HEAD", "--", *paths).strip()
+            pending = git("status", "--porcelain", "--", *paths).strip()
+            assert committed == "" and pending == "", (committed, pending)
+            earlier = [r for r in self.results if r["item"] <= 86]
+            failed = [r["item"] for r in earlier if r["status"] != "PASS"]
+            assert len(earlier) == 86 and not failed, failed
+            return (
+                f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
+                f"{COMPRESSED_BASE}; items 1–86 PASS"
+            )
+
+        self.item(88, item88)
 
 
 def main(argv=None) -> int:
