@@ -26,6 +26,7 @@ from products.aegis import experiments as experiments_module
 from products.aegis import optimize as optimize_module
 from products.aegis import studies as studies_module
 from products.aegis.backtest import (
+    MIN_BARS,
     BacktestRequest,
     DataReference,
     _data_key,
@@ -52,6 +53,7 @@ from products.aegis.optimize import (
     SERIAL_MAX_CELLS,
     OptimizeRequest,
     OptimizerJob,
+    engine_rows,
     expand_grid,
     plan_seconds,
 )
@@ -1135,9 +1137,10 @@ def _study_range(store: ArchiveStore, symbols: list[str], start, end) -> tuple:
 
 def _study_bars(store: ArchiveStore, symbols: list[str], timeframe: str, start, end):
     """A prepared frame and provenance per known symbol (Mission 12: no dict per bar); an unknown
-    symbol is left for the plan to name."""
+    symbol is left for the plan to name, and so is a range too short to simulate: it holds no
+    window, so it stays as its (at most 34) rows (QA D1)."""
     known = {s.symbol for s in store.symbols()}
-    rows: dict[str, pd.DataFrame] = {}
+    rows: dict[str, pd.DataFrame | list[dict]] = {}
     pinned: dict[str, PinnedSource] = {}
     if start is None or end is None:
         return rows, pinned
@@ -1145,7 +1148,10 @@ def _study_bars(store: ArchiveStore, symbols: list[str], timeframe: str, start, 
         if symbol not in known:
             continue
         frame, source = _select(store, symbol, timeframe, start, end)  # BAR_CAP guards it
-        rows[symbol] = prepare_archive_frame(frame, symbol)
+        if len(frame) < MIN_BARS:
+            rows[symbol] = engine_rows(frame, symbol)
+        else:
+            rows[symbol] = prepare_archive_frame(frame, symbol)
         pinned[symbol] = source
     return rows, pinned
 
@@ -1162,9 +1168,16 @@ def _study_job(document, rows, pinned, repository) -> studies_module.StudyJob:
         raise HTTPException(422, str(exc)) from exc
 
 
-def _timestamps(frames: dict[str, pd.DataFrame]) -> dict[str, studies_module.IsoTimes]:
-    """Each symbol's bar times as ISO strings, read one at a time (Mission 12)."""
-    return {symbol: studies_module.IsoTimes(frame) for symbol, frame in frames.items()}
+def _timestamps(
+    frames: dict[str, pd.DataFrame | list[dict]],
+) -> dict[str, studies_module.IsoTimes | list[str]]:
+    """Each symbol's bar times as ISO strings, read one at a time from a frame (Mission 12)."""
+    return {
+        symbol: studies_module.IsoTimes(bars)
+        if isinstance(bars, pd.DataFrame)
+        else [r["timestamp"] for r in bars]
+        for symbol, bars in frames.items()
+    }
 
 
 @router.post("/studies/plan")

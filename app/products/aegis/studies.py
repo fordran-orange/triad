@@ -590,6 +590,14 @@ class StudyJob:
         max_workers: int | None = None,
     ) -> None:
         self.document = document.model_copy()
+        # Cut from the bar counts first, so a range too short for one window is refused by name
+        # before anything is prepared (Mission 12 QA D1).
+        self.windows = {
+            symbol: cut_windows(
+                len(bars_by_symbol[symbol]), document.in_sample_bars, document.out_of_sample_bars
+            )[0]
+            for symbol in document.symbols
+        }
         # Mission 12: one prepared frame per symbol (rows, as tests pass, are prepared once) and
         # its times read one at a time; no dict, string or datetime per bar.
         self.frames = {
@@ -607,12 +615,6 @@ class StudyJob:
         self.workers = fitted_workers(longest, max_workers or default_workers())
         self.grid = build_grid(document.spec, document.surface, document.in_sample_bars)
         self.rules = [r for r in RULES if r != "frozen" or document.frozen_centre is not None]
-        self.windows = {
-            symbol: cut_windows(
-                len(self.frames[symbol]), document.in_sample_bars, document.out_of_sample_bars
-            )[0]
-            for symbol in document.symbols
-        }
         done = self.store.done_windows(document.id)
         self.chains: dict[str, dict[str, dict[str, SideChain]]] = {}
         self.previous: dict[str, dict | None] = {}

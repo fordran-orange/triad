@@ -1531,3 +1531,35 @@ def test_studies_take_the_general_bar_guard(client, tmp_path, monkeypatch):  # M
     planned = c.post("/aegis/api/studies/plan", json=STUDY_BODY)
     assert planned.status_code == 200, planned.text
     assert [s["bars"] for s in planned.json()["symbols"]] == [780, 780]
+
+
+def test_a_study_over_too_few_bars_is_refused_by_name(client, tmp_path):  # Mission 12 QA D1
+    """Fewer bars than one simulation needs (35) answer 422 with the plan's reason, as before
+    studies ran on frames: no 500 from preparing a frame that can hold no window."""
+    from datetime import date
+
+    from products.aegis.studies import StudyStore
+
+    write_archive(tmp_path, "20260301T000000000000Z", "SPY", price=400.0, missing=385)
+    c, _, repository = client
+    _runner(repository)
+    _finished_experiment(repository)
+    empty = {**STUDY_BODY, "symbols": ["QQQ"], "start": "2026-12-01", "end": "2026-12-31"}
+    short = {**STUDY_BODY, "symbols": ["SPY"]}  # 5 bars a day, 10 in all
+    for route in ("studies/plan", "studies"):
+        refused = c.post(f"/aegis/api/{route}", json=empty)
+        assert refused.status_code == 422, (route, refused.text)
+        assert "symbol 'QQQ' has no 1m bars in the range" in refused.text
+        refused = c.post(f"/aegis/api/{route}", json=short)
+        assert refused.status_code == 422, (route, refused.text)
+        assert "SPY: range too short: 10 bars; one window needs 300 + 150 bars" in refused.text
+    assert c.get("/aegis/api/studies").json() == []
+
+    created = c.post("/aegis/api/studies", json={**STUDY_BODY, "symbols": ["QQQ"]}).json()
+    _wait_study(c, created["study_id"], ("done", "failed"))
+    store = StudyStore(repository)
+    moved = {"status": "paused", "start": date(2026, 12, 1), "end": date(2026, 12, 31)}
+    store.save(store.get(created["study_id"]).model_copy(update=moved))
+    resumed = c.post(f"/aegis/api/studies/{created['study_id']}/resume")
+    assert resumed.status_code == 422, resumed.text
+    assert "range too short: 0 bars; one window needs 300 + 150 bars" in resumed.text
