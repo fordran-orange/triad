@@ -97,3 +97,9 @@ After the fix: `docs/evidence/aegis-acceptance-20261022T025222Z.json`, **90/90 P
 errors** (item 89: 348,826 bars, 15 windows, 100.6 s); `tools\verify.ps1` lint and format clean,
 inventory aegis 456, all three scopes green (core 386 / 171; triad 634 / 424 with 209 subtests;
 aegis 455 / 1), stopping at "Wrong Git branch" by design.
+
+## Merged
+
+2026-10-22, the operator's answer "1" (merge locally): `main` fast-forwarded `f9ae2a2..5f1529b`;
+`tools\verify.ps1` on `main` exit 0 (lint and format clean; core 386 / 171; triad 634 / 424 with
+209 subtests; aegis 455 / 1; "all three scopes green"). Not pushed.
