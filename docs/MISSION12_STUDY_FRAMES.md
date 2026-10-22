@@ -73,3 +73,27 @@ Items 1–88 are the Mission 3–11 walk, passing. Items 89–90 ran alone first
 - `tools\verify.ps1` on the branch (after the walk): lint and format passed; inventory core 557,
   triad 1,058, aegis 455; all three scopes green (core 386 / 171 skipped; triad 634 / 424 with 209
   subtests; aegis 454 / 1). It stopped at the "Wrong Git branch" check, by design.
+
+## Review and milestone QA (Fable 5.1)
+
+- Whole-branch review: ready to merge, no Critical or Important findings; six minors deferred
+  (the ledger).
+- Milestone QA: PASS_WITH_OBSERVATIONS. Identity held on every input it tried, against its own
+  old-code worktree: four real studies (SPY 1m across both DST changes, QQQ + SPY 15m, sparse ITOT
+  1m, one-session QQQ 1m windows) differ only in the four volatile fields, and a study paused on the
+  old code and resumed on frames equals the straight old-code run. Its memory probe matched the
+  record (ten years: 1,002 MB host peak, 678 B/bar, 302 s).
+- **D1, fixed (`159c46d`):** a study plan, start or resume over an empty range or one with fewer
+  than 35 bars answered 500; the old path answered 422 and named the range. Such a range holds no
+  window, so the API hands it over as its (at most 34) rows and the plan names it as before;
+  `StudyJob` cuts its windows from the bar counts before preparing anything, so a resume answers
+  422 "range too short" too. `test_a_study_over_too_few_bars_is_refused_by_name` went RED (500)
+  then GREEN; the real QQQ identity compare is still "identical"; the QA's live reproduction now
+  answers 422 "symbol 'QQQ' has no 1m bars in the range".
+- Deferred: the engine's per-bar ISO list, curve dicts and position flags (shared engine code, the
+  likely bulk of the 673 B/bar); the older records' mentions of the study cap as current.
+
+After the fix: `docs/evidence/aegis-acceptance-20261022T025222Z.json`, **90/90 PASS, no page
+errors** (item 89: 348,826 bars, 15 windows, 100.6 s); `tools\verify.ps1` lint and format clean,
+inventory aegis 456, all three scopes green (core 386 / 171; triad 634 / 424 with 209 subtests;
+aegis 455 / 1), stopping at "Wrong Git branch" by design.
