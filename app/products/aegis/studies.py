@@ -17,22 +17,24 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from products.aegis.analysis import analyse
-from products.aegis.backtest import MIN_BARS, BacktestSettings
+from products.aegis.backtest import MIN_BARS, BacktestSettings, _prepare_frame
 from products.aegis.experiments import ExperimentDocument, ExperimentStore, _cells_table
 from products.aegis.indicators import IndicatorCache
 from products.aegis.optimize import provenance
-from products.aegis.pool import Pool, default_workers, fitted_workers
+from products.aegis.pool import POOL_CACHE_BYTES_PER_BAR, Pool, default_workers, fitted_workers
 from products.aegis.results import _clean
 from products.aegis.runs import RunRepository
 from products.aegis.strategies import slug
 from products.aegis.strategy import StrategySpec
 from products.aegis.study_rules import (
     RULES,
+    IsoTimes,
     SideChain,
     best_cell,
     centre_inside,
@@ -568,12 +570,6 @@ def compact(record: dict) -> dict:
     return out
 
 
-# Studies still hold every bar as a row (Mission 10 ruling: their frames are a follow-up), so they
-# keep the bound per symbol they were built and measured under; GET /data/bars' 2,000,000-bar
-# guard is not theirs (review I1).
-STUDY_BAR_CAP = 200_000
-
-
 class StudyJob:
     """The runner's fourth kind (spec §6): a unit is one window of one symbol — its in-sample
     map, the choice, and each rule's out-of-sample window on its chains. Symbols run in order and
@@ -588,25 +584,32 @@ class StudyJob:
     def __init__(
         self,
         document: StudyDocument,
-        rows_by_symbol: dict[str, list[dict]],
+        bars_by_symbol: dict[str, list[dict] | pd.DataFrame],
         pinned_by_symbol: dict[str, Any],
         repository: RunRepository,
         max_workers: int | None = None,
     ) -> None:
         self.document = document.model_copy()
-        self.rows = rows_by_symbol
+        # Mission 12: one prepared frame per symbol (rows, as tests pass, are prepared once) and
+        # its times read one at a time; no dict, string or datetime per bar.
+        self.frames = {
+            symbol: bars if isinstance(bars, pd.DataFrame) else _prepare_frame(bars)
+            for symbol, bars in bars_by_symbol.items()
+        }
+        self.times = {symbol: IsoTimes(frame) for symbol, frame in self.frames.items()}
         self.pinned = {symbol: provenance(p) for symbol, p in pinned_by_symbol.items()}
         self.repository = repository
         self.store = StudyStore(repository)
         # Mission 10 review I1: the pool takes only the workers free memory holds for the
         # longest symbol's bars (a ValueError naming the shortfall when none fits).
-        longest = max((len(rows) for rows in rows_by_symbol.values()), default=0)
+        longest = max((len(frame) for frame in self.frames.values()), default=0)
+        self.cache_bytes = POOL_CACHE_BYTES_PER_BAR * longest
         self.workers = fitted_workers(longest, max_workers or default_workers())
         self.grid = build_grid(document.spec, document.surface, document.in_sample_bars)
         self.rules = [r for r in RULES if r != "frozen" or document.frozen_centre is not None]
         self.windows = {
             symbol: cut_windows(
-                len(rows_by_symbol[symbol]), document.in_sample_bars, document.out_of_sample_bars
+                len(self.frames[symbol]), document.in_sample_bars, document.out_of_sample_bars
             )[0]
             for symbol in document.symbols
         }
@@ -644,7 +647,8 @@ class StudyJob:
         self.pause_requested = False
         self.pool: Pool | None = None
         self.pool_symbol: str | None = None
-        self.cache = IndicatorCache(max_data_keys=8)
+        # each out-of-sample run is a new slice: bounded by bytes as well (Mission 12)
+        self.cache = IndicatorCache(max_data_keys=8, max_bytes=self.cache_bytes)
         self.status: str = "queued"
         self.ms_per_cell_bar = document.ms_per_cell_bar
         self.current: tuple[str, int] | None = self.units[0] if self.units else None
@@ -661,7 +665,7 @@ class StudyJob:
             self.pool.shutdown()
         self.pool = Pool(self.workers)
         self.pool.start(
-            self.rows[symbol],
+            self.frames[symbol],
             symbol,
             self.document.spec.model_dump(mode="json"),
             self.document.settings.model_dump(mode="json"),
@@ -676,8 +680,8 @@ class StudyJob:
         doc = self.document
         plan = next(p for p in doc.plan["symbols"] if p["symbol"] == symbol)
         window = self.windows[symbol][w]
-        rows = self.rows[symbol]
-        stamp = [rows[i]["timestamp"] for i in (window.is_start, window.is_end - 1)]
+        frame, times = self.frames[symbol], self.times[symbol]
+        stamp = [times[window.is_start], times[window.is_end - 1]]
         table, report = map_window(
             self.pool,
             self.grid,
@@ -729,7 +733,7 @@ class StudyJob:
             strategy = apply_params(doc.spec, params) if params is not None else doc.spec
             result = run_window(
                 strategy,
-                rows,
+                frame,
                 window,
                 chains,
                 doc.settings,
@@ -745,10 +749,10 @@ class StudyJob:
         centre = plateau["centre_cell"] if plateau else None
         record = {
             "index": w,
-            "is_start": rows[window.is_start]["timestamp"],
-            "is_end": rows[window.is_end - 1]["timestamp"],
-            "oos_start": rows[window.oos_start]["timestamp"],
-            "oos_end": rows[window.oos_end - 1]["timestamp"],
+            "is_start": times[window.is_start],
+            "is_end": times[window.is_end - 1],
+            "oos_start": times[window.oos_start],
+            "oos_end": times[window.oos_end - 1],
             "oos_bars": window.oos_end - window.oos_start,
             "mode": plan["mode"],
             "cells_run": len(table),
@@ -873,8 +877,8 @@ class StudyJob:
             self.pool.shutdown()
             self.pool = None
             self.pool_symbol = None
-        self.rows = {}
-        self.cache = IndicatorCache()
+        self.frames, self.times = {}, {}
+        self.cache = IndicatorCache(max_data_keys=8, max_bytes=self.cache_bytes)
 
 
 __all__ = [

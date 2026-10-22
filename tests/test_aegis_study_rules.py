@@ -475,3 +475,51 @@ def test_the_window_table_names_peaks_fragile_and_each_rule_flat():  # review fi
     )
     line = next(text for text in markdown.splitlines() if text.startswith("| 2 |"))
     assert "| 5 (5) |" in line and line.count("flat ·") == 2
+
+
+# --- Mission 12: held bars by index -----------------------------------------------------------------
+
+
+def _held_by_datetime(trades, open_position, moments, start, end):
+    """The pre-Mission-12 body of study_rules._held, kept as the oracle."""
+    import bisect
+
+    def moment(value):
+        return value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+
+    def index(value):
+        return bisect.bisect_left(moments, moment(value))
+
+    held = set()
+    for trade in trades:
+        first = max(index(trade["entry_time"]), start)
+        stop = index(trade["exit_time"])
+        if trade.get("exit_signal_time") == trade.get("exit_time"):
+            stop += 1
+        held.update(range(first, min(stop, end)))
+    if open_position is not None:
+        held.update(range(max(index(open_position["entry_time"]), start), end))
+    return held
+
+
+def test_held_by_index_equals_held_by_datetime():  # Review Focus 2
+    from products.aegis.backtest import _prepare_frame
+    from products.aegis.study_rules import _held
+
+    rows = [{**r, "timestamp": r["timestamp"].isoformat()} for r in wave_bars(n=40)]
+    stamps = _prepare_frame(rows)["timestamp"].astype("int64").to_numpy()
+    iso = [r["timestamp"] for r in rows]
+    trades = [
+        {"entry_time": iso[5], "exit_time": iso[9], "exit_signal_time": iso[8]},  # inside
+        {"entry_time": iso[1], "exit_time": iso[12], "exit_signal_time": iso[11]},  # entered before
+        {
+            "entry_time": iso[16],
+            "exit_time": iso[19],
+            "exit_signal_time": iso[19],
+        },  # end-of-data close
+    ]
+    open_position = {"entry_time": iso[17]}
+    moments = [datetime.fromisoformat(t) for t in iso]
+    for start, end, still_open in ((4, 20, open_position), (0, 40, None), (10, 18, open_position)):
+        expected = _held_by_datetime(trades, still_open, moments, start, end)
+        assert _held(trades, still_open, stamps, start, end) == expected, (start, end)

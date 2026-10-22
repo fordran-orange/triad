@@ -11,20 +11,26 @@ so a fixed configuration chained over every window equals one continuous run. A 
 
 from __future__ import annotations
 
-import bisect
 import statistics
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
+import numpy as np
+import pandas as pd
+
 from products.aegis.analysis import _columns, objective_values
 from products.aegis.backtest import (
-    BacktestRequest,
     BacktestSettings,
     OpenPosition,
     PendingEntry,
     _combine,
+    _data_key,
     _metrics,
-    run_backtest,
+    _prepare_frame,
+    frame_slice,
+    prepared_request,
+    run_prepared,
 )
 from products.aegis.indicators import IndicatorCache
 from products.aegis.results import _clean, result_hash
@@ -101,6 +107,23 @@ def _iso(value) -> str:
     return value.isoformat() if isinstance(value, datetime) else str(value)
 
 
+class IsoTimes(Sequence):
+    """A prepared frame's bar times as the ISO strings the rows path carried
+    (`Timestamp.isoformat()`), made one at a time: a study never builds a string per bar
+    (Mission 12)."""
+
+    def __init__(self, frame: pd.DataFrame):
+        self._stamps = frame["timestamp"]
+
+    def __len__(self) -> int:
+        return len(self._stamps)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self[i] for i in range(*index.indices(len(self)))]
+        return self._stamps.iloc[index].isoformat()
+
+
 def _side_only(spec: StrategySpec, side: str) -> StrategySpec:
     other = SIDE_KEY["short" if side == "long" else "long"]
     return spec.model_copy(
@@ -109,14 +132,14 @@ def _side_only(spec: StrategySpec, side: str) -> StrategySpec:
 
 
 def _held(
-    trades: list[dict], open_position: dict | None, moments: list[datetime], start: int, end: int
+    trades: list[dict], open_position: dict | None, stamps_ns: np.ndarray, start: int, end: int
 ) -> set[int]:
     """Bars of [start, end) the side held a position, as the engine flags them: from the entry
     fill bar up to (not including) the exit fill bar; an end-of-data close holds its last bar; a
-    position still open holds to the window's end."""
+    position still open holds to the window's end. `stamps_ns` are the bars' times (int64 ns)."""
 
     def index(value: str) -> int:
-        return bisect.bisect_left(moments, _moment(value))
+        return int(np.searchsorted(stamps_ns, pd.Timestamp(value).value, side="left"))
 
     held: set[int] = set()
     for trade in trades:
@@ -133,7 +156,8 @@ def _held(
 def _side_run(
     spec: StrategySpec,
     side: str,
-    rows: list[dict],
+    frame: pd.DataFrame,
+    times: Sequence[str],
     window: Window,
     chain: SideChain,
     settings: BacktestSettings,
@@ -164,22 +188,22 @@ def _side_run(
         # entry can fill.
         carry = {
             **carry,
-            "exit_signal_time": _iso(rows[window.oos_start - 1]["timestamp"]),
+            "exit_signal_time": _iso(times[window.oos_start - 1]),
             "exit_tags": [],
         }
-    bars = rows[: window.oos_start + 1] if flat else rows[: window.oos_end]
+    # the whole history up to the window's end, as a slice of the prepared frame (Mission 12)
+    bars = frame_slice(frame, 0, window.oos_start + 1 if flat else window.oos_end)
     run_settings = settings.model_copy(
         update={
-            "evaluate_from": _moment(rows[window.oos_start]["timestamp"]),
+            "evaluate_from": _moment(times[window.oos_start]),
             "initial_capital": chain.cash,
             "initial_position": OpenPosition(**carry) if carry is not None else None,
             "initial_entry": waiting,
             "close_at_end": last and not flat,
         }
     )
-    result = run_backtest(
-        BacktestRequest(strategy=_side_only(spec, side), bars=bars, settings=run_settings),
-        cache=cache,
+    result = run_prepared(
+        prepared_request(_side_only(spec, side), run_settings), bars, _data_key(bars), cache
     )[side]
     trades = flag_edge_exits(result["trades"])
     if flat:
@@ -208,7 +232,7 @@ def _side_run(
 
 def run_window(
     spec: StrategySpec,
-    rows: list[dict],
+    bars: list[dict] | pd.DataFrame,
     window: Window,
     chains: dict[str, SideChain],
     settings: BacktestSettings,
@@ -217,15 +241,18 @@ def run_window(
     cache: IndicatorCache | None = None,
 ) -> dict:
     """One rule's out-of-sample window: each chained side run on its own, then combined. `spec`
-    is the configuration traded; when `flat`, it only manages the forced exit (plan ruling P2)."""
-    moments = [_moment(row["timestamp"]) for row in rows[: window.oos_end]]
+    is the configuration traded; when `flat`, it only manages the forced exit (plan ruling P2).
+    `bars` is the symbol's prepared frame (rows are prepared here once)."""
+    frame = bars if isinstance(bars, pd.DataFrame) else _prepare_frame(bars)
+    times = IsoTimes(frame)
+    stamps = frame["timestamp"].astype("int64").to_numpy()[: window.oos_end]
     start, end = window.oos_start, window.oos_end
     sides: dict[str, dict] = {}
     held: set[int] = set()
     for side, chain in chains.items():
-        record = _side_run(spec, side, rows, window, chain, settings, last, flat, cache)
+        record = _side_run(spec, side, frame, times, window, chain, settings, last, flat, cache)
         if record["held"] is None:
-            record["held"] = _held(record["trades"], record["open_position"], moments, start, end)
+            record["held"] = _held(record["trades"], record["open_position"], stamps, start, end)
         held |= record.pop("held")
         sides[side] = record
     initial = float(settings.initial_capital)

@@ -1,8 +1,10 @@
 """Plateau walk-forward studies (Mission 8 spec §4–6): the request, the plan per symbol, the
 refusals, the resumable job kind, its window files and its routes."""
 
+import json
 import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from products.aegis.experiments import ExperimentDocument
@@ -355,12 +357,12 @@ def new_study(repository, name="walk nine", recommendation=True):
     return document
 
 
-def job_for(repository, document):
+def job_for(repository, document, bars=None):
     from products.aegis.studies import StudyJob
 
     return StudyJob(
         document,
-        ROWS_BY_SYMBOL,
+        ROWS_BY_SYMBOL if bars is None else bars,
         {s: {**PINNED_DATA, "symbol": s} for s in LENGTHS},
         repository,
         max_workers=2,
@@ -373,12 +375,12 @@ def stored(repository, study_id):
     return StudyStore(repository).get(study_id)
 
 
-def run_to(repository, document, statuses=("done", "failed"), after_unit=None):
+def run_to(repository, document, statuses=("done", "failed"), after_unit=None, bars=None):
     from products.aegis.jobs import JobRunner
     from test_aegis_experiments import wait_for
 
     runner = JobRunner(repository, after_unit=after_unit)
-    job = job_for(repository, document)
+    job = job_for(repository, document, bars)
     job_id = runner.start(job)
     assert wait_for(lambda: stored(repository, document.id).status in statuses, timeout=240)
     assert wait_for(lambda: runner.status(job_id)["status"] not in ("queued", "running"))
@@ -606,3 +608,91 @@ def test_study_workers_fit_free_memory(tmp_path, monkeypatch):
     monkeypatch.setattr(pool, "free_memory_bytes", lambda: one // 4)
     with pytest.raises(ValueError, match="free"):
         job_for(repository, document)
+
+
+# --- Mission 12: studies on frames, output unchanged ----------------------------------------------
+
+GOLDEN = Path(__file__).parent / "fixtures" / "aegis_study_golden.json"
+
+
+def canonical(repository, document) -> dict:
+    """The document's windows and report and every full window record, as JSON (the golden's form)."""
+    from products.aegis.studies import StudyStore
+
+    store = StudyStore(repository)
+    full = {
+        symbol: [store.read_window(document.id, symbol, w["index"]) for w in windows]
+        for symbol, windows in document.windows.items()
+    }
+    return json.loads(
+        json.dumps(
+            {"windows": document.windows, "report": document.report, "full": full}, default=str
+        )
+    )
+
+
+def prepared(rows_by_symbol):
+    from products.aegis.backtest import _prepare_frame
+
+    return {symbol: _prepare_frame(rows) for symbol, rows in rows_by_symbol.items()}
+
+
+@pytest.mark.parametrize("form", ["rows", "frames"])
+def test_study_output_equals_the_golden(tmp_path, form):  # Review Focus 1
+    """Captured from the rows path before Mission 12 (both runs of it agreed on every key): the
+    frame path reproduces every window record, chain, run hash and the report."""
+    from products.aegis.runs import JsonRunRepository
+
+    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    assert golden["volatile"] == []
+    repository = JsonRunRepository(tmp_path / "aegis")
+    document = new_study(repository)
+    bars = ROWS_BY_SYMBOL if form == "rows" else prepared(ROWS_BY_SYMBOL)
+    _, _, _, done = run_to(repository, document, bars=bars)
+    assert done.status == "done", done.error
+    assert canonical(repository, done) == golden["output"]
+
+
+def test_iso_times_equal_the_rows(tmp_path):
+    from products.aegis.backtest import prepare_archive_frame
+    from products.aegis.data import ArchiveStore
+    from products.aegis.optimize import engine_rows
+    from products.aegis.studies import IsoTimes
+    from test_aegis_data import write_archive
+
+    write_archive(tmp_path, "20260301T000000000000Z", "QQQ")
+    frame, _ = ArchiveStore(tmp_path).bars("QQQ", "1m", "2026-10-30", "2026-11-02")
+    times = IsoTimes(prepare_archive_frame(frame, "QQQ"))
+    expected = [row["timestamp"] for row in engine_rows(frame, "QQQ")]
+    assert len(times) == len(expected) == 780
+    assert list(times) == expected and times[0] == expected[0] and times[-1] == expected[-1]
+
+
+def test_a_study_resumes_on_frames(reference, tmp_path):  # Review Focus 3
+    from products.aegis.jobs import JobRunner
+    from products.aegis.runs import JsonRunRepository
+    from test_aegis_experiments import wait_for
+
+    _, done, _ = reference
+    repository = JsonRunRepository(tmp_path / "aegis")
+    document = new_study(repository)
+    state, hook = pause_after(2)
+    runner = JobRunner(repository, after_unit=hook)
+    state["runner"] = runner
+    state["job_id"] = runner.start(job_for(repository, document))  # windows written on rows
+    assert wait_for(lambda: stored(repository, document.id).status == "paused", timeout=240)
+    _, _, _, finished = run_to(
+        repository, stored(repository, document.id), bars=prepared(ROWS_BY_SYMBOL)
+    )
+    assert finished.status == "done", finished.error
+    assert hashes(finished) == hashes(done)
+
+
+def test_the_study_cache_is_byte_bounded(tmp_path):
+    from products.aegis.pool import POOL_CACHE_BYTES_PER_BAR
+    from products.aegis.runs import JsonRunRepository
+
+    repository = JsonRunRepository(tmp_path / "aegis")
+    job = job_for(repository, new_study(repository), prepared(ROWS_BY_SYMBOL))
+    assert job.cache.max_bytes == POOL_CACHE_BYTES_PER_BAR * max(LENGTHS.values())
+    assert job.cache.max_data_keys == 8

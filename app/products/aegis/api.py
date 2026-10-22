@@ -16,6 +16,7 @@ from datetime import date
 from functools import lru_cache
 from typing import Literal
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -51,7 +52,6 @@ from products.aegis.optimize import (
     SERIAL_MAX_CELLS,
     OptimizeRequest,
     OptimizerJob,
-    engine_rows,
     expand_grid,
     plan_seconds,
 )
@@ -1134,24 +1134,18 @@ def _study_range(store: ArchiveStore, symbols: list[str], start, end) -> tuple:
 
 
 def _study_bars(store: ArchiveStore, symbols: list[str], timeframe: str, start, end):
-    """Engine rows and provenance per known symbol; an unknown one is left for the plan to name."""
+    """A prepared frame and provenance per known symbol (Mission 12: no dict per bar); an unknown
+    symbol is left for the plan to name."""
     known = {s.symbol for s in store.symbols()}
-    rows: dict[str, list[dict]] = {}
+    rows: dict[str, pd.DataFrame] = {}
     pinned: dict[str, PinnedSource] = {}
     if start is None or end is None:
         return rows, pinned
     for symbol in symbols:
         if symbol not in known:
             continue
-        frame, source = _select(store, symbol, timeframe, start, end)
-        if len(frame) > studies_module.STUDY_BAR_CAP:
-            raise HTTPException(
-                422,
-                f"a study runs on at most {studies_module.STUDY_BAR_CAP:,} bars per symbol; "
-                f"{symbol} {timeframe} {start} → {end} has {len(frame):,}: narrow the range or use "
-                "a coarser timeframe",
-            )
-        rows[symbol] = engine_rows(frame, symbol)
+        frame, source = _select(store, symbol, timeframe, start, end)  # BAR_CAP guards it
+        rows[symbol] = prepare_archive_frame(frame, symbol)
         pinned[symbol] = source
     return rows, pinned
 
@@ -1168,8 +1162,9 @@ def _study_job(document, rows, pinned, repository) -> studies_module.StudyJob:
         raise HTTPException(422, str(exc)) from exc
 
 
-def _timestamps(rows: dict[str, list[dict]]) -> dict[str, list[str]]:
-    return {symbol: [r["timestamp"] for r in values] for symbol, values in rows.items()}
+def _timestamps(frames: dict[str, pd.DataFrame]) -> dict[str, studies_module.IsoTimes]:
+    """Each symbol's bar times as ISO strings, read one at a time (Mission 12)."""
+    return {symbol: studies_module.IsoTimes(frame) for symbol, frame in frames.items()}
 
 
 @router.post("/studies/plan")

@@ -1512,21 +1512,22 @@ def test_library_compare_route(client):
     assert c.get("/aegis/api/library/compare", params={"a": first, "b": "nope"}).status_code == 404
 
 
-def test_a_study_over_the_study_bar_cap_is_refused(client, tmp_path, monkeypatch):  # review I1
-    """Studies still hold every bar as a row, so they keep the 200,000-bar bound per symbol they
-    were built for; above it the plan, the start and a resume answer 422 naming the cap."""
+def test_studies_take_the_general_bar_guard(client, tmp_path, monkeypatch):  # Mission 12
+    """Studies run on frames (Mission 12): the 200,000-bar study cap is gone and the general
+    2,000,000-bar guard bounds them like every other path."""
+    from products.aegis import data as data_module
     from products.aegis import studies as studies_module
 
-    assert studies_module.STUDY_BAR_CAP == 200_000
-    monkeypatch.setattr(studies_module, "STUDY_BAR_CAP", 500)
+    assert not hasattr(studies_module, "STUDY_BAR_CAP")
+    monkeypatch.setattr(data_module, "BAR_CAP", 500)
     write_archive(tmp_path, "20260301T000000000000Z", "SPY", price=400.0)
     c, _, repository = client
     _runner(repository)
     _finished_experiment(repository)
     refused = c.post("/aegis/api/studies/plan", json=STUDY_BODY)
-    assert refused.status_code == 422 and "at most 500 bars per symbol" in refused.text, (
-        refused.text
-    )
+    assert refused.status_code == 422 and "over cap 500" in refused.text, refused.text
     assert "780" in refused.text
-    created = c.post("/aegis/api/studies", json={**STUDY_BODY, "name": "too long"})
-    assert created.status_code == 422, created.text
+    monkeypatch.setattr(data_module, "BAR_CAP", 2_000_000)
+    planned = c.post("/aegis/api/studies/plan", json=STUDY_BODY)
+    assert planned.status_code == 200, planned.text
+    assert [s["bars"] for s in planned.json()["symbols"]] == [780, 780]
