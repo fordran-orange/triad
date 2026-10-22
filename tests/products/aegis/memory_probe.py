@@ -142,6 +142,55 @@ def worker(start: str, end: str) -> None:
     )
 
 
+def study(start: str, end: str) -> None:
+    """Mission 12: a QQQ 1m study (in-sample 95,000, out-of-sample 47,000, the tests' 9-cell
+    parent) in a temporary repository: the host's peak working set and the seconds."""
+    import tempfile
+    from datetime import date
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # tests/, for the parent
+    from products.aegis import api, data
+    from products.aegis.jobs import JobRunner
+    from products.aegis.runs import JsonRunRepository
+    from products.aegis.studies import StudyJob, StudyRequest, StudyStore, create_study
+    from test_aegis_studies import make_parent
+
+    first, last = date.fromisoformat(start), date.fromisoformat(end)
+    base = counters().WorkingSetSize
+    started = time.perf_counter()
+    with tempfile.TemporaryDirectory() as folder:
+        repository = JsonRunRepository(Path(folder) / "aegis")
+        experiments, parent = make_parent(repository)
+        update = {"timeframe": "1m", "start": first, "end": last}
+        experiments.save(parent.model_copy(update={"data": parent.data.model_copy(update=update)}))
+        frames, pinned = api._study_bars(data.ArchiveStore(), ["QQQ"], "1m", first, last)
+        selected = counters().WorkingSetSize
+        request = StudyRequest(
+            experiment_id=parent.id,
+            name="memory probe",
+            symbols=["QQQ"],
+            in_sample_bars=95_000,
+            out_of_sample_bars=47_000,
+        )
+        document = create_study(
+            StudyStore(repository), experiments, request, api._timestamps(frames), 2, first, last
+        )
+        JobRunner(repository).start(StudyJob(document, frames, pinned, repository))
+        studies = StudyStore(repository)
+        while studies.get(document.id).status not in ("done", "failed", "cancelled"):
+            time.sleep(1)
+        done = studies.get(document.id)
+        assert done.status == "done", done.error
+        peak = counters().PeakWorkingSetSize
+        bars = len(frames["QQQ"])
+        print(
+            f"study {bars:,} bars, {len(done.windows['QQQ'])} windows: base {mb(base)}, after "
+            f"select {mb(selected)}, host peak {mb(peak)} (+{mb(peak - selected)} over the "
+            f"selected frame, {(peak - selected) / bars:,.0f} B/bar), "
+            f"{time.perf_counter() - started:.1f} s"
+        )
+
+
 if __name__ == "__main__":
     mode, first, last = sys.argv[1:4]
-    {"backtest": backtest, "worker": worker}[mode](first, last)
+    {"backtest": backtest, "worker": worker, "study": study}[mode](first, last)

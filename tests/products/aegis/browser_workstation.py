@@ -1,11 +1,11 @@
 """Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items, the 14 Mission 4
 items, the 11 Mission 5 items, the 13 Mission 6 items, the 9 Mission 8 items, the 7 Mission 9
-items, the 5 limits items, the 5 Mission 10 items and the 2 Mission 11 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
+items, the 5 limits items, the 5 Mission 10 items, the 2 Mission 11 items and the 2 Mission 12 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
 (indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
 Items 51 and 63 restart the worker detached through WMI (tools/start_product.ps1), as the DoD asks.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
-Exit code 0 only when all 88 items PASS with no page errors.
+Exit code 0 only when all 90 items PASS with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
 
@@ -121,6 +121,9 @@ ITEMS = [
     # Mission 11: compressed saved documents (spec §5)
     "a run saved now is <id>.json.gz, at least 3x smaller than its JSON, with its hash; a plain run from before still opens; delete → Recently deleted → restore keeps form and hash",
     "governance unchanged since the Mission 11 plan and items 1–86 still pass",
+    # Mission 12: studies on frames (spec §2 item 4)
+    "a one-minute study above the old 200,000-bar study cap plans, runs to done with every window and a report, and opens from the Library",
+    "governance unchanged since the Mission 12 plan and items 1–88 still pass",
 ]
 RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
 MISSION5_BASE = (
@@ -152,6 +155,13 @@ COMPRESSED_BASE = (
     "caf1caa"  # the Mission 11 plan commit; Core, platform host and Triad frozen since
 )
 MISSION11_STARTED = "2026-10-21T11:30:00"  # documents saved before this are plain JSON
+STUDY_FRAMES_BASE = (
+    "f9ae2a2"  # the Mission 12 plan commit; Core, platform host and Triad frozen since
+)
+ONE_MINUTE_SURFACE = [  # item 89: 2 × 2 = 4 cells on QQQ 1m, a parent finished in seconds
+    ("long_side.indicators.donchian.length", 10, 20, 10),
+    ("long_side.indicators.rsi.length", 7, 14, 7),
+]
 THREE_PARAMETERS = [  # 7 x 4 x 20 = 560 cells: more than 400, so the pool runs it
     ("indicators.donchian.length", 10, 40, 5),
     ("indicators.rsi.length", 7, 28, 7),
@@ -3838,6 +3848,95 @@ class Acceptance:
             )
 
         self.item(88, item88)
+        self.study_frames()
+
+    # -- Mission 12 items 89-90 ---------------------------------------------------------------------
+    def study_frames(self):
+        page = self.page
+
+        def item89():
+            body = self.experiment_body(
+                ONE_MINUTE_SURFACE, objective="net_pnl", name=f"one-minute parent {self.stamp}"
+            )
+            body["data"] = {
+                "symbol": "QQQ",
+                "timeframe": "1m",
+                "start": "2023-01-03",
+                "end": "2023-03-31",
+            }
+            started = self.post("experiments", body)
+            assert started.status == 202, started.text()
+            tid = started.json()["experiment_id"]
+            assert self.wait_until(
+                lambda: self.experiment(tid)["status"] in ("done", "failed", "cancelled"), 900, 1
+            )
+            assert self.experiment(tid)["status"] == "done", self.experiment(tid).get("error")
+            request = {
+                "experiment_id": tid,
+                "symbols": ["QQQ"],
+                "start": "2023-01-01",
+                "end": STUDY_RANGE[1],
+                "in_sample_bars": 40_000,
+                "out_of_sample_bars": 20_000,
+            }
+            planned = self.post("studies/plan", request)
+            assert planned.ok, planned.text()  # the old study cap answered 422 here
+            symbol = planned.json()["symbols"][0]
+            assert symbol["bars"] > 200_000 and symbol["windows"] >= 10, symbol
+            created = self.post("studies", {**request, "name": f"one-minute study {self.stamp}"})
+            assert created.status == 202, created.text()
+            sid = created.json()["study_id"]
+            ran = time.perf_counter()
+            done = self.wait_study(sid, ("done", "failed", "cancelled"), 1800)
+            seconds = round(time.perf_counter() - ran, 1)
+            assert done["status"] == "done", done.get("error")
+            windows = len(done["windows"]["QQQ"])
+            assert windows == symbol["windows"] and done["report"], (windows, symbol["windows"])
+            self.open_library()
+            self.library_kind("study")
+            self.library_open("study", sid)
+            page.locator("#library-open").click()
+            page.wait_for_selector(f'[id="study-row-{sid}"].selected', timeout=60_000)
+            self.timings["one_minute_study"] = {
+                "bars": symbol["bars"],
+                "windows": windows,
+                "seconds": seconds,
+            }
+            return (
+                f"experiment {tid} (4 cells, QQQ 1m 2023 Q1) → study {sid}: QQQ 1m 2023-01-01 → "
+                f"{STUDY_RANGE[1]}, {symbol['bars']:,} bars (the old cap was 200,000), {windows} "
+                f"windows done in {seconds} s with a report; opens from the Library on the "
+                "Experiments page"
+            )
+
+        self.item(89, item89)
+
+        def item90():
+            import subprocess
+
+            def git(*args) -> str:
+                return subprocess.run(
+                    ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
+                ).stdout
+
+            status = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
+            assert status["mode"] == "human_directed" and status["exchange"] == "CLOSED", status
+            schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
+            assert schedule["enabled"] is False and schedule["id"].startswith("c99fa831"), schedule
+            paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
+            committed = git("diff", "--name-only", STUDY_FRAMES_BASE, "HEAD", "--", *paths).strip()
+            pending = git("status", "--porcelain", "--", *paths).strip()
+            assert committed == "" and pending == "", (committed, pending)
+            earlier = [r for r in self.results if r["item"] <= 88]
+            failed = [r["item"] for r in earlier if r["status"] != "PASS"]
+            assert len(earlier) == 88 and not failed, failed
+            return (
+                f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
+                f"{STUDY_FRAMES_BASE}; items 1–88 PASS"
+            )
+
+        self.item(90, item90)
 
 
 def main(argv=None) -> int:
