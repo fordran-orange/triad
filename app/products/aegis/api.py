@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from products.aegis import display
+from products.aegis import display, phrases
 from products.aegis import experiments as experiments_module
 from products.aegis import optimize as optimize_module
 from products.aegis import studies as studies_module
@@ -746,6 +746,16 @@ def update_strategy(strategy_id: str, request: StrategyUpdate, library: Strategy
         raise HTTPException(404, f"unknown strategy {strategy_id!r}") from exc
     except ValidationError as exc:
         raise _no_longer_parses(strategy_id, exc) from exc
+
+
+@router.post("/strategies/read")
+def read_strategy_text(request: phrases.ReadRequest):
+    """Mission 13: the sides a sentence describes, read deterministically; text it cannot read
+    answers 422 with the message and the unread spans. Nothing is saved."""
+    try:
+        return phrases.read(request.text, request.strategy).model_dump(mode="json")
+    except phrases.Unread as exc:
+        raise HTTPException(422, {"message": str(exc), "unread": exc.spans}) from exc
 
 
 @router.post("/strategies/{strategy_id}/duplicate", status_code=201)

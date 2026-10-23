@@ -1563,3 +1563,27 @@ def test_a_study_over_too_few_bars_is_refused_by_name(client, tmp_path):  # Miss
     resumed = c.post(f"/aegis/api/studies/{created['study_id']}/resume")
     assert resumed.status_code == 422, resumed.text
     assert "range too short: 0 bars; one window needs 300 + 150 bars" in resumed.text
+
+
+def test_read_route_answers_a_reading_or_422(client):  # Mission 13
+    from products.aegis.strategy import default_strategy
+
+    c, _, _ = client
+    strategy = default_strategy().model_dump(mode="json")
+    text = "buy when 9 ema crosses 30 sma and price is above 200 sma"
+    answer = c.post("/aegis/api/strategies/read", json={"text": text, "strategy": strategy})
+    assert answer.status_code == 200, answer.text
+    body = answer.json()
+    assert set(body["sides"]) == {"long_side"} and body["sides"]["long_side"]["stop_loss_pct"] == 2
+    assert body["reading"].startswith("Long entry: EMA 9 crosses above SMA 30")
+    assert body["defaults"] == ["long_side.stop_loss_pct", "long_side.take_profit_pct"]
+    refused = c.post(
+        "/aegis/api/strategies/read",
+        json={"text": "buy when vwap crosses 30 sma", "strategy": strategy},
+    )
+    assert refused.status_code == 422
+    detail = refused.json()["detail"]
+    assert "vwap" in detail["message"]
+    assert detail["unread"] == [{"start": 9, "end": 13, "text": "vwap"}]
+    empty = c.post("/aegis/api/strategies/read", json={"text": "", "strategy": strategy})
+    assert empty.status_code == 422
