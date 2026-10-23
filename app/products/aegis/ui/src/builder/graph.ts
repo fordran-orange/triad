@@ -376,7 +376,13 @@ export function autoLayout(graph: SideGraph): SideGraph {
         return 3 + tallest;
     }
   };
-  const rows: Record<number, number> = {};
+  // Stop loss and Take profit start below every other row, so the rule wires that cross their
+  // column to Entry and Exit never run behind them.
+  const levelColumn = 2 + tallest;
+  const counts: Record<number, number> = {};
+  for (const block of graph.blocks) counts[column(block)] = (counts[column(block)] ?? 0) + 1;
+  const below = Math.max(0, ...Object.entries(counts).filter(([col]) => Number(col) !== levelColumn).map(([, n]) => n));
+  const rows: Record<number, number> = { [levelColumn]: below - 1 };
   const blocks = graph.blocks.map((block) => {
     const col = column(block);
     const row = (rows[col] = (rows[col] ?? -1) + 1);
