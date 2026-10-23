@@ -387,3 +387,33 @@ def test_constants_are_ascii_digits_only():
     assert is_constant("50") and is_constant("-0.5") and is_constant("100")
     assert not is_constant("٥٠")  # Arabic-Indic digits are not a constant the engine can read
     assert not is_constant("1e3") and not is_constant("1.") and not is_constant(" 50")
+
+
+# --- Mission 13: stop and target ranges ------------------------------------------------------
+
+
+def _with_levels(stop=2.0, target=5.0):
+    data = default_strategy().long_side.model_dump(mode="json")
+    data.update(stop_loss_pct=stop, take_profit_pct=target)
+    return StrategySide.model_validate(data)
+
+
+def test_stop_paths_round_trip():
+    side = apply_parameters(_with_levels(), {"stop_loss_pct": 1.5, "take_profit_pct": 4.25})
+    assert (side.stop_loss_pct, side.take_profit_pct) == (1.5, 4.25)
+    data = _with_levels().model_dump(mode="json")
+    data["optimization"] = [{"path": "stop_loss_pct", "start": 1, "stop": 3, "step": 0.5}]
+    assert StrategySide.model_validate(data).optimization[0].path == "stop_loss_pct"
+
+
+def test_ranging_an_unset_stop_is_refused():
+    data = default_strategy().long_side.model_dump(mode="json")
+    data["optimization"] = [{"path": "stop_loss_pct", "start": 1, "stop": 3, "step": 1}]
+    with pytest.raises(
+        ValidationError, match="stop_loss_pct: the long side has no stop loss to range"
+    ):
+        StrategySide.model_validate(data)
+    with pytest.raises(
+        ValueError, match="take_profit_pct: the long side has no take profit to range"
+    ):
+        apply_parameters(default_strategy().long_side, {"take_profit_pct": 2})

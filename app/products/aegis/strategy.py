@@ -44,6 +44,7 @@ PRICE_OPERANDS = {
 }
 CONSTANT = re.compile(r"-?\d+(\.\d+)?", re.ASCII)  # fullmatch: plain ASCII decimals only
 MAX_RULE_DEPTH = 32  # Mission 13: a guard, not a design limit
+LEVEL_FIELDS = {"stop_loss_pct": "stop loss", "take_profit_pct": "take profit"}  # Mission 13
 
 
 def is_constant(operand: str) -> bool:
@@ -295,6 +296,8 @@ class StrategySide(BaseModel):
                 _check_condition(rule_name, condition, outputs)
         for parameter in self.optimization:
             identifier, field = _resolve_path(self, parameter.path)
+            if field in LEVEL_FIELDS:
+                continue  # a percentage: fractional steps are fine
             whole = field == "length" or (
                 field.split(".", 1)[1] in kind_info(self.indicator(identifier).kind).integer_params
             )
@@ -315,8 +318,15 @@ class StrategySide(BaseModel):
 
 
 def _resolve_path(side: StrategySide, path: str) -> tuple[str, str]:
-    """Validate a side-relative path, `indicators.<id>.length` or
-    `indicators.<id>.params.<name>`; return (id, "length") or (id, "params.<name>")."""
+    """Validate a side-relative path, `indicators.<id>.length`, `indicators.<id>.params.<name>`
+    or a level the side has set, `stop_loss_pct` / `take_profit_pct` (Mission 13); return
+    (id, "length"), (id, "params.<name>") or ("", <level>)."""
+    if path in LEVEL_FIELDS:
+        if getattr(side, path) is None:
+            raise ValueError(
+                f"{path}: the {side.direction.value} side has no {LEVEL_FIELDS[path]} to range"
+            )
+        return "", path
     parts = path.split(".")
     if len(parts) == 3 and parts[0] == "indicators" and parts[2] == "length":
         field = "length"
@@ -336,6 +346,9 @@ def apply_parameters(side: StrategySide, values: dict[str, float]) -> StrategySi
     data = side.model_dump(mode="json")
     for path, value in values.items():
         identifier, field = _resolve_path(side, path)
+        if field in LEVEL_FIELDS:
+            data[field] = float(value)
+            continue
         for spec in data["indicators"]:
             if spec["id"] != identifier:
                 continue

@@ -535,3 +535,28 @@ def test_price_prefers_the_newest_experiment_with_enough_cells(world):
     assert store.last_ms_per_cell_bar() == 0.02  # the bigger, older measurement wins
     repository.delete_experiment(big.id)
     assert store.last_ms_per_cell_bar() == 0.3  # the only measurement left still beats the guess
+
+
+# --- Mission 13: stop and target ranges ------------------------------------------------------
+
+
+def test_an_experiment_over_the_stop_runs_and_cells_differ(world):
+    repository, library, _ = world
+    # On these bars the breakout's long side never trades; the short crossover does.
+    spec = pinned()
+    spec = spec.model_copy(
+        update={"short_side": spec.short_side.model_copy(update={"stop_loss_pct": 2.0})}
+    )
+    document = library.create("Breakout with a stop", spec)
+    surface = Surface(
+        parameters=[Parameter(path="short_side.stop_loss_pct", start=1, stop=3, step=1)]
+    )
+    _runner, _job, _job_id, experiment_id = start(
+        repository, library, document, surface=surface.model_dump()
+    )
+    assert wait_for(lambda: document_of(repository, experiment_id).status in ("done", "failed"))
+    doc = document_of(repository, experiment_id)
+    assert doc.status == "done", doc.error
+    table = exp.ExperimentStore(repository).cells(experiment_id)
+    assert sorted(table.column("short_side.stop_loss_pct").to_pylist()) == [1.0, 2.0, 3.0]
+    assert len(set(table.column("combined.net_pnl").to_pylist())) >= 2

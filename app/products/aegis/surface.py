@@ -21,7 +21,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from products.aegis.kinds import kind_info, warmup
 from products.aegis.optimize import step_decimals
-from products.aegis.strategy import IndicatorSpec, StrategySpec, _resolve_path, apply_parameters
+from products.aegis.strategy import (
+    LEVEL_FIELDS,
+    IndicatorSpec,
+    StrategySpec,
+    _resolve_path,
+    apply_parameters,
+)
 
 KERNEL_MS_PER_BAR = 0.01  # the starting price per cell-bar before any experiment has run
 SIDE_KEYS = ("long_side", "short_side")
@@ -92,8 +98,18 @@ class Budget(BaseModel):
 
 
 def resolve_path(spec: StrategySpec, path: str) -> tuple[str, str, str]:
-    """`(side_key, indicator_id, field)` for `<side>.indicators.<id>.length|params.<name>`."""
+    """`(side_key, indicator_id, field)` for `<side>.indicators.<id>.length|params.<name>`, or
+    `(side_key, "", level)` for `<side>.stop_loss_pct|take_profit_pct` (Mission 13)."""
     parts = path.split(".")
+    if len(parts) == 2 and parts[0] in SIDE_KEYS and parts[1] in LEVEL_FIELDS:
+        side = getattr(spec, parts[0])
+        if getattr(side, parts[1]) is None:
+            raise ValueError(
+                f"{path}: the {side.direction.value} side has no {LEVEL_FIELDS[parts[1]]} to range"
+            )
+        if not side.enabled:
+            raise ValueError(f"{path} is on the disabled {parts[0].split('_')[0]} side")
+        return parts[0], "", parts[1]
     if len(parts) < 4 or parts[0] not in SIDE_KEYS or parts[1] != "indicators":
         raise ValueError(f"unknown parameter path {path!r}")
     side = getattr(spec, parts[0])
@@ -109,12 +125,16 @@ def resolve_path(spec: StrategySpec, path: str) -> tuple[str, str, str]:
 def _whole_number(spec: StrategySpec, side_key: str, identifier: str, field: str) -> bool:
     if field == "length":
         return True
+    if field in LEVEL_FIELDS:
+        return False
     indicator = getattr(spec, side_key).indicator(identifier)
     return field.split(".", 1)[1] in kind_info(indicator.kind).integer_params
 
 
 def current_value(spec: StrategySpec, path: str) -> float:
     side_key, identifier, field = resolve_path(spec, path)
+    if field in LEVEL_FIELDS:
+        return float(getattr(getattr(spec, side_key), field))
     indicator = getattr(spec, side_key).indicator(identifier)
     if field == "length":
         return float(indicator.length)
@@ -255,6 +275,14 @@ def skip_reason_of(exc: ValidationError) -> str:
     return _reason(exc)
 
 
+def _level_reason(fields: list[str], combination: tuple[float, ...]) -> str | None:
+    """Why a combination of stop / target percentages is invalid, or None."""
+    for field, value in zip(fields, combination, strict=True):
+        if not math.isfinite(value) or value <= 0 or (field == "stop_loss_pct" and value >= 100):
+            return f"{LEVEL_FIELDS[field]} out of range"
+    return None
+
+
 def build_grid(spec: StrategySpec, surface: Surface, bars: int | None = None) -> Grid:
     """The grid over a pinned spec. With `bars`, a combination whose warm-up the engine would
     refuse on that many bars (backtest._check_warmup) is skipped as "insufficient bars"."""
@@ -275,6 +303,14 @@ def build_grid(spec: StrategySpec, surface: Surface, bars: int | None = None) ->
     ]
     tables: list[dict[tuple[float, ...], str | None]] = []
     for side_key, identifier, members in groups:
+        if not identifier:  # Mission 13: the side's stop loss / take profit percentages
+            tables.append(
+                {
+                    combination: _level_reason([fields[k][2] for k in members], combination)
+                    for combination in product(*(values[k] for k in members))
+                }
+            )
+            continue
         base = getattr(spec, side_key).indicator(identifier).model_dump(mode="json")
         table: dict[tuple[float, ...], str | None] = {}
         for combination in product(*(values[k] for k in members)):

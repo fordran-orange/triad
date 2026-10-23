@@ -390,3 +390,25 @@ def test_plan_names_its_price_source():
         price_source="measured",
     )
     assert measured.price_source == "measured"
+
+
+# --- Mission 13: stop and target ranges ------------------------------------------------------
+
+
+def test_a_surface_ranges_the_stop():
+    from products.aegis.surface import build_grid, current_value
+
+    spec = pinned()
+    spec = spec.model_copy(
+        update={"long_side": spec.long_side.model_copy(update={"stop_loss_pct": 2.0})}
+    )
+    assert resolve_path(spec, "long_side.stop_loss_pct") == ("long_side", "", "stop_loss_pct")
+    assert current_value(spec, "long_side.stop_loss_pct") == 2.0
+    grid = build_grid(spec, Surface(parameters=[P("long_side.stop_loss_pct", 1, 3, 0.5)]))
+    values = [grid.cell_values(i)["long_side.stop_loss_pct"] for i in grid.valid_indices_iter()]
+    assert values == [1.0, 1.5, 2.0, 2.5, 3.0]
+    assert grid.apply_cell(spec, {"long_side.stop_loss_pct": 2.5}).long_side.stop_loss_pct == 2.5
+    with pytest.raises(
+        ValueError, match="long_side.take_profit_pct: the long side has no take profit to range"
+    ):
+        build_grid(spec, Surface(parameters=[P("long_side.take_profit_pct", 1, 3, 1)]))

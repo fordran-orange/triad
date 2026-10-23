@@ -764,3 +764,17 @@ def test_pool_from_a_frame_equals_the_rows_pool():
         finally:
             pool.shutdown()
     assert out[0] == out[1]
+
+
+# --- Mission 13: stop and target ranges ------------------------------------------------------
+
+
+def test_the_optimizer_ranges_a_target():
+    from products.aegis.strategy import StrategySide
+
+    data = default_strategy().long_side.model_dump(mode="json")
+    data["take_profit_pct"] = 4.0
+    data["optimization"] = [{"path": "take_profit_pct", "start": 3, "stop": 5, "step": 1}]
+    plan = expand_grid(StrategySide.model_validate(data))
+    assert [cell["take_profit_pct"] for cell in plan.cells] == [3.0, 4.0, 5.0]
+    assert plan.skipped == []
