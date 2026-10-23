@@ -78,3 +78,19 @@ describe('operatorChoices', () => {
     expect(operatorChoices(true).every((c) => !c.disabled && c.title === undefined)).toBe(true);
   });
 });
+
+describe('rule trees (Mission 13)', () => {
+  const a = rule('price.close', 'greater_than', '2');
+  const b = rule('price.close', 'less_than', '7');
+  const c = rule('price.close', 'greater_than', '5');
+
+  it('describes a nested group in brackets', () => {
+    const tree: RuleGroup = { all_of: [a, { any_of: [b, c] }] };
+    expect(describeRule(tree, [])).toBe('price.close > 2 AND (price.close < 7 OR price.close > 5)');
+    expect(describeRule({ any_of: [{ all_of: [a, b] }, c] }, [])).toBe('(price.close > 2 AND price.close < 7) OR price.close > 5');
+  });
+
+  it('lists every condition of a tree, left to right', () => {
+    expect(conditionsOf({ all_of: [a, { any_of: [b, c] }] })).toEqual([a, b, c]);
+  });
+});

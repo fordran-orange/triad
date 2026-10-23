@@ -283,6 +283,19 @@ describe('indicator and rule editing', () => {
     expect(long(state).indicators![3].params).toEqual({ multiplier: 2.5 });
   });
 
+  it('refuses to remove an indicator a nested condition reads (Review Focus 5)', () => {
+    let state = reducer(withStrategy(), { type: 'ADD_INDICATOR', side: 'long', kind: 'RSI' });
+    const exit = {
+      any_of: [
+        { left: 'ema', operator: 'crosses_below', right: 'sma', timing: 'bar_close' },
+        { all_of: [{ left: 'rsi', operator: 'greater_than', right: '70', timing: 'bar_close' }, { left: 'price.close', operator: 'less_than', right: 'sma', timing: 'bar_close' }] },
+      ],
+    };
+    state = reducer(state, { type: 'SET_RULE', side: 'long', which: 'exit', rule: exit });
+    expect(ruleReferences(long(state), 'rsi')).toEqual(['exit rule']);
+    expect(reducer(state, { type: 'REMOVE_INDICATOR', side: 'long', id: 'rsi' })).toBe(state);
+  });
+
   it('sets a rule or a two-condition group on one side', () => {
     const group = {
       all_of: [

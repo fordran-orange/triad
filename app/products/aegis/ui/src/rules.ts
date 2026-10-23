@@ -82,9 +82,15 @@ export function isGroup(rule: Rule): rule is RuleGroup {
   return !('left' in rule);
 }
 
+/** A group's members in order: conditions and nested groups (Mission 13). */
+export function membersOf(group: RuleGroup): Rule[] {
+  return group.all_of ?? group.any_of ?? [];
+}
+
+/** Every condition of a rule, left to right through nested groups. */
 export function conditionsOf(rule: Rule): RuleSpec[] {
   if (!isGroup(rule)) return [rule];
-  return rule.all_of ?? rule.any_of ?? [];
+  return membersOf(rule).flatMap(conditionsOf);
 }
 
 const VERBS: Record<string, string> = {
@@ -104,11 +110,17 @@ function operandLabel(operand: string, indicators: IndicatorSpec[]): string {
   return output ? `${name}.${output}` : name;
 }
 
-/** A rule in words, e.g. `price.close crosses ABOVE DONCHIAN(20).upper AND RSI(14) < 70`. */
+const isAny = (group: RuleGroup) => group.any_of !== undefined && group.any_of !== null;
+
+/** A rule in words, e.g. `price.close crosses ABOVE DONCHIAN(20).upper AND RSI(14) < 70`; a nested
+ * group of the other join reads in brackets, `A AND (B OR C)`. */
 export function describeRule(rule: Rule, indicators: IndicatorSpec[]): string {
-  const one = (r: RuleSpec) => `${operandLabel(r.left, indicators)} ${VERBS[r.operator] ?? r.operator} ${operandLabel(r.right, indicators)}`;
-  const parts = conditionsOf(rule).map(one);
-  return parts.join(isGroup(rule) && rule.any_of ? ' OR ' : ' AND ');
+  if (!isGroup(rule)) return `${operandLabel(rule.left, indicators)} ${VERBS[rule.operator] ?? rule.operator} ${operandLabel(rule.right, indicators)}`;
+  const parts = membersOf(rule).map((member) => {
+    const text = describeRule(member, indicators);
+    return isGroup(member) && isAny(member) !== isAny(rule) ? `(${text})` : text;
+  });
+  return parts.join(isAny(rule) ? ' OR ' : ' AND ');
 }
 
 function reads(condition: RuleSpec, id: string): boolean {

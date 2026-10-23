@@ -431,3 +431,28 @@ def test_side_without_indicators_runs():
     strategy = strategy.model_copy(update={"long_side": StrategySide.model_validate(data)})
     result = run_backtest(BacktestRequest(strategy=strategy, bars=bars()))
     assert result["long"]["metrics"]["trade_count"] >= 1
+
+
+# --- Mission 13: rules form a tree -----------------------------------------------------------
+
+
+def test_evaluate_walks_nested_groups():
+    import pandas as pd
+    from products.aegis.backtest import evaluate
+    from products.aegis.strategy import RuleGroup
+
+    frame = pd.DataFrame({"close": [float(v) for v in range(1, 9)]})
+    a = {"left": "price.close", "operator": "greater_than", "right": "2"}
+    b = {"left": "price.close", "operator": "less_than", "right": "7"}
+    c = {"left": "price.close", "operator": "greater_than", "right": "5"}
+    cases = [
+        ({"all_of": [a, {"any_of": [b, c]}]}, [False, False, True, True, True, True, True, True]),
+        ({"any_of": [{"all_of": [a, b]}, c]}, [False, False, True, True, True, True, True, True]),
+        ({"all_of": [a, b, c]}, [False, False, False, False, False, True, False, False]),
+        (
+            {"any_of": [{"all_of": [a, c]}, {"all_of": [b, {"any_of": [c, a]}]}]},
+            [False, False, True, True, True, True, True, True],
+        ),
+    ]
+    for rule, expected in cases:
+        assert evaluate(frame, RuleGroup.model_validate(rule)).tolist() == expected, rule

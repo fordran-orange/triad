@@ -120,8 +120,8 @@ export interface PendingEntry {
 }
 
 export interface RuleGroup {
-  all_of?: RuleSpec[] | null;
-  any_of?: RuleSpec[] | null;
+  all_of?: Array<RuleSpec | RuleGroup> | null;
+  any_of?: Array<RuleSpec | RuleGroup> | null;
 }
 
 export interface RuleSpec {

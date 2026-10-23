@@ -1,5 +1,5 @@
 import type { RuleSpec, StrategySide } from '../contracts';
-import { BAND_OPERATORS, bandIndicators, conditionsOf, isConstant, isGroup, operatorChoices, PRICE_OPERANDS, referencesOf, type Rule } from '../rules';
+import { BAND_OPERATORS, bandIndicators, conditionsOf, describeRule, isConstant, isGroup, membersOf, operatorChoices, PRICE_OPERANDS, referencesOf, type Rule } from '../rules';
 import { useDispatch, type Side } from '../state/workspace';
 
 const CONSTANT = '__constant__';
@@ -39,6 +39,15 @@ export function RuleEditor({ side, which, spec }: { side: Side; which: 'entry' |
     if (!band && bands.some((b) => b.id === right)) right = '50';
     update(index, { operator, right });
   };
+
+  // Mission 13: a tree (nested, or more than two members) is edited in the builder; here it reads as text.
+  if (isGroup(rule) && (conditions.length > 2 || membersOf(rule).some(isGroup)))
+    return (
+      <div className="rule-editor" id={`${base}-editor`}>
+        <div className="small muted">{which.toUpperCase()}</div>
+        <div className="small">{describeRule(rule, spec.indicators ?? [])}</div>
+      </div>
+    );
 
   return (
     <div className="rule-editor" id={`${base}-editor`}>

@@ -43,6 +43,7 @@ PRICE_OPERANDS = {
     "price.low": "low",
 }
 CONSTANT = re.compile(r"-?\d+(\.\d+)?", re.ASCII)  # fullmatch: plain ASCII decimals only
+MAX_RULE_DEPTH = 32  # Mission 13: a guard, not a design limit
 
 
 def is_constant(operand: str) -> bool:
@@ -128,21 +129,22 @@ class RuleSpec(BaseModel):
 
 
 class RuleGroup(BaseModel):
-    """Two conditions joined by AND (`all_of`) or OR (`any_of`); exactly one key is set."""
+    """Two or more members joined by AND (`all_of`) or OR (`any_of`); exactly one key is set. A
+    member is a condition or another group (Mission 13), nested at most `MAX_RULE_DEPTH` levels:
+    a guard against pathological input, not a design limit."""
 
     model_config = ConfigDict(extra="forbid")
-    all_of: list[RuleSpec] | None = None
-    any_of: list[RuleSpec] | None = None
+    all_of: list[RuleSpec | RuleGroup] | None = None
+    any_of: list[RuleSpec | RuleGroup] | None = None
 
     @model_validator(mode="after")
-    def exactly_two_conditions(self):
+    def two_members_and_bounded_depth(self):
         if (self.all_of is None) == (self.any_of is None):
             raise ValueError("a group sets exactly one of all_of or any_of")
-        count = len(self.all_of if self.all_of is not None else self.any_of)
-        if count < 2:
-            raise ValueError("a group needs two conditions")
-        if count > 2:
-            raise ValueError("at most two conditions in this slice")
+        if len(members(self)) < 2:
+            raise ValueError("a group needs two members")
+        if group_depth(self) > MAX_RULE_DEPTH:
+            raise ValueError(f"rules nested deeper than {MAX_RULE_DEPTH} levels")
         return self
 
     @model_serializer(mode="wrap")
@@ -158,10 +160,22 @@ class RuleGroup(BaseModel):
 Rule = RuleSpec | RuleGroup
 
 
+def members(group: RuleGroup) -> list[Rule]:
+    """A group's members in order: conditions and nested groups."""
+    return list(group.all_of if group.all_of is not None else group.any_of)
+
+
+def group_depth(group: RuleGroup) -> int:
+    """Levels of grouping: 1 for a group of conditions, one more per nested group."""
+    nested = [group_depth(m) for m in members(group) if isinstance(m, RuleGroup)]
+    return 1 + max(nested, default=0)
+
+
 def conditions(rule: Rule) -> list[RuleSpec]:
+    """Every condition of a rule, left to right through nested groups."""
     if isinstance(rule, RuleSpec):
         return [rule]
-    return list(rule.all_of if rule.all_of is not None else rule.any_of)
+    return [leaf for member in members(rule) for leaf in conditions(member)]
 
 
 def _check_operand(rule_name: str, operand: str, outputs: dict[str, tuple[str, ...]]) -> str:

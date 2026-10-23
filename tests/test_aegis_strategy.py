@@ -253,11 +253,7 @@ def rule(left, operator, right):
         (rule("rsi.upper", "greater_than", "70"), "rsi has no output 'upper'"),
         (rule("price.close", "inside_band", "rsi"), r"inside_band needs a band \(bb or donchian\)"),
         (rule("30", "less_than", "70"), "compares two constants"),
-        ({"all_of": [rule("rsi", "less_than", "70")]}, "a group needs two conditions"),
-        (
-            {"any_of": [rule("rsi", "less_than", "70")] * 3},
-            "at most two conditions in this slice",
-        ),
+        ({"all_of": [rule("rsi", "less_than", "70")]}, "a group needs two members"),
         (
             {
                 "all_of": [rule("rsi", "less_than", "70")] * 2,
@@ -300,6 +296,84 @@ def test_groups_and_bands_validate_and_dump_without_the_unused_key():
     assert set(dumped["entry"]) == {"all_of"}
     assert dumped["exit"] == {**rule("price.close", "outside_band", "bb"), "timing": "bar_close"}
     assert StrategySide.model_validate(dumped) == side
+
+
+# --- Mission 13: rules form a tree -----------------------------------------------------------
+
+
+def _nested(depth: int) -> dict:
+    """A group nested `depth` levels deep: each level ANDs a condition with the next level."""
+    group = {"any_of": [rule("rsi", "less_than", "70"), rule("rsi", "greater_than", "30")]}
+    for _ in range(depth - 1):
+        group = {"all_of": [rule("rsi", "less_than", "70"), group]}
+    return group
+
+
+def test_groups_take_any_number_of_members():
+    members = [rule("rsi", "less_than", str(70 + i)) for i in range(4)]
+    side = _side({"all_of": members})
+    assert [c["right"] for c in side.model_dump(mode="json")["entry"]["all_of"]] == [
+        "70",
+        "71",
+        "72",
+        "73",
+    ]
+
+
+def test_groups_nest():
+    from products.aegis.strategy import conditions
+
+    a, b, c = (
+        rule("price.close", "crosses_above", "donchian.upper"),
+        rule("rsi", "less_than", "70"),
+        rule("rsi", "greater_than", "30"),
+    )
+    side = _side({"all_of": [a, {"any_of": [b, c]}]})
+    assert [(x.left, x.operator, x.right) for x in conditions(side.entry)] == [
+        tuple(r.values()) for r in (a, b, c)
+    ]
+    assert StrategySide.model_validate(side.model_dump(mode="json")) == side
+
+
+def test_a_group_needs_two_members():
+    with pytest.raises(ValidationError, match="a group needs two members"):
+        _side(
+            {
+                "all_of": [
+                    rule("rsi", "less_than", "70"),
+                    {"any_of": [rule("rsi", "less_than", "70")]},
+                ]
+            }
+        )
+
+
+def test_nesting_past_32_levels_is_refused():
+    assert _side(_nested(32)).entry is not None
+    with pytest.raises(ValidationError, match="nested deeper than 32 levels"):
+        _side(_nested(33))
+
+
+def test_nested_operands_are_checked():
+    entry = {
+        "all_of": [
+            rule("rsi", "less_than", "70"),
+            {"any_of": [rule("vwap", "less_than", "1"), rule("rsi", "less_than", "60")]},
+        ]
+    }
+    with pytest.raises(ValidationError, match="entry rule references unknown operand 'vwap'"):
+        _side(entry)
+
+
+def test_referenced_columns_walk_the_tree():
+    from products.aegis.strategy import referenced_columns
+
+    entry = {
+        "all_of": [
+            rule("rsi", "less_than", "70"),
+            {"any_of": [rule("price.close", "inside_band", "bb"), rule("rsi", "less_than", "60")]},
+        ]
+    }
+    assert referenced_columns(_side(entry)) >= {"rsi", "bb.upper", "bb.lower"}
 
 
 def test_indicator_id_price_is_reserved():

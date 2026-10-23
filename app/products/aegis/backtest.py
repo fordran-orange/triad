@@ -25,8 +25,8 @@ from products.aegis.strategy import (
     RuleSpec,
     StrategySide,
     StrategySpec,
-    conditions,
     is_constant,
+    members,
     referenced_columns,
 )
 from products.aegis.temporal import entry_permitted, validate
@@ -282,12 +282,19 @@ def _condition(frame: pd.DataFrame, rule: RuleSpec) -> pd.Series:
 
 
 def evaluate(frame: pd.DataFrame, rule: Rule) -> pd.Series:
-    """A rule as a boolean series over the bars: one condition, or two joined by AND / OR."""
-    parts = [_condition(frame, condition) for condition in conditions(rule)]
+    """A rule as a boolean series over the bars: one condition, or a group's members joined by
+    AND / OR, nested groups included (Mission 13)."""
+    return _combined(frame, rule).fillna(False).astype(bool)
+
+
+def _combined(frame: pd.DataFrame, rule: Rule) -> pd.Series:
+    if isinstance(rule, RuleSpec):
+        return _condition(frame, rule)
+    parts = [_combined(frame, member) for member in members(rule)]
     combined = parts[0]
     for part in parts[1:]:
-        combined = (combined | part) if getattr(rule, "any_of", None) else (combined & part)
-    return combined.fillna(False).astype(bool)
+        combined = (combined | part) if rule.any_of is not None else (combined & part)
+    return combined
 
 
 def _side_frame(
