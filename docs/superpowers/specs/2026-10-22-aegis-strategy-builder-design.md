@@ -224,3 +224,27 @@ a bar; trailing stops; NOT blocks; multi-symbol rules.
   served build and confirms no policy errors before building on it.
 - The kernel's arithmetic order: the level check is placed so that a side without stops compiles to
   the same operations in the same order; the goldens are the proof.
+
+## 9. Amendments from planning (2026-10-22)
+
+Found while writing the plan; each is shown to the operator with the plan.
+
+1. **The reader sees the current strategy.** The request is `{"text", "strategy"}`, so an exit
+   clause alone can keep its side's entry and indicators; `sides` in the answer are whole
+   replacement sides.
+2. **Indicator ids from text.** An indicator alone of its kind on its side takes the kind's name
+   (`ema`, `donchian`, `rsi`), as an indicator added by hand does; two of a kind take kind and
+   length (`sma30`, `sma200`), and a further clash takes `_2`. An exit clause reuses a side's
+   indicator with the same kind, length and settings.
+3. **Ranges.** A side applied from text gets the default (disabled) ranges of each new indicator,
+   as an indicator added by hand gets them; a reused indicator keeps its ranges. This replaces "a
+   replaced side starts with no optimization ranges".
+4. **A bare "crosses".** The operator's sentence says "9 ema crosses 30 sma". A bare "crosses" means
+   "crosses above" in a long entry or a short exit, and "crosses below" in a short entry or a long
+   exit; the reading back says which.
+5. **Entry and Exit inputs.** Entry takes one rule input; Exit takes one rule input plus one Stop
+   loss and one Take profit input. Several conditions are joined with AND or OR first; a second
+   wire into a one-wire input is refused with that reason.
+6. **Walk item 37.** It built the Donchian / RSI breakout with the retired dropdowns. It now types
+   it ("buy when close crosses above donchian upper and rsi below 70; sell when close crosses below
+   donchian middle"), and asserts the same strategy, so items 38–90 run unchanged.
