@@ -61,7 +61,12 @@ from products.aegis.pool import fitted_workers
 from products.aegis.preferences import Preferences
 from products.aegis.results import envelope
 from products.aegis.runs import JsonRunRepository, RunRepository
-from products.aegis.strategies import BuiltinRefused, StrategyLibrary, StrategyReferenced
+from products.aegis.strategies import (
+    BuiltinRefused,
+    StrategyLibrary,
+    StrategyReferenced,
+    check_canvas,
+)
 from products.aegis.strategy import IndicatorSpec, StrategySpec
 from products.aegis.study_rules import render_study_markdown
 from products.aegis.unsaved import UnsavedRuns
@@ -678,6 +683,12 @@ class StrategyCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(max_length=120)
     spec: StrategySpec
+    canvas: dict | None = None  # Mission 13: the builder's blocks and wires
+
+    @field_validator("canvas")
+    @classmethod
+    def bounded_canvas(cls, value):
+        return check_canvas(value)
 
     @field_validator("name")
     @classmethod
@@ -689,6 +700,12 @@ class StrategyUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str | None = Field(default=None, max_length=120)
     spec: StrategySpec | None = None
+    canvas: dict | None = None  # Mission 13: kept as saved when absent
+
+    @field_validator("canvas")
+    @classmethod
+    def bounded_canvas(cls, value):
+        return check_canvas(value)
 
     @field_validator("name")
     @classmethod
@@ -733,13 +750,15 @@ def strategy_document(strategy_id: str, library: StrategyLibrary = LIBRARY):
 
 @router.post("/strategies", status_code=201)
 def create_strategy(request: StrategyCreate, library: StrategyLibrary = LIBRARY):
-    return library.create(request.name, request.spec).model_dump(mode="json")
+    return library.create(request.name, request.spec, canvas=request.canvas).model_dump(mode="json")
 
 
 @router.put("/strategies/{strategy_id}")
 def update_strategy(strategy_id: str, request: StrategyUpdate, library: StrategyLibrary = LIBRARY):
     try:
-        return library.update(strategy_id, request.name, request.spec).model_dump(mode="json")
+        return library.update(strategy_id, request.name, request.spec, request.canvas).model_dump(
+            mode="json"
+        )
     except BuiltinRefused as exc:
         raise HTTPException(422, str(exc)) from exc
     except KeyError as exc:

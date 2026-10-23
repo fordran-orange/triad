@@ -10,11 +10,12 @@ document is refused while anything persisted references it, running jobs include
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections import Counter
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
 
 from products.aegis.results import strategy_hash
 from products.aegis.runs import RunRepository
@@ -34,6 +35,31 @@ class StrategyDocument(BaseModel):
     strategy_hash: str
     parent: str | None = None
     builtin: bool = False
+    # Mission 13: the builder's canvas (blocks, wires, positions per side), outside the spec and
+    # its hash; left out of the document when absent.
+    canvas: dict | None = None
+
+    @field_validator("canvas")
+    @classmethod
+    def bounded_canvas(cls, value):
+        return check_canvas(value)
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_canvas(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("canvas") is None:
+            data.pop("canvas", None)
+        return data
+
+
+CANVAS_BYTES = 262_144
+
+
+def check_canvas(value: dict | None) -> dict | None:
+    """A canvas is opaque to the engine and bounded in size (Mission 13 spec §4.5)."""
+    if value is not None and len(json.dumps(value, separators=(",", ":"))) > CANVAS_BYTES:
+        raise ValueError(f"canvas too large: over {CANVAS_BYTES:,} bytes")
+    return value
 
 
 class BuiltinRefused(ValueError):
@@ -159,6 +185,7 @@ class StrategyLibrary:
         created_at: str,
         updated_at: str,
         parent: str | None,
+        canvas: dict | None = None,
     ) -> StrategyDocument:
         named = StrategySpec.model_validate(
             {**spec.model_dump(mode="json"), "id": identifier, "name": name}
@@ -171,17 +198,29 @@ class StrategyLibrary:
             updated_at=updated_at,
             strategy_hash=strategy_hash(named),
             parent=parent,
+            canvas=canvas,
         )
         self.repository.save_strategy(document.model_dump(mode="json"))
         return document
 
-    def create(self, name: str, spec: StrategySpec, parent: str | None = None) -> StrategyDocument:
+    def create(
+        self,
+        name: str,
+        spec: StrategySpec,
+        parent: str | None = None,
+        canvas: dict | None = None,
+    ) -> StrategyDocument:
         now = _now()
-        return self._save(self._free_id(name), name, spec, now, now, parent)
+        return self._save(self._free_id(name), name, spec, now, now, parent, canvas)
 
     def update(
-        self, identifier: str, name: str | None = None, spec: StrategySpec | None = None
+        self,
+        identifier: str,
+        name: str | None = None,
+        spec: StrategySpec | None = None,
+        canvas: dict | None = None,
     ) -> StrategyDocument:
+        """A new name, spec or canvas; what is not given stays as saved."""
         if identifier == BUILTIN_ID:
             raise BuiltinRefused()
         current = self.get(identifier)
@@ -193,11 +232,12 @@ class StrategyLibrary:
             current.created_at or now,
             now,
             current.parent,
+            canvas if canvas is not None else current.canvas,
         )
 
     def duplicate(self, identifier: str, name: str) -> StrategyDocument:
         source = self.get(identifier)
-        return self.create(name, source.spec, parent=identifier)
+        return self.create(name, source.spec, parent=identifier, canvas=source.canvas)
 
     def delete(self, identifier: str) -> None:
         if identifier == BUILTIN_ID:

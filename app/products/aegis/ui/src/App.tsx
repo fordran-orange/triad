@@ -94,12 +94,11 @@ export function App() {
       <SideNav />
       <main
         className={'main' + (page === 'charts' && maximized ? ' results-max' : '')}
-        style={page === 'library' ? { gridTemplateRows: 'minmax(0, 1fr)' } : page === 'charts' ? { gridTemplateRows: maximized ? '0px minmax(0, 1fr)' : `minmax(0, 1fr) ${resultsHeight}px` } : undefined}
+        style={page === 'library' || page === 'lab' ? { gridTemplateRows: 'minmax(0, 1fr)' } : page === 'charts' ? { gridTemplateRows: maximized ? '0px minmax(0, 1fr)' : `minmax(0, 1fr) ${resultsHeight}px` } : undefined}
       >
         {page === 'lab' ? (
-          <section className="workspace">
+          <section className="lab-main">
             <LabPage />
-            <StrategyPanel />
           </section>
         ) : page === 'library' ? (
           <section className="library-main">

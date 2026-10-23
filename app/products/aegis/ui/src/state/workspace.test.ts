@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { StrategySpec } from '../contracts';
 import { ruleReferences } from '../rules';
-import { applyConfigs, canonical, chartKey, currentLatest, initialState, reducer, runStaleness, selectionText, unsavedEdits, type RunRecord, type WorkspaceState } from './workspace';
+import { autoLayout, graphFromSide, readsAs } from '../builder/graph';
+import { applyConfigs, canonical, chartKey, currentLatest, initialState, reducer, runStaleness, selectionText, sideGraph, unsavedEdits, type RunRecord, type WorkspaceState } from './workspace';
 
 // Side-owned indicator parameters (the shape Task 3 makes canonical); typed loosely until then.
 function strategy(): StrategySpec {
@@ -378,3 +379,42 @@ describe('the experiments page', () => {
     expect(state.strategy).toEqual(withStrategy().strategy);
   });
 });
+
+describe('the builder in the workspace (Mission 13)', () => {
+  const doc = (spec: StrategySpec, canvas?: unknown) =>
+    ({ id: spec.id, name: spec.name, spec, created_at: null, updated_at: null, strategy_hash: 'h', parent: null, builtin: false, canvas }) as never;
+
+  it('SET_SIDE_GRAPH replaces the side and its graph', () => {
+    let state = reducer(initialState, { type: 'SET_DOCUMENT', document: doc(strategy()) });
+    const side = { ...strategy().long_side, stop_loss_pct: 2 };
+    const graph = graphFromSide(side);
+    state = reducer(state, { type: 'SET_SIDE_GRAPH', side: 'long', graph, spec: side });
+    expect(state.strategy!.long_side).toEqual(side);
+    expect(sideGraph(state, 'long')).toBe(graph);
+    expect(state.strategy!.short_side).toEqual(strategy().short_side);
+    expect(unsavedEdits(state)).toBe(true);
+  });
+
+  it('marks a graph-only change (a moved block) as an edit and keeps the strategy', () => {
+    let state = reducer(initialState, { type: 'SET_DOCUMENT', document: doc(strategy()) });
+    const moved = graphFromSide(strategy().long_side);
+    moved.blocks[0] = { ...moved.blocks[0], x: 999, y: 7 };
+    state = reducer(state, { type: 'SET_SIDE_GRAPH', side: 'long', graph: moved, spec: null });
+    expect(state.strategy).toEqual(strategy());
+    expect(sideGraph(state, 'long').blocks[0]).toMatchObject({ x: 999, y: 7 });
+    expect(unsavedEdits(state)).toBe(true);
+    expect(unsavedEdits(reducer(state, { type: 'SET_DOCUMENT', document: doc(strategy()) }))).toBe(false);
+  });
+
+  it('lays a stale saved side out afresh and keeps the other side as saved', () => {
+    const spec = strategy();
+    const stale = graphFromSide({ ...spec.long_side, exit: { left: 'ema', operator: 'less_than', right: 'sma', timing: 'bar_close' } });
+    const short = autoLayout(graphFromSide(spec.short_side));
+    short.blocks = short.blocks.map((b) => ({ ...b, x: b.x + 5 }));
+    const state = reducer(initialState, { type: 'SET_DOCUMENT', document: doc(spec, { version: 1, long: stale, short }) });
+    expect(readsAs(sideGraph(state, 'long'), spec.long_side)).toBe(true);
+    expect(sideGraph(state, 'short')).toEqual(short);
+    expect(unsavedEdits(state)).toBe(false);
+  });
+});
+

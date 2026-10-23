@@ -1587,3 +1587,23 @@ def test_read_route_answers_a_reading_or_422(client):  # Mission 13
     assert detail["unread"] == [{"start": 9, "end": 13, "text": "vwap"}]
     empty = c.post("/aegis/api/strategies/read", json={"text": "", "strategy": strategy})
     assert empty.status_code == 422
+
+
+def test_update_saves_the_canvas(client):  # Mission 13
+    from products.aegis.strategy import default_strategy
+
+    c, _, _ = client
+    created = c.post(
+        "/aegis/api/strategies",
+        json={"name": "Canvas", "spec": default_strategy().model_dump(mode="json")},
+    ).json()
+    canvas = {
+        "version": 1,
+        "long": {"blocks": [], "wires": []},
+        "short": {"blocks": [], "wires": []},
+    }
+    saved = c.put(f"/aegis/api/strategies/{created['id']}", json={"canvas": canvas})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["canvas"] == canvas
+    assert saved.json()["strategy_hash"] == created["strategy_hash"]
+    assert "canvas" not in created

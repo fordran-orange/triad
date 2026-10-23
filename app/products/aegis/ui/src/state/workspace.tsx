@@ -1,6 +1,7 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
 import type { SymbolInfo } from '../api/client';
-import { INDICATOR_KINDS, type IndicatorSpec, type OptimizationParameter, type StrategyDocument, type StrategySpec, type WindowMode } from '../contracts';
+import { graphFromSide, readsAs, type Canvas, type SideGraph } from '../builder/graph';
+import { INDICATOR_KINDS, type IndicatorSpec, type OptimizationParameter, type StrategyDocument, type StrategySide, type StrategySpec, type WindowMode } from '../contracts';
 import { ruleReferences, type Rule } from '../rules';
 import { DASH } from '../format';
 import type { JobStatus, LibraryKind, Provenance, RunEnvelope, WalkForwardStatus } from '../results';
@@ -76,6 +77,12 @@ export interface WorkspaceState {
   focus: Focus | null;
   document: StrategyDocument | null; // the saved document the workspace strategy came from
   latest: { key: string; values: Record<string, number | null> }; // last value per drawn series, for the chartKey it was fetched under
+  // Mission 13: the builder's graph per side as last set, and the side it was drawn for
+  // (canonical); `sideGraph` lays a side out afresh when the strategy has moved on.
+  canvas: Partial<Record<Side, SideGraph>>;
+  canvasBase: Partial<Record<Side, string>>;
+  canvasEdited: boolean;
+  builderSide: Side;
 }
 
 export type Action =
@@ -111,7 +118,9 @@ export type Action =
   | { type: 'CLEAR_FOCUS' }
   | { type: 'SET_DOCUMENT'; document: StrategyDocument }
   | { type: 'ADOPT_DOCUMENT'; document: StrategyDocument | null }
-  | { type: 'DOCUMENT_RENAMED'; document: StrategyDocument };
+  | { type: 'DOCUMENT_RENAMED'; document: StrategyDocument }
+  | { type: 'SET_SIDE_GRAPH'; side: Side; graph: SideGraph; spec: StrategySide | null }
+  | { type: 'SET_BUILDER_SIDE'; side: Side };
 
 export const initialState: WorkspaceState = {
   strategy: null,
@@ -134,6 +143,10 @@ export const initialState: WorkspaceState = {
   focus: null,
   document: null,
   latest: { key: '', values: {} },
+  canvas: {},
+  canvasBase: {},
+  canvasEdited: false,
+  builderSide: 'long',
 };
 
 /** What the chart fetched for: the selection and the focused side's indicators. */
@@ -149,8 +162,38 @@ export function currentLatest(state: Pick<WorkspaceState, 'selection' | 'strateg
 }
 
 /** The workspace strategy differs from the loaded document's saved spec (plan ruling P2). */
-export function unsavedEdits(state: Pick<WorkspaceState, 'document' | 'strategy'>): boolean {
-  return state.document !== null && state.strategy !== null && canonical(state.document.spec) !== canonical(state.strategy);
+export function unsavedEdits(state: Pick<WorkspaceState, 'document' | 'strategy'> & { canvasEdited?: boolean }): boolean {
+  return state.document !== null && state.strategy !== null && (canonical(state.document.spec) !== canonical(state.strategy) || !!state.canvasEdited);
+}
+
+/** A fresh layout that keeps the place of every block the old graph also had (same id, type). */
+function keepPositions(fresh: SideGraph, old: SideGraph): SideGraph {
+  const placed = new Map(old.blocks.map((b) => [`${b.type}:${b.id}`, b]));
+  return { ...fresh, blocks: fresh.blocks.map((b) => {
+    const was = placed.get(`${b.type}:${b.id}`);
+    return was ? { ...b, x: was.x, y: was.y } : b;
+  }) };
+}
+
+/** The graph the builder shows for a side (Mission 13): the one last set while the strategy is
+ * still the one it was drawn for or still reads as it; otherwise the side laid out afresh. */
+export function sideGraph(state: Pick<WorkspaceState, 'strategy' | 'canvas' | 'canvasBase'>, side: Side): SideGraph {
+  const spec = state.strategy![SIDE_KEY[side]];
+  const saved = state.canvas[side];
+  if (!saved) return graphFromSide(spec);
+  if (state.canvasBase[side] === canonical(spec) || readsAs(saved, spec)) return saved;
+  return keepPositions(graphFromSide(spec), saved);
+}
+
+/** Both sides' graphs, as a document saves them. */
+export function currentCanvas(state: Pick<WorkspaceState, 'strategy' | 'canvas' | 'canvasBase'>): Canvas {
+  return { version: 1, long: sideGraph(state, 'long'), short: sideGraph(state, 'short') };
+}
+
+function savedCanvas(document: StrategyDocument): Partial<Record<Side, SideGraph>> {
+  const canvas = document.canvas as Partial<Canvas> | null | undefined;
+  if (!canvas || canvas.version !== 1) return {};
+  return { ...(canvas.long ? { long: canvas.long } : {}), ...(canvas.short ? { short: canvas.short } : {}) };
 }
 
 /** A new indicator of `kind` with an id unique on the side, its default length, no parameters. */
@@ -371,7 +414,21 @@ export function reducer(state: WorkspaceState, action: Action): WorkspaceState {
     case 'CLEAR_FOCUS':
       return { ...state, focus: null };
     case 'SET_DOCUMENT':
-      return { ...state, document: action.document, strategy: action.document.spec };
+      return { ...state, document: action.document, strategy: action.document.spec, canvas: savedCanvas(action.document), canvasBase: {}, canvasEdited: false };
+    case 'SET_SIDE_GRAPH': {
+      if (!state.strategy) return state;
+      const key = SIDE_KEY[action.side];
+      const strategy = action.spec ? { ...state.strategy, [key]: action.spec } : state.strategy;
+      return {
+        ...state,
+        strategy,
+        canvas: { ...state.canvas, [action.side]: action.graph },
+        canvasBase: { ...state.canvasBase, [action.side]: canonical(strategy[key]) },
+        canvasEdited: true,
+      };
+    }
+    case 'SET_BUILDER_SIDE':
+      return { ...state, builderSide: action.side };
     case 'ADOPT_DOCUMENT':
       return { ...state, document: action.document };
     case 'DOCUMENT_RENAMED': {

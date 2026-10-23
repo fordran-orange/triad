@@ -1,5 +1,6 @@
 // Thin typed fetch wrappers for the Aegis worker routes (spec §7). Same-origin under /aegis/api.
 import type { ExperimentDocument, IndicatorSpec, Plan, StrategyDocument, StrategySpec, StudyDocument, StudyPlan } from '../contracts';
+import type { Canvas } from '../builder/graph';
 import type {
   AxisMatrix,
   Cell,
@@ -287,7 +288,7 @@ export const api = {
   strategies: () => request<StrategySummary[]>('/strategies'),
   strategyDocument: (id: string) => request<StrategyDocument>(doc(id)),
   createStrategy: (name: string, spec: StrategySpec) => request<StrategyDocument>('/strategies', post({ name, spec })),
-  updateStrategy: (id: string, patch: { name?: string; spec?: StrategySpec }) => request<StrategyDocument>(doc(id), put(patch)),
+  updateStrategy: (id: string, patch: { name?: string; spec?: StrategySpec; canvas?: Canvas }) => request<StrategyDocument>(doc(id), put(patch)),
   duplicateStrategy: (id: string, name: string) => request<StrategyDocument>(doc(id) + '/duplicate', post({ name })),
   deleteStrategy: (id: string) => request<{ deleted: string }>(doc(id), { method: 'DELETE' }),
   experimentPlan: (body: ExperimentBody) => request<Plan>('/experiments/plan', post(body)),

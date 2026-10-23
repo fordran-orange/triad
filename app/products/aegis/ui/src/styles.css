@@ -243,3 +243,48 @@ tr.muted td{color:#4f6b80}
 .compare-svg{width:100%;height:220px;display:block;background:#0b1622;border:1px solid var(--line)}
 .compare-svg.dd{height:70px}
 .compare-axis{justify-content:space-between}
+
+/* Mission 13: the strategy builder (Strategy Lab) */
+.lab-main{min-height:0;min-width:0;overflow:hidden}
+.lab-page.builder-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;height:100%;padding:0;overflow:hidden}
+.lab-page.builder-layout.list-collapsed{grid-template-columns:minmax(0,1fr) 44px}
+.builder{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;min-height:0;min-width:0;outline:none}
+.builder-phrase{padding:8px 10px;border-bottom:1px solid var(--line);min-height:12px}
+.builder-head{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line)}
+.builder-head .spacer{flex:1}
+.builder-tab{height:28px;border:1px solid var(--line);border-radius:5px;background:#0e1a25;color:var(--muted);padding:0 14px;font-weight:700}
+.builder-tab.on{color:var(--bright);border-color:var(--blue);background:#0f2233}
+.builder-tab.problem::after{content:" •";color:var(--amber)}
+.builder-name{font-size:11px}
+.builder-body{display:grid;grid-template-columns:132px minmax(0,1fr);min-height:0}
+.palette{overflow:auto;border-right:1px solid var(--line);padding:8px;display:flex;flex-direction:column;gap:4px}
+.palette-item{padding:5px 8px;border:1px solid var(--line);border-radius:4px;cursor:grab;background:var(--panel2);user-select:none}
+.palette-item.indicator{border-left:3px solid var(--blue)}
+.palette-item.condition,.palette-item.and,.palette-item.or{border-left:3px solid var(--violet)}
+.palette-item.stop_loss,.palette-item.take_profit{border-left:3px solid var(--amber)}
+.builder-canvas{min-height:0;min-width:0;position:relative;background:#08111a}
+.builder-status{padding:6px 10px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center}
+.builder-status.problem{color:var(--amber)}
+.builder-status.ready{color:var(--text)}
+.strategy-list{border-left:1px solid var(--line);overflow:auto;padding:8px;min-width:0}
+.strategy-list .lab-table tbody tr{cursor:pointer}
+.strategy-list .row-actions{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.strategy-list .row-actions .btn{height:24px;padding:0 6px}
+.strategy-list.collapsed{padding:6px 4px}
+.block{background:#101c28;border:1px solid var(--line);border-radius:6px;min-width:140px;color:var(--text)}
+.block.selected{border-color:var(--blue)}
+.block.loose{opacity:.45}
+.block.entry,.block.exit{border-color:#2b4a63}
+.block.indicator{border-top:3px solid var(--blue)}
+.block.condition,.block.and,.block.or{border-top:3px solid var(--violet)}
+.block.stop_loss,.block.take_profit{border-top:3px solid var(--amber)}
+.block-head{padding:4px 8px;border-bottom:1px solid var(--line);font-weight:700;display:flex;gap:6px;align-items:center;justify-content:space-between}
+.block-row{position:relative;padding:2px 12px;display:flex;align-items:center;gap:6px;min-height:22px}
+.block-row.out{justify-content:flex-end}
+.block-field{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:2px 10px;color:var(--muted)}
+.block input,.block select{width:78px;height:22px;border:1px solid var(--line);border-radius:4px;background:#0b1520;color:var(--text);padding:0 4px}
+.block input.constant{width:64px}
+.block.condition select{width:116px}
+.port-label{color:var(--muted);font-size:11px}
+.block-badge{font-size:9px}
+

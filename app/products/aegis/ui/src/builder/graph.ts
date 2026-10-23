@@ -50,7 +50,7 @@ export const PRICE_PORTS = ['close', 'open', 'high', 'low'];
 const FIXED = new Set(['entry', 'exit', 'price']);
 const OPERATOR_LABELS: Record<string, string> = { inside_band: 'inside band', outside_band: 'outside band' };
 const COLUMN = 230;
-const ROW = 100;
+const ROW = 150; // the tallest block (a condition) is about 125 px
 
 type Signal = 'series' | 'band' | 'rule' | 'stop' | 'target';
 

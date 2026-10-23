@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import { shortHash } from '../format';
-import { unsavedEdits, useDispatch, useWorkspace } from '../state/workspace';
+import { currentCanvas, unsavedEdits, useDispatch, useWorkspace } from '../state/workspace';
 
 /** The loaded strategy document: its name, whether the workspace has unsaved edits, Save, Revert. */
 export function DocumentHeader() {
@@ -17,7 +17,9 @@ export function DocumentHeader() {
     setSaving(true);
     setError(null);
     try {
-      dispatch({ type: 'SET_DOCUMENT', document: await api.updateStrategy(document.id, { spec: strategy }) });
+      // Mission 13: blocks moved or loose blocks added in the builder are saved with the strategy.
+      const canvas = state.canvasEdited ? { canvas: currentCanvas(state) } : {};
+      dispatch({ type: 'SET_DOCUMENT', document: await api.updateStrategy(document.id, { spec: strategy, ...canvas }) });
     } catch (e) {
       setError(errorMessage(e));
     } finally {

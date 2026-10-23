@@ -128,3 +128,43 @@ def test_get_lets_a_document_that_no_longer_parses_through_as_a_validation_error
         library.get(doc.id)
     with pytest.raises(KeyError):  # an unknown id is still unknown, not a parse failure
         library.get("never-saved")
+
+
+# --- Mission 13: the builder's canvas is saved beside the strategy --------------------------
+
+CANVAS = {
+    "version": 1,
+    "long": {
+        "blocks": [{"id": "entry", "type": "entry", "x": 690, "y": 0, "settings": {}}],
+        "wires": [],
+    },
+    "short": {"blocks": [], "wires": []},
+}
+
+
+def test_the_canvas_is_kept_outside_the_hash(library):
+    doc = library.create("Breakout", default_strategy())
+    updated = library.update(doc.id, canvas=CANVAS)
+    assert updated.canvas == CANVAS and updated.strategy_hash == doc.strategy_hash
+    assert library.get(doc.id).canvas == CANVAS
+    respec = library.update(doc.id, spec=doc.spec.model_copy(update={"description": "edited"}))
+    assert respec.canvas == CANVAS  # a spec saved without a canvas keeps the saved one
+
+
+def test_a_document_without_a_canvas_dumps_without_one(library):
+    doc = library.create("Breakout", default_strategy())
+    assert "canvas" not in doc.model_dump(mode="json")
+    assert "canvas" not in library.repository.get_strategy(doc.id)
+
+
+def test_a_canvas_over_256_kb_is_refused(library):
+    doc = library.create("Breakout", default_strategy())
+    big = {**CANVAS, "short": {"blocks": [], "wires": [], "note": "x" * 262_144}}
+    with pytest.raises(ValueError, match="canvas too large"):
+        library.update(doc.id, canvas=big)
+
+
+def test_duplicate_copies_the_canvas(library):
+    doc = library.create("Breakout", default_strategy())
+    library.update(doc.id, canvas=CANVAS)
+    assert library.duplicate(doc.id, "Breakout copy").canvas == CANVAS

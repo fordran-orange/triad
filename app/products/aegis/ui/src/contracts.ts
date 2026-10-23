@@ -228,6 +228,7 @@ export interface StrategyDocument {
   strategy_hash: string;
   parent?: string | null;
   builtin?: boolean;
+  canvas?: Record<string, unknown> | null;
 }
 
 export interface ExperimentRequest {
