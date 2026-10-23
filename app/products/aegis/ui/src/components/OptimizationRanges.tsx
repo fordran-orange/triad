@@ -2,6 +2,8 @@ import type { OptimizationParameter, StrategySide } from '../contracts';
 import { SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
 
 function label(range: OptimizationParameter, side: StrategySide): string {
+  if (range.path === 'stop_loss_pct') return 'stop loss %'; // Mission 13
+  if (range.path === 'take_profit_pct') return 'take profit %';
   const [, id, ...rest] = range.path.split('.');
   const field = rest[0] === 'params' ? rest.slice(1).join('.') : rest.join('.');
   const indicator = side.indicators?.find((i) => i.id === id);

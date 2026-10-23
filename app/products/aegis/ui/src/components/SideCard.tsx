@@ -1,5 +1,4 @@
-import { describeExit, describeRule } from '../rules';
-import { RuleEditor } from './RuleEditor';
+import { describeSide } from '../rules';
 import { useDispatch, useWorkspace, type Side } from '../state/workspace';
 import { sideIndicators } from './StrategyPanel';
 
@@ -23,13 +22,20 @@ export function SideCard({ side }: { side: Side }) {
           onClick={() => dispatch({ type: 'SET_SIDE_PARAM', side, path: 'enabled', value: !spec.enabled })}
         />
       </div>
-      <div className="logic">
-        ENTRY: {describeRule(spec.entry, indicators)}
-        <br />
-        EXIT: {describeExit(spec, indicators)}
+      <div className="logic" style={{ whiteSpace: 'pre-line' }}>
+        {describeSide({ ...spec, indicators })}
       </div>
-      <RuleEditor side={side} which="entry" spec={spec} />
-      {spec.exit && <RuleEditor side={side} which="exit" spec={spec} />}
+      <button
+        type="button"
+        className="btn small"
+        id={`edit-in-builder-${side}`}
+        onClick={() => {
+          dispatch({ type: 'SET_BUILDER_SIDE', side });
+          dispatch({ type: 'SET_PAGE', page: 'lab' });
+        }}
+      >
+        Edit in builder
+      </button>
     </div>
   );
 }

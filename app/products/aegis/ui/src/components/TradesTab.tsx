@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DASH, money, num, timeLabel } from '../format';
+import { DASH, exitLabel, money, num, timeLabel } from '../format';
 import type { ResultSide, Trade } from '../results';
 import { useWorkspace, type RunRecord } from '../state/workspace';
 import { StaleNotice } from './RunContext';
@@ -57,7 +57,9 @@ export function TradesView({ run: lastRun, stale = false }: { run: RunRecord | n
                   <td>{timeLabel(t.signal_time)}</td>
                   <td>{timeLabel(t.entry_time)}</td>
                   <td>{num(t.entry_price)}</td>
-                  <td>{timeLabel(t.exit_time)}</td>
+                  <td>
+                    {timeLabel(t.exit_time)} {exitLabel(t) && <span className="badge exit-reason">{exitLabel(t)}</span>}
+                  </td>
                   <td>{num(t.exit_price)}</td>
                   <td>{num(t.quantity, 0)}</td>
                   <td className={t.net_pnl >= 0 ? 'green' : 'red'}>{money(t.net_pnl)}</td>

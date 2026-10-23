@@ -1,11 +1,13 @@
 import { ReactFlowProvider } from '@xyflow/react';
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { api, errorMessage } from '../../api/client';
 import type { StrategySide } from '../../contracts';
 import { sideFromGraph, type SideGraph } from '../../builder/graph';
 import { History } from '../../builder/history';
 import { useRunBacktest } from '../../state/run';
-import { currentCanvas, defaultRanges, SIDE_KEY, sideGraph, unsavedEdits, useDispatch, useWorkspace, type Side } from '../../state/workspace';
+import { withDefaultRanges } from '../../builder/apply';
+import { currentCanvas, SIDE_KEY, sideGraph, unsavedEdits, useDispatch, useWorkspace, type Side } from '../../state/workspace';
+import { PhraseBar } from './PhraseBar';
 import { Canvas } from './Canvas';
 import { Palette } from './Palette';
 
@@ -14,22 +16,10 @@ export interface Snapshot {
   spec: StrategySide;
 }
 
-/** A side read back from the canvas, with the default (disabled) ranges of each indicator it adds,
- * as an indicator added by hand gets them (spec §9.3). */
-export function withDefaultRanges(next: StrategySide, before: StrategySide): StrategySide {
-  const had = new Set((before.indicators ?? []).map((i) => i.id));
-  const ranges = [...(next.optimization ?? [])];
-  for (const spec of next.indicators ?? []) {
-    if (had.has(spec.id)) continue;
-    for (const range of defaultRanges(spec)) if (!ranges.some((r) => r.path === range.path)) ranges.push(range);
-  }
-  return { ...next, optimization: ranges };
-}
-
 /** The Strategy Lab's builder (Mission 13 spec §4.6): the text line, Long / Short tabs, the palette
  * and the canvas over the workspace strategy, and a status line that says "Ready" or names the
- * first problem. `phrase` is the text line (Task 8). */
-export function BuilderPage({ phrase }: { phrase?: (push: (side: Side, snapshot: Snapshot) => void) => ReactNode }) {
+ * first problem. */
+export function BuilderPage() {
   const state = useWorkspace();
   const { strategy, document, builderSide: side, running } = state;
   const dispatch = useDispatch();
@@ -121,7 +111,7 @@ export function BuilderPage({ phrase }: { phrase?: (push: (side: Side, snapshot:
   return (
     <div className="builder" id="builder" tabIndex={-1} onKeyDown={onKeyDown}>
       <div className="builder-phrase" id="builder-phrase">
-        {phrase?.(push)}
+        <PhraseBar push={push} readOnly={readOnly} />
       </div>
       <div className="builder-head">
         {(['long', 'short'] as Side[]).map((which) => (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { IndicatorSpec, RuleGroup, RuleSpec, StrategySide } from './contracts';
-import { bandIndicators, conditionsOf, describeExit, describeRule, operatorChoices, referencesOf, ruleReferences, warmupBars, warmupOf } from './rules';
+import { bandIndicators, conditionsOf, describeExit, describeRule, describeSide, operatorChoices, referencesOf, ruleReferences, warmupBars, warmupOf } from './rules';
 
 const rule = (left: string, operator: string, right: string): RuleSpec => ({ left, operator, right, timing: 'bar_close' });
 
@@ -108,3 +108,11 @@ describe('exits with levels (Mission 13)', () => {
     expect(ruleReferences(levelsOnly, 'sma')).toEqual(['entry rule']);
   });
 });
+
+describe('describeSide (Mission 13)', () => {
+  it('reads a side as its entry and its exit, levels included', () => {
+    const levelsOnly: StrategySide = { ...reference, exit: undefined, stop_loss_pct: 2, take_profit_pct: 5 };
+    expect(describeSide(levelsOnly)).toBe('ENTRY: EMA(9) crosses ABOVE SMA(30)\nEXIT: stop loss 2% OR take profit 5%');
+  });
+});
+

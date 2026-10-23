@@ -1,5 +1,6 @@
 // Thin typed fetch wrappers for the Aegis worker routes (spec §7). Same-origin under /aegis/api.
 import type { ExperimentDocument, IndicatorSpec, Plan, StrategyDocument, StrategySpec, StudyDocument, StudyPlan } from '../contracts';
+import type { Reading } from '../builder/apply';
 import type { Canvas } from '../builder/graph';
 import type {
   AxisMatrix,
@@ -39,6 +40,8 @@ const BASE = '/aegis/api';
  *  entry's message stands for the lot (Mission 5 review minor, plan P14 item 1). */
 export function detailText(detail: unknown): string {
   if (typeof detail === 'string') return detail;
+  const message = (detail as { message?: unknown } | null)?.message;
+  if (typeof message === 'string') return message;
   if (Array.isArray(detail)) {
     const messages = detail.map((entry) => {
       const msg = (entry as { msg?: unknown } | null)?.msg;
@@ -54,6 +57,7 @@ export function detailText(detail: unknown): string {
 
 export class ApiError extends Error {
   readonly detail: string;
+  readonly raw: unknown; // the worker's detail as sent (Mission 13: the reader's unread spans)
   constructor(
     public status: number,
     detail: unknown,
@@ -61,6 +65,7 @@ export class ApiError extends Error {
     const text = detailText(detail);
     super(text);
     this.detail = text;
+    this.raw = detail;
   }
 }
 
@@ -289,6 +294,7 @@ export const api = {
   strategyDocument: (id: string) => request<StrategyDocument>(doc(id)),
   createStrategy: (name: string, spec: StrategySpec) => request<StrategyDocument>('/strategies', post({ name, spec })),
   updateStrategy: (id: string, patch: { name?: string; spec?: StrategySpec; canvas?: Canvas }) => request<StrategyDocument>(doc(id), put(patch)),
+  readText: (text: string, strategy: StrategySpec) => request<Reading>('/strategies/read', post({ text, strategy })),
   duplicateStrategy: (id: string, name: string) => request<StrategyDocument>(doc(id) + '/duplicate', post({ name })),
   deleteStrategy: (id: string) => request<{ deleted: string }>(doc(id), { method: 'DELETE' }),
   experimentPlan: (body: ExperimentBody) => request<Plan>('/experiments/plan', post(body)),

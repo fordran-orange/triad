@@ -30,6 +30,7 @@ export interface Trade {
   temporal_tags: string[];
   window_edge_exit?: boolean; // walk-forward only: closed by the engine at a window's last bar
   carried_from_window?: number | null; // walk-forward only: entered in that earlier window
+  exit_reason?: 'stop_loss' | 'take_profit'; // Mission 13: closed by a level, not a rule
 }
 
 export interface EquityPoint {

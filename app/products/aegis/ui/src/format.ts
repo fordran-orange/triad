@@ -1,3 +1,4 @@
+import type { Trade } from './results';
 // Honest formatting: a missing value is an em dash, never a fabricated number.
 export const DASH = '—';
 
@@ -25,3 +26,11 @@ export function timeLabel(iso: string | null | undefined): string {
   if (!iso) return DASH;
   return iso.replace('T', ' ').slice(0, 16);
 }
+
+/** How a trade closed when a level closed it (Mission 13): "stop loss", "take profit", or "". */
+export function exitLabel(trade: Pick<Trade, 'exit_reason'>): string {
+  if (trade.exit_reason === 'stop_loss') return 'stop loss';
+  if (trade.exit_reason === 'take_profit') return 'take profit';
+  return '';
+}
+

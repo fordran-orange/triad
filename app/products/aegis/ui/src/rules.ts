@@ -135,6 +135,12 @@ export function ruleReferences(side: StrategySide, id: string): string[] {
   return names;
 }
 
+/** A side in words, entry then exit, for the panel beside the chart (Mission 13). */
+export function describeSide(side: StrategySide): string {
+  const indicators = side.indicators ?? [];
+  return `ENTRY: ${describeRule(side.entry, indicators)}\nEXIT: ${describeExit(side, indicators)}`;
+}
+
 /** A side's exit in words: its rule and its levels, whichever fires first (Mission 13). */
 export function describeExit(side: StrategySide, indicators: IndicatorSpec[]): string {
   const parts: string[] = [];

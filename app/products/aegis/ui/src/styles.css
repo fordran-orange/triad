@@ -287,4 +287,9 @@ tr.muted td{color:#4f6b80}
 .block.condition select{width:116px}
 .port-label{color:var(--muted);font-size:11px}
 .block-badge{font-size:9px}
-
+.phrase-bar{display:flex;flex-direction:column;gap:6px}
+.phrase-input{width:100%}
+.phrase-reading{display:flex;align-items:center;gap:8px;color:var(--bright)}
+.phrase-reading span{flex:1}
+.phrase-error u{text-decoration:underline wavy var(--amber);text-underline-offset:3px}
+.badge.exit-reason{margin-left:4px}
