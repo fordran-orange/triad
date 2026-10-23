@@ -1,4 +1,4 @@
-import { describeRule } from '../rules';
+import { describeExit, describeRule } from '../rules';
 import { RuleEditor } from './RuleEditor';
 import { useDispatch, useWorkspace, type Side } from '../state/workspace';
 import { sideIndicators } from './StrategyPanel';
@@ -26,10 +26,10 @@ export function SideCard({ side }: { side: Side }) {
       <div className="logic">
         ENTRY: {describeRule(spec.entry, indicators)}
         <br />
-        EXIT: {describeRule(spec.exit, indicators)}
+        EXIT: {describeExit(spec, indicators)}
       </div>
       <RuleEditor side={side} which="entry" spec={spec} />
-      <RuleEditor side={side} which="exit" spec={spec} />
+      {spec.exit && <RuleEditor side={side} which="exit" spec={spec} />}
     </div>
   );
 }

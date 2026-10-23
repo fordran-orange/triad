@@ -222,6 +222,8 @@ def referenced_columns(side: StrategySide) -> set[str]:
     """The indicator columns the side's rules read (reference spellings)."""
     columns: set[str] = set()
     for rule in (side.entry, side.exit):
+        if rule is None:
+            continue
         for condition in conditions(rule):
             operands = [condition.left]
             if condition.operator in BAND_OPERATORS:
@@ -252,23 +254,43 @@ class OptimizationParameter(BaseModel):
 
 
 class StrategySide(BaseModel):
-    """One direction's complete logic: its own indicators, rules, switch and ranges."""
+    """One direction's complete logic: its own indicators, rules, switch and ranges. Its exit is a
+    rule, a stop loss, a take profit or any mix of them (Mission 13): levels are percentages of
+    the entry fill, checked on each bar's close; unset ones (and an absent rule) are left out of
+    dumps, so every side written before serializes byte-identically."""
 
     model_config = ConfigDict(extra="forbid")
     direction: Direction
     enabled: bool = True
     indicators: list[IndicatorSpec] = Field(default_factory=list)
     entry: RuleSpec | RuleGroup
-    exit: RuleSpec | RuleGroup
+    exit: RuleSpec | RuleGroup | None = None
     optimization: list[OptimizationParameter] = Field(default_factory=list)
+    stop_loss_pct: float | None = Field(default=None, gt=0, lt=100, allow_inf_nan=False)
+    take_profit_pct: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_exits(self, handler):
+        data = handler(self)
+        if isinstance(data, dict):
+            for key in ("exit", "stop_loss_pct", "take_profit_pct"):
+                if data.get(key) is None:
+                    data.pop(key, None)
+        return data
 
     @model_validator(mode="after")
     def rules_reference_owned_indicators(self):
+        if self.exit is None and self.stop_loss_pct is None and self.take_profit_pct is None:
+            raise ValueError(
+                f"{self.direction.value} side has no exit: add a rule, a stop or a target"
+            )
         ids = [i.id for i in self.indicators]
         if len(set(ids)) != len(ids):
             raise ValueError("duplicate indicator id")
         outputs = {spec.id: kind_info(spec.kind).outputs for spec in self.indicators}
         for rule_name, rule in (("entry", self.entry), ("exit", self.exit)):
+            if rule is None:
+                continue
             for condition in conditions(rule):
                 _check_condition(rule_name, condition, outputs)
         for parameter in self.optimization:

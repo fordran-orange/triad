@@ -13,7 +13,14 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from products.aegis import kernel
 from products.aegis.indicators import IndicatorCache, named, references
@@ -67,6 +74,16 @@ class OpenPosition(BaseModel):
     origin_window: int | None = None
     exit_signal_time: str | None = None
     exit_tags: list[str] = Field(default_factory=list)
+    # Mission 13: set when the travelling exit is a stop loss or a take profit; left out of
+    # dumps otherwise, so every carried position written before serializes byte-identically.
+    exit_reason: Literal["stop_loss", "take_profit"] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_rule_reason(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("exit_reason") is None:
+            data.pop("exit_reason", None)
+        return data
 
 
 class PendingEntry(BaseModel):
@@ -307,7 +324,8 @@ def _side_frame(
         for column in produced.columns:
             data[column] = produced[column].to_numpy()
     data["entry_signal"] = evaluate(data, side.entry)
-    data["exit_signal"] = evaluate(data, side.exit)
+    # Mission 13: a side may exit by its levels alone; then no rule ever signals an exit.
+    data["exit_signal"] = evaluate(data, side.exit) if side.exit is not None else False
     # Warm where every indicator column the rules read has a value (spec §6).
     columns = sorted(referenced_columns(side))
     data["warm"] = data[columns].notna().all(axis=1) if columns else True
@@ -369,6 +387,8 @@ def _simulate_side(
     data = _side_frame(frame, spec, cache, data_key)
     entry_signal = "entry_signal"
     exit_signal = "exit_signal"
+    stop, target = _levels(spec)
+    sign = _side_sign(side)
     cash = settings.initial_capital
     position = None
     pending = None
@@ -393,6 +413,7 @@ def _simulate_side(
                 "signal_time": carried.exit_signal_time,
                 "tags": tuple(carried.exit_tags),
                 "carried": True,
+                "reason": carried.exit_reason,
             }
     entry_waiting = settings.initial_entry
     if position is None and entry_waiting is not None and entry_waiting.side == side:
@@ -441,24 +462,27 @@ def _simulate_side(
                 net = gross - position["entry_fee"] - commission
                 pre_trade_capital = position.get("capital_at_entry", settings.initial_capital)
                 trades.append(
-                    _carried(
-                        position,
-                        {
-                            "side": side,
-                            "signal_time": position["signal_time"],
-                            "entry_time": position["entry_time"],
-                            "entry_price": position["entry_price"],
-                            "exit_signal_time": pending["signal_time"],
-                            "exit_time": timestamp.isoformat(),
-                            "exit_price": fill,
-                            "quantity": quantity,
-                            "gross_pnl": gross,
-                            "net_pnl": net,
-                            "return": net / pre_trade_capital,
-                            "temporal_tags": sorted(
-                                set(position["entry_tags"]) | set(pending["tags"])
-                            ),
-                        },
+                    _reasoned(
+                        _carried(
+                            position,
+                            {
+                                "side": side,
+                                "signal_time": position["signal_time"],
+                                "entry_time": position["entry_time"],
+                                "entry_price": position["entry_price"],
+                                "exit_signal_time": pending["signal_time"],
+                                "exit_time": timestamp.isoformat(),
+                                "exit_price": fill,
+                                "quantity": quantity,
+                                "gross_pnl": gross,
+                                "net_pnl": net,
+                                "return": net / pre_trade_capital,
+                                "temporal_tags": sorted(
+                                    set(position["entry_tags"]) | set(pending["tags"])
+                                ),
+                            },
+                        ),
+                        pending.get("reason"),
                     )
                 )
                 # Use realized P&L accounting for both sides to avoid synthetic short cash distortion.
@@ -490,17 +514,24 @@ def _simulate_side(
         )
 
         if i >= len(data) - 1:
+            reason = 0
+            if position is not None:
+                reason = kernel.level_reason(
+                    float(row.close), position["entry_price"], sign, stop, target
+                )
             if (
                 not settings.close_at_end
                 and position is not None
                 and bool(row.warm)
-                and bool(row[exit_signal])
+                and (bool(row[exit_signal]) or reason)
             ):
                 # No next bar here to fill on: the signal travels with the open position.
                 exit_carry = {
                     "exit_signal_time": timestamp.isoformat(),
                     "exit_tags": list(_trade_tags(timestamp, strategy, events, symbol)),
                 }
+                if reason:
+                    exit_carry["exit_reason"] = kernel.EXIT_REASONS[reason]
             elif (
                 not settings.close_at_end
                 and position is None
@@ -531,13 +562,19 @@ def _simulate_side(
                 "tags": tags,
             }
             # store capital at entry when the fill happens
-        elif position is not None and bool(row[exit_signal]):
-            pending = {
-                "action": "EXIT",
-                "signal_index": i,
-                "signal_time": timestamp.isoformat(),
-                "tags": tags,
-            }
+        elif position is not None:
+            reason = kernel.level_reason(
+                float(row.close), position["entry_price"], sign, stop, target
+            )
+            if bool(row[exit_signal]) or reason:
+                pending = {
+                    "action": "EXIT",
+                    "signal_index": i,
+                    "signal_time": timestamp.isoformat(),
+                    "tags": tags,
+                }
+                if reason:
+                    pending["reason"] = kernel.EXIT_REASONS[reason]
 
     open_position = None
     if position is not None and not settings.close_at_end:
@@ -650,7 +687,7 @@ def _simulate_side_kernel(
     else:
         evaluating = (timestamps >= settings.evaluate_from).to_numpy(dtype=np.bool_)
     carried = settings.initial_position
-    carried_array = np.zeros(7)
+    carried_array = np.zeros(8)
     if carried is not None and carried.side == side:
         carried_array[:6] = (
             1.0,
@@ -660,6 +697,7 @@ def _simulate_side_kernel(
             carried.capital_at_entry,
             1.0 if carried.exit_signal_time is not None else 0.0,
         )
+        carried_array[7] = kernel.REASON_CODES.get(carried.exit_reason or "", 0)
     else:
         carried = None
     waiting = settings.initial_entry
@@ -686,6 +724,7 @@ def _simulate_side_kernel(
             strategy.execution.slippage_bps,
             settings.close_at_end,
             carried_array,
+            *_levels(spec),
         )
     )
     iso = [stamp.isoformat() for stamp in timestamps]
@@ -727,6 +766,8 @@ def _simulate_side_kernel(
         }
         if carried_in:
             trade["carried_from_window"] = carried.origin_window
+        if row[11] > 0.0:
+            trade["exit_reason"] = kernel.EXIT_REASONS[int(row[11])]
         trades.append(trade)
 
     evaluated = np.flatnonzero(evaluating)[:n_points]
@@ -760,6 +801,8 @@ def _simulate_side_kernel(
             "exit_signal_time": iso[exit_index] if exit_index >= 0 else None,
             "exit_tags": list(tags_at(exit_index)) if exit_index >= 0 else [],
         }
+        if scalars[11] > 0.0:
+            open_position["exit_reason"] = kernel.EXIT_REASONS[int(scalars[11])]
 
     entry_index = int(scalars[10])
     pending_entry = (
@@ -847,7 +890,8 @@ def _side_metrics(
             strategy.execution.commission_per_side,
             strategy.execution.slippage_bps,
             True,
-            np.zeros(7),
+            np.zeros(8),
+            *_levels(spec),
         )
     )
     timestamps = data["timestamp"]
@@ -918,6 +962,19 @@ def run_metrics(
         "first_time": frame["timestamp"].iloc[0].isoformat(),
         "last_time": frame["timestamp"].iloc[-1].isoformat(),
     }
+
+
+def _levels(side: StrategySide) -> tuple[float, float]:
+    """The side's stop loss and take profit as fractions of the entry price; 0 when unset."""
+    return (side.stop_loss_pct or 0.0) / 100.0, (side.take_profit_pct or 0.0) / 100.0
+
+
+def _reasoned(trade: dict, reason: str | None) -> dict:
+    """A trade closed by a stop loss or a take profit says so (Mission 13); rule exits gain no
+    field, so their hashes do not move."""
+    if reason:
+        return {**trade, "exit_reason": reason}
+    return trade
 
 
 def _carried(position: dict, trade: dict) -> dict:

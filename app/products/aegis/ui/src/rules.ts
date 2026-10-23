@@ -131,6 +131,15 @@ function reads(condition: RuleSpec, id: string): boolean {
 export function ruleReferences(side: StrategySide, id: string): string[] {
   const names: string[] = [];
   if (conditionsOf(side.entry).some((c) => reads(c, id))) names.push('entry rule');
-  if (conditionsOf(side.exit).some((c) => reads(c, id))) names.push('exit rule');
+  if (side.exit && conditionsOf(side.exit).some((c) => reads(c, id))) names.push('exit rule');
   return names;
+}
+
+/** A side's exit in words: its rule and its levels, whichever fires first (Mission 13). */
+export function describeExit(side: StrategySide, indicators: IndicatorSpec[]): string {
+  const parts: string[] = [];
+  if (side.exit) parts.push(describeRule(side.exit, indicators));
+  if (side.stop_loss_pct != null) parts.push(`stop loss ${side.stop_loss_pct}%`);
+  if (side.take_profit_pct != null) parts.push(`take profit ${side.take_profit_pct}%`);
+  return parts.join(' OR ');
 }

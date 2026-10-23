@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { IndicatorSpec, RuleGroup, RuleSpec, StrategySide } from './contracts';
-import { bandIndicators, conditionsOf, describeRule, operatorChoices, referencesOf, ruleReferences, warmupBars, warmupOf } from './rules';
+import { bandIndicators, conditionsOf, describeExit, describeRule, operatorChoices, referencesOf, ruleReferences, warmupBars, warmupOf } from './rules';
 
 const rule = (left: string, operator: string, right: string): RuleSpec => ({ left, operator, right, timing: 'bar_close' });
 
@@ -92,5 +92,19 @@ describe('rule trees (Mission 13)', () => {
 
   it('lists every condition of a tree, left to right', () => {
     expect(conditionsOf({ all_of: [a, { any_of: [b, c] }] })).toEqual([a, b, c]);
+  });
+});
+
+describe('exits with levels (Mission 13)', () => {
+  const levelsOnly: StrategySide = { ...reference, exit: undefined, stop_loss_pct: 2, take_profit_pct: 5 };
+
+  it('describes an exit of levels alone, or a rule with levels', () => {
+    expect(describeExit(levelsOnly, levelsOnly.indicators!)).toBe('stop loss 2% OR take profit 5%');
+    expect(describeExit({ ...reference, stop_loss_pct: 1.5 }, reference.indicators!)).toBe('EMA(9) crosses BELOW SMA(30) OR stop loss 1.5%');
+    expect(describeExit(reference, reference.indicators!)).toBe('EMA(9) crosses BELOW SMA(30)');
+  });
+
+  it('finds the rules that read an indicator when the exit has no rule', () => {
+    expect(ruleReferences(levelsOnly, 'sma')).toEqual(['entry rule']);
   });
 });

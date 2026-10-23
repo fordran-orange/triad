@@ -218,3 +218,24 @@ def test_trades_buffer_overflow_is_an_error_not_a_crash(monkeypatch):
     monkeypatch.setattr(kernel, "trade_capacity", lambda n_bars: 1)
     with pytest.raises(RuntimeError, match=r"trades buffer full \(capacity 1\)"):
         run_backtest(BacktestRequest(strategy=strategy, bars=rows, engine="kernel"))
+
+
+def test_kernel_matches_reference_with_stops():
+    """Mission 13: stop loss and take profit give the same trades on both engines."""
+
+    def levels(strategy):
+        update = {
+            key: getattr(strategy, key).model_copy(
+                update={"stop_loss_pct": 1.5, "take_profit_pct": 3.0}
+            )
+            for key in ("long_side", "short_side")
+        }
+        return strategy.model_copy(update=update)
+
+    for strategy in (default_strategy(), _breakout(None)):
+        for rows in (bars(), wave_bars(n=300, period=60.0, amplitude=8.0)):
+            reference, _ = _assert_identical(levels(strategy), rows)
+            reasons = {
+                t.get("exit_reason") for s in ("long", "short") for t in reference[s]["trades"]
+            }
+            assert reasons & {"stop_loss", "take_profit"}, reasons

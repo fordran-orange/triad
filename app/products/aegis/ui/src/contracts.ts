@@ -96,6 +96,7 @@ export interface OpenPosition {
   origin_window?: number | null;
   exit_signal_time?: string | null;
   exit_tags?: string[];
+  exit_reason?: 'stop_loss' | 'take_profit' | null;
 }
 
 export interface OptimizationParameter {
@@ -136,8 +137,10 @@ export interface StrategySide {
   enabled?: boolean;
   indicators?: IndicatorSpec[];
   entry: RuleSpec | RuleGroup;
-  exit: RuleSpec | RuleGroup;
+  exit?: RuleSpec | RuleGroup | null;
   optimization?: OptimizationParameter[];
+  stop_loss_pct?: number | null;
+  take_profit_pct?: number | null;
 }
 
 export interface StrategySpec {

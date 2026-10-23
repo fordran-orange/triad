@@ -15,7 +15,9 @@ const LABELS: Record<string, string> = {
 /** Entry or exit of one side: one condition, or two joined by AND / OR (spec §6). */
 export function RuleEditor({ side, which, spec }: { side: Side; which: 'entry' | 'exit'; spec: StrategySide }) {
   const dispatch = useDispatch();
-  const rule = spec[which];
+  const found = spec[which];
+  if (!found) return null; // Mission 13: an exit by levels alone has no rule to edit here
+  const rule: Rule = found;
   const conditions = conditionsOf(rule);
   const any = isGroup(rule) && rule.any_of !== undefined && rule.any_of !== null;
   const series = [...(spec.indicators ?? []).flatMap((i) => referencesOf(i)), ...PRICE_OPERANDS];

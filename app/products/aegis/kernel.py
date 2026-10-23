@@ -42,6 +42,7 @@ TRADE_COLUMNS = (
     "net",
     "ret",
     "carried_in",
+    "exit_reason",  # Mission 13: 0 a rule (or the end of data), 1 stop loss, 2 take profit
 )
 SCALARS = (
     "ending_cash",
@@ -55,8 +56,27 @@ SCALARS = (
     "open_capital_at_entry",
     "open_exit_signal_index",
     "entry_carry_index",  # an entry signalled on the last bar with close_at_end off, or -1
+    "open_exit_reason",  # the reason of an exit travelling with the open position, or 0
 )
 ERROR_TRADES_FULL = 1
+EXIT_REASONS = ("", "stop_loss", "take_profit")
+REASON_CODES = {"stop_loss": 1, "take_profit": 2}
+
+
+@njit(cache=True, nogil=True)
+def level_reason(close, entry_price, sign, stop, target):
+    """The level a bar's close reached (Mission 13): 1 stop loss, 2 take profit, else 0. `stop`
+    and `target` are fractions of the entry price; 0 is off and never checked. Both engines call
+    this, so their arithmetic is the same."""
+    if stop > 0.0:
+        level = entry_price * (1.0 - sign * stop)
+        if sign * (close - level) <= 0.0:
+            return 1
+    if target > 0.0:
+        level = entry_price * (1.0 + sign * target)
+        if sign * (close - level) >= 0.0:
+            return 2
+    return 0
 
 
 def trade_capacity(n_bars: int) -> int:
@@ -83,16 +103,18 @@ def _simulate(
     slippage_bps,
     close_at_end,
     carried,
+    stop_loss,
+    take_profit,
     capacity,
 ):
     n = open_.shape[0]
-    trades = np.zeros((capacity, 11))
+    trades = np.zeros((capacity, 12))
     n_trades = 0
     equity = np.zeros(n)
     drawdown = np.zeros(n)
     in_position = np.zeros(n, dtype=np.uint8)
     n_points = 0
-    scalars = np.zeros(11)
+    scalars = np.zeros(12)
     error = 0
 
     cash = initial_capital
@@ -107,6 +129,7 @@ def _simulate(
     pending = 0  # 0 none, 1 enter, 2 exit
     pending_signal_index = -1
     pending_carried = False
+    pending_reason = 0
     if carried[0] > 0.0:
         has_position = True
         entry_price = carried[1]
@@ -118,6 +141,8 @@ def _simulate(
             pending = 2
             pending_signal_index = -1
             pending_carried = True
+            if carried.shape[0] > 7:
+                pending_reason = int(carried[7])
     elif carried.shape[0] > 6 and carried[6] > 0.0:
         # An entry signalled on the previous run's last bar fills at the first evaluated bar.
         pending = 1
@@ -125,6 +150,7 @@ def _simulate(
         pending_carried = True
     peak = initial_capital
     exit_carry_index = -1
+    exit_carry_reason = 0
     entry_carry_index = -1
 
     for i in range(n):
@@ -161,11 +187,13 @@ def _simulate(
                 trades[n_trades, 8] = net
                 trades[n_trades, 9] = net / capital_at_entry
                 trades[n_trades, 10] = position_carried
+                trades[n_trades, 11] = float(pending_reason)
                 n_trades += 1
                 cash = capital_at_entry + net
                 has_position = False
             pending = 0
             pending_carried = False
+            pending_reason = 0
 
         if not ev:
             continue
@@ -184,8 +212,12 @@ def _simulate(
         n_points += 1
 
         if i >= n - 1:
-            if (not close_at_end) and has_position and warm[i] and exit_[i]:
+            reason = 0
+            if has_position:
+                reason = level_reason(close[i], entry_price, side_sign, stop_loss, take_profit)
+            if (not close_at_end) and has_position and warm[i] and (exit_[i] or reason > 0):
                 exit_carry_index = i
+                exit_carry_reason = reason
             elif (
                 (not close_at_end) and (not has_position) and warm[i] and entry[i] and permitted[i]
             ):
@@ -197,10 +229,13 @@ def _simulate(
             pending = 1
             pending_signal_index = i
             pending_carried = False
-        elif has_position and exit_[i]:
-            pending = 2
-            pending_signal_index = i
-            pending_carried = False
+        elif has_position:
+            reason = level_reason(close[i], entry_price, side_sign, stop_loss, take_profit)
+            if exit_[i] or reason > 0:
+                pending = 2
+                pending_signal_index = i
+                pending_carried = False
+                pending_reason = reason
 
     if error == 0:
         if has_position and not close_at_end:
@@ -242,6 +277,7 @@ def _simulate(
     if scalars[9] == 0.0 and scalars[2] == 0.0:
         scalars[9] = -1.0
     scalars[10] = float(entry_carry_index)
+    scalars[11] = float(exit_carry_reason)
     return trades, n_trades, equity, drawdown, in_position, n_points, scalars, error
 
 
@@ -262,8 +298,11 @@ def simulate_arrays(
     slippage_bps: float,
     close_at_end: bool,
     carried: np.ndarray,
+    stop_loss: float = 0.0,
+    take_profit: float = 0.0,
 ):
-    """Run the compiled loop; see the module docstring for the returned arrays."""
+    """Run the compiled loop; see the module docstring for the returned arrays. `stop_loss` and
+    `take_profit` are fractions of the entry price (Mission 13); 0 leaves them off."""
     capacity = trade_capacity(int(open_.shape[0]))
     result = _simulate(
         np.ascontiguousarray(open_, dtype=np.float64),
@@ -282,6 +321,8 @@ def simulate_arrays(
         float(slippage_bps),
         bool(close_at_end),
         np.ascontiguousarray(carried, dtype=np.float64),
+        float(stop_loss),
+        float(take_profit),
         capacity,
     )
     if result[7] == ERROR_TRADES_FULL:
@@ -291,9 +332,12 @@ def simulate_arrays(
 
 __all__ = [
     "AVAILABLE",
+    "EXIT_REASONS",
     "IMPORT_ERROR",
+    "REASON_CODES",
     "SCALARS",
     "TRADE_COLUMNS",
+    "level_reason",
     "simulate_arrays",
     "trade_capacity",
 ]
