@@ -39,15 +39,19 @@ def _library():
     return StrategyLibrary(JsonRunRepository(ROOT / "data" / "aegis"))
 
 
-def _breakout():
-    """The newest saved Donchian RSI breakout (what the walk's item 37 builds)."""
+def _breakout(identifier: str | None = None):
+    """A saved Donchian RSI breakout (what the walk's item 37 builds): the one named, or at a
+    capture the newest; a compare reuses the capture's, since later walks save newer ones."""
     library = _library()
-    rows = [r for r in library.list() if str(r.get("name", "")).startswith("Donchian RSI breakout")]
-    newest = max(rows, key=lambda r: r.get("created_at") or "")
-    return library.get(newest["id"]).spec
+    if identifier is None:
+        rows = [
+            r for r in library.list() if str(r.get("name", "")).startswith("Donchian RSI breakout")
+        ]
+        identifier = max(rows, key=lambda r: r.get("created_at") or "")["id"]
+    return library.get(identifier).spec
 
 
-def outputs() -> dict:
+def outputs(breakout_id: str | None = None) -> dict:
     from products.aegis.backtest import (
         BacktestSettings,
         DataReference,
@@ -69,8 +73,8 @@ def outputs() -> dict:
     frame = prepare_archive_frame(raw, SYMBOL)
     key, cache = _data_key(frame), IndicatorCache()
     identity = {"source": "raw_archive", "bar_count": len(frame)}
-    breakout = _breakout()
-    out: dict = {"bars": len(frame)}
+    breakout = _breakout(breakout_id)
+    out: dict = {"bars": len(frame), "breakout_id": breakout.id}
     for name, strategy in (("reference", default_strategy()), ("breakout", breakout)):
         for engine in ("reference", "kernel"):
             request = prepared_request(strategy, BacktestSettings(), engine)
@@ -166,15 +170,23 @@ def main(argv: list[str]) -> None:
         return
     if mode not in ("capture", "compare") or len(argv) != 2:
         raise SystemExit("usage: builder_identity.py capture|compare OUT.json | hashes")
-    started = time.perf_counter()
-    current = outputs()
-    seconds = time.perf_counter() - started
     target = Path(argv[1])
+    captured = json.loads(target.read_text(encoding="utf-8")) if mode == "compare" else None
+    breakout_id = None
+    if captured is not None:  # captures before breakout_id existed name it in the payload
+        breakout_id = (
+            captured.get("breakout_id")
+            or captured["backtest/breakout/kernel"]["payload"]["strategy"]["id"]
+        )
+        captured.setdefault("breakout_id", breakout_id)
+    started = time.perf_counter()
+    current = outputs(breakout_id)
+    seconds = time.perf_counter() - started
     if mode == "capture":
         target.write_text(json.dumps(current, sort_keys=True), encoding="utf-8")
         print(f"captured {current['bars']:,} bars in {seconds:.1f} s -> {target}")
         return
-    found = _first_difference(current, json.loads(target.read_text(encoding="utf-8")))
+    found = _first_difference(current, captured)
     print(f"{current['bars']:,} bars in {seconds:.1f} s: " + (found or "identical"))
 
 

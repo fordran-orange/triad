@@ -1,11 +1,11 @@
 """Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items, the 14 Mission 4
 items, the 11 Mission 5 items, the 13 Mission 6 items, the 9 Mission 8 items, the 7 Mission 9
-items, the 5 limits items, the 5 Mission 10 items, the 2 Mission 11 items and the 2 Mission 12 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
+items, the 5 limits items, the 5 Mission 10 items, the 2 Mission 11 items, the 2 Mission 12 items and the 7 Mission 13 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
 (indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
 Items 51 and 63 restart the worker detached through WMI (tools/start_product.ps1), as the DoD asks.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
-Exit code 0 only when all 90 items PASS with no page errors.
+Exit code 0 only when all 97 items PASS with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
 
@@ -124,6 +124,14 @@ ITEMS = [
     # Mission 12: studies on frames (spec §2 item 4)
     "a one-minute study above the old 200,000-bar study cap plans, runs to done with every window and a report, and opens from the Library",
     "governance unchanged since the Mission 12 plan and items 1–88 still pass",
+    # Mission 13: the strategy builder (spec §5)
+    "typing the operator's sentence previews its reading; Apply builds the blocks with a default stop and target; the backtest runs and its trades are labelled stop loss / take profit",
+    "blocks dragged in from the palette are wired into an AND and into Entry; deleting a block names the empty input; Ctrl+Z restores it; the strategy saves",
+    "after a reload the blocks are where they were saved; a strategy saved before the builder opens laid out automatically, not edited, its hash unchanged",
+    "an experiment over the stop loss percentage runs to done with a cell per value",
+    "the panel beside the chart reads the side as text with its stop and target, and Edit in builder opens that side",
+    "text the reader cannot read is refused naming the word, and the strategy is unchanged",
+    "governance unchanged since the Mission 13 plan and items 1–96 still pass",
 ]
 RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
 MISSION5_BASE = (
@@ -155,6 +163,15 @@ COMPRESSED_BASE = (
     "caf1caa"  # the Mission 11 plan commit; Core, platform host and Triad frozen since
 )
 MISSION11_STARTED = "2026-10-21T11:30:00"  # documents saved before this are plain JSON
+BUILDER_BASE = "abd47a7"  # the Mission 13 plan commit; Core, platform host and Triad frozen since
+MISSION13_STARTED = (
+    "2026-10-23T02:38:56"  # strategy documents created before this predate the builder
+)
+ITEM_37_SENTENCE = (  # spec §9.6: the breakout item 37 built with the retired dropdowns
+    "buy when close crosses above donchian upper and rsi below 70; "
+    "sell when close crosses below donchian middle"
+)
+OPERATOR_SENTENCE = "buy when 9 ema crosses 30 sma and price is above 200 sma"
 STUDY_FRAMES_BASE = (
     "f9ae2a2"  # the Mission 12 plan commit; Core, platform host and Triad frozen since
 )
@@ -350,6 +367,19 @@ class Acceptance:
             data=json.dumps(body),
             headers={"content-type": "application/json"},
         )
+
+    def builder_save(self) -> dict:
+        """Save in the builder (Mission 13) and wait for the saved document, not just the button."""
+        with self.page.expect_response(
+            lambda r: "/aegis/api/strategies/" in r.url and r.request.method == "PUT",
+            timeout=30_000,
+        ) as caught:
+            self.page.locator("#builder-save").click()
+        assert caught.value.ok, caught.value.text()[:200]
+        self.page.wait_for_function(
+            "document.querySelector('#builder-save')?.disabled === true", timeout=30_000
+        )
+        return caught.value.json()
 
     def screenshot_path(self, label: str) -> Path:
         return ROOT / "logs" / f"aegis-acceptance-{self.stamp}-{label}.png"
@@ -1121,36 +1151,20 @@ class Acceptance:
             page.locator(f"#use-{doc_id}").click()
             page.wait_for_selector("#chart-mount")
             wait_text("#document-name", name)
-            # Indicators on the long side only (plan ruling P11).
-            page.locator("#right-tab-indicators").click()
-            page.locator("#focus-long").click()
-            for kind in ("DONCHIAN", "RSI"):
-                page.locator("#add-indicator-kind").select_option(kind)
-                page.locator("#add-indicator").click()
-            page.wait_for_selector("#indicator-donchian")
-            page.wait_for_selector("#indicator-rsi")
-            # Rules: entry = close crosses above donchian.upper AND rsi < 70; exit on the middle.
-            page.locator("#right-tab-strategy").click()
-            page.locator("#long-entry-left-0").select_option("price.close")
-            page.locator("#long-entry-operator-0").select_option("crosses_above")
-            page.locator("#long-entry-right-0").select_option("donchian.upper")
-            page.locator("#long-entry-add-condition").click()
-            page.locator("#long-entry-join").select_option("all")
-            page.locator("#long-entry-left-1").select_option("rsi")
-            page.locator("#long-entry-operator-1").select_option("less_than")
-            page.locator("#long-entry-right-1").select_option("__constant__")
-            set_number("#long-entry-constant-1", 70)
-            page.locator("#long-exit-left-0").select_option("price.close")
-            page.locator("#long-exit-operator-0").select_option("crosses_below")
-            page.locator("#long-exit-right-0").select_option("donchian.middle")
-            # The crossover indicators are no longer read on the long side: remove them.
-            page.locator("#right-tab-indicators").click()
-            for gone in ("ema", "sma"):
-                page.locator(f"#remove-{gone}").click()
-                page.wait_for_selector(f"#indicator-{gone}", state="detached")
-            page.wait_for_selector("#unsaved-edits")  # its label is uppercased by CSS
-            page.locator("#save-document").click()
-            page.wait_for_selector("#unsaved-edits", state="detached", timeout=30_000)
+            # Mission 13: the rules are typed into the builder (the dropdowns retired; spec §9.6).
+            page.locator("#nav-lab").click()
+            page.wait_for_selector('.react-flow__node[data-id="entry"]', timeout=30_000)
+            page.locator("#phrase-input").fill(ITEM_37_SENTENCE)
+            page.locator("#phrase-input").press("Enter")
+            page.wait_for_selector("#phrase-reading", timeout=30_000)
+            page.locator("#phrase-apply").click()
+            page.wait_for_selector('.react-flow__node[data-id="donchian"]', timeout=30_000)
+            page.wait_for_function(
+                "document.querySelector('#builder-status')?.innerText === 'Ready'", timeout=30_000
+            )
+            self.builder_save()
+            page.locator("#nav-charts").click()
+            page.wait_for_selector("#chart-mount")
             saved = self.api(f"strategies/{doc_id}")
             side = saved["spec"]["long_side"]
             assert [i["id"] for i in side["indicators"]] == ["donchian", "rsi"], side["indicators"]
@@ -1408,11 +1422,11 @@ class Acceptance:
                 ),
                 refused(
                     lambda s: s.update(entry={"all_of": [condition]}),
-                    "a group needs two conditions",
+                    "a group needs two members",  # Mission 13: members may be groups
                 ),
-                refused(
-                    lambda s: s.update(entry={"any_of": [condition] * 3}),
-                    "at most two conditions in this slice",
+                refused(  # Mission 13: any number of members, nested at most 32 levels
+                    lambda s: s.update(entry=nested(condition, 33)),
+                    "nested deeper than 32 levels",
                 ),
                 refused(
                     lambda s: s["indicators"][1].update(params={"x": 1}), "RSI has no parameter 'x'"
@@ -3937,6 +3951,323 @@ class Acceptance:
             )
 
         self.item(90, item90)
+        self.strategy_builder()
+
+    # -- Mission 13 items 91-97 ---------------------------------------------------------------------
+    def strategy_builder(self):
+        page = self.page
+        built: dict = {}
+
+        def ready():
+            page.wait_for_function(
+                "document.querySelector('#builder-status')?.innerText === 'Ready'", timeout=30_000
+            )
+
+        def status() -> str:
+            return page.locator("#builder-status").inner_text()
+
+        def blocks() -> list[str]:
+            return self.js(
+                "[...document.querySelectorAll('#builder-canvas .react-flow__node')].map(n => n.getAttribute('data-id'))"
+            )
+
+        def handle(block, port):
+            box = page.locator(
+                f'.react-flow__node[data-id="{block}"] .react-flow__handle[data-handleid="{port}"]'
+            ).bounding_box()
+            return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+        def wire(a, ap, b, bp):
+            x1, y1 = handle(a, ap)
+            x2, y2 = handle(b, bp)
+            page.mouse.move(x1, y1)
+            page.mouse.down()
+            page.mouse.move((x1 + x2) / 2, (y1 + y2) / 2, steps=8)
+            page.mouse.move(x2, y2, steps=8)
+            page.mouse.up()
+            page.wait_for_timeout(300)
+
+        def open_in_builder(doc_id):
+            page.locator("#nav-lab").click()
+
+            # Earlier items can leave unsaved workspace edits: opening another strategy asks first.
+            def accept(dialog):
+                dialog.accept()
+
+            page.on("dialog", accept)
+            try:
+                page.locator(f"#doc-{doc_id}").click()
+                page.wait_for_function(
+                    f"document.querySelector('#doc-{doc_id}')?.classList.contains('selected')",
+                    timeout=30_000,
+                )
+            finally:
+                page.remove_listener("dialog", accept)
+            page.wait_for_selector('.react-flow__node[data-id="entry"]', timeout=30_000)
+            page.wait_for_timeout(500)
+
+        def item91():
+            spec = self.api("strategy/default")
+            created = self.post(
+                "strategies", {"name": f"Operator sentence {self.stamp}", "spec": spec}
+            )
+            assert created.status == 201, created.text()
+            doc_id = created.json()["id"]
+            built["id"] = doc_id
+            open_in_builder(doc_id)
+            page.locator("#phrase-input").fill(OPERATOR_SENTENCE)
+            page.locator("#phrase-input").press("Enter")
+            page.wait_for_selector("#phrase-reading", timeout=30_000)
+            reading = page.locator("#phrase-reading span").first.inner_text()
+            assert reading == (
+                "Long entry: EMA 9 crosses above SMA 30 AND close above SMA 200. "
+                "Exit: stop loss 2%, take profit 5% (default)"
+            ), reading
+            page.locator("#phrase-apply").click()
+            page.wait_for_selector('.react-flow__node[data-id="sma200"]', timeout=30_000)
+            ready()
+            shown = blocks()
+            for block in ("ema", "sma30", "sma200", "and-1", "stop_loss-1", "take_profit-1"):
+                assert block in shown, (block, shown)
+            badges = page.locator("#builder-canvas .block-badge").count()
+            assert badges == 2, badges
+            self.builder_save()
+            self.select("Timeframe", "1h")  # a known range, whatever earlier items left selected
+            page.get_by_label("Start date").fill("2023-01-01")
+            page.get_by_label("End date").fill("2024-12-31")
+            with page.expect_response(
+                lambda r: r.url.endswith("/aegis/api/backtest") and r.request.method == "POST",
+                timeout=120_000,
+            ) as caught:
+                page.locator("#builder-run").click()
+            envelope = caught.value.json()
+            reasons = [t.get("exit_reason") for t in envelope["result"]["long"]["trades"]]
+            labelled = [r for r in reasons if r]
+            assert labelled, reasons
+            page.wait_for_selector("#chart-mount", timeout=30_000)
+            page.locator(".result-tabs button", has_text="Trades").click()
+            page.wait_for_selector(".badge.exit-reason", timeout=30_000)
+            labels = set(
+                self.js(
+                    "[...document.querySelectorAll('.badge.exit-reason')].map(b => b.innerText)"
+                )
+            )
+            assert labels <= {"stop loss", "take profit"} and labels, labels
+            return (
+                f"document {doc_id}: '{reading}'; {len(shown)} blocks, 2 default badges; backtest "
+                f"{len(reasons)} long trades, {len(labelled)} closed by a level; Trades shows "
+                f"{sorted(labels)}"
+            )
+
+        self.item(91, item91)
+
+        def item92():
+            open_in_builder(built["id"])
+            for _ in range(2):
+                page.locator(".react-flow__controls-zoomout").click()
+                page.wait_for_timeout(200)
+            canvas = page.locator("#builder-canvas").bounding_box()
+            lowest = self.js(
+                "Math.max(...[...document.querySelectorAll('#builder-canvas .react-flow__node')].map(n => n.getBoundingClientRect().bottom))"
+            )
+            row = min(lowest - canvas["y"] + 30, canvas["height"] - 140)
+            for item, dx in (("indicator-RSI", 120), ("condition", 320), ("and", 520)):
+                page.locator(f"#palette-{item}").drag_to(
+                    page.locator("#builder-canvas"), target_position={"x": dx, "y": row}
+                )
+                page.wait_for_timeout(300)
+            shown = blocks()
+            assert {"rsi", "condition-3", "and-2"} <= set(shown), shown
+            wire("rsi", "value", "condition-3", "left")
+            page.locator("#condition-3-right").fill("50")
+            wire("and-1", "out", "and-2", "in0")
+            wire("condition-3", "out", "and-2", "in1")
+            refused_wire = None
+            wire("and-2", "out", "entry", "rule")
+            refused_wire = status()
+            assert refused_wire.startswith("Entry takes one input"), refused_wire
+            # Right-click the wire at its own midpoint (a curve's box centre is often off it).
+            x, y = self.js(
+                """(() => {
+                const edge = [...document.querySelectorAll('.react-flow__edge')].find((e) => {
+                    const label = e.getAttribute('aria-label') ?? '';
+                    return label.includes('and-1') && label.includes('entry');
+                });
+                const path = edge.querySelector('path.react-flow__edge-path');
+                const mid = path.getPointAtLength(path.getTotalLength() / 2);
+                const at = new DOMPoint(mid.x, mid.y).matrixTransform(path.getScreenCTM());
+                return [at.x, at.y];
+            })()"""
+            )
+            page.mouse.click(x, y, button="right")
+            page.wait_for_timeout(300)
+            assert "stop_loss-1" in blocks(), blocks()
+            wire("and-2", "out", "entry", "rule")
+            ready()
+            page.locator('.react-flow__node[data-id="rsi"]').click(button="right")
+            assert self.wait_until(lambda: "left input is empty" in status(), 10), (
+                status(),
+                blocks(),
+            )
+            empty = status()
+            page.locator("#builder").focus()
+            page.keyboard.press("Control+z")
+            ready()
+            assert "rsi" in blocks()
+            self.builder_save()
+            saved = self.api(f"strategies/{built['id']}")
+            entry = saved["spec"]["long_side"]["entry"]
+            rsi = {"left": "rsi", "operator": "crosses_above", "right": "50", "timing": "bar_close"}
+            assert entry["all_of"][1] == rsi and "all_of" in entry["all_of"][0], entry
+            built["positions"] = {
+                b["id"]: (b["x"], b["y"]) for b in saved["canvas"]["long"]["blocks"]
+            }
+            return (
+                f"RSI, a condition and an AND dropped and wired; a second wire into Entry refused "
+                f"('{refused_wire}'); RSI deleted -> '{empty}'; Ctrl+Z -> Ready; saved entry "
+                f"{json.dumps(entry)[:120]}…"
+            )
+
+        self.item(92, item92)
+
+        def item93():
+            page.reload()
+            page.wait_for_selector("#chart-mount", timeout=60_000)
+            open_in_builder(built["id"])
+            transforms = self.js(
+                "Object.fromEntries([...document.querySelectorAll('#builder-canvas .react-flow__node')].map(n => [n.getAttribute('data-id'), n.style.transform]))"
+            )
+            moved = {
+                k: (v, transforms.get(k))
+                for k, v in built["positions"].items()
+                if transforms.get(k) != f"translate({v[0]}px, {v[1]}px)"
+            }
+            assert not moved, moved
+            older = [
+                d
+                for d in self.api("strategies")
+                if str(d.get("name", "")).startswith("Donchian RSI breakout")
+                and (d.get("created_at") or "") < MISSION13_STARTED
+            ]
+            old = max(older, key=lambda d: d["created_at"])
+            before = self.api(f"strategies/{old['id']}")
+            assert "canvas" not in before, "an older strategy has no canvas"
+            open_in_builder(old["id"])
+            shown = blocks()
+            assert {"donchian", "rsi", "entry", "exit"} <= set(shown), shown
+            ready()
+            assert page.locator("#builder-save").is_disabled()
+            assert page.locator("#unsaved-edits").count() == 0
+            after = self.api(f"strategies/{old['id']}")
+            assert after["strategy_hash"] == before["strategy_hash"] and "canvas" not in after
+            return (
+                f"{len(built['positions'])} blocks back at their saved places; {old['id']} "
+                f"(created {old['created_at'][:19]}) laid out as {len(shown)} blocks, not edited, "
+                f"hash {after['strategy_hash'][:12]} unchanged"
+            )
+
+        self.item(93, item93)
+
+        def item94():
+            body = {
+                "name": f"stop surface {self.stamp}",
+                "strategy_id": built["id"],
+                "data": {
+                    "symbol": "QQQ",
+                    "timeframe": "1h",
+                    "start": "2023-01-01",
+                    "end": "2024-12-31",
+                },
+                "settings": {"initial_capital": 100000, "allocation_fraction": 1},
+                "objective": "net_pnl",
+                "surface": {
+                    "parameters": [
+                        {"path": "long_side.stop_loss_pct", "start": 1, "stop": 3, "step": 1}
+                    ]
+                },
+                "budget": {"runs": 100, "seconds": None},
+                "tolerance": 0.15,
+                "seed": 1,
+            }
+            started = self.post("experiments", body)
+            assert started.status == 202, started.text()
+            tid = started.json()["experiment_id"]
+            assert self.wait_until(
+                lambda: self.experiment(tid)["status"] in ("done", "failed", "cancelled"), 600, 1
+            )
+            doc = self.experiment(tid)
+            assert doc["status"] == "done", doc.get("error")
+            assert doc["progress"]["cells_done"] == 3, doc["progress"]
+            cells = self.api(f"experiments/{tid}/cells?limit=10")
+            values = sorted(r["long_side.stop_loss_pct"] for r in cells["rows"])
+            assert values == [1.0, 2.0, 3.0], values
+            pnl = [round(r["combined.net_pnl"], 2) for r in cells["rows"]]
+            return f"experiment {tid}: stop loss 1, 2, 3% -> 3 cells, net P&L {pnl}"
+
+        self.item(94, item94)
+
+        def item95():
+            open_in_builder(built["id"])  # item 93 left the older breakout open
+            page.locator("#nav-charts").click()
+            page.wait_for_selector("#chart-mount")
+            card = page.locator(".side-card.long .logic").inner_text()
+            assert "AND" in card and "stop loss 2%" in card and "take profit 5%" in card, card
+            page.locator("#edit-in-builder-long").click()
+            page.wait_for_selector("#builder", timeout=30_000)
+            assert page.locator("#builder-tab-long").get_attribute("aria-pressed") == "true"
+            return f"panel '{' / '.join(card.splitlines())}'; Edit in builder opened the Long tab"
+
+        self.item(95, item95)
+
+        def item96():
+            open_in_builder(built["id"])
+            before = self.api(f"strategies/{built['id']}")["strategy_hash"]
+            page.locator("#phrase-input").fill("buy when vwap crosses 30 sma")
+            page.locator("#phrase-input").press("Enter")
+            page.wait_for_selector("#phrase-error", timeout=30_000)
+            message = page.locator("#phrase-error").inner_text()
+            underlined = page.locator("#phrase-error u").inner_text()
+            assert "vwap" in message and underlined == "vwap", (message, underlined)
+            assert page.locator("#builder-save").is_disabled()
+            assert self.api(f"strategies/{built['id']}")["strategy_hash"] == before
+            return f"'{message}'; underlined '{underlined}'; nothing applied, hash {before[:12]}"
+
+        self.item(96, item96)
+
+        def item97():
+            import subprocess
+
+            def git(*args) -> str:
+                return subprocess.run(
+                    ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
+                ).stdout
+
+            state = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
+            assert state["mode"] == "human_directed" and state["exchange"] == "CLOSED", state
+            schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
+            assert schedule["enabled"] is False and schedule["id"].startswith("c99fa831"), schedule
+            paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
+            committed = git("diff", "--name-only", BUILDER_BASE, "HEAD", "--", *paths).strip()
+            pending = git("status", "--porcelain", "--", *paths).strip()
+            assert committed == "" and pending == "", (committed, pending)
+            earlier = [r for r in self.results if r["item"] <= 96]
+            failed = [r["item"] for r in earlier if r["status"] != "PASS"]
+            assert len(earlier) == 96 and not failed, failed
+            return (
+                f"aegis {state['mode']} / {state['exchange']}; DailySchedule {schedule['id'][:8]} "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
+                f"{BUILDER_BASE}; items 1–96 PASS"
+            )
+
+        self.item(97, item97)
+
+
+def nested(condition: dict, depth: int) -> dict:
+    """A rule nested `depth` levels deep (Mission 13's guard refuses past 32)."""
+    group = {"any_of": [condition, condition]}
+    for _ in range(depth - 1):
+        group = {"all_of": [condition, group]}
+    return group
 
 
 def main(argv=None) -> int:
