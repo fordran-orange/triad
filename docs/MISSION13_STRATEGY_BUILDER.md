@@ -129,3 +129,11 @@ ran in the app and was not touched.
   triad 1,058, aegis 523; all three scopes green (core 386 / 171 skipped; triad 634 / 424 with 209
   subtests; aegis 522 / 1). It stopped at the "Wrong Git branch" check, by design.
 - UI: vitest 141 passed; the production build (tsc + vite) clean.
+
+## Merged
+
+2026-10-25, the operator's answer "merge and push": `main` fast-forwarded `abd47a7..7f3d3c5`;
+`tools\verify.ps1` on `main` exit 0 (lint and format clean; core 386 / 171; triad 634 / 424 with
+209 subtests; aegis 522 / 1; "all three scopes green"). The milestone QA and the whole-branch review
+were not run: the operator declined the model question and asked to merge and push. They can run
+later on `main` if wanted.
