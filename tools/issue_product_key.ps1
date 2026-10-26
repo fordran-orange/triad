@@ -22,7 +22,10 @@ if ($hasKey -and -not $Rotate) {
 
 $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
 $bytes = New-Object byte[] 48
-[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+# Create().GetBytes works on Windows PowerShell 5.1 (.NET Framework) and PowerShell 7 alike.
+$random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$random.GetBytes($bytes)
+$random.Dispose()
 $key = -join ($bytes | ForEach-Object { $alphabet[$_ % 64] })
 
 $kept = @($lines | Where-Object { $_ -notmatch $pattern })
