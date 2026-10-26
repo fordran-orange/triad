@@ -2,10 +2,13 @@
 
 import copy
 
+import pytest
 from pydantic import Field, create_model
 from trading_core.contracts import AgentRunResult
 from trading_core.product_changes import AcceptanceAssessment
 from trading_core.runtime import strict_schema
+
+pytestmark = pytest.mark.core
 
 
 def assert_provider_objects_complete(node):
