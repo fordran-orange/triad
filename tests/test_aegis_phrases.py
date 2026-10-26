@@ -233,3 +233,53 @@ def test_levels_alone_change_only_the_levels():
     assert reading.sides["long_side"] == default_strategy().long_side.model_copy(
         update={"stop_loss_pct": 2.0}
     )
+
+
+# --- Mission 14: learned phrases and the grammar sent to the AI -------------------------------
+
+
+def test_learned_phrases_are_read_before_the_grammar():
+    text = "buy when 9 ema crosses up 30 sma"
+    with pytest.raises(Unread):
+        read(text, default_strategy())
+    reading = read(text, default_strategy(), learned=[("crosses up", "crosses above")])
+    assert reading.sides["long_side"].entry.operator == "crosses_above"
+
+
+def test_learned_phrases_are_whole_words_longest_first():
+    """Review Focus 3: 'cross up' never matches inside 'crosses up'; the longest phrase wins."""
+    with pytest.raises(Unread):
+        read(
+            "buy when 9 ema crosses up 30 sma",
+            default_strategy(),
+            learned=[("cross up", "crosses above")],
+        )
+    learned = [("back", "above"), ("crosses back down", "crosses below")]
+    reading = read("sell when 9 ema crosses back down 30 sma", default_strategy(), learned=learned)
+    assert reading.sides["long_side"].exit.operator == "crosses_below"
+
+
+def test_unread_spans_point_at_the_original_words():
+    text = "buy when 9 ema crosses up vwap"
+    with pytest.raises(Unread) as caught:
+        read(text, default_strategy(), learned=[("crosses up", "crosses above")])
+    (span,) = caught.value.spans
+    assert text[span["start"] : span["end"]] == "vwap" == span["text"]
+
+
+def test_a_comma_or_and_before_an_opener_starts_a_new_clause():
+    for joint in (", ", " and "):
+        text = f"buy when 9 ema crosses above 30 sma{joint}sell when 9 ema crosses below 30 sma"
+        side = read(text, default_strategy()).sides["long_side"]
+        assert side.entry.operator == "crosses_above" and side.exit.operator == "crosses_below"
+
+
+def test_grammar_text_names_every_kind_and_opener():
+    from products.aegis.phrases import KIND_WORDS, OPENERS, grammar_text
+
+    grammar = grammar_text()
+    for words, _side, _role in OPENERS:
+        assert " ".join(words) in grammar
+    for word in KIND_WORDS:
+        assert word in grammar
+    assert "stop at" in grammar and "take profit at" in grammar

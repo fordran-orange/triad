@@ -45,6 +45,31 @@ KIND_WORDS = {
 OUTPUT_WORDS = {"upper", "middle", "lower", "line", "signal", "histogram"}
 PRICE_WORDS = {"price": "close", "close": "close", "open": "open", "high": "high", "low": "low"}
 LEVEL_WORDS = {"stop", "target", "take", "profit"}
+COMPARISON_WORDS = {
+    "crosses",
+    "cross",
+    "above",
+    "over",
+    "below",
+    "under",
+    "is",
+    "greater",
+    "less",
+    "than",
+    "inside",
+    "outside",
+}
+# Every word the reader reads (Mission 14): a learned phrase must bring at least one word outside
+# this set, so it can never change a sentence the reader already understood.
+KNOWN_WORDS = frozenset(
+    {word for words, _side, _role in OPENERS for word in words}
+    | set(KIND_WORDS)
+    | OUTPUT_WORDS
+    | set(PRICE_WORDS)
+    | LEVEL_WORDS
+    | COMPARISON_WORDS
+    | {"and", "or", "loss", "at", "with", "a", "the", "band", "bands", "when"}
+)
 LABELS = {
     "crosses_above": "crosses above",
     "crosses_below": "crosses below",
@@ -148,14 +173,16 @@ def tokenize(text: str) -> list[Token]:
 
 
 def _clauses(tokens: list[Token]) -> list[list[Token]]:
-    """Split on ';' and '.' outside brackets."""
+    """Split on ';' and '.' outside brackets, and on ',' or 'and' that starts a new clause (an
+    opener follows: "buy when …, sell when …", Mission 14)."""
     clauses, current, depth = [], [], 0
-    for token in tokens:
+    for i, token in enumerate(tokens):
         if token.text == "(":
             depth += 1
         elif token.text == ")":
             depth -= 1
-        if token.text in (";", ".") and depth == 0:
+        joint = token.text in (",", "and") and _opener(tokens[i + 1 :]) is not None
+        if depth == 0 and (token.text in (";", ".") or joint):
             if current:
                 clauses.append(current)
             current = []
@@ -554,9 +581,103 @@ def _words(node, parent: str | None = None) -> str:
     return f"({joined})" if parent is not None and parent != node.join else joined
 
 
-def read(text: str, strategy: StrategySpec) -> Reading:
+ROLE_NAMES = {
+    ("long", "entry"): "a long entry",
+    ("long", "exit"): "a long exit",
+    ("short", "entry"): "a short entry",
+    ("short", "exit"): "a short exit",
+}
+
+
+def grammar_text() -> str:
+    """The reader's language, generated from its own tables (Mission 14): what the AI is asked to
+    write, so the two can never drift apart."""
+    openers = "; ".join(
+        f"{name}: " + ", ".join(f'"{" ".join(w)}"' for w, s, r in OPENERS if (s, r) == key)
+        for key, name in ROLE_NAMES.items()
+    )
+    names = {}
+    for word, kind in KIND_WORDS.items():
+        names.setdefault(kind, []).append(word)
+    kinds = "; ".join(
+        " or ".join(f'"{w}"' for w in words)
+        + f" ({', '.join(['length', *KINDS[kind].params])}"
+        + (f"; outputs {', '.join(KINDS[kind].outputs)}" if KINDS[kind].outputs else "")
+        + ")"
+        for kind, words in names.items()
+    )
+    return (
+        "The reader's language. Clauses are separated by ';' (a ',' or 'and' may also come before "
+        f"a new opener). Openers: {openers}. Conditions: '<a> crosses above <b>', '<a> crosses "
+        "below <b>', '<a> is above <b>', '<a> is below <b>', '<a> inside <band>', '<a> outside "
+        "<band>'; join conditions with 'and' / 'or' and brackets ('and' binds before 'or'). "
+        "Operands: 'close', 'open', 'high', 'low' ('price' means close); a plain number; an "
+        "indicator written '<length> <kind>' or '<kind> <length> [settings]', its output after it "
+        f"('donchian 20 upper', 'macd line'). Kinds: {kinds}. A band for inside / outside is "
+        "'bb <length>' or 'donchian <length>' with no output. Exits by level: 'stop at <N>%' and "
+        "'take profit at <N>%', after a clause or as a clause of their own. Repeat operands; "
+        "never use pronouns."
+    )
+
+
+def apply_learned(text: str, learned: list[tuple[str, str]]) -> tuple[str, list[int], list[int]]:
+    """The text with learned phrases replaced (whole words, any case, longest first, never
+    overlapping), and for every character of the result the start and end of the original
+    characters it came from."""
+    pairs = sorted(
+        ((" ".join(frm.lower().split()), to) for frm, to in learned if frm.split()),
+        key=lambda pair: -len(pair[0]),
+    )
+    if not pairs:
+        return text, list(range(len(text))), list(range(1, len(text) + 1))
+    pattern = re.compile(
+        "|".join(
+            f"(?P<p{i}>(?<![a-z0-9]){r'\s+'.join(map(re.escape, frm.split()))}(?![a-z0-9]))"
+            for i, (frm, _to) in enumerate(pairs)
+        ),
+        re.IGNORECASE,
+    )
+    out: list[str] = []
+    starts: list[int] = []
+    ends: list[int] = []
+    at = 0
+    for match in pattern.finditer(text):
+        for j in range(at, match.start()):
+            out.append(text[j])
+            starts.append(j)
+            ends.append(j + 1)
+        for character in pairs[int(match.lastgroup[1:])][1]:
+            out.append(character)
+            starts.append(match.start())
+            ends.append(match.end())
+        at = match.end()
+    for j in range(at, len(text)):
+        out.append(text[j])
+        starts.append(j)
+        ends.append(j + 1)
+    return "".join(out), starts, ends
+
+
+def read(
+    text: str, strategy: StrategySpec, learned: list[tuple[str, str]] | None = None
+) -> Reading:
     """The sides `text` describes, built on `strategy` (an exit clause alone keeps its side's
-    entry and indicators)."""
+    entry and indicators). Learned phrases (Mission 14) are applied first; a refusal still names
+    the operator's own words."""
+    if not learned:
+        return _read(text, strategy)
+    rewritten, starts, ends = apply_learned(text, learned)
+    try:
+        return _read(rewritten, strategy)
+    except Unread as exc:
+        spans = []
+        for span in exc.spans:
+            start, end = starts[span["start"]], ends[span["end"] - 1]
+            spans.append({"start": start, "end": end, "text": text[start:end]})
+        raise Unread(str(exc), spans) from None
+
+
+def _read(text: str, strategy: StrategySpec) -> Reading:
     plans, order = _plans(text)
     sides: dict[SideKey, StrategySide] = {}
     lines: list[str] = []
@@ -625,4 +746,14 @@ def _reading(side: str, plan: Plan, defaulted: bool) -> str:
     return f"{name} entry: {_words(plan.entry)}. Exit: {exit_text}"
 
 
-__all__ = ["DEFAULT_STOP", "DEFAULT_TARGET", "ReadRequest", "Reading", "Unread", "read"]
+__all__ = [
+    "DEFAULT_STOP",
+    "DEFAULT_TARGET",
+    "KNOWN_WORDS",
+    "ReadRequest",
+    "Reading",
+    "Unread",
+    "apply_learned",
+    "grammar_text",
+    "read",
+]
