@@ -14,6 +14,7 @@ import threading
 import time
 from datetime import date
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 import pandas as pd
@@ -25,6 +26,7 @@ from products.aegis import display, phrases
 from products.aegis import experiments as experiments_module
 from products.aegis import optimize as optimize_module
 from products.aegis import studies as studies_module
+from products.aegis.ai_reading import AIUnread, read_with_ai
 from products.aegis.backtest import (
     MIN_BARS,
     BacktestRequest,
@@ -35,7 +37,9 @@ from products.aegis.backtest import (
     run_prepared,
 )
 from products.aegis.compare import compare as compare_runs
+from products.aegis.core_client import CoreReasoning
 from products.aegis.data import (
+    DATA_ROOT,
     TIMEFRAMES,
     ArchiveStore,
     BarsTooLarge,
@@ -46,6 +50,7 @@ from products.aegis.data import (
 from products.aegis.indicators import IndicatorCache, compute
 from products.aegis.jobs import JobBusy, JobRunner, estimate_seconds
 from products.aegis.kinds import kind_info
+from products.aegis.learned import LearnedPhrases
 from products.aegis.library import FOLDERS as LIBRARY_FOLDERS
 from products.aegis.library import KINDS as LIBRARY_KINDS
 from products.aegis.library import Library, LibraryQuery, Refused
@@ -118,6 +123,23 @@ def get_preferences(repository: RunRepository = REPOSITORY) -> Preferences:
 
 
 PREFERENCES = Depends(get_preferences)
+
+
+def get_learned(repository: RunRepository = REPOSITORY) -> LearnedPhrases:
+    """Mission 14: learned phrases and accepted examples, beside the saved runs."""
+    root = getattr(repository, "root", None)
+    return LearnedPhrases(Path(root) if root is not None else DATA_ROOT / "data" / "aegis")
+
+
+def get_core_reasoning() -> CoreReasoning:
+    """Mission 14: Core's read-only reasoning route, with this product's own key."""
+    from trading_core.settings import Settings
+
+    return CoreReasoning(key=Settings().aegis_product_key.get_secret_value())
+
+
+LEARNED = Depends(get_learned)
+CORE = Depends(get_core_reasoning)
 
 
 def get_experiment_store(
@@ -314,7 +336,8 @@ class BacktestBody(BacktestRequest):
 
 class PreferencesBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    save_runs: Literal["every", "kept"]
+    save_runs: Literal["every", "kept"] | None = None
+    reader_provider: Literal["CLAUDE", "CODEX"] | None = None  # Mission 14
 
 
 @router.get("/preferences")
@@ -324,7 +347,7 @@ def preferences(prefs: Preferences = PREFERENCES):
 
 @router.put("/preferences")
 def set_preferences(body: PreferencesBody, prefs: Preferences = PREFERENCES):
-    return prefs.set(body.save_runs)
+    return prefs.set(body.save_runs, body.reader_provider)
 
 
 @router.post("/backtest")
@@ -768,13 +791,64 @@ def update_strategy(strategy_id: str, request: StrategyUpdate, library: Strategy
 
 
 @router.post("/strategies/read")
-def read_strategy_text(request: phrases.ReadRequest):
-    """Mission 13: the sides a sentence describes, read deterministically; text it cannot read
-    answers 422 with the message and the unread spans. Nothing is saved."""
+def read_strategy_text(
+    request: phrases.ReadRequest,
+    prefs: Preferences = PREFERENCES,
+    learned: LearnedPhrases = LEARNED,
+    core: CoreReasoning = CORE,
+):
+    """Mission 13: the sides a sentence describes, read deterministically, learned phrases first
+    (Mission 14). Text it cannot read goes to the AI through Core (the chosen provider); when that
+    cannot read it either, 422 with the reader's message and unread spans and, under "ai", why the
+    AI could not. Nothing is saved."""
     try:
-        return phrases.read(request.text, request.strategy).model_dump(mode="json")
-    except phrases.Unread as exc:
-        raise HTTPException(422, {"message": str(exc), "unread": exc.spans}) from exc
+        return phrases.read(request.text, request.strategy, learned=learned.pairs()).model_dump(
+            mode="json"
+        )
+    except phrases.Unread as refusal:
+        provider = request.provider or prefs.get()["reader_provider"]
+        try:
+            reading = read_with_ai(
+                request.text, request.strategy, provider, core, learned.examples()
+            )
+        except AIUnread as exc:
+            raise HTTPException(
+                422, {"message": str(refusal), "unread": refusal.spans, "ai": exc.detail()}
+            ) from exc
+        return reading.model_dump(mode="json")
+
+
+class LearnBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=2_000)
+    rewrite: str = Field(min_length=1, max_length=4_000)
+    substitutions: list[dict] = Field(default_factory=list, max_length=100)
+    provider: str | None = None
+    model: str | None = None
+    run_id: str | None = None
+    strategy: StrategySpec
+
+
+@router.post("/phrases/learn")
+def learn_phrases(body: LearnBody, learned: LearnedPhrases = LEARNED):
+    """Mission 14: an applied AI reading; keeps the example and the substitutions that pass."""
+    provenance = {"provider": body.provider, "model": body.model, "run_id": body.run_id}
+    kept = learned.learn(body.text, body.rewrite, body.substitutions, provenance, body.strategy)
+    return {"kept": kept}
+
+
+@router.get("/phrases/learned")
+def learned_phrases(learned: LearnedPhrases = LEARNED):
+    return learned.list()
+
+
+@router.delete("/phrases/learned/{identifier}")
+def remove_learned_phrase(identifier: str, learned: LearnedPhrases = LEARNED):
+    try:
+        learned.remove(identifier)
+    except KeyError as exc:
+        raise HTTPException(404, f"unknown learned phrase {identifier!r}") from exc
+    return {"removed": identifier}
 
 
 @router.post("/strategies/{strategy_id}/duplicate", status_code=201)

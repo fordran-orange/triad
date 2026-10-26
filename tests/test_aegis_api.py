@@ -24,6 +24,13 @@ pytestmark = pytest.mark.aegis
 RANGE = {"start": "2026-10-30", "end": "2026-11-02"}
 
 
+class NoCore:
+    def reason(self, provider, instructions, input, output_schema):
+        from products.aegis.core_client import CoreReadingError
+
+        raise CoreReadingError(503, "not_issued", "no product key issued")
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     write_archive(tmp_path, "20260301T000000000000Z", "QQQ", price=100.0)
@@ -33,6 +40,9 @@ def client(tmp_path, monkeypatch):
     server.app.dependency_overrides[api.get_repository] = lambda: repository
     cache = IndicatorCache()
     server.app.dependency_overrides[api.get_cache] = lambda: cache
+    # Mission 14: no test reaches the real gateway; a reading the phrase reader refuses meets an
+    # AI reading that is not set up (tests that need one override this).
+    server.app.dependency_overrides[api.get_core_reasoning] = lambda: NoCore()
     monkeypatch.setattr(server, "Store", lambda **_: SimpleNamespace(list_work=list))
     yield TestClient(server.app, raise_server_exceptions=False), store, repository
     server.app.dependency_overrides.clear()

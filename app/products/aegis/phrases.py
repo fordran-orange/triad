@@ -87,15 +87,23 @@ class ReadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str = Field(min_length=1, max_length=2_000)
     strategy: StrategySpec
+    provider: Literal["CLAUDE", "CODEX"] | None = None  # Mission 14: who reads what this cannot
 
 
 class Reading(BaseModel):
-    """Whole replacement sides, a one-line reading back, and the paths that are defaults."""
+    """Whole replacement sides, a one-line reading back, and the paths that are defaults. Mission
+    14: who read it, and for an AI reading the rewrite the reader read, the substitutions, what
+    could not be expressed and Core's provenance."""
 
     model_config = ConfigDict(extra="forbid")
     sides: dict[SideKey, StrategySide]
     reading: str
     defaults: list[str]
+    read_by: Literal["phrases", "ai"] = "phrases"
+    rewrite: str | None = None
+    substitutions: list[dict] = Field(default_factory=list)
+    unsupported: str = ""
+    provenance: dict | None = None
 
 
 class Unread(ValueError):
