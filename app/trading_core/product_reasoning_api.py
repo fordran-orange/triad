@@ -5,42 +5,17 @@ only its product's reasoning route: no tools, no files, no execution, no Intake 
 """
 
 import hmac
-import json
-from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import Field, field_validator
 
 from trading_core.api import ENGINE_DEPENDENCY
-from trading_core.work import Record
+from trading_core.intelligence.records import Records
+from trading_core.product_reasoning import ProductReasoning, ReasoningFailed, ReasoningRequest
 
 router = APIRouter()
 PRODUCT_KEYS = {"aegis": "aegis_product_key"}  # product -> its Settings field
 MIN_KEY = 32
-SCHEMA_CHARS = 8_000
-
-
-class ReasoningRequest(Record):
-    provider: Literal["CODEX", "CLAUDE", "GROK"]
-    instructions: str = Field(min_length=1, max_length=20_000)
-    input: str = Field(min_length=1, max_length=2_000)
-    output_schema: dict
-
-    @field_validator("output_schema")
-    @classmethod
-    def bounded_schema(cls, value):
-        if len(json.dumps(value)) > SCHEMA_CHARS:
-            raise ValueError(f"output_schema over {SCHEMA_CHARS:,} characters")
-        return value
-
-
-class ReasoningFailed(Exception):
-    """A reading that did not complete: its reason, HTTP status and a short message."""
-
-    def __init__(self, reason: str, status: int, message: str = ""):
-        super().__init__(message or reason)
-        self.reason = reason
-        self.status = status
+__all__ = ["PRODUCT_KEYS", "ReasoningFailed", "ReasoningRequest", "reasoner", "router"]
 
 
 def _key(settings, field: str) -> str:
@@ -69,14 +44,9 @@ def require_product_key(
     raise HTTPException(401, "product key required")
 
 
-class _Unavailable:
-    def reason(self, product, request):
-        raise ReasoningFailed("unavailable", 503, "product readings are not available yet")
-
-
 def reasoner(engine=ENGINE_DEPENDENCY):
-    """The service that runs a reading (Task 2 supplies Core's governed run)."""
-    return _Unavailable()
+    """Core's governed run of a product reading, on the gateway's own store."""
+    return ProductReasoning(Records(engine.store))
 
 
 OWNER = Depends(require_product_key)
