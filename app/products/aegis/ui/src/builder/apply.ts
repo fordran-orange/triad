@@ -8,6 +8,12 @@ export interface Reading {
   sides: Partial<Record<'long_side' | 'short_side', StrategySide>>;
   reading: string;
   defaults: string[];
+  // Mission 14: who read it; an AI reading's rewrite, substitutions, what it could not express and Core's provenance
+  read_by?: 'phrases' | 'ai';
+  rewrite?: string | null;
+  substitutions?: { from: string; to: string }[];
+  unsupported?: string;
+  provenance?: { provider?: string; model?: string; input_tokens?: number; output_tokens?: number; run_id?: string; [key: string]: unknown } | null;
 }
 
 const LEVELS = ['stop_loss_pct', 'take_profit_pct'] as const;
