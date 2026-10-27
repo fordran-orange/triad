@@ -1,10 +1,10 @@
 # Aegis Optimization Lab v2, Phase 1: R2 hand-off note
 
-Branch `claude/zen-thompson-50e9bb`, HEAD `a3b4f5c` when the checks ran (2026-10-27). Plan: `docs/superpowers/plans/2026-10-27-aegis-optimization-lab-v2-phase1.md`. Spec: `docs/AEGIS_OPTIMIZATION_LAB_V2_IMPLEMENTATION_PLAN.md` (§5.2 Screen B, §5.8 Screen H, §5.1 the dock).
+Branch `claude/zen-thompson-50e9bb`, HEAD `a3b4f5c` when the checks ran (2026-10-27), and `c26d8c3` for the fix-wave re-run. Plan: `docs/superpowers/plans/2026-10-27-aegis-optimization-lab-v2-phase1.md`. Spec: `docs/AEGIS_OPTIMIZATION_LAB_V2_IMPLEMENTATION_PLAN.md` (§5.2 Screen B, §5.8 Screen H, §5.1 the dock).
 
 ## What was built
 
-Phase 1 adds the Lab shell to the Aegis workstation and nothing behind it. A new `ui/src/lab/` folder holds pure, vitest-tested modules (the Lab store with its filter hash and source parsing, the trial-table window math, the six-step workflow states, the parameter-family catalog) and the React components that render them. The side nav gains Optimization Lab between Experiments and Paper Trade, with a seven-entry sub-nav. Trial Lab (Screen B) binds its context bar, KPI strip, parameter rail, Heatmap tab, windowed trial table with pins A/B/C, and Intelligence rail to the experiment and optimizer endpoints that exist today (`exp:<id>` and `opt:<job_id>` sources). Variable Intelligence (Screen H) shows the whole six-step workflow strip with only the first step live, the parameter families with `Active (default)`, and the trials as its evidence table. The compact optimization dock gains `Expand Lab` (which carries the job, the two axes and the metric), the "Aggregated: best of the rest" label and a `Validation: no partition (grid job)` line. Everything later phases bring (canvases, the query layer, partitions, the gate, AI explanations) shows as a DOM placeholder or a "not built" line that names its phase. No backend, contract, dependency or Core change.
+Phase 1 adds the Lab shell to the Aegis workstation and nothing behind it. A new `ui/src/lab/` folder holds pure, vitest-tested modules (the Lab store with its filter hash and source parsing, the trial-table window math, the six-step workflow states, the parameter-family catalog) and the React components that render them. The side nav gains Optimization Lab between Experiments and Paper Trade, with a seven-entry sub-nav. Trial Lab (Screen B) binds its context bar, KPI strip, parameter rail, Heatmap tab, windowed trial table with pins A/B/C, and Intelligence rail to the experiment and optimizer endpoints that exist today (`exp:<id>` and `opt:<job_id>` sources). Variable Intelligence (Screen H) shows the whole six-step workflow strip with only the first step live, the parameter families with `Active (default)`, and the trials as its evidence table. The compact optimization dock gains `Expand Lab` (which carries the job, the two axes, the metric and the side's selected configuration, which the Lab selects as the job's matching trial), the "Aggregated: best of the rest" label and a `Validation: no partition (grid job)` line. The Lab's store lives above the app's page switch, so a trip to another page and back keeps the source, the filter, the selection and the pins; the context bar says "Long and short: evaluated independently" beside the direction toggles (both from the final review's fix wave). Everything later phases bring (canvases, the query layer, partitions, the gate, AI explanations) shows as a DOM placeholder or a "not built" line that names its phase. No backend, contract, dependency or Core change.
 
 ## Checks
 
@@ -32,6 +32,30 @@ Two things to know about this run:
 - The Vite dev server bound only `[::1]:5181` this time, so `http://127.0.0.1:5181` did not answer and the walk ran against `http://localhost:5181/aegis/`, the same server, proxying `/aegis/api` to the 8102 worker. The earlier Task 7 runs used `127.0.0.1`.
 - The walk makes its own fixtures in the live store. This run added one experiment (`lab-walk-20261027t213313z`) and one optimization job (`2daffab8`); the two earlier Lab runs left theirs. The full 97-item walk was not run (milestone work, not this phase).
 
+### Fix wave re-run
+
+The final whole-branch review's fixes landed in `c26d8c3`; every check ran again on that HEAD, final build, 2026-10-27.
+
+| # | Command | Result |
+|---|---|---|
+| 1 | `cd app/products/aegis/ui && npm test` | `Test Files 26 passed (26)`, `Tests 265 passed (265)` (three new `cellIndex` cases) |
+| 2 | `cd app/products/aegis/ui && npm run build` | `tsc --noEmit` clean; `vite build` clean: 426 modules, built in 15.15s |
+| 3 | `C:/Triad/.venv-aegis/Scripts/python.exe tools/aegis_contracts.py --check` | `contracts.ts is current` |
+| 4 | `bash tools/lint_aegis.sh` | `All checks passed!`, `74 files already formatted`, `lint_aegis (check): ok` |
+| 5 | the walk as in row 5 above, with `--base http://127.0.0.1:5181/aegis/` | `8/8 PASS, 0 FAIL, page errors 0` (56.1 s) |
+
+Walk report: `C:\Triad\.claude\worktrees\zen-thompson-50e9bb\logs\aegis-acceptance-20261027T223412Z.json` (`lab_only: true`, `lab_first_item: 98`, `page_errors: []`). Items 98 to 105, with what changed:
+
+- 98 (103) now also selects the dock's second row before `Expand Lab` and asserts that the Lab selects the same trial (table row and rail card); before the click it saves the dock screenshot `aegis-acceptance-20261027T223412Z-dock-1600x1000.png`.
+- 99 (104) now also leaves for Charts and comes back: the same source, `Linked · 1 filter`, the row selected with its rail card, pin A and the range input kept.
+- 100 (105) and 102 (126) unchanged.
+- 101 (106) now counts a disabled button's own opacity and samples `button:disabled`. Every enabled text still keeps 4.5:1 (lowest 5.50). Below 4.5:1 there are only disabled controls, recorded and not asserted (WCAG 1.4.3 exempts inactive components): `Queue focused follow-up sweep` 2.61, `Long` / `Short` / `Pin A` / `Pin B` / `Pin C` / `Compare pinned` 3.26, `Both` 4.30.
+- 103 (106b), new: the keyboard model. Two ArrowDowns and an ArrowRight move the heatmap cursor from (0, 0) to (1, 1); Enter selects that square (the rail names the same two values, and no table row is selected). A row click and `1` pin the trial as A (table, pin chip and rail agree). Esc clears the brush (`Linked · 0 filters`) and the next Esc clears the maximize. ArrowDown on a focused row moves the selection to the next row in the table and the rail.
+- 104 (RF2/3), new: an experiment posted with the fixture's body and opened at once shows `PROVISIONAL · updates every 2 s`, `no report yet` in the findings and the Importance tab's recompute line. The table goes from 0 to 9 trials as the 2 s refresh runs and the chip settles to `done`, all without a page reload. This item found a product bug, fixed in the same commit: a table that counted no trials never asked again.
+- 105 governance unchanged, now counting seven Lab items.
+
+The 1672 x 941 and 1440 x 900 screenshots of this run (`...223412Z-lab-1672x941.png`, `...223412Z-lab-1440x900.png`) show the new `Long and short: evaluated independently` label beside L/S/Both.
+
 ## Screenshots
 
 Both are the viewport at the end of walk item 101 (the Lab on the dock-run grid job `2daffab8`, Trial Lab, Heatmap tab):
@@ -39,7 +63,11 @@ Both are the viewport at the end of walk item 101 (the Lab on the dock-run grid 
 - `C:\Triad\.claude\worktrees\zen-thompson-50e9bb\logs\aegis-acceptance-20261027T213313Z-lab-1672x941.png` shows the whole shell: side nav, Lab sub-nav, context bar on two lines (source, strategy, data, L/S/Both, metric, regimes, event windows, partition, status chip, linked chip), the KPI strip, the parameter rail with X/Y radios and range inputs, the 3 x 3 aggregated heatmap (every square a loss, so all red), the windowed trial table with Pin A/B/C and Compare pinned, and the right rail (Findings, the dashed AI-explanations placeholder, Selected, Pinned, Risk warnings, Strategy Gate, Provenance with Copy JSON, Queue focused follow-up sweep).
 - `C:\Triad\.claude\worktrees\zen-thompson-50e9bb\logs\aegis-acceptance-20261027T213313Z-lab-1440x900.png` is the same page at the narrower width: the context bar wraps to three lines, the sub-nav labels wrap, the Provenance id wraps to two lines, the rail and table stay inside the window. The table is a scroll container, so its eighth data row (trial #4) is cut by design at the bottom edge.
 
-The walk takes no screenshot of Variable Intelligence, of an experiment-sourced Lab or of the dock. For this note I also looked at the experiment source and Variable Intelligence at 1440 x 900 in the browser pane (ad hoc, nothing saved, not walk evidence): the experiment source shows the Heatmap tab as "Exact slices and aggregated projections: arrives in Phase 2 (plan §11)", the findings text from report 2 and "Queue focused follow-up sweep" enabled; Variable Intelligence shows the six steps ("Define variables - done", then five "not yet available" steps), the families with `Active (default)` chips, "no screening evidence: all parameters Active", a placeholder naming Phase 4, and the trials as the evidence table.
+The fix-wave run adds the dock:
+
+- `C:\Triad\.claude\worktrees\zen-thompson-50e9bb\logs\aegis-acceptance-20261027T223412Z-dock-1600x1000.png` is the Charts page at 1600 x 1000, taken just before `Expand Lab` was clicked (walk item 98). The `.job-head` fits on one line: `DONE`, the counts, `Expand Lab`, then the Metric select. The parameter-set table shows the selected `EMA 5 / SMA 20` row. At this default dock height the dock's own heatmap gets almost no room: under the `LONG heatmap` title only a sliver of its `rows … · 3 × 3` line shows above the `Aggregated: best of the rest` and `Validation` lines, and the grid itself has to be scrolled into view.
+
+The walk takes no screenshot of Variable Intelligence or of an experiment-sourced Lab. For this note I also looked at the experiment source and Variable Intelligence at 1440 x 900 in the browser pane (ad hoc, nothing saved, not walk evidence): the experiment source shows the Heatmap tab as "Exact slices and aggregated projections: arrives in Phase 2 (plan §11)", the findings text from report 2 and "Queue focused follow-up sweep" enabled; Variable Intelligence shows the six steps ("Define variables - done", then five "not yet available" steps), the families with `Active (default)` chips, "no screening evidence: all parameters Active", a placeholder naming Phase 4, and the trials as the evidence table.
 
 ## Against the designs
 
@@ -52,6 +80,7 @@ Matches:
 - Heatmap carries its basis label ("Aggregated from tested (n = 9) · empty = untested") and losses are red.
 - Trial table: Pin A/B/C, Compare pinned, a "Tested (exact)" label with the count, a Linked chip, sortable headers.
 - Rail: Findings, the visibly separate AI block ("Phase 8 · AI explains, it never decides"), Selected, Pinned A/B/C, Risk warnings, Strategy Gate, Provenance with Copy JSON, `Queue focused follow-up sweep`.
+- The context bar carries the plan's "independent L/S eval" as the static label `Long and short: evaluated independently` (fix wave).
 - Honest states in place of data we do not have: "Regimes: not in this strategy", "Event windows: feed unavailable", "Partition: none", "Strategy Gate: not built", "none computed in Phase 1", "no report: a grid job is not an experiment".
 - Nothing clipped at either width, no text below 11 px, secondary text at 5.50:1 or better (walk item 101).
 
@@ -72,9 +101,9 @@ Differs, and why: the design's centre (dimensions, feasible space, effort budget
 
 ### Unverified visually
 
-- The dock's `Expand Lab` button was not screenshotted. Walk item 98 proves it by DOM and behaviour (it opens the Lab with the job, axes and metric), not by how it looks.
-- The `.job-head` row with the extra button (flex-wrap in `styles.css`) and the stacked layout at 1100 px and below were not looked at in a browser.
-- A running experiment (`PROVISIONAL`, the 2 s refresh) was not exercised in a browser; the store test covers the refresh logic.
+- The dock's `Expand Lab` button now has a screenshot (fix wave, `...223412Z-dock-1600x1000.png`, above), and walk item 98 proves the behaviour: it opens the Lab with the job, the axes, the metric and the selection.
+- The `.job-head` row is on record at 1600 x 1000, where it does not need to wrap. Its flex-wrap and the stacked layout at 1100 px and below were not looked at in a browser.
+- A running experiment (`PROVISIONAL`, the 2 s refresh): the reducer's `ROWS_REFRESHED` identity is tested; the interval hook is proven by walk item (RF2/3).
 
 ## Deferred
 
@@ -82,13 +111,13 @@ The SDD ledger (`C:\Triad\.claude\worktrees\zen-thompson-50e9bb\.superpowers\sdd
 
 - Store and math tests: the FNV hash test mirrors the implementation and wants a literal golden; non-finite range bounds hash alike; the reducer's default branch hides exhaustiveness; `trialWindow` has no guards for negative overscan, `rowHeight <= 0` or NaN; a few tests use literals where constants exist.
 - Catalog: `parsePath` accepts `params.` with an empty name; `parameterCount` lacks the Python clamp; an indicator literally named `levels` collides with the levels key (the same convention exists in `surface.py`).
-- Lab components: a few dashes carry no `title` on rare null paths; `lossTone` duplicates the Heatmap's profit tone and paints break-even green; a sort key sticks to a hidden column after a scope or metric change; arrowing onto an unloaded row loses focus; `SELECT_SQUARE` stores indexes, so an axis change changes the described square; the matrix state is not checked against its key (switching sources can show the old one briefly); a failed experiment list has no retry; `TrialTable.tsx` is 371 lines with helpers worth moving out.
-- Look and feel: the disabled `#lab-refine` button on a grid job renders in the same green as an enabled one and needs a disabled look. The global `th` colour is 4.14:1 outside the Lab (Experiments, studies, Summary, Trades, pre-existing).
+- Lab components: a few dashes carry no `title` on rare null paths; a sort key sticks to a hidden column after a scope or metric change; arrowing onto an unloaded row loses focus; `SELECT_SQUARE` stores indexes, so an axis change changes the described square; the matrix state is not checked against its key (switching sources can show the old one briefly); a failed experiment list has no retry; `TrialTable.tsx` is 371 lines with helpers worth moving out.
+- Look and feel: the disabled `#lab-refine` button on a grid job renders in the same green as an enabled one and needs a disabled look (with its opacity it measures 2.61:1, recorded by walk item 101; WCAG exempts inactive components). The dock's heatmap gets almost no room at the default dock height (the fix-wave dock screenshot). The global `th` colour is 4.14:1 outside the Lab (Experiments, studies, Summary, Trades, pre-existing).
 - Walk weaknesses that the R2 "nothing clipped at either width" item rests on (all from the Task 7 review; the screenshots themselves look settled and unclipped, but the walk alone does not prove it):
   - Item 101's windowing check depends on the store's largest experiment (the 9-row fixture alone proves nothing there), and its `lab_visible_rows` helper mirrors the product's 22 px row formula, so the check is partly self-referential.
   - The wait for the heatmap after the switch to the second size could pass on stale content, so the 1440 x 900 evidence may have been taken mid-transition.
   - Item 99 (104) proves the kept filter through the Linked chip and the input value, not through the rows the table shows.
-- Walk, other: the contrast probe ignores the opacity of disabled buttons; two short fixed sleeps and one wait without a timeout; the placeholder count (at least 9) could hide one; the log numbers read `103. governance` beside `98. (103) ...` until Mission 14's items land.
+- Walk, other: two short fixed sleeps and one wait without a timeout; the placeholder count (at least 9) could hide one; the log numbers read `105. governance` beside `98. (103) ...` until Mission 14's items land.
 
 ## Host
 
@@ -96,6 +125,7 @@ The SDD ledger (`C:\Triad\.claude\worktrees\zen-thompson-50e9bb\.superpowers\sdd
 - Node v24.14.0; Python 3.12.10 (`C:\Triad\.venv-aegis`); Vite 5.4.21; vitest 2.1.9.
 - Worker: the 8102 Aegis worker was already running (PID 26816) and was not restarted or stopped by this run. Which code revision it loaded is not evidenced by this run; Phase 1 changes no backend file.
 - Dev server: `npm run dev` in `app/products/aegis/ui`, port 5181, proxy `/aegis/api` to `http://127.0.0.1:8102`. On this run Vite bound `[::1]:5181` only, so the walk used the `localhost` base. **That dev server is still running after this run**: node PID 26084, started 16:32:07, listening on `[::1]:5181`. The run's attempt to stop it was refused by the permission system and was not retried.
+- Fix wave: `npm run dev -- --host 127.0.0.1 --strictPort` bound `127.0.0.1:5181` (node PID 27404) beside the old one, served the walk and was stopped afterwards. The 8102 worker (PID 26816) was again neither restarted nor stopped.
 
 ## R2 checkpoint
 
@@ -106,5 +136,5 @@ Randall is asked to confirm three things:
 3. Nothing is clipped at either width: 1672 x 941 and 1440 x 900, the two screenshots above and walk item 101 (read it with the three walk weaknesses listed under "Deferred").
 
 Not part of R2 and still open:
-- The dock's `Expand Lab` and the dock's header wrap have no screenshot.
-- The dev server from this run is still up (node PID 26084, `[::1]:5181`); Randall stops it.
+- The dock's header wrap (narrow widths) has no screenshot; the dock at 1600 x 1000 now has one, and it shows the dock's heatmap with almost no room at the default dock height.
+- The dev server from this run is still up (node PID 26084, `[::1]:5181`); Randall stops it. The fix-wave run used its own dev server on `127.0.0.1:5181` (node PID 27404) and stopped it afterwards.
