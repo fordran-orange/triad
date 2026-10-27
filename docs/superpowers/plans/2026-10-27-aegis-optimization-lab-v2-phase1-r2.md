@@ -56,6 +56,21 @@ Walk report: `C:\Triad\.claude\worktrees\zen-thompson-50e9bb\logs\aegis-acceptan
 
 The 1672 x 941 and 1440 x 900 screenshots of this run (`...223412Z-lab-1672x941.png`, `...223412Z-lab-1440x900.png`) show the new `Long and short: evaluated independently` label beside L/S/Both.
 
+**Dock layout fix (after `096deed`).** The dock screenshot of that run showed the dock's heatmap with almost no room at the default dock height. Measured at 1600 x 1000 in a browser, the dock's body row is 85 px tall.
+
+| State | Heatmap visible | Grid visible |
+|---|---|---|
+| Before Task 5 (the heatmap filled the row and scrolled inside) | 85 px | 30 of 109 px |
+| With the Task 5 basis and validation lines under it | 39 px | 0 px |
+| After this fix, default height | 85 px | 30 px |
+| After this fix, maximized (row 760 px) | whole | 109 of 109 px |
+
+The fix is CSS only (`styles.css`): the matrix column now scrolls as one, the heatmap keeps its own height, the two lines follow right under the grid, and the pinned headers pin to the column's edge. Maximized, the lines now sit directly under the grid (top 383 px; they were at 921 px, 550 px below it), and the matrix still scrolls inside when it is taller than the row. The parameter-set table beside it measures the same before and after.
+
+The whole 3 x 3 grid cannot show at the default height: it needs about 176 px (55 px of padding, title and axes line, then 109 px of grid) and the row has 85.
+
+The Lab walk re-ran 8/8 PASS (`logs\aegis-acceptance-20261027T225143Z.json`, page errors 0). Its dock screenshot `C:\Triad\.claude\worktrees\zen-thompson-50e9bb\logs\aegis-acceptance-20261027T225143Z-dock-1600x1000.png` shows the title, the axes line, the 20 / 25 / 30 column headers and the top of the first row, with the selected square's outline. The run before it (`...224452Z`) failed only item RF2/3, because its experiment ended `failed` on the worker: `BrokenProcessPool: A process in the process pool was terminated abruptly`, with 0 cells done. The worker (PID 26816) stayed up, and the re-run passed.
+
 ## Screenshots
 
 Both are the viewport at the end of walk item 101 (the Lab on the dock-run grid job `2daffab8`, Trial Lab, Heatmap tab):
@@ -65,7 +80,7 @@ Both are the viewport at the end of walk item 101 (the Lab on the dock-run grid 
 
 The fix-wave run adds the dock:
 
-- `C:\Triad\.claude\worktrees\zen-thompson-50e9bb\logs\aegis-acceptance-20261027T223412Z-dock-1600x1000.png` is the Charts page at 1600 x 1000, taken just before `Expand Lab` was clicked (walk item 98). The `.job-head` fits on one line: `DONE`, the counts, `Expand Lab`, then the Metric select. The parameter-set table shows the selected `EMA 5 / SMA 20` row. At this default dock height the dock's own heatmap gets almost no room: under the `LONG heatmap` title only a sliver of its `rows … · 3 × 3` line shows above the `Aggregated: best of the rest` and `Validation` lines, and the grid itself has to be scrolled into view.
+- `C:\Triad\.claude\worktrees\zen-thompson-50e9bb\logs\aegis-acceptance-20261027T223412Z-dock-1600x1000.png` is the Charts page at 1600 x 1000, taken just before `Expand Lab` was clicked (walk item 98). The `.job-head` fits on one line: `DONE`, the counts, `Expand Lab`, then the Metric select. The parameter-set table shows the selected `EMA 5 / SMA 20` row. At this default dock height the dock's own heatmap got almost no room: under the `LONG heatmap` title only a sliver of its `rows … · 3 × 3` line showed above the `Aggregated: best of the rest` and `Validation` lines, and the grid itself had to be scrolled into view. The dock layout fix (above, under Checks) gives the heatmap the row again; its screenshot is `...225143Z-dock-1600x1000.png`.
 
 The walk takes no screenshot of Variable Intelligence or of an experiment-sourced Lab. For this note I also looked at the experiment source and Variable Intelligence at 1440 x 900 in the browser pane (ad hoc, nothing saved, not walk evidence): the experiment source shows the Heatmap tab as "Exact slices and aggregated projections: arrives in Phase 2 (plan §11)", the findings text from report 2 and "Queue focused follow-up sweep" enabled; Variable Intelligence shows the six steps ("Define variables - done", then five "not yet available" steps), the families with `Active (default)` chips, "no screening evidence: all parameters Active", a placeholder naming Phase 4, and the trials as the evidence table.
 
@@ -112,7 +127,7 @@ The SDD ledger (`C:\Triad\.claude\worktrees\zen-thompson-50e9bb\.superpowers\sdd
 - Store and math tests: the FNV hash test mirrors the implementation and wants a literal golden; non-finite range bounds hash alike; the reducer's default branch hides exhaustiveness; `trialWindow` has no guards for negative overscan, `rowHeight <= 0` or NaN; a few tests use literals where constants exist.
 - Catalog: `parsePath` accepts `params.` with an empty name; `parameterCount` lacks the Python clamp; an indicator literally named `levels` collides with the levels key (the same convention exists in `surface.py`).
 - Lab components: a few dashes carry no `title` on rare null paths; a sort key sticks to a hidden column after a scope or metric change; arrowing onto an unloaded row loses focus; `SELECT_SQUARE` stores indexes, so an axis change changes the described square; the matrix state is not checked against its key (switching sources can show the old one briefly); a failed experiment list has no retry; `TrialTable.tsx` is 371 lines with helpers worth moving out.
-- Look and feel: the disabled `#lab-refine` button on a grid job renders in the same green as an enabled one and needs a disabled look (with its opacity it measures 2.61:1, recorded by walk item 101; WCAG exempts inactive components). The dock's heatmap gets almost no room at the default dock height (the fix-wave dock screenshot). The global `th` colour is 4.14:1 outside the Lab (Experiments, studies, Summary, Trades, pre-existing).
+- Look and feel: the disabled `#lab-refine` button on a grid job renders in the same green as an enabled one and needs a disabled look (with its opacity it measures 2.61:1, recorded by walk item 101; WCAG exempts inactive components). The global `th` colour is 4.14:1 outside the Lab (Experiments, studies, Summary, Trades, pre-existing).
 - Walk weaknesses that the R2 "nothing clipped at either width" item rests on (all from the Task 7 review; the screenshots themselves look settled and unclipped, but the walk alone does not prove it):
   - Item 101's windowing check depends on the store's largest experiment (the 9-row fixture alone proves nothing there), and its `lab_visible_rows` helper mirrors the product's 22 px row formula, so the check is partly self-referential.
   - The wait for the heatmap after the switch to the second size could pass on stale content, so the 1440 x 900 evidence may have been taken mid-transition.
@@ -136,5 +151,5 @@ Randall is asked to confirm three things:
 3. Nothing is clipped at either width: 1672 x 941 and 1440 x 900, the two screenshots above and walk item 101 (read it with the three walk weaknesses listed under "Deferred").
 
 Not part of R2 and still open:
-- The dock's header wrap (narrow widths) has no screenshot; the dock at 1600 x 1000 now has one, and it shows the dock's heatmap with almost no room at the default dock height.
+- The dock's header wrap (narrow widths) has no screenshot; the dock at 1600 x 1000 now has one (`...225143Z-dock-1600x1000.png`, after the dock layout fix).
 - The dev server from this run is still up (node PID 26084, `[::1]:5181`); Randall stops it. The fix-wave run used its own dev server on `127.0.0.1:5181` (node PID 27404) and stopped it afterwards.

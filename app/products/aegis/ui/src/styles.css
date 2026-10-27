@@ -195,9 +195,16 @@ tr.muted td{color:#4f6b80}
 .opt-tab > .results-table{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .result-body.opt{flex:1;min-height:0;grid-template-columns:minmax(0,3fr) minmax(300px,2fr)}
 .result-body.opt > .heatmap,.result-body.opt > .results-table{min-height:0;overflow:auto}
-.result-body.opt > .dock-matrix{min-height:0;overflow:hidden;display:flex;flex-direction:column;border-right:1px solid var(--line)}
-.dock-matrix > .heatmap{flex:1;min-height:0;border-right:0}
+/* The matrix column scrolls as one: the heatmap keeps its own height and the basis and validation lines
+   follow right under its grid, so the lines never take the heatmap's room at the default dock height (it
+   shows what it showed before they existed) and, maximized, they sit under the grid. Its pinned headers
+   pin to the column's edge, which has no padding of its own. */
+.result-body.opt > .dock-matrix{min-height:0;overflow:auto;display:flex;flex-direction:column;border-right:1px solid var(--line)}
+.dock-matrix > .heatmap{flex:none;overflow:visible;border-right:0}
 .dock-matrix > .sub{flex:none;padding:0 12px 4px}
+.dock-matrix .heat-grid .cell.colhead{top:0}
+.dock-matrix .heat-grid .cell.rowhead{left:0}
+.dock-matrix .heat-grid .cell.corner{top:0;left:0}
 .heat-axes{margin-top:2px}
 /* Pinned at the scroll edge (the matrix's 12 px padding would otherwise let values show above and
    beside them); the outline covers the 3 px gaps between pinned cells. */
