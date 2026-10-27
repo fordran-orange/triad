@@ -3,9 +3,12 @@ items, the 11 Mission 5 items, the 13 Mission 6 items, the 9 Mission 8 items, th
 items, the 5 limits items, the 5 Mission 10 items, the 2 Mission 11 items, the 2 Mission 12 items and the 7 Mission 13 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
 (indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
 Items 51 and 63 restart the worker detached through WMI (tools/start_product.ps1), as the DoD asks.
+The 6 Optimization Lab items (LAB_ITEMS) follow, numbered after whatever precedes them; they make
+their own fixtures, so `--only lab` runs them alone and never restarts the worker.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
-Exit code 0 only when all 97 items PASS with no page errors.
+      [--only lab]
+Exit code 0 only when every item run PASSES with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
 
@@ -133,6 +136,109 @@ ITEMS = [
     "text the reader cannot read is refused naming the word, and the strategy is unchanged",
     "governance unchanged since the Mission 13 plan and items 1–96 still pass",
 ]
+# Optimization Lab v2, Phase 1 (plan Task 7): six items numbered after whatever precedes them, so
+# each title starts with its nominal number; run_lab() registers them from ITEMS.index(...) + 1.
+LAB_ITEMS = [
+    "(103) Expand Lab opens the Optimization Lab with the dock's axes and metric kept",
+    "(104) the Lab's sub-nav keeps the filter, the selection and the pins across Trial Lab → Parameter Families → Run Monitor → Trial Lab",
+    "(105) every unavailable Lab control says why: gate not built, regimes not in this strategy, event feed unavailable, no partition, later phases named",
+    "(106) at 1672 × 941 and at 1440 × 900 no primary Lab control is clipped, every text is ≥ 11 px and secondary text keeps ≥ 4.5:1",
+    "(126) Variable Intelligence shows the six-step workflow strip with the later steps disabled and explained",
+    "governance unchanged since the Optimization Lab v2 plan (LAB_BASE) and the Lab items pass",
+]
+ITEMS += LAB_ITEMS
+LAB_BASE = "1882c81"  # Mission 14 merged into the Lab branch; Core, platform host and Triad frozen
+LAB_STRATEGY = "ema9-sma30-cross-v1"  # the built-in reference document
+LAB_RANGE = ("2024-01-02", "2024-03-28")  # QQQ 1h: the fixtures finish in seconds
+LAB_SURFACE = [  # 3 × 3 = 9 cells, the same grid for the optimization and the experiment
+    ("long_side.indicators.ema.length", 5, 7, 1),
+    ("long_side.indicators.sma.length", 20, 30, 5),
+]
+LAB_SIZES = [(1672, 941), (1440, 900)]
+LAB_PRIMARY = (  # the controls item (106) keeps inside the viewport
+    "#lab-subnav button, #lab-source, #lab-scope-both, .lab-tab, #lab-pin-A, #lab-refine, "
+    "#lab-catalog-search"
+)
+LAB_SECONDARY = [  # the text item (106) holds to 4.5:1 against its nearest opaque background
+    ".workflow-step[data-state=disabled]",
+    ".not-built",
+    ".sub",
+    ".trial-table th[aria-sort=none]",
+    ".trial-table th:not([aria-sort=none])",
+    ".lab-tab.active",
+    ".lab-tab:not(.active)",
+]
+LAB_PLACEHOLDER_VIEWS = ["monitor", "families", "walkforward", "lineage", "compare"]
+LAB_TABS = ["heatmap", "interactions", "parallel", "pareto", "importance", "robustness"]
+WORKFLOW_LABELS = [  # workflow.ts WORKFLOW_LABELS, in strip order
+    "Define variables",
+    "Run screening",
+    "Evaluate importance and interactions",
+    "Review search-space proposal",
+    "Approve large sweep",
+    "Monitor results",
+]
+# Every rendered element of the Lab page that holds text of its own, with its computed font size.
+LAB_TEXT_SIZES = """
+(() => {
+  const root = document.getElementById('optlab-page');
+  const texty = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+  return [root, ...root.querySelectorAll('*')]
+    .filter((el) => texty(el) && el.getClientRects().length > 0)
+    .map((el) => ({ text: el.textContent.trim().slice(0, 40),
+                    size: parseFloat(getComputedStyle(el).fontSize) }));
+})()
+"""
+# WCAG 2 contrast of each text-holding element under the selectors: the text colour (its alpha
+# times the opacity up the tree) over the backgrounds composited down to the nearest opaque one.
+# Colours go through a 1 × 1 canvas, so any CSS colour syntax reads as sRGB bytes.
+LAB_CONTRAST = """
+(selectors) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const rgba = (css) => {
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0)';
+    ctx.fillStyle = css;
+    ctx.fillRect(0, 0, 1, 1);
+    const d = ctx.getImageData(0, 0, 1, 1).data;
+    return [d[0], d[1], d[2], d[3] / 255];
+  };
+  const over = (top, under) => [0, 1, 2].map((i) => top[i] * top[3] + under[i] * (1 - top[3]));
+  const channel = (c) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = (c) => 0.2126 * channel(c[0]) + 0.7152 * channel(c[1]) + 0.0722 * channel(c[2]);
+  const texty = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+  const ratio = (el) => {
+    const layers = [];
+    let alpha = 1;
+    for (let n = el; n; n = n.parentElement) {
+      const bg = rgba(getComputedStyle(n).backgroundColor);
+      if (bg[3] > 0) layers.push(bg);
+      if (bg[3] >= 1) break;
+      alpha *= parseFloat(getComputedStyle(n).opacity);
+    }
+    let base = [255, 255, 255];
+    if (layers.length && layers[layers.length - 1][3] >= 1) base = layers.pop();
+    for (const layer of layers.reverse()) base = over(layer, base);
+    const color = rgba(getComputedStyle(el).color);
+    const text = over([color[0], color[1], color[2], color[3] * alpha], base);
+    const [hi, lo] = [lum(text), lum(base)].sort((a, b) => b - a);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const out = [];
+  for (const selector of selectors) {
+    for (const host of document.querySelectorAll('#optlab-page ' + selector)) {
+      for (const el of [host, ...host.querySelectorAll('*')]) {
+        if (!texty(el) || el.getClientRects().length === 0) continue;
+        out.push({ selector, text: el.textContent.trim().slice(0, 40),
+                   ratio: Math.round(ratio(el) * 100) / 100 });
+      }
+    }
+  }
+  return out;
+}
+"""
 RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
 MISSION5_BASE = (
     "a73f70e"  # the Mission 5 spec commit; Core, platform host and Triad are frozen since
@@ -4261,6 +4367,476 @@ class Acceptance:
 
         self.item(97, item97)
 
+    # -- Optimization Lab v2, Phase 1: plumbing -------------------------------------------------
+    def lab_experiment_fixture(self) -> None:
+        """The block's own experiment, made through the API: the 3 × 3 surface on the built-in
+        document, finished and reported once more, named lab-walk-<stamp> and left in the store."""
+        name = self.lab_fixtures["name"]
+        body = {
+            "name": name,
+            "strategy_id": LAB_STRATEGY,
+            "data": {
+                "symbol": "QQQ",
+                "timeframe": "1h",
+                "start": LAB_RANGE[0],
+                "end": LAB_RANGE[1],
+            },
+            "settings": {"initial_capital": 100000, "allocation_fraction": 1},
+            "objective": "net_pnl",
+            "surface": {
+                "parameters": [
+                    {"path": p, "start": a, "stop": b, "step": s} for p, a, b, s in LAB_SURFACE
+                ]
+            },
+            "budget": {"runs": 9, "seconds": None},
+            "tolerance": 0.15,
+            "seed": 1,
+        }
+        started = self.post("experiments", body)
+        assert started.status == 202, started.text()
+        exp_id = started.json()["experiment_id"]
+        self.lab_fixtures["experiment"] = exp_id
+        assert self.wait_until(
+            lambda: self.experiment(exp_id)["status"] in ("done", "failed", "cancelled"), 300, 1
+        )
+        document = self.experiment(exp_id)
+        assert document["status"] == "done", document.get("error")
+        reported = self.post(f"experiments/{exp_id}/report", {})
+        assert reported.ok, reported.text()[:200]
+        self.lab_fixtures["experiment_report"] = self.experiment(exp_id)["latest_report"]
+
+    def lab_dock_job(self) -> dict:
+        """The block's optimization, run through the Optimize popover on the Charts page: the dock
+        shows only the jobs this page started (or adopted unfinished when it loaded), so a job
+        posted to the API that finished before the page looked would never reach it. Its spec is
+        the workspace's built-in document, so it carries that name; the job id is recorded."""
+        page = self.page
+        page.locator("#nav-charts").click()
+        page.wait_for_selector("#chart-mount", timeout=30_000)
+        self.select("Symbol", "QQQ")
+        page.get_by_label("Start date").fill(LAB_RANGE[0])
+        page.get_by_label("End date").fill(LAB_RANGE[1])
+        self.select("Timeframe", "1h")
+        page.wait_for_function(
+            "(t => t.startsWith('QQQ · 1h') && t.includes("
+            + json.dumps(f"{LAB_RANGE[0]} → {LAB_RANGE[1]}")
+            + "))(document.querySelector('.chart-header')?.innerText ?? '')",
+            timeout=90_000,
+        )
+        self.wait_bars()
+        for path, start, stop, step in LAB_SURFACE:
+            field = path.removeprefix("long_side.")
+            for part, value in (("start", start), ("stop", stop), ("step", step)):
+                page.get_by_label(f"long {field} {part}").fill(str(value))
+        if not self.js("!!document.querySelector('.popover')"):  # the button toggles
+            page.locator("#optimize").click()
+        page.wait_for_function(
+            "/\\b9 valid cells/.test(document.getElementById('optimize-plan')?.innerText ?? '')",
+            timeout=90_000,
+        )
+        with page.expect_response(
+            lambda r: r.url.endswith("/aegis/api/optimize") and r.request.method == "POST",
+            timeout=60_000,
+        ) as caught:
+            page.locator("#start-optimization").click()
+        assert caught.value.status == 202, caught.value.text()[:200]
+        job_id = caught.value.json()["job_id"]
+        self.lab_fixtures["optimization"] = job_id
+        assert self.wait_until(
+            lambda: self.api(f"optimize/{job_id}")["status"] in ("done", "failed", "cancelled"),
+            300,
+            1,
+        )
+        job = self.api(f"optimize/{job_id}")
+        assert job["status"] == "done" and job["cells_done"] == 9, (job["status"], job.get("error"))
+        page.wait_for_function(
+            "(document.querySelector('.job-head')?.innerText ?? '').startsWith('DONE')",
+            timeout=60_000,
+        )
+        return job
+
+    def lab_open(self, text: str) -> None:
+        """Open a source through the Lab's picker and wait for its own trial rows."""
+        self.page.locator("#lab-source").select_option(text)
+        self.lab_wait_rows(text)
+
+    def lab_wait_rows(self, text: str) -> None:
+        self.page.wait_for_function(
+            "t => document.getElementById('lab-source')?.value === t"
+            ' && !!document.querySelector(`#trial-table tr[data-trial^="${t}#"]`)',
+            arg=text,
+            timeout=60_000,
+        )
+
+    def lab_view(self, view: str) -> None:
+        self.page.locator(f"#lab-view-{view}").click()
+        self.page.wait_for_function(
+            "v => document.getElementById(`lab-view-${v}`)?.ariaCurrent === 'page'",
+            arg=view,
+            timeout=30_000,
+        )
+
+    def lab_visible_rows(self) -> int:
+        return self.js(
+            "(() => { const t = document.getElementById('trial-table');"
+            " const head = t.querySelector('thead')?.offsetHeight ?? 0;"
+            " return Math.max(1, Math.ceil((t.clientHeight - head) / 22)); })()"
+        )
+
+    def lab_rendered_rows(self) -> int:
+        return self.js("document.querySelectorAll('#trial-table tr[data-trial]').length")
+
+    # -- Optimization Lab v2, Phase 1: the items --------------------------------------------------
+    def run_lab(self, first: int):
+        """The Lab block on its own fixtures, items first … first + 5. It never restarts the worker
+        and never touches port 8102's process."""
+        page = self.page
+        self.lab_fixtures = {"name": f"lab-walk-{self.stamp}"}
+        page.goto(self.base)
+        page.wait_for_function(
+            "document.getElementById('strategy-name')?.innerText.length > 1", timeout=30_000
+        )
+        try:  # before the Lab page mounts, so its picker lists the experiment
+            self.lab_experiment_fixture()
+        except Exception as exc:  # noqa: BLE001 - the items that need it report why
+            self.lab_fixtures["experiment_error"] = f"{type(exc).__name__}: {exc}"
+        fixtures = self.lab_fixtures
+
+        def experiment_id() -> str:
+            assert "experiment_report" in fixtures, fixtures.get("experiment_error")
+            return fixtures["experiment"]
+
+        def job_id() -> str:
+            assert "optimization" in fixtures, "the fixture optimization did not start (103)"
+            return fixtures["optimization"]
+
+        def lab103():
+            experiment_id()  # the experiment runs first: one job at a time on the worker
+            job = self.lab_dock_job()
+            self.tab("Optimization")
+            page.locator(".opt-tab .legend button.chip", has_text=re.compile(r"^LONG ·")).click()
+            page.wait_for_selector("#expand-lab-long", timeout=30_000)
+            picker = page.locator('.job-head select[aria-label="Heatmap metric"]')
+            picker.select_option("mar")  # not the job's objective, so a kept metric shows
+            dock_metric = picker.input_value()
+            page.locator("#expand-lab-long").click()
+            page.wait_for_selector("#optlab-page", state="visible", timeout=30_000)
+            source = f"opt:{job['job_id']}"
+            self.lab_wait_rows(source)
+            page.wait_for_function(
+                "/n = \\d/.test(document.getElementById('lab-heatmap-basis')?.innerText ?? '')"
+                " && !(document.getElementById('lab-heatmap-axes')?.innerText ?? '')"
+                ".includes('updating')",
+                timeout=60_000,
+            )
+            value = page.locator("#lab-source").input_value()
+            axes = page.locator("#lab-heatmap-axes").inner_text()
+            metric = page.locator("#lab-metric").input_value()
+            fast, slow = job["fast_path"], job["slow_path"]
+            assert value == source, (value, source)
+            assert f"Y (rows): {fast}" in axes and f"X (columns): {slow}" in axes, (
+                axes,
+                fast,
+                slow,
+            )
+            assert metric == dock_metric == "mar", (metric, dock_metric)
+            x = page.locator(f'input[name=lab-axis-x][data-path="{slow}"]').is_checked()
+            y = page.locator(f'input[name=lab-axis-y][data-path="{fast}"]').is_checked()
+            assert x and y, (x, y)
+            return (
+                f"job {job['job_id'][:8]} ({job['cells_done']} cells, run from the Optimize "
+                f"popover) → Expand Lab: source {value[:12]}…, '{axes}', metric {metric} as the "
+                f"dock showed it; catalog X = {slow}, Y = {fast}"
+            )
+
+        self.item(first, lab103)
+
+        def lab104():
+            exp_id = experiment_id()
+            source = f"exp:{exp_id}"
+            self.lab_open(source)
+            path = "long_side.indicators.ema.length"
+            page.locator(f'.range-lo[data-path="{path}"]').fill("6")
+            row = page.locator("#trial-table tbody tr[data-trial]").first
+            trial = row.get_attribute("data-trial")
+            row.click()
+            page.locator("#lab-pin-A").click()
+            page.wait_for_function(
+                "t => document.getElementById('lab-pin-A')?.dataset.pinned === t",
+                arg=trial,
+                timeout=10_000,
+            )
+            # Review Focus 5: digits typed into a field are text, never the 1 / 2 / 3 pin keys
+            # (2 would move the pinned trial into B if the keys leaked).
+            page.locator("#lab-catalog-search").press_sequentially("12")
+            page.wait_for_timeout(200)
+            typed = page.locator("#lab-catalog-search").input_value()
+            pins = {s: page.locator(f"#lab-pin-{s}").get_attribute("data-pinned") for s in "ABC"}
+            assert typed == "12" and pins == {"A": trial, "B": "", "C": ""}, (typed, pins)
+            for view in ("families", "monitor", "trials"):
+                self.lab_view(view)
+            self.lab_wait_rows(source)
+            linked = page.locator("#lab-linked").inner_text()
+            again = page.locator(f'#trial-table tr[data-trial="{trial}"]')
+            again.wait_for(timeout=30_000)
+            classes = (again.get_attribute("class") or "").split()
+            rail = page.locator("#lab-pins").inner_text()
+            lo = page.locator(f'.range-lo[data-path="{path}"]').input_value()
+            pinned = page.locator("#lab-pin-A").get_attribute("data-pinned")
+            assert linked == "Linked · 1 filter", linked
+            assert "selected" in classes, classes
+            assert trial in rail and pinned == trial, (rail, pinned)
+            assert lo == "6", lo
+            return (
+                f"{source[:16]}…: {path} from 6, {trial.split('#')[-1]} selected and pinned A; "
+                f"'12' typed in the search pinned nothing (B, C empty); after Parameter Families → "
+                f"Run Monitor → Trial Lab: '{linked}', the row still selected, A = "
+                f"{pinned.split('#')[-1]}, the range input still 6"
+            )
+
+        self.item(first + 1, lab104)
+
+        def lab105():
+            exp_id = experiment_id()
+            source = f"exp:{exp_id}"
+            if page.locator("#lab-source").input_value() != source:
+                self.lab_open(source)
+            texts = {
+                key: page.locator(f"#lab-{key}").inner_text()
+                for key in ("gate", "regime", "events", "partition", "ai")
+            }
+            assert texts["gate"] == "Strategy Gate: not built", texts
+            assert texts["regime"] == "Regimes: not in this strategy", texts
+            assert texts["events"] == "Event windows: feed unavailable", texts
+            assert texts["partition"].startswith("Partition: none"), texts
+            assert "Phase 8" in texts["ai"], texts
+            placeholders = []
+            for tab in LAB_TABS:
+                page.locator(f"#lab-tab-{tab}").click()
+                page.wait_for_function(
+                    "t => document.getElementById('lab-tab-' + t)?.getAttribute('aria-selected')"
+                    " === 'true'",
+                    arg=tab,
+                )
+                placeholders += page.locator("#lab-panel .not-built").all_inner_texts()
+            page.locator("#lab-tab-heatmap").click()
+            for view in LAB_PLACEHOLDER_VIEWS:
+                self.lab_view(view)
+                placeholders += page.locator("#optlab-page .not-built").all_inner_texts()
+            self.lab_view("trials")
+            self.lab_wait_rows(source)
+            vague = [t for t in placeholders if not re.search(r"Phase \d", t)]
+            assert len(placeholders) >= 9 and not vague, (len(placeholders), vague)
+            report = self.api(f"experiments/{exp_id}/report")
+            page.wait_for_function(
+                "n => (document.querySelector('#lab-findings .rail-title')?.innerText ?? '')"
+                ".includes('report ' + n)",
+                arg=report["report_id"],
+                timeout=30_000,
+            )
+            refine = page.locator("#lab-refine")
+            refine_title = refine.get_attribute("title") or ""
+            if report.get("recommendation"):
+                assert refine.is_enabled(), refine_title
+                refine_state = "enabled (the report recommends a plateau)"
+            else:
+                assert refine.is_disabled() and refine_title, refine_title
+                refine_state = f"disabled: '{refine_title}'"
+            self.lab_open(f"opt:{job_id()}")
+            opt_title = refine.get_attribute("title") or ""
+            assert refine.is_disabled() and opt_title, opt_title
+            page.evaluate(
+                "() => { const o = document.createElement('option');"
+                " o.value = o.textContent = 'exp:does-not-exist'; o.id = 'lab-walk-bogus';"
+                " document.getElementById('lab-source').appendChild(o); }"
+            )
+            page.locator("#lab-source").select_option("exp:does-not-exist")
+            page.wait_for_selector("#lab-source-error", timeout=30_000)
+            error = page.locator("#lab-source-error").inner_text()
+            page.evaluate("() => document.getElementById('lab-walk-bogus')?.remove()")
+            assert "does-not-exist" in error, error
+            return (
+                f"{texts['gate']} · {texts['regime']} · {texts['events']} · {texts['partition']} · "
+                f"'{texts['ai']}'; {len(placeholders)} placeholders each naming its phase; refine "
+                f"for report {report['report_id']} {refine_state}; for the grid job disabled: "
+                f"'{opt_title}'; the bogus source: '{error}'"
+            )
+
+        self.item(first + 2, lab105)
+
+        def lab106():
+            exp_id, opt_id = experiment_id(), job_id()
+            small: list = []
+            ratios: dict[str, list] = {selector: [] for selector in LAB_SECONDARY}
+            seen: list[str] = []
+
+            def sweep():
+                sizes = self.js(LAB_TEXT_SIZES)
+                small.extend(t for t in sizes if t["size"] < 11)
+                for sample in page.evaluate(LAB_CONTRAST, LAB_SECONDARY):
+                    ratios[sample["selector"]].append(sample)
+                return len(sizes)
+
+            def unclipped(w: int, h: int) -> int:
+                controls = page.locator(LAB_PRIMARY).all()
+                bad = []
+                for control in controls:
+                    box = control.bounding_box()
+                    name = control.get_attribute("id") or control.inner_text().strip()
+                    on_top = control.evaluate(
+                        "el => { const r = el.getBoundingClientRect(); const hit ="
+                        " document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);"
+                        " return !!hit && (hit === el || el.contains(hit)); }"
+                    )
+                    inside = box is not None and (
+                        box["x"] >= 0
+                        and box["y"] >= 0
+                        and box["x"] + box["width"] <= w
+                        and box["y"] + box["height"] <= h
+                    )
+                    if not (inside and on_top):
+                        bad.append((name, box, on_top))
+                assert len(controls) >= 18 and not bad, (len(controls), bad)
+                wide = self.js("document.documentElement.scrollWidth")
+                assert wide <= w, f"the page scrolls sideways: {wide} > {w}"
+                return len(controls)
+
+            def windowed(source: str) -> tuple[int, int]:
+                visible, rendered = self.lab_visible_rows(), self.lab_rendered_rows()
+                assert 0 < rendered <= visible + 20, (source, rendered, visible)
+                return rendered, visible
+
+            big = max(
+                (e for e in self.api("experiments") if e.get("status") == "done"),
+                key=lambda e: (e.get("progress") or {}).get("cells_done", 0),
+                default=None,
+            )
+            lines = []
+            try:
+                for w, h in LAB_SIZES:
+                    page.set_viewport_size({"width": w, "height": h})
+                    page.wait_for_timeout(300)  # the layout and the table's ResizeObserver
+                    self.lab_view("trials")
+                    self.lab_open(f"opt:{opt_id}")
+                    page.wait_for_function(
+                        "/n = \\d/.test(document.getElementById('lab-heatmap-basis')?.innerText"
+                        " ?? '')",
+                        timeout=60_000,
+                    )
+                    shot = self.screenshot_path(f"lab-{w}x{h}")
+                    page.screenshot(path=str(shot))  # the viewport, not the full page
+                    seen.append(shot.name)
+                    controls = unclipped(w, h)
+                    texts = sweep()
+                    self.lab_open(f"exp:{exp_id}")
+                    page.locator("#trial-table tbody tr[data-trial]").first.click()
+                    page.wait_for_selector("#lab-selected .sub", timeout=10_000)
+                    unclipped(w, h)
+                    texts += sweep()
+                    fixture_rows = windowed(f"exp:{exp_id}")
+                    self.lab_view("variables")
+                    page.wait_for_selector("#workflow-strip", timeout=10_000)
+                    texts += sweep()
+                    self.lab_view("monitor")
+                    texts += sweep()
+                    self.lab_view("trials")
+                    self.lab_wait_rows(f"exp:{exp_id}")
+                    window = ""
+                    if big and (big.get("progress") or {}).get("cells_done", 0) > (
+                        self.lab_visible_rows() + 20
+                    ):
+                        total = big["progress"]["cells_done"]
+                        self.lab_open(f"exp:{big['id']}")
+                        top = windowed(big["id"])
+                        self.js(
+                            "(() => { const t = document.getElementById('trial-table');"
+                            " t.scrollTop = (t.scrollHeight - t.clientHeight) / 2; })()"
+                        )
+                        page.wait_for_function(
+                            "document.querySelectorAll('#trial-table tr.trial-loading').length"
+                            " === 0 && Number(document.querySelector('#trial-table tr[data-trial]')"
+                            "?.dataset.index ?? 0) > 20",
+                            timeout=30_000,
+                        )
+                        middle = windowed(big["id"])
+                        window = (
+                            f"; {big['id']} ({total} trials) renders {top[0]} rows at the top "
+                            f"and {middle[0]} in the middle for {middle[1]} visible"
+                        )
+                        self.lab_open(f"exp:{exp_id}")
+                    lines.append(
+                        f"{w}×{h}: {controls} controls inside and on top, {texts} texts checked, "
+                        f"the fixture renders {fixture_rows[0]} rows for {fixture_rows[1]} "
+                        f"visible{window}"
+                    )
+            finally:
+                page.set_viewport_size({"width": 1600, "height": 1000})
+            missing = [s for s, found in ratios.items() if not found]
+            low = [x for found in ratios.values() for x in found if x["ratio"] < 4.5]
+            assert not small, small[:10]
+            assert not missing and not low, (missing, low[:10])
+            lowest = {s: min(x["ratio"] for x in found) for s, found in ratios.items()}
+            return (
+                "; ".join(lines)
+                + "; every text ≥ 11 px; lowest contrast "
+                + ", ".join(f"{s} {r:.2f}" for s, r in lowest.items())
+                + f"; screenshots {', '.join(seen)}"
+            )
+
+        self.item(first + 3, lab106)
+
+        def lab126():
+            exp_id = experiment_id()
+            self.lab_view("trials")
+            if page.locator("#lab-source").input_value() != f"exp:{exp_id}":
+                self.lab_open(f"exp:{exp_id}")
+            self.lab_view("variables")
+            page.wait_for_selector("#workflow-strip", timeout=10_000)
+            self.lab_wait_rows(f"exp:{exp_id}")  # the trials, as the evidence table
+            steps = self.js(
+                "[...document.querySelectorAll('#workflow-strip .workflow-step')].map(s => ({"
+                " key: s.dataset.key, state: s.dataset.state, title: s.title,"
+                " label: s.querySelector('.workflow-label')?.innerText ?? '' }))"
+            )
+            labels = [s["label"] for s in steps]
+            assert len(steps) == 6 and labels == WORKFLOW_LABELS, labels
+            assert steps[0]["state"] in ("live", "done"), steps[0]
+            later = [s for s in steps[1:] if s["state"] != "disabled"]
+            unexplained = [s for s in steps[1:] if not re.search(r"Phase \d", s["title"])]
+            assert not later and not unexplained, (later, unexplained)
+            return f"6 steps in order; {steps[0]['label']} {steps[0]['state']}; " + "; ".join(
+                f"{s['label']}: '{s['title']}'" for s in steps[1:]
+            )
+
+        self.item(first + 4, lab126)
+
+        def lab_governance():
+            import subprocess
+
+            def git(*args) -> str:
+                return subprocess.run(
+                    ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
+                ).stdout
+
+            state = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
+            assert state["mode"] == "human_directed" and state["exchange"] == "CLOSED", state
+            schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
+            assert schedule["enabled"] is False and schedule["id"].startswith("c99fa831"), schedule
+            paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
+            committed = git("diff", "--name-only", LAB_BASE, "HEAD", "--", *paths).strip()
+            pending = git("status", "--porcelain", "--", *paths).strip()
+            assert committed == "" and pending == "", (committed, pending)
+            earlier = [r for r in self.results if first <= r["item"] < first + 5]
+            failed = [r["item"] for r in earlier if r["status"] != "PASS"]
+            assert len(earlier) == 5 and not failed, failed
+            return (
+                f"aegis {state['mode']} / {state['exchange']}; DailySchedule {schedule['id'][:8]} "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
+                f"{LAB_BASE}; Lab items {first}–{first + 4} PASS; fixtures {fixtures}"
+            )
+
+        self.item(first + 5, lab_governance)
+
 
 def nested(condition: dict, depth: int) -> dict:
     """A rule nested `depth` levels deep (Mission 13's guard refuses past 32)."""
@@ -4274,7 +4850,16 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="http://127.0.0.1:8102/aegis/")
     parser.add_argument("--headed", action="store_true")
+    parser.add_argument(
+        "--only",
+        choices=["lab"],
+        default=None,
+        help="run only the Optimization Lab block, on the fixtures it makes for itself",
+    )
     args = parser.parse_args(argv)
+    lab_only = args.only == "lab"
+    first = ITEMS.index(LAB_ITEMS[0]) + 1
+    expected = len(LAB_ITEMS) if lab_only else len(ITEMS)
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # the report uses arrows and dashes
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     (ROOT / "logs").mkdir(exist_ok=True)
@@ -4287,7 +4872,9 @@ def main(argv=None) -> int:
         # is what the product ships with and the chart spike verified against it.
         page = browser.new_page(viewport={"width": 1600, "height": 1000}, bypass_csp=True)
         acceptance = Acceptance(page, args.base, stamp)
-        acceptance.run()
+        if not lab_only:
+            acceptance.run()
+        acceptance.run_lab(first)
         page.screenshot(path=str(acceptance.screenshot_path("final")), full_page=True)
         browser.close()
     report = {
@@ -4304,14 +4891,17 @@ def main(argv=None) -> int:
         "study_id": getattr(acceptance, "study_id", None),
         "identical_study_id": getattr(acceptance, "twin_id", None),
         "library_throwaway": getattr(acceptance, "throwaway", None),
+        "lab_only": lab_only,
+        "lab_first_item": first,
+        "lab_fixtures": getattr(acceptance, "lab_fixtures", None),
         "page_errors": acceptance.errors,
     }
     out = ROOT / "logs" / f"aegis-acceptance-{stamp}.json"
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(
-        f"\n{report['passed']}/{len(ITEMS)} PASS, {report['failed']} FAIL, page errors {len(acceptance.errors)} -> {out}"
+        f"\n{report['passed']}/{expected} PASS, {report['failed']} FAIL, page errors {len(acceptance.errors)} -> {out}"
     )
-    ok = report["failed"] == 0 and len(acceptance.results) == len(ITEMS) and not acceptance.errors
+    ok = report["failed"] == 0 and len(acceptance.results) == expected and not acceptance.errors
     return 0 if ok else 1
 
 
