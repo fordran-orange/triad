@@ -1,6 +1,6 @@
 # Aegis Optimization Lab v2: Implementation Plan (Gate 1)
 
-> **Status: PLAN ONLY.** This is for Codex review, then Randall's approval. No implementation is authorized. Nothing in this document was built. Revised the same day with Randall's answers to the open questions ("Operator decisions", below): the questions are closed, the hard stop is not.
+> **Status: PLAN ONLY.** This is for Codex review, then Randall's approval. No implementation is authorized. Nothing in this document was built. Revised the same day with Randall's answers to the open questions ("Operator decisions", below): the questions are closed, the hard stop is not. Revised again the same day for the MC Architecture Review's seven required revisions R1–R7 ("Architecture review revisions", below): §18 summarizes each change, §19 is the dependency review, §20 the added tests, §21 the residual risks and §22 the approval checklist.
 >
 > When a phase is approved, it gets its own task-level plan in the writing-plans format, executed with superpowers:subagent-driven-development or superpowers:executing-plans. This document fixes the decisions, interfaces, budgets and tests those task plans must follow.
 
@@ -57,6 +57,22 @@ Randall answered the eleven open questions of §14 in this session, before Codex
 
 Unchanged by these answers: the hard stop. Codex reviews this revision; implementation needs Randall's explicit approval after that review.
 
+## Architecture review revisions (2026-10-27)
+
+The MC Architecture Review (Randall Ford) accepted the plan as the architectural starting point and required seven revisions before approval. Each is applied in place; §18 summarizes them.
+
+| # | Finding | Where applied |
+|---|---|---|
+| R1 | Statistical variable intelligence | §7.3, §7.4, §7.4a, §7.5, §8.4–8.7, §11 Phases 3–4, §15 rows 19, 23, 25, §20 |
+| R2 | One-million-trial execution verification | §9 (Tracks A and B), §8.6, §11 Phase 2 and milestone, §15 row 24 |
+| R3 | Robustness classification | §7.6, §5.2–5.6, §10, §15 rows 5, 26 |
+| R4 | Final OOS workflow ownership | §5.3, §5.4, §5.6, §5.10, §6.5, §10.1–10.2, §11 Phases 5–6, §15 rows 13, 28 |
+| R5 | Search budget arithmetic | §6.4, §8.5, §14 (Q6), §15 row 29 |
+| R6 | Sharpe and DSR validation | §7.12, §13, §15 row 27 |
+| R7 | UX implementation strategy | §5.8, §11 Phases 1 and 2c, §12 (charting criteria), §15 rows 17, 30, §16 R2.5 |
+
+Two numbers approved under Q6 change as a result and need re-approval (§22): the budget split (30 / 45 / 20 / 5, R5) and the Lab task budget for importance analytics (≤ 90 s, R1). Nothing was implemented; the benchmarks of §9.1b were run read-only against the engine, writing only to a scratch folder.
+
 ## Global constraints
 
 Every phase implicitly includes these.
@@ -97,7 +113,7 @@ Every phase implicitly includes these.
 - Browser evidence must come from a worker started on the branch under test.
 
 **Commits**
-- Messages are written with the Write tool and committed with `git commit -F`, with the trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- Messages are written with the Write tool and committed with `git commit -F`, with the attribution trailer the session's instructions give (currently `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`).
 
 ## Review focus
 
@@ -126,12 +142,12 @@ These are the five inputs or conditions the brief implies but that no single pha
 | # | Finding | Consequence for this plan |
 |---|---|---|
 | F1 | **No Strategy Gate exists.** Nothing in `app/products/aegis` or `app/trading_core` computes a gate verdict, validation status, sealed OOS or deployment eligibility. The only "gate" in the UI is `experiment-gate`, the "save or revert the document first" notice in `ExperimentsPage.tsx:109-118`. | Every gate panel, "Send to Validation", "NOT VALIDATED" badge and DSR threshold in screens A–C and F–H has no backend. Randall chose not to build one now (Q1): the UI says `Strategy Gate: not built`, never `pending`, and the gate's sketch stays in §12 for a later decision. |
-| F2 | **HA-MQI, EWO and RocketRSI do not exist.** The indicator kinds are EMA, SMA, RSI, ATR, BB, DONCHIAN and MACD (`kinds.py:33-55`). The Mission 6 spec calls HA-MQI "undefined" (`docs/superpowers/specs/2026-10-12-aegis-experiments-design.md:395`). | The "~10 HA-MQI variables" sweep cannot run yet. Scenarios 2, 14 and 19 use the existing kinds plus synthetic fixtures until the indicator mission Randall chose (Q3) lands after Phase 4: each as an indicator kind, combined in a reference strategy (§11.2). |
+| F2 | **HA-MQI, EWO and RocketRSI do not exist.** The indicator kinds are EMA, SMA, RSI, ATR, BB, DONCHIAN and MACD (`kinds.py:33-55`). The Mission 6 spec calls HA-MQI "undefined" (`docs/superpowers/specs/2026-10-12-aegis-experiments-design.md:395`). **Randall's thesis document (`C:\Users\fordr\Documents\HA_MQI_Trading_Framework_Thesis.docx`, received 2026-10-27) now defines all three**, with current settings and the trading framework around them (§11.2). | The "~10 HA-MQI variables" sweep cannot run yet, but its definition is no longer missing. The thesis is a **daily-chart** framework: ten years of 1D bars is ≈ 2,500 bars, the cheap end of §9.1b (≈ 190 trials / s). Scenarios 2, 14 and 19 use the existing kinds plus synthetic fixtures until the indicator mission Randall chose (Q3) lands after Phase 4: each as an indicator kind, combined in a reference strategy (§11.2). |
 | F3 | **There is no Sharpe metric.** The metrics are `net_pnl, net_return, cagr, max_drawdown, mar, win_rate, expectancy, profit_factor, trade_count, exposure` × `combined/long/short` (`pool.py:22-34`). Every design ranks by Sharpe. Adding a key inside `backtest._metrics` (`backtest.py:992`) would change `canonical_payload` (`results.py:49-66`), so every new run's `result_hash` would differ from an identical old computation, and `materialize`'s identity check would fail. | Randall chose per-trade Sharpe (Q2): defined in §7.12, computed beside the metrics (never inside `_metrics`), stored as `<scope>.sharpe_trade`. The Lab's default objective stays the experiment's own; trade Sharpe is a selectable Lab metric, and DSR builds on it. |
 | F4 | **No regimes, no event feed, no IS/validation/OOS partition on experiments.** Event windows are hand-supplied and ANALYZE-only (`temporal.py:1-7`). Experiments run on one range, and all data is `RAW ARCHIVE · NOT RESEARCH-ELIGIBLE` (`data.py:56`, `study_rules.py:45`). Walk-forward (Mission 4) and studies (Mission 8) do have IS/OOS windows. | FOMC/Earnings controls render as "feed unavailable", never as neutral (scenario 7). Regimes: Randall chose a REGIME indicator a strategy can add (Q4, §11.2); until a strategy carries it, regime controls say "not in this strategy". Phase 5 adds partitions. Phase 6 reuses studies for folds. |
 | F5 | **The compact optimizer is a different machine.** It is a per-side grid of ≤ 100,000 cells held in one JSON document (`optimize.py:40-41`). Status sends the best 1,000 cells (`:43`). The matrix square is **best of the rest** (max), not an exact slice or a median (`optimize.py:232-333`). Its objectives are `net_pnl, mar, max_drawdown, trade_count`. Randall chose best-of-rest only on 2026-10-20 ("no median view"). | The dock keeps its job. It gains honest labels (`Aggregated: best of the rest`), an `n` overlay and `Expand Lab`. Q5 was left to the builder's discretion: the dock keeps best-of-rest (the 2026-10-20 decision stands), and the Lab offers best / median / mean / worst one click away. |
 | F6 | **Experiments are the right base, with five scale limits:** `MAX_PARAMETERS = 10` (`surface.py:34`); `CHUNK_CELLS = 200` gives 5,000 Parquet files per million trials (`experiments.py:62`); `cells()`, `row()` and `done_cells()` read every chunk on every call (`experiments.py:277-306`); `analysis._columns` converts the whole table to Python lists (`analysis.py:36-47`); `GET /experiments/{id}/cells` re-reads all chunks per request (`api.py:964-988`). | Phase 2 replaces the read path (compaction plus a column cache), keeping the proven write path. Phase 4 lifts the parameter cap to 20 with an identity that survives int64 overflow. |
-| F7 | **Compute is the binding constraint, not storage or queries.** Measured cost is 0.0245–0.0304 ms per cell-bar per worker (the 8 newest 252-cell experiments in `data/aegis/experiments`). With 10 workers × 0.8 efficiency (`surface.py:40-41`), one million trials takes about `bars × 0.94 ms`, or **≈ 1.9 h at 2,000 bars and ≈ 9.4 h at 10,000 bars**. At 200,000 bars it is ≈ 7.8 days. | The Lab shows the funnel's real budget. One million trials is a coarse-timeframe or short-range proposition on this laptop (§9.6), and the UI says so. |
+| F7 | **Compute is the binding constraint, not storage or queries.** Measured on the real engine through the real pool on real QQQ bars with a costed ten-parameter strategy (§9.1b): 188 trials / s steady at 2,603 bars, 83 at 9,669, 24 at 46,034 (ten workers); sustained over 100,000 trials at 2,603 bars: 89 / s. The worker's cost per trial is ≈ `27 ms + 0.0079 ms × bars`, not a constant per cell-bar, so the planner's linear rate mis-prices other bar counts by about 2×. | One million trials is ≈ 3.1 h at 2,603 bars (estimated from the sustained rate), ≈ 7.0 h at 9,669 and ≈ 24.3 h at 46,034: a coarse-timeframe or short-range proposition on this laptop (§9.1c), and the UI says so. |
 | F8 | **Every stage-1 trial is already costed.** The kernel applies `commission_per_side` and `slippage_bps` (`backtest.py:435-462`, `strategy.py:426-431`). A trial is a complete metrics-only backtest without trades, markers or envelope. | The funnel's stage 1 is not "cost-unaware". Stage 2 is "full envelope plus cost stress". The UI must not call stage-1 rows "backtests" in counts (brief §3). |
 | F9 | **The machine:** i7-1255U (10 cores / 12 threads, 2.6 GHz base); 15.8 GB RAM, with **2.5 GB free** while Core and the Aegis worker ran on 2026-10-27; Samsung NVMe SSD (238 GB), **59 GB free on C:**; `data/aegis/experiments` uses 9.8 MB. Randall noted on 2026-10-21 that "a NAS drive is going to be needed soon". | Memory budgets assume about 2 GB usable. The Lab holds projected columns only (§9.2). A 1M-trial experiment is about 0.3 GB on disk. |
 | F10 | **Chart stack:** Vela 0.8.3 is a time-axis OHLCV chart only, with no heatmap or scatter primitive. Non-price charts are hand-written SVG paths (MainEffects, EquityTab, StudyReport, …). The heatmap is a DOM CSS grid (`Heatmap.tsx`). React Flow 12.12.0 is installed, and pulls d3-zoom/drag/selection/interpolate and zustand. No chart, scale, virtualization or table library is installed. | Lab charts are hand-built Canvas 2D renderers behind a small `lab/charts` boundary, with server-side aggregation (§12). React Flow is reused for the lineage graph (G). Virtualized rows are hand-written. Each alternative library is listed in §12 for a later decision. |
@@ -343,7 +359,10 @@ Measured `C:\Triad\data\aegis`, 2026-10-27: **1.5 GB**.
 | Statistical over-claiming | Basis labels, minimum support, uniform-design-only importance, intervals, "conditional on ranges and sampler" text (§7) |
 | UI scope creep: eight screens | UI-first but phased; each phase must ship an independently useful slice and walk items |
 | Mission 14 merge conflicts | Phase 1 begins after Mission 14 merges |
-| Laptop compute | Budgets shown honestly; one million only at coarse bar counts (§9.6) |
+| Laptop compute | Budgets shown honestly; one million only at coarse bar counts (§9.6b); sustained rates, not burst rates, drive projections |
+| A weak marginal effect read as irrelevance | Empirical evidence only deprioritizes, under six conditions (§7.4a); coverage gaps are `unresolved`; the research principle is printed on H |
+| A reused holdout shown as fresh validation | `independent` only for the first unseal; `reused holdout` everywhere afterwards; append-only records (§10.1) |
+| The linear cell-bar price misestimates other bar counts | The affine fit from Track B beside the planner's estimate (§8.6, §9.1b) |
 
 ## 4. Design items that are illustrative or infeasible, and what the product shows instead
 
@@ -361,6 +380,8 @@ Measured `C:\Triad\data\aegis`, 2026-10-27: **1.5 GB**.
 | `TRADE` top tab | Present but disabled ("Exchange closed") |
 | "Unseal & confirm once (type ID)" (F) | Phase 5: real, one-time, logged unseal of the final OOS partition for named candidates |
 | Bayesian "surrogate fit failed for regime HiVol" (H) | No surrogate models; errors are the real query or job errors |
+| "Robust" badges and "stable region" labels (B, C, E) | Four robustness categories with tested / unknown states and their inputs (§7.6); never a single score |
+| An "independent OOS" after repeated unseals (F) | `independent final assessment` only for `use_no = 1`; `reused holdout` afterwards (§10.1) |
 
 ## 5. UI map: screens A–H and the restored modes
 
@@ -415,10 +436,10 @@ A new page `'optlab'` is added to `SideNav` as "Optimization Lab", between Exper
 | Context toolbar: strategy, experiment + parent breadcrumb, dataset, regime, window, direction (L / S / Both = scope), independent L/S eval, partition, objectives, run status | `LabContextBar` | experiment document; `GET /lab/{src}/summary` | scope / objective / partition change → store | Regime: "not in this strategy" until the strategy carries REGIME (§11.2). Event windows: "feed unavailable". Partition: "none" for legacy experiments |
 | KPI strip: trials, coverage of valid space, best, median, robust regions, failed | `LabKpiStrip` | `summary.counts` + `summary.headline` | click count → sets filter | P |
 | Parameter rail: search, families (indicator id per side, levels, side), X / Y / fix toggles, range sliders, presets | `ParameterCatalog` (collapsible, searchable; 20 rows fit) | `summary.parameters` (values, types, coverage per value) | set axis; fix value (exact slice); brush range; save preset | E: "no parameters" |
-| Centre tabs: Heatmap · Interaction matrix · Parallel coords · Pareto · Importance · Robust plateaus | `LabHeatmap` (canvas), `InteractionMatrix`, `ParallelCoords`, `ParetoView`, `ImportanceView`, `PlateauView` | `POST /lab/{src}/query` views `matrix`, `interactions`, `parallel`, `pareto`, `importance`, `neighbourhood` | cell click; brush; reorder axes; Maximize (Esc to restore) | per panel L/E/P/X; basis label always visible |
+| Centre tabs: Heatmap · Interaction matrix · Parallel coords · Pareto · Importance · Robustness (A–D) | `LabHeatmap` (canvas), `InteractionMatrix`, `ParallelCoords`, `ParetoView`, `ImportanceView`, `RobustnessView` | `POST /lab/{src}/query` views `matrix`, `interactions`, `parallel`, `pareto`, `importance`, `neighbourhood` | cell click; brush; reorder axes; Maximize (Esc to restore) | per panel L/E/P/X; basis label always visible |
 | Side mini views (Pareto, parallel, sensitivity) | the same components, `compact` prop | same queries, cached | click → opens that tab | — |
 | Trials table: virtualized, filter chips, Pinned A B C, Columns, Compare pinned | `TrialTable` (windowed rows, 22 px, overscan 10) | query view `page` (sort, offset, limit ≤ 500) | sort, pin, select, column chooser, `Compare pinned` → C | E: "0 of N match: <filters>" |
-| Intelligence rail: deterministic findings; AI block visibly separate (Phase 8); selected-trial card; risk warnings; tested neighbours; IS / OOS (Phase 5); next-sweep recommendation; `Queue focused follow-up sweep`; gate block; provenance + `Copy JSON` | `IntelligenceRail` | `summary.findings` (deterministic text), `neighbourhood`, experiment document | queue sweep → `POST /experiments/{id}/refine` (existing) or `/lab/{src}/focus` (Phase 4) | gate block: "not built" (Q1) |
+| Intelligence rail: deterministic findings; AI block visibly separate (Phase 8); selected-trial card (`CandidateCard`: the four robustness categories with tested / unknown states, §7.6); risk warnings; tested neighbours; IS / OOS (Phase 5); next-sweep recommendation; `Queue focused follow-up sweep`; gate block; provenance + `Copy JSON` | `IntelligenceRail` | `summary.findings` (deterministic text), `neighbourhood`, experiment document | queue sweep → `POST /experiments/{id}/refine` (existing) or `/lab/{src}/focus` (Phase 4) | gate block: "not built" (Q1) |
 | Status line | `StatusStrip` | job status | — | `Partial results: updates every 2 s` while running |
 
 **Keyboard:** arrows move the heatmap cursor; Enter selects; `1`/`2`/`3` pin A/B/C; Esc clears the brush, then the maximize. Each tab is focusable, and table rows are reachable by arrow keys.
@@ -427,7 +448,7 @@ A new page `'optlab'` is added to `SideNav` as "Optimization Lab", between Exper
 
 | UX region | Planned component | Data source | States |
 |---|---|---|---|
-| A/B/C cards (tested only; peak vs plateau badge; neighbours n) | `CandidateCard` | `GET /lab/{src}/trials/{trial}` + `neighbourhood` | E: "pin up to three tested trials" |
+| A/B/C cards (tested only; the four robustness categories A–D with tested / unknown states and their inputs, §7.6; peak vs robust rank) | `CandidateCard` | `GET /lab/{src}/trials/{trial}` + query view `robustness` | E: "pin up to three tested trials" |
 | Linked selection column (mini heatmap, parallel, Pareto, rows, `Show A on chart`) | compact Lab views; `Show on chart` → Charts page loads the materialized run | query + runs | — |
 | Equity curves with IS / OOS divider | `CompareEquity` (SVG, as LibraryCompare) | stored 128-point curves when kept (≤ 20,000 planned), else materialize on demand (button, job) | P: "materializing A…" |
 | All parameters (differences highlighted) | `ParamDiff` | trial rows | — |
@@ -435,6 +456,7 @@ A new page `'optlab'` is added to `SideNav` as "Optimization Lab", between Exper
 | Regimes · trade Sharpe | `ScopeTable` by regime | the trades' `regime` tag when the strategy carries REGIME (§11.2) | E: "Regimes: not in this strategy" |
 | Long vs short (independent) | `ScopeTable` | trial rows (long / short / combined) | — |
 | IS vs OOS decay | `DecayTable` | Phase 5 partitions | E: "no partition on this experiment" |
+| Final OOS (Phase 5) | `FinalOosPanel`: `sealed · 0 uses` · `unsealing` · `evaluated · use 1 · independent final assessment` · `evaluated · use n · reused holdout` (§10.1) | `GET /lab/{exp}/final-oos` | E: "no partition on this experiment" |
 | Rail: findings, gate, `Queue focused follow-up sweep`, `Send to Validation` | `IntelligenceRail` | — | gate "not built" |
 
 ### 5.4 Screen D: Run Monitor
@@ -443,9 +465,10 @@ A new page `'optlab'` is added to `SideNav` as "Optimization Lab", between Exper
 |---|---|---|---|
 | Header counts: search space, scheduled, completed, valid, unique, duplicate, failed (retried), filtered, displayed | `CountsHeader` | `summary.counts` (§6.4) | P |
 | Search config: method, seed, parameters, families, budget | `SearchConfig` | experiment document | — |
+| Budget strip: theoretical space · scheduled · completed · reused · remaining · reserved (§8.5) | `BudgetStrip` | `summary.counts` | shows `reconciles` or `does not reconcile` |
 | Run versions (resumes, losses, pauses) | `RunSegments` | `document.run_log` (new, §6.2) | — |
 | Snapshots | `SnapshotList` | `summary.snapshots` (manifest generations) | "browse while running" opens a frozen generation |
-| Staged funnel 1–4 | `FunnelStrip` | stage counts (§10) | stages not started: "not started"; final OOS "sealed" |
+| Staged funnel 1–4 | `FunnelStrip` + `FinalOosPanel` | stage counts (§10) | stages not started: "not started"; final OOS: the `FinalOosPanel` states (§10.1) |
 | Pause / Snapshot / Retry failed / Stop early | existing pause/resume/cancel + new `retry-failed` | `POST /experiments/{id}/pause|resume|cancel`, `POST /lab/{id}/retry-failed` | — |
 | Convergence (best-so-far + robust-region median per 5,000-trial batch, IQR band) | `ConvergenceChart` (canvas) | query view `convergence` | P "provisional"; < 2 batches: empty |
 | Workers & batches | `WorkerPanel` | job status: workers, chunks done / total, chunk wall times, ms per cell-bar | stalled = chunk running > 3 × median chunk time |
@@ -463,20 +486,21 @@ A new page `'optlab'` is added to `SideNav` as "Optimization Lab", between Exper
 | Full-size parallel coordinates, 12 of 18 axes, colour = metric median | `ParallelCoords` (canvas) | view `parallel` | 0 raw lines drawn in aggregated mode (stated) |
 | Trellis of top pairs (aggregated 16 × 16, n shown) | `Trellis` | view `interactions` (top k by priority) + `matrix` per pair | cells n < 30 hatched and excluded from importance |
 | Importance & interaction strength with 90 % whiskers | `ImportanceView` | view `importance` | method and sample shown |
-| Robust neighbourhood map for a pair | `NeighbourhoodMap` | view `matrix` (aggregate, median) + `n` + IQR | hatched = untested; ring = IQR above P75 of IQRs |
+| Robust neighbourhood map for a pair | `NeighbourhoodMap` | view `matrix` (aggregate, median) + `n` + IQR; view `robustness` for the selected candidate | hatched = untested; ring = IQR above P75 of IQRs; the candidate's category A / B state printed with its coverage or n (§7.6) |
 | Contributing-trials drill-down (server-indexed, stable tie-break) | `TrialTable` | view `page` | — |
 
 ### 5.6 Screen F: Walk-Forward & Robustness
 
 | UX region | Planned component | Data source | States |
 |---|---|---|---|
-| Fold matrix (train / validation / test per fold) + sealed final OOS bar | `FoldMatrix` | study document windows (Mission 8) + experiment partition (Phase 5) | final OOS "sealed · 0 evaluations" |
+| Fold matrix (train / validation / test per fold) + sealed final OOS bar | `FoldMatrix` | study document windows (Mission 8) + experiment partition and `.final/` records (Phase 5) | final OOS `sealed · 0 uses`, or `evaluated · use n` with its `independent` / `reused holdout` label |
 | Data partitions panel; cost scenario Base / +50 % / ×2; leg Both / Long / Short | `PartitionPanel`, `CostScenario`, `LegToggle` | experiment partition; stage-2 replays | cost scenarios other than Base need stage 2 |
 | Stitched fold equity vs selection backtest; fold metric distribution; fold-level metrics | reuse `StudyReport` charts + new `FoldDistribution` | study windows | — |
 | Regime × window | `WindowGrid` | run temporal breakdown (`temporal` tags) | regimes unavailable; windows with n < 30 trades hatched |
 | Neighbourhood persistence by fold | `PersistenceStrip` | study per-window plateau membership | — |
-| OOS decay & multiple testing (decay, trials in selection, raw and deflated trade Sharpe with its inputs) | `MultipleTestingPanel` | `sharpe_trade` + DSR (§7.12) | E: fewer than 20 trades: "too few trades for a Sharpe" |
-| Sealed final OOS: `Unseal & confirm once (type ID)` | `UnsealDialog` | `POST /lab/{id}/final-oos/unseal` (Phase 5) | irreversible; logged |
+| OOS decay & multiple testing (decay, trials in selection, raw trade Sharpe with trade count, P&L, drawdown, exposure and consistency beside it, the DSR band over three N's with every input, `annualized Sharpe: not computed`) | `MultipleTestingPanel` | `sharpe_trade` + DSR (§7.12) | E: fewer than 20 trades: "too few trades for a Sharpe"; `undefined` with its reason |
+| Sealed final OOS: `Unseal & confirm once (type ID)`, which is the evaluation | `UnsealDialog` + `FinalOosPanel` | `POST /lab/{exp}/final-oos/unseal` (Phase 5: the unseal queues the evaluation, §10.1) | irreversible; logged; `use_no ≥ 2` shows `reused holdout` |
+| Robustness summary A–D per finalist | `CandidateCard` (compact) | query view `robustness` | unresolved categories named with their reason |
 | Gate checks | — | — | "Strategy Gate: not built" (Q1) |
 
 ### 5.7 Screen G: History, Lineage & Forensics
@@ -496,6 +520,8 @@ A new page `'optlab'` is added to `SideNav` as "Optimization Lab", between Exper
 
 Mapped in §8.3, the Screen H contract.
 
+**Sequencing (R7).** H is the upstream search-space intelligence view, and its complete workflow is visible from the first build: a `WorkflowStrip` across the top reads **Define variables → Run screening → Evaluate importance and interactions → Review search-space proposal → Approve large sweep → Monitor results**, each step lit by the experiment's state (defined / screened / evaluated / proposed / applied / running). In Phase 1 only the first step is live and the others are disabled with "available after Phase 4"; Phase 4 wires them. The strip never hides a step.
+
 ### 5.9 Restored historical modes
 
 | Mode | Where it is today | Plan |
@@ -513,12 +539,14 @@ These are interfaces only. Bodies are fixed by each phase's task plan.
 | Route | Request | Response (always includes `scope`) |
 |---|---|---|
 | `GET /lab/{src}/summary` | — | `{counts, parameters[{path, side, family, type, values, tested_per_value}], headline, snapshots, provisional}` |
-| `POST /lab/{src}/query` | `{filter, view, ...view args}`; view ∈ `counts, matrix, page, top, parallel, pareto, importance, interactions, neighbourhood, marginals, convergence` | view-specific payload + `scope {space, valid, attempted, completed, unique, duplicates, invalid, failed, filtered, shown, basis, snapshot, provisional, sampled_from?}` |
+| `POST /lab/{src}/query` | `{filter, view, ...view args}`; view ∈ `counts, matrix, page, top, parallel, pareto, importance, interactions, triples, neighbourhood, robustness, marginals, convergence` | view-specific payload + `scope {space, valid, attempted, completed, unique, duplicates, invalid, failed, filtered, shown, basis, snapshot, provisional, sampled_from?}` |
 | `GET /lab/{src}/trials/{trial}` | — | the full trial row + params + identity |
 | `POST /lab/{exp}/retry-failed` | — | job id (Phase 5) |
 | `POST /lab/{exp}/focus` | pair or region + budget | queued child experiment (Phase 4) |
 | `GET/POST /lab/{exp}/searchspaces…` | proposal / apply | §8 (Phase 4) |
-| `POST /lab/{exp}/final-oos/unseal` | `{candidates[], confirm: "<experiment id>"}` | unseal record (Phase 5) |
+| `POST /lab/{exp}/final-oos/unseal` | `{candidates[], confirm: "<experiment id>"}` | the unseal record with `use_no`, `label` and the queued job id (Phase 5, §10.1) |
+| `GET /lab/{exp}/final-oos` | — | every unseal record with status and results (Phase 5) |
+| `PUT /lab/{exp}/budget` | `{shares, reason}` | the new split for unscheduled trials; refused unless paused (Phase 4, §8.5) |
 | `POST /lab/{exp}/verify` | — | per-artefact hash checks (Phase 6) |
 
 `{src}` is `exp:<experiment_id>` or `opt:<job_id>`. The optimizer source is read-only and has no partitions, statuses or proposals.
@@ -542,11 +570,11 @@ These are interfaces only. Bodies are fixed by each phase's task plan.
 |---|---|
 | `cells_layout` | `1` (legacy chunks) or `2` (chunks + compacted parts + manifest) |
 | `search_space` | `{version, hash, parameters:[{path, type: "int"|"float", start, stop, step, n_values, family, status, frozen_value?}], effective_dims, defined_dims}`. `version` increments per applied proposal; `hash` is over the parameters and statuses. |
-| `sampler` | `{method: "grid"|"lhs+refine"|"focused"|"rescreen", seed, budget, first_pass, refinement}` (today in `plan` and `seed`) |
+| `sampler` | `{method: "grid"|"lhs+refine"|"focused"|"rescreen", seed, budget: {total, shares: {screening, interactions, refinement, reserve}}, first_pass, refinement, blocks: K, revision}` (today `plan` and `seed`; shares sum to 100, §8.5; `blocks`, §7.3) |
 | `versions` | `{strategy_hash, spec_version, engine, engine_build, numba, numpy, pyarrow}`. `engine_build` = SHA-256 over the source of `kernel.py`, `backtest.py`, `indicators.py`, `kinds.py`, `strategy.py`, `temporal.py`, computed at worker start. |
 | `data_pinned` | **new**: the `PinnedSource` the experiment ran on (`sha256`, `data_hash`, vintage, resampling policy, `bar_count`, `research_eligible:false`). Today experiments keep only the `DataReference` (F15). Legacy experiments show "data provenance not recorded". |
 | `execution` | `{commission_per_side, slippage_bps}`, copied from the pinned spec for display (the spec stays the source) |
-| `partition` | `{selection:{start,end}, validation:{kind:"folds", n, train_bars, test_bars}?, final_oos:{start,end, sealed:true, unsealed:[…]}?}` (Phase 5) |
+| `partition` | `{selection:{start,end}, validation:{kind:"folds", n, train_bars, test_bars}?, final_oos:{start,end, sealed:true, uses, records:[…]}?}` (Phase 5; the records are §6.5's unseal files) |
 | `counts` | reconciled counts (§6.4), written at each commit |
 | `run_log` | `[{segment, started_at, ended_at, status, trials_from, trials_to, workers}]`: resumes, pauses, losses |
 | `lineage` | `{parent, proposal_id?, reason?, derived_from_report?}` (`parent` exists today) |
@@ -561,6 +589,7 @@ These are interfaces only. Bodies are fixed by each phase's task plan.
 | `<path>` | float64 × d | typed by `search_space.parameters[].type` |
 | `param_key` | fixed_size_binary(16) | dedupe |
 | `pass` | dictionary\<string\> | `grid`, `sample`, `refine`, `focused`, `rescreen`, `manual` |
+| `block` | uint8 | `0` = the full selection range; `1..K` = a screening block (§7.3) |
 | `status` | dictionary\<string\> | `ok`, `invalid` (skip reason), `failed` (error) |
 | `valid` | bool | kept for compatibility (`status == ok`) |
 | `skip_reason` / `error` | string | — |
@@ -582,36 +611,44 @@ These are interfaces only. Bodies are fixed by each phase's task plan.
 - A stage-2 row is a materialized run with its `result_hash`, linked by `trial_id`.
 - **Coverage metadata** is computed, not stored: tested unique / valid grid count, per-value and per-pair coverage.
 
-### 6.4 Counts that must reconcile (scenarios 12, 21)
+### 6.4 Counts that must reconcile (scenarios 12, 21; R5)
 
 ```
-space      = Grid.size                         (product of value counts; Decimal string if > 2^63)
-valid      = Grid.valid_count                  (per-indicator validity tables, unchanged)
-scheduled  = len(planned trial_nos)            (first pass + refinement + focused)
-attempted  = distinct trial_no with any row
-completed  = attempted with status ok
-invalid    = attempted with status invalid     (skip reasons)
-failed     = attempted whose latest attempt has status failed
-unique     = distinct param_key among completed
-duplicates = rows beyond the first per trial_no (torn compaction, retries) + completed − unique
-filtered   = completed matching the filter
-shown      = rows / marks actually sent for this view
+space        = Grid.size                        (product of value counts; Decimal string if > 2^63)
+valid        = Grid.valid_count                 (per-indicator validity tables, unchanged)
+budget_total = the experiment's trial budget    (runs; or seconds priced into runs by the planner)
+reserved     = reserve share × budget_total − reserve spent on focus / re-screen
+scheduled    = len(planned trial_nos)           (first pass + refinement + focused + rescreen)
+remaining    = budget_total − reserved − scheduled        (≥ 0)
+reused       = parent trials copied by param_key          (consume no budget; never scheduled)
+attempted    = distinct trial_no with any row
+completed    = attempted with status ok
+invalid      = attempted with status invalid    (skip reasons)
+failed       = attempted whose latest attempt has status failed
+pending      = scheduled − attempted
+unique       = distinct param_key among completed
+duplicates   = rows beyond the first per trial_no (torn compaction, retries) + completed − unique
+filtered     = completed matching the filter
+shown        = rows / marks actually sent for this view
 ```
 
 **Invariants (tested):**
+- `scheduled + remaining + reserved = budget_total`;
+- `attempted + pending = scheduled`;
 - `attempted = completed + invalid + failed`;
-- `unique ≤ completed`;
-- `filtered ≤ completed`;
-- `shown ≤ filtered`;
+- `unique ≤ completed`; `filtered ≤ completed`; `shown ≤ filtered`;
+- `reused` is reported beside, never inside, the child's `scheduled` or `completed` (its rows are flagged `reused` and excluded from the child's rate and timing);
 - every view's `scope` repeats the same numbers for the same snapshot.
 
-Stage counts (`stage2_replays`, `stage3_candidates`, `final_oos_evaluations`) are separate. A stage-1 count is never labelled "backtests".
+Stage counts (`stage2_replays`, `stage3_candidates`, `final_oos.uses`, `final_oos.evaluations`) are separate. A stage-1 count is never labelled "backtests".
 
-### 6.5 Stage 2–4 records
+### 6.5 Stage 2–4 records (R4)
 
-- **Stage 2:** `experiments/<id>.replays/part-*.parquet`, one row per (trial_id, cost_scenario). It holds `run_id`, `result_hash`, metrics per scope, `temporal.<tag>.{trades,net_pnl,win_rate,expectancy}`, `trades.long/short`, and `created_at`. Cost scenarios are `base`, `slippage×1.5`, `slippage×2`, `commission×2`, defined in the experiment, not hard-coded per run.
+- **Stage 2:** `experiments/<id>.replays/part-*.parquet`, one row per (trial_id, cost_scenario). It holds `run_id`, `result_hash`, metrics per scope, `temporal.<tag>.{trades,net_pnl,win_rate,expectancy}`, `trades.long/short`, and `created_at`. Cost scenarios are `base`, `slippage×1.5`, `slippage×2`, `commission×2`, defined in the experiment, not hard-coded per run. The `base` replay is the candidate's **identity run**: its `result_hash` is what later stages cite.
 - **Stage 3:** existing study documents (Mission 8), with a new optional `candidates: [trial_id]` field.
-- **Stage 4:** `experiments/<id>.final/` holds the unseal record (`unsealed_at`, candidates, confirm text) and one materialized run per candidate on the final OOS range.
+- **Stage 4:** `experiments/<id>.final/unseal-<use_no>.json`, append-only, one per unseal:
+  `{use_no, at, confirm, candidates: [{trial_id, param_key, strategy_hash, spec_version, stage2_run_id, stage2_result_hash}], engine_build, data: {sha256, data_hash, final_range}, job_id, status: queued | running | done | failed, results: [{trial_id, run_id, result_hash, status, error?}], label: "independent" | "reused"}`.
+  Each evaluated candidate is an ordinary run document under `runs/` with `experiment_id`, `trial_id`, `partition: "final_oos"` and `unseal_no`, so the Library, `Show on chart` and `verify` treat it like any run. `label` is `independent` for `use_no = 1` and `reused` for every later unseal on the same experiment lineage (§10.1).
 
 ## 7. Algorithms
 
@@ -639,64 +676,69 @@ All of these are numpy/pyarrow over projected columns, seeded and pure. The cons
   - never selects a "configuration";
   - `Pin` and `Send to Validation` are disabled with "an aggregate is not a runnable strategy" (scenario 4).
 
-### 7.3 Main effects and importance (Screen B/E Importance, Screen H overview)
+### 7.3 Main effects and importance (Screen B/E Importance, Screen H overview; R1)
 
-- **Rows used:** **uniform-design rows only**, `pass ∈ {grid, sample}`. Refinement, focused and rescreen rows are excluded because their sampling is biased. The panel says "computed on n uniform trials of N; refinement rows excluded (adaptive)".
-- **First-order index:** `S_i = Var_b(E[Y | X_i = b]) / Var(Y)`, over the values b of parameter i, weighted by count. It uses a bias correction for finite bins: `S_i_adj = max(0, (S_i − (B_i − 1)/(N − B_i)·(1 − S_i)))`, i.e. adjusted η², where `B_i` is the number of observed values.
-- **Interval:** seeded bootstrap over rows. `B = 200` resamples, on at most `IMPORTANCE_ROWS = 50,000` rows (a seeded subsample, stated). The output is a **90 % percentile interval**.
-  - Measured: one pass over 20 mains and 190 pairs on 50k rows is 61 ms, so ≈ 12 s for 200 resamples. It runs as a background Lab task, cached per snapshot.
-- **Labels:**
-  - `Measured` when `n_uniform ≥ IMPORTANCE_MIN_N = 30 × B_i`;
-  - `Insufficient coverage` otherwise (no ranking, shown last).
-- **Caveat text, always:** "conditional on these ranges, this data and this sampler; correlated or aliased inputs share credit".
-- **Correlation check:** Cramér's V between every parameter pair over the uniform rows. LHS should be near 0; pairs with V > 0.3 are flagged `aliased`.
-- **Not used:** permutation importance on a fitted model, because there is no model library and no surrogate (§13).
+**What importance is here.** On the discrete grid, with the uniform-design rows only (`pass ∈ {grid, sample}`; refinement, focused and rescreen rows are excluded because their sampling is adaptive, and the panel says "computed on n uniform trials of N; adaptive rows excluded"), a scope's metric Y decomposes as `Var(Y) = Σ_i V_i + Σ_{i<j} V_ij + Σ_{i<j<k} V_ijk + …` (the ANOVA / Sobol decomposition, exact for an orthogonal design). The Lab estimates the first two orders, screens the third on coarsened axes, and never claims the rest.
 
-### 7.4 Pairwise interaction screening (not exhaustive display)
+- **First-order share:** `S_i = Var_b(E[Y | X_i = b]) / Var(Y)` over the observed values b, count-weighted, with the finite-bin correction `S_i_adj = max(0, S_i − (B_i − 1) / (N − B_i) · (1 − S_i))` (adjusted η²; `B_i` observed values, `N` uniform rows).
+- **Three uncertainties, always shown together:**
+  1. **Design uncertainty** (which parameter sets happened to be tried): a seeded bootstrap over rows, `B = 200` resamples on at most `IMPORTANCE_ROWS = 50,000` rows (a seeded subsample, stated), 90 % percentile interval. Every trial saw the same bars, so this interval is *conditional on this market history* and says nothing about other periods; its label reads `interval: sampling of trials, this data`.
+  2. **Period uncertainty** (which market periods): a screening experiment carries `blocks = K` (default `SCREEN_BLOCKS = 4` contiguous, equal-bar blocks of the selection partition). Each sampled parameter set is evaluated on the full selection range *and* on each block (the pool's existing `window` argument, `pool.py:235-244`; `K + 1` evaluations per set, priced by the planner; rows carry a `block` column, `0` for the full range). `S_i` is computed per block and the panel shows the block range `[min, max]` beside the full-range estimate. A share that is large in one block and near zero in the others is `period-dependent` and never below `Investigate` (scenario 23, case 8).
+  3. **Detection floor** (finite-sample bias): a seeded permutation null (`P = 200` shuffles of Y over the same rows) gives, per parameter, pair and screened triple, the 95th percentile of the share under no effect at this `N` and `B_i`. `Detected` means the point estimate exceeds the floor. It is a detection threshold, not a practical-significance threshold.
+- **Labels:** `Measured` when `n_uniform ≥ IMPORTANCE_MIN_N = 30 × B_i` *and* every value of i has at least `IMPORTANCE_MIN_PER_VALUE = 20` rows; otherwise `Insufficient coverage`, which is **unresolved**: excluded from the ranking, shown last with its coverage, and never able to support `Deprioritized` (scenario 25).
+- **Correlation check:** Cramér's V between every parameter pair over the uniform rows (LHS is near 0; validity tables such as MACD `slow > length`, dedupe and reuse can correlate inputs). A pair with `V > 0.3` is `aliased`: both parameters carry `credit shared with <other>` and neither can be `Deprioritized` on empirical evidence while aliased (scenario 23, case 4).
+- **Caveat text, always:** "conditional on these ranges, this data, this sampler and this partition; a share is evidence about where exploration pays, not proof that a parameter is irrelevant".
+- **Not used:** permutation importance on a fitted model (no surrogate, §13).
 
-- **Computation:** every valid pair, d(d−1)/2 (190 at d = 20), is computed server-side on the same uniform rows: `S_ij = Var(E[Y | X_i, X_j]) / Var(Y) − S_i − S_j` (bias-adjusted as above, interval by the same bootstrap). This is cheap (measured above).
-  - **Coverage** = the share of the pair's value grid with ≥ `PAIR_MIN_N = 4` trials.
-- **Display:**
-  - The UI shows the ranked list ("7 of 190 pairs") plus `Show all valid pairs` and `Explore any valid pair` (a manual pair picker).
-  - It never shows 190 mini plots by default.
-- **Priority for investigation:**
-  - `priority = S_ij upper 90 % bound` when coverage ≥ `PAIR_MIN_COVERAGE = 0.5`;
-  - otherwise the pair goes to the `unresolved` list, sorted by `max(S_i_upper, S_j_upper)` and then by lowest coverage.
-  - Uncertain pairs rank high by design: upper bound, not point estimate.
-- **Weak-main / strong-joint protection (scenario 19):**
-  - A variable may be **proposed** `Deprioritized` only if both hold:
-    - (a) `S_i upper < θ_main = 0.01`; and
-    - (b) every pair containing it has coverage ≥ 0.5 and `S_ij upper < θ_int = 0.01`.
-  - Otherwise it is `Investigate`, with the reason "interaction not ruled out" or "pair coverage insufficient".
-- **Higher-order residual:** `R = 1 − Σ S_i − Σ S_ij`. When the lower bound of `R > 0.3`, a global warning reads "higher-order interactions or noise unexplained: deprioritization unsafe", and no `Deprioritized` proposal is made at all.
-- **3-way checks:** only on request (`+3-way` in H). It uses the same estimator on a triple, and needs coverage ≥ 0.5 of the triple's grid on the uniform rows, else `unresolved`.
+### 7.4 Interaction screening: pairs, triples and the higher-order residual (R1)
 
-### 7.5 Investigating a pair (targeted experiment)
+- **Pairs (all `d(d−1)/2`, 190 at d = 20)** on the uniform rows: the **joint share** `J_ij = Var(E[Y | X_i, X_j]) / Var(Y)` (bias-adjusted as above) and the **incremental share** `Δ_{i|j} = J_ij − S_j`, what adding i explains beyond j. The interaction term `I_ij = J_ij − S_i − S_j` is shown but is only an estimate: under correlated inputs or imbalance it can go negative or share credit, so **no rule reads `I_ij`; the rules read `Δ_{i|j}`**, which is non-negative in expectation and robust to credit sharing.
+  - Coverage = the share of the pair's value grid with ≥ `PAIR_MIN_N = 4` rows; balance = the TVD of the pair's joint value distribution from uniform, flagged above `0.25`. Coverage < `PAIR_MIN_COVERAGE = 0.5` makes the pair `unresolved`: listed separately, sorted by `max(S_i upper, S_j upper)` then by lowest coverage.
+  - Intervals and the detection floor as in §7.3. One pass over 20 mains and 190 pairs on 50k rows is 61 ms (measured, §9.1), so bootstrap plus null is ≈ 25 s as a Lab task.
+- **Triples (all `C(d, 3)`, 1,140 at d = 20) are screened, not left to request:** on quantile-coarsened axes (`q = 4` bins per parameter, 64 cells per triple, ≈ 780 rows per cell at 50k), `J_ijk` and `Δ_{i|jk} = J_ijk − J_jk` by `bincount` over group keys (≈ 1–2 s per pass). Bootstrap intervals are computed for the top `TRIPLE_TOP = 20` triples by point estimate. A triple whose coarse `Δ_{i|jk}` upper bound exceeds `θ_min` keeps i at least `Investigate` ("three-way effect not ruled out"). Coarsening can miss fine-grained three-way structure; the fine-grained check is the focused child experiment of §7.5 (`Investigate triple`).
+- **Higher orders:** no estimator. The residual `R = 1 − Σ S_i − Σ I_ij − Σ I_ijk(coarse)` mixes unexplained higher-order structure, finite-sample bias and grid roughness, so it is shown as `unexplained share` with its bootstrap interval and **is a veto, never evidence**: when its lower bound exceeds `RESIDUAL_VETO = 0.3`, no `Deprioritized` proposal is made for any parameter ("structure not captured by pairs and triples: deprioritization unsafe").
+- **Threshold:** `θ_min = 0.01` is a practical-significance floor applied to *upper bounds*; detection uses the permutation floor. Both are policy constants (Q6) and are printed on the panel.
 
-`Investigate pair (i, j)` → `POST /lab/{exp}/focus` creates a **child experiment** (lineage `parent`, `reason`):
-- the full value grid of i × j;
-- every other active parameter sampled by LHS, so the pair's effect is marginalized, not conditioned on one point;
-- a budget the operator chooses, priced by the existing planner;
-- `pass = focused`.
+### 7.4a Empirical deprioritization: the only empirical proposal (R1)
 
-`Conditional` mode (others fixed at the selected plateau centre) is offered as the second option and labelled as conditional.
+Empirical evidence never excludes. It can only **propose `Deprioritized`**, which reallocates exploratory trials (fewer levels through the planner's `coarsen` lever, or a smaller budget share, §8.5) and leaves the dimension in the search. A proposal for parameter i requires **all** of:
+1. `S_i upper < θ_min` on the full range and in every block;
+2. for every other parameter j, the pair (i, j) is `Measured` (coverage ≥ 0.5, balanced) and `Δ_{i|j} upper < θ_min`;
+3. for every triple containing i, the coarse `Δ_{i|jk} upper < θ_min`, or the triple is unresolved and the proposal says "three-way unresolved" beside i;
+4. no `aliased` flag on i;
+5. the global residual veto is not raised;
+6. the operator confirms, with conditions 1–5 and their values attached as the evidence (§8.4).
 
-### 7.6 Robustness neighbourhoods and plateaus
+If any condition fails, the status is `Investigate` with the failing condition as the reason, or stays `Active`. Insufficient coverage anywhere in 1–3 is "unresolved", never "low" (scenario 25). A `Deprioritized` status is reversible in one click, scoped to `{strategy_hash, data identity, ranges, partition, sampler, blocks, snapshot}`, and goes `stale` when any of those changes (§8.5); evidence from one range is never applied to another (scenario 23, case 9).
 
-**Neighbourhood of a trial t (interactive, any size):**
-- Tested trials whose positions differ from t's by **at most `r` steps in at most `m` parameters**. Defaults: r = 1 and m = 1, which is today's exhaustive rule.
-  - On sampled surfaces the default is m = 2, because one-step neighbours are mostly untested.
-- Lookup is by hashing positions, `O(d · r · C(d, m))` probes per trial (840 at d = 20, m = 2): milliseconds, no O(n²).
-- **Output:** n tested, n valid in the neighbourhood, coverage = tested / valid, median, IQR, min, and the share within τ of t.
-- **Plateau assessment needs coverage:** coverage ≥ `PLATEAU_MIN_COVERAGE = 0.5` and `n ≥ 2d + 1` (today's minimum), else "not enough tested neighbours for a plateau assessment".
+**Research principle (printed on Screen H):** the Lab chooses where to spend exploratory trials; it never declares a parameter irrelevant because its marginal effect is weak.
 
-**Robust ranking:**
-- Candidates are ranked by the neighbourhood **P25**, among trials with an assessable neighbourhood. This is shown separately from best-single-point ranking (scenario 5).
-- A trial whose value exceeds its neighbourhood P75 + 3 × IQR is marked `one-off peak`.
+### 7.5 Investigating a pair or a triple (targeted experiment)
 
-**Plateaus over a whole experiment** (reports, Run Monitor regions):
-- Use the existing `analysis.peaks/plateaus` on the uniform subsample (≤ 50,000), with the hashed neighbour relation instead of brute-force kNN.
-- The subsample and rule are named.
+`Investigate pair (i, j)` or `Investigate triple (i, j, k)` → `POST /lab/{exp}/focus` creates a **child experiment** (lineage `parent`, `reason`, `pass = focused`):
+- the full value grid of the chosen parameters;
+- every other active parameter sampled by LHS, so the effect is marginalized, not conditioned on one point;
+- a budget the operator chooses, priced by the existing planner and drawn from the reserve share first (§8.5).
+
+`Conditional` mode (others fixed at the selected plateau centre) is the second option and is labelled conditional. Any valid pair or triple can be investigated at any time through the manual picker, whatever its screening rank; the picker never hides a valid pair (scenario 20).
+
+### 7.6 Robustness: four evidence categories (R3)
+
+Robustness is not one number. Every candidate (a tested trial) carries four categories, each either `resolved` with a classification or `unresolved` with the reason. A candidate card shows all four, says which were tested and which remain unknown, and never sums them (scenario 26). τ is the experiment's existing tolerance band, `tolerance × (P90 − P10)` of the metric, as `analysis.plateaus` uses it.
+
+| Category | Evidence | Resolved when | Classification | Unresolved reason |
+|---|---|---|---|---|
+| **A. Local parameter robustness** | tested trials whose positions differ from t's by ≤ `r` steps in ≤ `m` parameters (defaults r = 1, m = 1 on grids; m = 2 on sampled surfaces), found by hashing positions (≤ 840 probes at d = 20, m = 2; never O(n²)) | coverage = tested / valid in that neighbourhood ≥ `PLATEAU_MIN_COVERAGE = 0.5` **and** n ≥ 2d + 1 | `stable local` when the neighbourhood P25 is within τ of t's value; `isolated peak` when t's value > neighbourhood P75 + 3 × IQR; else `mixed` | `untested surroundings (coverage c of 0.5)`: an untested neighbourhood is never called a peak and never called stable |
+| **B. Sampled-region robustness** | the sampled trials within a normalized L∞ radius `REGION_RADIUS = 0.15` of the axis range on the `REGION_AXES ≤ 6` most important axes (§7.3), other axes marginalized | n ≥ `REGION_MIN_N = 30` in the region | `stable region` / `unstable region` by the region P25 against τ; the region's trial density relative to the experiment's mean density is printed, so sparseness is visible | `too few sampled trials in the region (n of 30)` |
+| **C. Temporal robustness** | per-block metrics from a screening experiment with `blocks = K` (§7.3), and fold metrics from a stage-3 study (Mission 8) | ≥ 3 blocks or folds with ≥ 30 trades each | `consistent` when ≥ 75 % of blocks / folds are within τ of the full-range value and none has the opposite sign; else `inconsistent` | `no blocks or folds` / `too few trades per fold` |
+| **D. Execution robustness** | stage-2 replays under the cost scenarios (§10) | the base replay plus at least `slippage×1.5` exist | `holds` (net P&L and MAR keep their sign and ≥ 70 % of base under slippage×1.5), `degrades` (sign kept, below 70 %), `fails` (sign flips) | `no replay yet (stage 2)` |
+
+Rules:
+- **B is never reported as A.** The labels differ, the card names the radius and n, and a sparse-surface candidate whose A is unresolved says so beside its B result.
+- **Isolated peak vs stable region** is decided only with coverage (A) or n (B); otherwise the state is `unresolved`, which ranks below any resolved state and is shown with its reason.
+- **Two rankings, side by side** (scenario 5): `peak` (the metric alone) and `robust` (lexicographic over resolved categories: A, or B where A is unresolved and labelled so; then C; then D; unresolved categories sort last and never count). When the two disagree the rail says so and names the stable candidate; the operator chooses.
+- **Explanations.** Every classification is rendered with its inputs (n, coverage, P25, P75, IQR, τ, radius, density, blocks, scenarios), so the operator sees why a candidate received it.
+- **Plateaus over a whole experiment** (reports, Run Monitor regions) use the existing `analysis.peaks/plateaus` on the uniform subsample (≤ 50,000) with the hashed neighbour relation, labelled with the subsample and the rule.
 
 ### 7.7 Pareto selection
 
@@ -737,12 +779,38 @@ All of these are numpy/pyarrow over projected columns, seeded and pure. The cons
 - Metrics are in-sample on the selection partition unless the panel says otherwise.
 - Data are raw archives, not research-eligible.
 
-### 7.12 Trade Sharpe and the deflated Sharpe ratio (Q2: per trade)
+### 7.12 Trade Sharpe and the deflated Sharpe ratio (Q2: per trade; R6)
 
-- **The per-trade return already exists.** Both engines write `ret = net / capital_at_entry` on every trade (`kernel.py:188, 266`; the reference engine's `capital_at_entry`, `backtest.py:455, 463`). Nothing new is computed inside the engines.
-- **`sharpe_trade`** for a scope is `mean(ret) / std(ret, ddof=1)` over that scope's trades; `combined` is both sides' trades merged in exit order. It is null with fewer than 2 trades or zero variance, and flagged `low n` below `SHARPE_MIN_TRADES = 20` (policy). It is **not annualized** and carries the label "trade Sharpe · per trade · not annualized", so strategies with different trade frequencies are not comparable on it, and the panel says so.
-- **Where it is computed:** in the pool worker beside `run_metrics`, from `trades_array[:, 9]` on the kernel path and from each trade's `net_pnl / capital_at_entry` on the reference path, returned as a separate `lab_metrics` dict per scope. It is never added to `backtest._metrics` or `_metrics_arrays`, so `canonical_payload` and every `result_hash` stay as they are. For saved runs the Lab computes it on read from the stored trades.
-- **Deflated Sharpe ratio** (Bailey and López de Prado, 2014), for Screen F's multiple-testing panel: `DSR = Φ((SR − SR₀) · √(N − 1) / √(1 − γ₃·SR + ((γ₄ − 1) / 4)·SR²))`, where SR is the candidate's `sharpe_trade`, N its trade count, γ₃ and γ₄ the skew and kurtosis (not excess) of its `ret`, and `SR₀ = √V · ((1 − γ)·Φ⁻¹(1 − 1/M) + γ·Φ⁻¹(1 − 1/(M·e)))`, with γ the Euler–Mascheroni constant, V the variance of `sharpe_trade` across the experiment's unique completed trials and M their count. Counting every unique trial as independent overstates M and makes DSR conservative; the panel states that beside M, V, N, γ₃ and γ₄. `Φ⁻¹` is Acklam's rational approximation (no scipy), tested against tabulated quantiles to 1e-9. DSR is shown as a number with its inputs, never as a pass / fail (no gate, Q1).
+**Two Sharpe ratios exist, and the Lab names which one it shows.**
+- **Time-series Sharpe** (annualized): mean / std of periodic mark-to-market returns × √(periods per year). It is the comparable one and the one the literature's thresholds refer to. It needs per-bar equity from the kernel on every trial and is **not built** (Q2 chose per trade); where a design shows one, the label is `annualized Sharpe: not computed`.
+- **Trade Sharpe** (`sharpe_trade`, per scope): `mean(ret) / std(ret, ddof = 1)` over the scope's trade returns `ret = net / capital_at_entry`, which both engines already write per trade (`kernel.py:188, 266`; `backtest.py:455, 463`); `combined` concatenates both sides' trades (mean and std are order-free). Null with fewer than 2 trades or zero variance; flagged `low n` below `SHARPE_MIN_TRADES = 20`. **It is not annualized and not comparable across strategies with different trade frequencies or holding periods**: a 50-trade and a 2,000-trade strategy with the same `sharpe_trade` have very different time-series Sharpes. The label reads `trade Sharpe · per trade · not annualized`, and the trade frequency (trades per 1,000 bars) is printed beside it.
+- **Beside it, always:** net P&L, max drawdown, trade count, exposure and the temporal consistency of category C (§7.6). No candidate table or card shows `sharpe_trade` without those five (scenario 27), and the default sort of every candidate view stays the experiment's own objective.
+- **Where it is computed and what it costs:** in the pool worker beside `run_metrics`, from the kernel's trade array column 9 (`trades[:n_trades, 9]`, a zero-copy view of a buffer that already exists) and from `net_pnl / capital_at_entry` on the reference path, returned as a separate `lab_metrics` dict per scope. It is never added to `backtest._metrics` or `_metrics_arrays`, so `canonical_payload` and every `result_hash` stay as they are. Measured (§9.1b, "Sharpe overhead"): a vector mean and std per scope, three per trial, against ≈ 48 ms per trial; three extra floats per row. It stays in stage 1; no deferral is needed. The one engine-adjacent change is that `backtest._side_metrics` returns the `ret` view beside the lite trades (an added return value; its existing outputs are unchanged, pinned by the goldens). For saved runs the Lab computes `sharpe_trade` on read from the stored trades.
+
+**Deflated Sharpe ratio** (Bailey and López de Prado, 2014), for Screen F's multiple-testing panel, validated independently in Phase 2b:
+- `PSR(SR₀) = Φ( (SR − SR₀) · √(T − 1) / √(1 − γ₃·SR + ((γ₄ − 1) / 4)·SR²) )`, where `SR` is the candidate's `sharpe_trade` (per trade; the same units throughout), `T` its trade count, `γ₃` the skewness and `γ₄` the kurtosis (non-excess, 3 for a normal) of its `ret`, both as plain moment ratios `m₃ / m₂^{3/2}` and `m₄ / m₂²`.
+- `SR₀ = √V · ((1 − γ) · Φ⁻¹(1 − 1/N) + γ · Φ⁻¹(1 − 1/(N·e)))`, γ the Euler–Mascheroni constant, `V` the variance of `sharpe_trade` across the N trials, in the same per-trade units.
+- `DSR = PSR(SR₀)`. It is `undefined`, with the reason printed, when T < 2, N < 2, the variance of `ret` is zero, the denominator is ≤ 0, or any input is not finite.
+- **Independence is assumed twice, and both assumptions are printed:** (1) across trials: parameter sets are correlated, so N overstates the number of independent strategies; (2) within a trial: trade returns overlap market exposure, so `√(T − 1)` can overstate the evidence. The panel shows the lag-1 autocorrelation of the candidate's `ret` and flags `|ρ₁| > 0.2` as `trades autocorrelated: evidence overstated`.
+- **Effective number of strategies.** There is no single right value, so DSR is shown as a **band over three N's**, each with V computed over the same set: `N_unique` (distinct `param_key` among completed trials; the largest N, hence the lowest DSR), `N_clusters` (the outcome clusters of `analysis.py`, k by its existing rule, V over cluster medians) and `N_regions` (plateaus from §7.6, V over plateau centres). The three values and their N's are printed; nothing is interpolated between them.
+- `Φ` is `math.erfc`-based; `Φ⁻¹` is Acklam's rational approximation (no scipy), checked to 1e-9 against a bisection on `math.erfc` written independently in the test.
+- **DSR is a number with its inputs (SR, SR₀, T, N, V, γ₃, γ₄, ρ₁), never a pass / fail, never "validated", never deployment eligibility** (Q1). Panel text: "a deflated Sharpe near 1 means the best-of-N result is unlikely under no skill, given these assumptions; it is not evidence of profitability out of sample".
+
+**Reference tests (Phase 2b, `test_lab_sharpe.py`), each against values computed independently in the test file:**
+
+| Case | Expected |
+|---|---|
+| normal returns with known mean and std, T = 500 | `sharpe_trade` within 1e-12 of the hand formula; γ₃ ≈ 0, γ₄ ≈ 3; `PSR(0) = Φ(SR·√(T−1) / √(1 + SR²/2))` within 1e-9 |
+| T = 0, 1 | null, `too few trades` |
+| zero variance (all `ret` equal) | null Sharpe; DSR `undefined: zero variance` |
+| strongly skewed returns (one large win) | γ₃ > 1 moves PSR against the symmetric case; the value equals the test's own computation |
+| denominator ≤ 0 (constructed moments) | `undefined: moment denominator` |
+| repeated strategies (duplicate `param_key`, identical outcomes) | `N_unique` does not grow; the band's three N's are reported |
+| invalid metrics (NaN / inf in `ret`) | `undefined: non-finite input`; never ranked |
+| Acklam `Φ⁻¹` vs bisection on `math.erfc`, p ∈ [1e-9, 1 − 1e-9] | max abs error ≤ 1e-9 |
+| pure-noise experiment, 1,000 trials, 20 seeds | the best trial's DSR at `N_unique` exceeds 0.95 in at most 2 of 20 seeds (a Monte Carlo sanity check, not a proof) |
+| `combined` = long ∪ short | equals the Sharpe of the concatenated returns, independent of order |
+| autocorrelated `ret` (AR(1), φ = 0.5) | `ρ₁` ≈ 0.5 and the `autocorrelated` flag is set |
 
 ## 8. Screen H contract: Variable Intelligence and search-space design
 
@@ -813,76 +881,73 @@ A large run started elsewhere (the Experiments planner) is allowed. H then shows
 | Bottom evidence table: contributing trial ids, partition, ranges, n, status, outcome, proposed trials | `TrialTable` (evidence mode) | `page` with the pair / variable filter | click → filter | — |
 | Right evidence rail: why this status; proof or method; scope; uncertainty; interaction warnings; contradictory evidence; re-screen triggers; provenance; focused-test suggestion | `EvidenceRail` | `variables[path].evidence` | `Restore Parameter`, `Pin Setting`, `Simulate Budget` | contradiction alert when two scopes disagree (§8.5) |
 
-### 8.4 Status transitions (all versioned, all with provenance)
+### 8.4 Status transitions (all versioned, all with provenance; R1)
 
 ```
-Defined ─► Active (default for every non-structural parameter)
-Active ⇄ Investigate        (evidence or user; reason required)
-Active/Investigate ─► Deprioritized   only when §7.4 (a)+(b) hold AND no global higher-order warning; user confirms
-any ─► Excluded(structural) only by §8.2 proof (automatic, shown, reversible if the spec changes)
-any ─► Excluded(research)   user only; reason text required; warning lists its unresolved pairs
-any ─► Frozen               user only; value required (default the spec's current value)
-Deprioritized/Excluded(research)/Frozen ─► Active   "Restore": one click, reason optional, always allowed
+Defined ─► Active                       default for every non-structural parameter
+Active ⇄ Investigate                    evidence (§7.3–7.4: detected, period-dependent, aliased,
+                                        unresolved pair / triple) or user; reason required
+Active / Investigate ─► Deprioritized   only a §7.4a proposal (all six conditions) confirmed by the user
+any ─► Excluded (structural)            only by a §8.2 proof: automatic, shown, reversible when the spec changes
+any ─► Excluded (research)              user only; reason text required; the warning lists its unresolved pairs and triples
+any ─► Frozen                           user only; value required (default: the spec's current value)
+Deprioritized / Excluded (research) / Frozen ─► Active   "Restore": one click, reason optional, always allowed
+any empirical status ─► stale           automatic when its evidence scope changes (§8.5); the old evidence stays, struck through
 ```
 
-**Each transition appends an event:**
-`{at, path, from, to, actor: "operator"|"structure", reason, evidence_ref (snapshot + method + interval), scope (strategy_hash, data identity, partition, surface hash)}`.
+**Each transition appends an event:** `{at, path, from, to, actor: "operator" | "structure", reason, evidence_ref (snapshot, method, interval, blocks, floor), scope (strategy_hash, data identity, ranges, partition, sampler, blocks, search_space.hash)}`.
 
 Rules:
 - AI text may be attached as a *note*. It is never the actor.
-- There is no automatic empirical transition except structural exclusion, and that one is proof-based.
+- The only automatic transitions are structural exclusion (proof-based) and `stale` (scope-based). No empirical statistic ever changes a status by itself (scenario 20).
+- `Deprioritized` and `Excluded (research)` are reversible, evidence-scoped and reviewed: the dialog shows the §7.4a conditions with their values, and the status card keeps them.
+- Automatic structural exclusion needs a valid proof object; a proof that fails to re-verify on the same `spec_hash` is a test failure, not a status.
 
-### 8.5 Search-space proposals and versioning
+### 8.5 Search-space proposals, budgets and versioning (R5)
 
-- **Proposal:** `searchspaces/<exp_id>/<n>.json` holds `{base_version, statuses, frozen values, coarsenings, reasons, unresolved_pairs, budget_split, created_at, applied: false}`. It is versioned by n and hashed.
-- **`Review Before Apply`** shows a side-by-side diff of dims, frozen values, removed / coarsened levels, the theoretical Cartesian count before and after (Decimal), and the estimated time at the measured rate.
-  - Every number is labelled "theoretical; a sampler's trials are set by the budget, not by the space" (scenario 21).
-- **Apply** never edits the strategy. It creates a **new child experiment** with:
-  - the same pinned spec;
-  - the new surface;
-  - `search_space.version = base + 1`;
-  - `lineage.proposal_id`;
-  - a budget split: screening / interactions / refinement / re-entry reserve (default 30 / 48 / 22 % with 5 % reserve; Q6).
-- **Historical trials:**
-  - Parent trials stay valid evidence for their own space and are never re-labelled.
-  - The child can **reuse** parent trials whose `inputs_key` matches and whose params lie in the new space. They are copied by reference (`param_key` lookup) and counted as `reused`, never as new.
-- **Cache keys** include `search_space.hash`, so no view mixes versions.
-- **Re-screen triggers mark statuses `stale` (scenario 22):**
-  - a different `strategy_hash`;
-  - a different data identity (symbol, timeframe, range, sha256);
-  - a changed surface range;
-  - a changed partition;
-  - a new regime / window selection, once such selections exist.
-- A stale status still shows its old evidence, struck through, with `Re-screen` (a `rescreen` child: uniform sample over the current space at the reserve budget).
-- **Final OOS is never read by any H computation.** `lab/partitions.py` is the single bar-access point. It refuses `purpose="screening"` for the final range (scenario 22 test), and any proposal created after an unseal is badged `post-unseal: cannot drive re-tuning` and cannot be applied.
+- **Proposal:** `searchspaces/<exp_id>/<n>.json` holds `{base_version, statuses, frozen values, coarsenings, reasons, unresolved_pairs, unresolved_triples, budget, created_at, applied: false}`. It is versioned by n and hashed.
+- **Budget shares sum to 100 %.** The default split of a sweep's `budget_total` is **screening 30 % / interaction exploration 45 % / refinement 20 % / reserve 5 %**. The earlier 30 / 48 / 22 plus a 5 % reserve summed to 105 %; it is corrected here and flagged for re-approval (§22). Shares are whole percents, validated to sum to exactly 100 (`test_budget_shares_sum_to_100`). The reserve is part of the budget, held back from scheduling, and spent only by `Investigate` (§7.5) or a re-screen; whatever is unspent at finalize is reported as `reserved · unused`, never silently added to refinement.
+- **Six numbers, shown together on D and H, defined in §6.4:** theoretical Cartesian size; scheduled trials; completed trials; reused trials; remaining budget; reserved capacity. Each carries its definition, and `scheduled + remaining + reserved = budget_total` is an invariant (`test_budget_counts_invariant`).
+- **Reallocation** between shares happens only (a) in a new proposal, which creates a child experiment with its own split, or (b) on a paused experiment, for unscheduled trials only, through `PUT /lab/{exp}/budget` with a reason. Case (b) keeps `search_space.version` (the space is unchanged), increments `sampler.revision`, appends a `budget_reallocated` event with before / after, and is refused while the experiment runs or for trials already scheduled. `Simulate Budget` is a preview and changes nothing.
+- **`Review Before Apply`** shows a side-by-side diff of dims, frozen values, removed / coarsened levels, the theoretical Cartesian count before and after (Decimal), the budget split, and the estimated time (§8.6). Every count is labelled "theoretical; a sampler's trials are set by the budget, not by the space" (scenario 21).
+- **Apply** never edits the strategy. It creates a **new child experiment** with the same pinned spec, the new surface, `search_space.version = base + 1`, `lineage.proposal_id` and the budget split.
+- **Historical trials:** parent trials stay valid evidence for their own space and are never re-labelled. The child **reuses** parent trials whose `inputs_key` matches and whose params lie in the new space, copied by reference (`param_key`) and counted as `reused`; they consume no budget and are never counted as new or scheduled.
+- **Cache keys** include `search_space.hash` and `sampler.revision`, so no view mixes versions.
+- **Re-screen triggers mark empirical statuses `stale`** (scenario 22): a different `strategy_hash`; a different data identity (symbol, timeframe, range, sha256); a changed surface range (evidence from one range is never applied to another, scenario 23 case 9); a changed partition; a different sampler, block count or `sampler.revision`; a new regime / window selection once such selections exist. A stale status still shows its old evidence, struck through, with `Re-screen` (a `rescreen` child: uniform sample over the current space at the reserve budget).
+- **Final OOS is never read by any H computation.** `lab/partitions.py` is the single bar-access point. It refuses `purpose="screening"` for the final range (scenario 22 test), and any proposal created after an unseal is badged `post-unseal` and cannot be applied (§10.1).
 
 ### 8.6 Budget estimates
 
-- **Projected time** = `trials × bars × measured ms_per_cell_bar / (0.8 × workers)`, using the existing planner arithmetic, with "measured on this host" or "starting guess".
-- No "speed-up" or "trials saved" claim is made. The two counts shown are "theoretical Cartesian space" and "scheduled trials".
+- **Projected time** uses two models side by side, both labelled: the existing planner (`trials × bars × measured ms_per_cell_bar / (0.8 × workers)`, "measured on this host" or "starting guess"; the planner itself is unchanged in this plan) and, once Phase 2's Track B benchmark has run on the host, the **affine fit** `trials × (a + b × bars) / parallelism` from §9.1b, which holds across bar counts where the linear model does not (the per-trial cost has a fixed part the cell-bar model misses). The larger of the two is the headline, and the panel says which it is.
+- No "speed-up" or "trials saved" claim is made. The counts shown are the six of §8.5.
 
 ### 8.7 Answers to the mandatory Screen H review questions
 
 | Question | Answer in this plan |
 |---|---|
 | What evidence supports each structural exclusion, and how is it reproducible? | §8.2 rules 1–4; the proof is a path in the spec's dependency graph plus `spec_hash`; `structural_status` is pure, and tests pin each rule (scenario 18) |
-| How are weak-main, strong-joint interactions protected? | Uniform-row pair screening with upper bounds, coverage gating, the §7.4 (a)+(b) rule, the higher-order residual veto, XOR fixture tests (scenario 19) |
-| What prioritizes pair / higher-order investigation, and how are uncertainty and sampler bias exposed? | Priority = upper 90 % bound of `S_ij`; unresolved list by coverage; refinement rows excluded and the exclusion stated; Cramér's V aliasing flags |
+| How are weak-main, strong-joint interactions protected? | Incremental shares `Δ_{i|j}` on upper bounds; the coarse triple screen; the six-condition rule of §7.4a; the residual veto; XOR and three-way fixtures (scenarios 19, 23) |
+| What prioritizes pair / higher-order investigation, and how are uncertainty and sampler bias exposed? | Priority = upper 90 % bound of `Δ`; unresolved lists by coverage; three uncertainties printed (design, period, detection floor); adaptive rows excluded and the exclusion stated; aliasing flags |
 | Which variables are frozen vs excluded, and is the strategy unchanged? | §8.1; apply creates a child experiment on the same pinned spec; test `test_apply_proposal_keeps_strategy_hash` |
-| Can Randall restore or inspect any valid pair in one or two interactions without losing filters? | `Restore` is one click; `Explore any valid pair` is two selects; the store keeps the filter (walk item) |
+| Can Randall restore or inspect any valid pair in one or two interactions without losing filters? | `Restore` is one click; `Explore any valid pair / triple` is two selects; the store keeps the filter (walk 115) |
 | How do changes affect versioning, historical trials, cache keys, lineage and budget? | §8.5 |
-| What QA proves a variable-selection change does not alter OOS usage or deployment eligibility? | `partitions.py` refusal tests; no gate input reads statuses; post-unseal proposals blocked (scenarios 13, 20, 22) |
+| What QA proves a variable-selection change does not alter OOS usage or deployment eligibility? | `partitions.py` refusal tests; no gate input reads statuses; post-unseal proposals blocked; the `.final/` import boundary (scenarios 13, 20, 22, 28) |
 
-## 9. One-million-trial readiness
+## 9. One-million-trial readiness: two tracks (R2)
 
-### 9.1 Measured on this machine (2026-10-27)
+The review required that million-result *browsing* be separated from million-trial *execution*. They are different machines with different bottlenecks, so this section has two tracks, two measured tables and two acceptance tables. A Track A number never stands in for engine throughput, and a Track B projection is labelled `estimated` until a run of that size has happened on the host.
+
+- **Track A, result exploration:** query latency, filtering, aggregation, ranking, pagination, visualization, browser memory, concurrent UI responsiveness. Measured on a synthetic 1,000,000-row table shaped like the trial rows (§9.1a).
+- **Track B, trial execution:** indicator calculation and caching, kernel execution, worker initialization, per-trial computation, trade-metric calculation, memory, Parquet writes, compaction, failure recovery, concurrent analytical queries. Measured on the real engine through the real pool on real QQQ bars (§9.1b).
+
+### 9.1a Track A, measured on this machine (2026-10-27)
 
 **Setup**
 - i7-1255U, 15.8 GB, NVMe SSD.
 - `.venv-aegis` (pyarrow 23.0.1, numpy 2.5.3).
 - A synthetic table shaped like Aegis cell rows: 1,000,000 rows; 20 parameter columns, 30 metric columns, `cell`, `pass`, `valid`, `elapsed_ms`.
 - Random metric values, the **worst case for compression**.
-- Scripts are in this session's scratchpad (not committed); Phase 2 commits a reproducible version as `tests/products/aegis/lab_benchmark.py`.
+- Scripts are in this session's scratchpad (not committed); Phase 2 commits a reproducible version as `tests/products/aegis/lab_benchmark.py explore`.
 
 | Operation | Cold | Warm |
 |---|---|---|
@@ -913,6 +978,53 @@ Rules:
 | 7 columns of 1M rows held | 178 MB |
 | All columns held | **940 MB** |
 
+### 9.1b Track B, measured on this machine (2026-10-27)
+
+**Setup**
+- The real engine (the numba kernel) through the real `Pool` (`ProcessPoolExecutor`, `_init_worker`, `_run_cell`, `run_chunk`), driven exactly as `ExperimentJob` drives it: chunks of `CHUNK_CELLS = 200`, each written as a Parquet chunk through `_cells_table` / `_write_atomic`, with equity curves kept when the plan is ≤ 20,000 trials, as the job does.
+- Real bars: QQQ from the raw archive (`ArchiveStore.bars`, vintage 20260919) at three bar counts: **2,603** (1h, 2024-01-01 → 2025-06-30), **9,669** (15m, same range) and **46,034** (1m, 2025-01-01 → 2025-06-30).
+- A realistic strategy, `lab-bench-10p`: ten ranged parameters on both sides, four indicators per side (EMA, SMA, RSI, MACD), an entry of three conditions, an exit of two, a stop and a target, **commission 1.0 per side and slippage 5 bps**; a Latin-hypercube sample over a grid of 2.87 × 10¹¹ cells; both sides evaluated independently (≈ 29 / 28 trades per side at 2,603 bars, ≈ 99 / 98 at 9,669, ≈ 525 / 520 at 46,034).
+- 10 workers (`cpu_count − 2`, memory-fitted); the host process opted out of power throttling. One run with the workers' opt-out off showed no difference (0.0188 vs 0.0180 ms per cell-bar), so pool children spawned from a console process are not throttled on this host. Phase 2's `execute` mode repeats the measurement through the real detached worker, which is how the product runs.
+- Concurrent Lab queries: the Track A query set (read 7 columns of the 1M-row file, filter two ranges, 2-D median, top 200) once per second on a thread in the host process.
+- Script: this session's scratchpad `bench_engine.py` (not committed; nothing written under `data/`); Phase 2 commits it as `lab_benchmark.py execute`.
+
+| Workload | Bars | Trials | Wall | Steady trials / s | Wall ms / trial | Worker ms / trial | Worker ms / cell-bar | Parallelism (of 10) | 1M at this bar count |
+|---|---|---|---|---|---|---|---|---|---|
+| A1k | 2,603 | 1,000 | 17.7 s | 123 | 8.1 | 45.8 | 0.0180 | 5.6 (start-up dominated) | — |
+| A10k | 2,603 | 10,000 | 63.7 s | **188** | 5.31 | 48.3 | 0.0186 | 9.1 | 1.5 h (burst rate) |
+| A10k + Lab queries | 2,603 | 10,000 | 77.7 s | 151 | 6.64 | 60.3 | 0.0231 | 9.1 | 1.8 h |
+| B10k | 9,669 | 10,000 | 131.9 s | 83 | 12.0 | 112.3 | 0.0116 | 9.4 | 3.3 h (burst rate) |
+| C2k | 46,034 | 2,000 | 96.7 s | 24 | 41.4 | 392.7 | 0.0084 | 9.5 | 11.5 h (burst rate) |
+| **A100k** | 2,603 | **100,000** | 19.1 min | **89** | 11.24 | 103.0 | 0.0396 | 9.2 | **3.1 h (sustained rate)** |
+
+Every trial completed (`invalid = 0`, `failed = 0`); the trade statistics were identical across runs for the same cells.
+
+**What the cell-bar model does not see**
+- **Per-trial cost is affine in bars, not linear:** worker ms per trial ≈ `27 + 0.0079 × bars` (fit through the three bar counts; the fixed part is signal evaluation in pandas, the trade list and the metric construction). A `ms_per_cell_bar` measured at one bar count therefore mis-prices another: the rate measured at 2,603 bars (0.0186) over-prices a 46,034-bar trial 2.2×, and the rate measured at 46,034 bars (0.0084) under-prices a 2,603-bar trial 2.2×. The planner's model stays (it is conservative when extrapolating upward); the Lab shows the affine projection beside it (§8.6).
+- **Start-up:** the first chunk takes 10.6–13 s at ≤ 10k bars and 22 s at 46k bars (process spawn, kernel JIT, first indicators), paid once per job.
+- **Concurrent queries cost about a fifth of the throughput** (188 → 151 trials / s), and the queries themselves run about 2× slower (total p95 198 → 416 ms, worst 1.5 s) while the pool saturates the cores. Q7 (concurrent) stands; the UI shows both effects.
+- **Sustained vs burst:** over 100,000 trials at 2,603 bars the steady rate was 89 / s against 188 / s over 10,000: a sustained-to-burst ratio of 0.47. The run kept no curves (plan > 20,000), so the gap is not serialization; the worker's own per-trial time rose from 48 to 103 ms, with transient slowdowns of 2–3× for a few chunks, which points at the laptop's sustained all-core clocks (thermal and power limits) rather than at the engine. Projections use the sustained rate, and the Run Monitor shows the live rate so an operator sees the same effect on a real sweep.
+- **Writes are negligible:** a 200-row chunk writes in 15–25 ms (max 54 ms under query load); curves add ≈ 0.5 MB per 1,000 trials.
+- **Storage per 10,000 trials:** 3.3–3.5 MB of cells (50 chunk files) plus 4.7–7.6 MB of curves; compacted to 2.0–2.1 MB in 34–78 ms; the compacted file's 7-column read is 27 ms. Reading all 50 chunks (today's `cells()`) takes 1.1–1.3 s, so 1M trials ≈ 120 s, consistent with Track A; a resume's `done_cells` read is 0.1–0.25 s per 50 files (≈ 10–25 s at 1M before compaction, ≈ 0.2 s after).
+- **Memory:** worker peak working set 155–174 MB (private bytes 473–487 MB, mostly the JIT and libraries); the host process 390–454 MB while holding the ten-year 1m frame. Free memory went from 2.2–3.5 GB before each run to 1.7–2.4 GB during it.
+
+**Trade Sharpe overhead (R2):** measured in-process on the 2,603-bar frame: `run_metrics` 21.3 ms per trial (warm cache, median trade count 59); a per-scope mean and std over the kernel's existing `ret` column 14 µs; three scopes 42 µs, which is 0.2 % of the in-process trial and 0.09 % of a pool trial; the row's pickle grows from 1,040 to 1,086 bytes (three floats); no new array is allocated (`trades[:n_trades, 9]` is a view of the buffer the kernel already fills; for scale, `_metrics_arrays` itself costs 256 µs). **Decision:** compute it in stage 1, in the worker, beside the metrics; no deferral and no alternative method is needed.
+
+### 9.1c What is verified, what is estimated, and when to re-test
+
+| Claim | Status |
+|---|---|
+| 10,000 real trials at 2,603 and 9,669 bars; 2,000 at 46,034; 100,000 at 2,603 | **measured** (the table above) |
+| The Track A latencies at 1,000,000 rows | **measured** on synthetic rows; real rows compress better, so these are an upper bound for storage and about equal for latency |
+| 1,000,000 trials at 2,603 bars ≈ 3.1 h | **estimated** from the sustained 100,000-trial rate, not from the 10,000-trial burst |
+| 1,000,000 trials at 9,669 bars ≈ 7.0 h; at 46,034 bars ≈ 24.3 h | **estimated**: the 10,000 / 2,000-trial burst rates scaled by the measured sustained-to-burst ratio (0.47) |
+| Compaction at 1,000,000 rows (≤ 10 s per generation) | **estimated** from Track A's 4.8 s single-file write; measured in Phase 2 |
+| Failure recovery at scale (per-trial isolation, retry, torn compaction) | **not measured**: Phase 5 features; their tests are deterministic, not timed |
+
+**Which smaller benchmarks validate the projection:** a 10,000-trial run at each of the three bar counts plus one 100,000-trial run at the smallest bar count, on the host, through the real worker, recorded with host details. That is what `lab_benchmark.py execute` runs at R3 and R7. A full 1M real run is not required for approval. Randall's HA-MQI framework (§11.2) is a daily-chart framework: ten years of 1D bars is ≈ 2,500 bars, the A configuration, so its million-trial sweeps are the cheap case here; the 15m and 1m rows bound the other timeframes the archive offers.
+
+**Triggers for re-running Track B:** any change to `engine_build` (kernel, backtest, indicators, kinds, strategy, temporal); a strategy with more than four indicators per side or more than ten ranged parameters (the 20-parameter case of Phase 4); bar counts above 50,000; a new indicator kind (4b); the worker's live rate drifting more than 15 % from the recorded one; free memory under 2 GB at job start; a new host.
+
 ### 9.2 Storage, indexing and partitioning (Phase 2)
 
 **Write path kept:** chunk files, atomic `.tmp` replace, resumable. `CHUNK_CELLS` stays 200 for progress granularity.
@@ -936,7 +1048,7 @@ Rules:
 **Column cache:**
 - `LabCache` in the worker holds projected Arrow columns per `(experiment, generation)`.
 - LRU by bytes with `LAB_CACHE_BYTES = 400 MB`, sized from 2.5 GB free × the pool's 0.8 headroom, minus the pool's own share. Configurable with `AEGIS_LAB_CACHE_MB`.
-- A query loads only the columns it needs: params in the filter, axes, metric, `status`, `pass`, `trial_no`. That is about 140 MB for 7 columns at 1M rows.
+- A query loads only the columns it needs: params in the filter, axes, metric, `status`, `pass`, `block`, `trial_no`. That is about 140 MB for 7 columns at 1M rows.
 - **Never** all 50+ columns (940 MB).
 
 ### 9.3 Server-side filtering, aggregation and paging
@@ -954,12 +1066,14 @@ Rules:
 | `pareto` | front ≤ 2,000 + 64 × 64 density |
 | `marginals` | ≤ 65,535 values per parameter, bucketed to ≤ 200 |
 | `convergence` | ≤ 1,000 points |
+| `robustness` | one candidate's four categories with their inputs |
+| `triples` | the top 20 by upper bound plus the unresolved count |
 
 ### 9.4 Background work, progress, cancellation and resume
 
 - **Stage-1 trials:** the existing experiment job (one unfinished job across kinds: `jobs.py`).
-- **Heavy Lab analytics** (bootstrap importance, interaction screen, plateau pass) run as **Lab tasks**: a single-thread executor separate from `JobRunner`, one task at a time. The result is cached per `(experiment, generation, filter_hash, method)` and is cancellable at checkpoints between bootstrap resamples. Status is polled by the view.
-- **Lab tasks never start pool processes.** Randall decided (Q7) that they run while an experiment job runs: one task at a time, yielding between bootstrap resamples so the job's chunks keep their pace, with the UI showing "sharing CPU with the running job" and the task's own progress.
+- **Heavy Lab analytics** (bootstrap importance, pair and triple screens, the permutation null, the plateau pass) run as **Lab tasks**: a single-thread executor separate from `JobRunner`, one task at a time. The result is cached per `(experiment, generation, filter_hash, method)` and is cancellable at checkpoints between bootstrap resamples. Status is polled by the view.
+- **Lab tasks never start pool processes.** Randall decided (Q7) that they run while an experiment job runs: one task at a time, yielding between resamples so the job's chunks keep their pace, with the UI showing "sharing CPU with the running job" and the task's own progress. §9.1b measured the cost of sharing: about a fifth of the job's throughput and a 2× slower query while both run.
 - **Progressive results:** each compaction generation is a snapshot. Responses carry `snapshot` and `provisional`. The UI shows `PROVISIONAL · snapshot hh:mm:ss`. A live best-so-far curve is never labelled complete.
 - **Cancellation / pause / resume:** existing behaviour (pause = cancel with pause flag; resume continues from the trials on disk).
 - **New:** `run_log` segments record every start, pause, loss and resume.
@@ -974,9 +1088,11 @@ Rules:
 - **Duplicates** from a torn compaction or a retry overlap are dropped on read (latest attempt wins) and counted in `duplicates`.
 - **Unavailable indicator data** (warm-up longer than the data) stays `invalid: insufficient bars`. It is not `failed`.
 
-### 9.6 Budgets for approval (pass thresholds proposed for scenario 11)
+### 9.6 Budgets for approval
 
-These come from the §9.1 measurements with about a 3× margin for real data, a busy laptop and HTTP overhead. **Approved by Randall on 2026-10-27 (Q6)** as the scenario 11 pass thresholds, with the §7 policy constants.
+#### 9.6a Track A (result exploration): pass thresholds for scenario 11
+
+These come from the §9.1a measurements with about a 3× margin for real data, a busy laptop and HTTP overhead. **Approved by Randall on 2026-10-27 (Q6)** as the scenario 11 pass thresholds, with the §7 policy constants; the one changed row is marked.
 
 | Interaction (1,000,000 completed trials, warm cache) | Budget (p95) |
 |---|---|
@@ -987,8 +1103,8 @@ These come from the §9.1 measurements with about a 3× margin for real data, a 
 | Exact-slice change | ≤ 300 ms |
 | Parallel coords (bundles) | ≤ 800 ms |
 | Pareto (2 objectives) | ≤ 800 ms |
-| Neighbourhood of one trial | ≤ 150 ms |
-| Importance + interactions (bootstrap 200) | background ≤ 30 s, progress shown |
+| Neighbourhood of one trial / robustness of one candidate | ≤ 150 ms |
+| Importance + pairs + triples + permutation null (bootstrap 200) | background ≤ 90 s, progress shown (**changed from 30 s by R1; needs re-approval, §22**) |
 | Progress poll while running | ≤ 100 ms server time |
 | UI main thread: no task > 50 ms during any interaction above; ≤ 1,500 DOM table rows; ≤ 40,000 canvas squares | — |
 
@@ -999,11 +1115,26 @@ These come from the §9.1 measurements with about a 3× margin for real data, a 
 | Disk per 1M-trial experiment (stage 1) | ≤ 350 MB |
 | Compaction pause at 1M | ≤ 10 s per generation (one unit) |
 
-**Throughput (not a promise; measured rate × formula):**
-- `hours ≈ trials × bars × 0.027 ms / (0.8 × 10 workers) / 3.6e6`.
-- 1M trials at 2,000 bars ≈ 1.9 h; at 10,000 bars ≈ 9.4 h; at 50,000 bars ≈ 47 h.
-- The pool fits workers to free memory (160 MB + 400 B/bar each). With 2.5 GB free, 12 workers fit at 10k bars, so the configured 10 hold.
-- The planner already prices this and asks above 10 minutes.
+#### 9.6b Track B (trial execution): pass thresholds for scenario 24
+
+Set at about 80 % of the §9.1b measurements to absorb a busy laptop. A miss is a finding to investigate, never a silent re-baseline.
+
+| Measure (on this host, through the real worker) | Threshold |
+|---|---|
+| Steady throughput at 2,603 bars, 10,000 trials | ≥ 150 trials / s (measured 188) |
+| Steady throughput at 9,669 bars, 10,000 trials | ≥ 65 trials / s (measured 83) |
+| Steady throughput at 46,034 bars, 2,000 trials | ≥ 19 trials / s (measured 24) |
+| Sustained throughput over 100,000 trials at 2,603 bars | ≥ 71 trials / s (measured 89) |
+| Throughput with concurrent Lab queries | ≥ 75 % of the quiet rate (measured 80 %) |
+| Lab query p95 while the pool runs | ≤ 2.5 × the quiet p95 (measured 2.1×) |
+| First chunk (start-up) | ≤ 20 s at ≤ 10k bars; ≤ 35 s at 50k bars |
+| Chunk write (200 rows) | ≤ 100 ms p95 |
+| Worker peak working set | ≤ 160 MB + 400 B / bar (the pool's own model) |
+| Host process growth during a job | ≤ 100 MB |
+| Compaction per generation | ≤ 10 s |
+| `invalid` / `failed` on the benchmark strategy | 0 |
+
+**Throughput statement (labelled `estimated` wherever the UI shows it):** `hours ≈ trials × (27 + 0.0079 × bars) ms / parallelism / 3.6e6`, parallelism ≈ 9 on this host, divided by the sustained-to-burst ratio 0.47. One million trials ≈ 3.1 h at 2,603 bars, ≈ 7.0 h at 9,669 and ≈ 24.3 h at 46,034. The pool fits workers to free memory (160 MB + 400 B/bar each); with 2.5 GB free, 12 workers fit at 10k bars, so the configured 10 hold. The planner already prices this and asks above 10 minutes.
 
 ### 9.7 Drill-down and the no-million-node rule
 
@@ -1014,34 +1145,50 @@ These come from the §9.1 measurements with about a 3× margin for real data, a 
 - Every drill-down step keeps counts (scenario 14).
 - **Test:** the walk counts DOM rows (≤ 1,500) and the response sizes with the 1M synthetic experiment.
 
-### 9.8 The synthetic 1M experiment (scenario 11)
+### 9.8 The synthetic 1M experiment (scenario 11) and the real 12k experiment (scenario 30)
 
 - `tests/products/aegis/lab_fixture.py` writes a layout-2 experiment directly:
   - deterministic seed;
   - 20 parameters;
   - metrics from a known function, including an XOR pair, a conditional triple and a plateau / spike pair, plus noise;
   - in a temp data root.
-- It is not run through the engine (it would take hours).
-- It is marked `DEMO · synthetic` in its name and document.
-- The data root has no override today (§3.4a). Phase 2 therefore adds a product-only `AEGIS_DATA_ROOT` environment override, read in the same places that default to `DATA_ROOT/"data"/"aegis"`. The milestone walk then runs against a **scratch worker on port 8103** holding the fixture (`--base http://127.0.0.1:8103/aegis/`), and the fixture never enters `C:\Triad\data\aegis`.
+- It is not run through the engine (it would take hours). It is marked `DEMO · synthetic` in its name and document.
+- The vertical slice (Phase 2c) uses a **real** experiment instead: the §9.1b benchmark strategy, 12,000 LHS trials at 2,603 bars (≈ 1 minute), created through the API on the scratch worker, so every Lab view in the slice shows engine output.
+- The data root has no override today (§3.4a). Phase 2 therefore adds a product-only `AEGIS_DATA_ROOT` environment override, read in the same places that default to `DATA_ROOT/"data"/"aegis"`. The milestone walk then runs against a **scratch worker on port 8103** holding the fixtures (`--base http://127.0.0.1:8103/aegis/`), and nothing enters `C:\Triad\data\aegis`.
 - After the milestone the fixture folder is deleted (Q11: test data can be deleted), and the walk report records its size and the deletion. The Lab warns below 10 GB free on the data root's disk.
 
 ## 10. Staged compute funnel
 
-| Stage | What runs | Data | Engine / costs | Selection boundary |
-|---|---|---|---|---|
-| **1. Fast exploratory** | experiment trials (grid / LHS / refine / focused) | **selection partition only** | kernel, metrics-only, the spec's commission + slippage (already costed, F8) | Selects candidates by robust rank (§7.6), not by best point |
-| **2. Focused refinement + cost stress** | materialize top-K robust candidates (K set per experiment, default 20) as full runs; re-run each under the cost scenarios | selection partition | full envelope with trades; cost scenarios as stage-2 rows | Candidates pass to stage 3 only if they hold under `slippage×1.5` (policy, Q6) |
-| **3. Walk-forward folds** | Mission 8 study on the candidates: rolling windows inside the **selection + validation** span | folds | plateau / peak / frozen-centre rules per window | Fold metrics never feed back into stage 1's objective; a new stage-1 sweep after seeing folds is a new child, labelled `post-validation` |
-| **4. Final untouched OOS** | one materialized run per finalist on the sealed final range | **final OOS** | full envelope | Only after `Unseal`: typed confirmation, append-only record, **single use per candidate set**; results cannot be re-tuned on |
+| Stage | What runs | Data | Engine / costs | Selection boundary | Owner |
+|---|---|---|---|---|---|
+| **1. Fast exploratory** | experiment trials (grid / LHS / refine / focused / rescreen), optionally per block (§7.3) | **selection partition only** | kernel, metrics-only plus `sharpe_trade`, the spec's commission + slippage (already costed, F8) | candidates by robust rank (§7.6), never by best point alone | Phase 2 (store), Phase 3 (rank) |
+| **2. Focused refinement + cost stress** | materialize the top-K robust candidates (K per experiment, default 20) as full runs; re-run each under the cost scenarios | selection partition | full envelope with trades; cost scenarios as stage-2 rows | a candidate passes to stage 3 only if it `holds` or `degrades` under `slippage×1.5` (§7.6 D; policy, Q6) | Phase 5 |
+| **3. Walk-forward folds** | a Mission 8 study on the candidates: rolling windows inside the **selection + validation** span | folds | plateau / peak / frozen-centre rules per window | fold metrics never feed back into stage 1's objective; a new stage-1 sweep after seeing folds is a new child, labelled `post-validation` | Phase 6 (view); studies exist |
+| **4. Final untouched OOS** | one materialized run per unsealed candidate on the final range | **final OOS** | full envelope | only through `Unseal`, which is also the evaluation (§10.1) | **Phase 5** (`lab/final_oos.py`, `FinalOosJob`, `FinalOosPanel`); Phase 6 adds Screen F's presentation |
 
-**Leakage rules (scenario 13 tests):**
-1. `partitions.bars_for(document, purpose)` is the **only** function that slices bars for Lab work. Purposes `stage1` and `screening` get the selection range; `stage3` gets selection plus validation; `final` gets the final range, and only with a valid unseal record whose candidate list contains the trial.
+### 10.1 Final OOS: ownership, API, identity, persistence, verification, display (R4)
+
+- **Owner.** Phase 5 implements the whole of stage 4: the unseal record, the evaluation job, persistence, the verification hooks and a minimal results panel. Nothing about stage 4 is "record only".
+- **One action.** `POST /lab/{exp}/final-oos/unseal` with `{candidates: [trial_id], confirm: "<experiment id>"}` validates, appends `unseal-<use_no>.json` and **queues `FinalOosJob` in the same call** (a `JobRunner` kind, one unit per candidate, not resumable: a job lost before any result exists may be re-queued once under the same `use_no`, since nothing was observed; once any result exists, every further evaluation is a new use and therefore a reuse). There is no separate "start evaluation" route, so an unsealed-but-unevaluated holdout cannot exist. `GET /lab/{exp}/final-oos` returns every record with status and results. There is no delete.
+- **Candidate identity.** A candidate must be a tested trial with a stage-2 `base` replay, so its costs and full envelope were seen before the holdout is touched. The record stores `trial_id`, `param_key`, `strategy_hash`, `spec_version`, `stage2_run_id`, `stage2_result_hash` and the experiment's `engine_build`. The job rebuilds the strategy from the pinned spec and the trial's params (`apply_params`) and refuses to run when `strategy_hash(rebuilt) ≠ strategy_hash(stored)`.
+- **Bars.** `partitions.bars_for(document, "final", unseal=record)` returns the final range, with warm-up from prior history through `evaluate_from` (rule 2): bars before the range are never scored. The run envelope pins the data (`sha256`, `data_hash`) for that range.
+- **Persistence.** Each result is a run document under `runs/` (`experiment_id`, `trial_id`, `partition: "final_oos"`, `unseal_no`), and its `run_id` and `result_hash` are written into the record as it finishes (atomic replace; a record is never rewritten except for status and results).
+- **Verification.** (a) the `strategy_hash` check before running; (b) `engine_build` equality with the experiment: when it differs the record says `engine differs from the sweep: evidence only`; (c) Phase 6's `POST /lab/{exp}/verify` re-hashes every final run against its stored `result_hash` and the archive file against `sha256`; (d) the UI reads metrics from the run documents only; nothing is recomputed client-side.
+- **Display.** Phase 5's `FinalOosPanel` (on Screens C and D) shows `sealed · 0 uses`; `unsealing · use n · k of m evaluated`; `evaluated · use 1 · independent final assessment`; `evaluated · use n · reused holdout`; `failed`. Per candidate: final-range metrics beside the selection and validation numbers, trade count, exposure, drawdown, `sharpe_trade` with its caveats, and `Show on chart`. Never a verdict. Phase 6's Screen F adds the equity on the final range and the fold matrix's sealed bar.
+- **Repeated access.** Every unseal increments `use_no`; records are append-only and listed on C, F, G, the Run Monitor and in exports. **`use_no = 1` is an independent final assessment; `use_no ≥ 2` is a reused-holdout assessment**, labelled `reused holdout` everywhere a final number appears, including CSV / JSON exports and the lineage graph. A candidate already evaluated on the holdout can only be re-evaluated as a reuse.
+- **No silent influence on later optimization.** (1) `bars_for` refuses `final` without an unseal record naming the trial, and refuses the final range for every other purpose; (2) `.final/` is read only by `lab/final_oos.py`, `lab/lineage.py` and `lab/verify.py`: an import-boundary test asserts that `lab/analytics.py`, `lab/query.py`, `lab/neighbours.py`, `lab/pareto.py`, `lab/variables.py` and `lab/searchspace.py` import nothing from `final_oos` and open nothing under `.final/`; (3) every experiment, proposal or focus created on the lineage after its first unseal carries `lineage.after_unseal = use_no`, shown as `post-unseal` on H, G and D; a post-unseal proposal cannot be applied; a post-unseal child may run (research continues) but its own final OOS is a reuse by definition; (4) the audit log records each unseal and each evaluation.
+
+**Holdout policy (printed on the panel):** a sealed holdout is an independent final assessment only until its results have been observed. Any later evaluation is a reused-holdout assessment and is labelled so; it is never shown as fresh independent validation.
+
+### 10.2 Leakage rules (scenario 13 tests)
+
+1. `partitions.bars_for(document, purpose, unseal=None)` is the **only** function that slices bars for Lab work. Purposes `stage1`, `screening` and `block` get the selection range (a block is a sub-range of it); `stage3` gets selection plus validation; `final` gets the final range, and only with a valid unseal record whose candidate list contains the trial.
 2. Warm-up for any later range uses prior history through the existing `evaluate_from` mechanism. Bars before the range are used for warm-up only, never scored.
 3. A candidate is promoted only by an explicit operator action, recorded with `{from_stage, to_stage, trial_id, at}`. No code path auto-promotes.
-4. **Repeated unsealing for a different candidate set is allowed but counted.** Each unseal increments `final_oos.uses`, the multiple-testing panel shows it, and once `uses > 1` every final-OOS number carries "re-used holdout".
+4. **Repeated unsealing is allowed, counted and labelled** (§10.1): `final_oos.uses` increments, and from `uses ≥ 2` every final-OOS number carries `reused holdout`.
 5. Legacy experiments have no partition. Their views say "no partition: in-sample only", and stages 3–4 are unavailable for them until a partitioned child is created.
-6. **Default partition (Q10):** trailing 60 / 20 / 20 by bars: the first 60 % of the range is selection, the next 20 % validation, the last 20 % final OOS, sealed at experiment creation. The planner shows the three bar counts and dates, and the operator may move the two boundaries before the experiment starts, never after.
+6. **Default partition (Q10):** trailing 60 / 20 / 20 by bars: the first 60 % of the range is selection, the next 20 % validation, the last 20 % final OOS, sealed at experiment creation. The planner shows the three bar counts and dates; the operator may move the two boundaries before the experiment starts, never after.
+7. Screening blocks (§7.3) subdivide the selection range only; a block never overlaps validation or final.
 
 ## 11. Phases
 
@@ -1060,17 +1207,17 @@ These come from the §9.1 measurements with about a 3× margin for real data, a 
 
 | Phase | Scope | Touched files (main) | Migrations | Dependencies | Tests (new) | Walk items |
 |---|---|---|---|---|---|---|
-| **0. Decisions and prerequisites** (no code) | Randall reviews A–H and this plan; answers §14; Mission 14 merged; brief copied into `docs/superpowers/specs/`; a repo-tracked lint script `tools/lint_aegis.sh` replacing the scratchpad one (Q9: yes), which finds the repository root from its own path so it lints the worktree it lives in, not `C:\Triad` | docs only | none | none | — | — |
-| **1. Lab shell** | `optlab` page, sub-nav, Screen B layout with real regions bound to existing experiment endpoints (report main effects, cells page); dock `Expand Lab`; honest "not built" / "unavailable" states; `state/lab.tsx` store; keyboard model | `ui/src/App.tsx`, `SideNav.tsx`, `state/workspace.tsx` (Page), new `ui/src/lab/*` (`LabPage`, `LabContextBar`, `ParameterCatalog`, `TrialTable`, `IntelligenceRail`, `labStore.ts`), `OptimizationTab.tsx`, `styles.css` | none | none | vitest: `labStore` (selection, filter_hash, pins, persistence across sub-views), `trialWindow` (row windowing math) | 103 Lab opens from Expand Lab with axes / metric kept; 104 sub-nav keeps filter and selection; 105 every unavailable control says why; 106 1672 × 941 and 1440 × 900 with no clipped primary control |
-| **2. Trial store and query layer** | layout 2 (trial_no, positions, param_key, status, compaction, manifest); `LabCache`; `/lab` summary / query / trials; views counts, matrix (exact + aggregate), page, top, marginals; optimizer source adapter; `engine_build`; benchmark script; dock `n` overlays and mode label; **2b**: `sharpe_trade` per scope beside, not inside, the hash-bearing metrics (§7.12) | new `app/products/aegis/lab/{__init__,store,cache,query,sources,policy,identity}.py`; `experiments.py` (layout 2 write, compaction, reader, chunk naming fix F16, `data_pinned`), `api.py` (router include), `runs.py` + `preferences.py` (`AEGIS_DATA_ROOT` override, §9.8), `pool.py` (2b only), `results.py` untouched; `ui/src/lab/LabHeatmap.tsx` (canvas), `Heatmap.tsx` (n overlay, hatch) | none (new layout only for new experiments; legacy untouched) | none | `test_lab_store.py` (compaction torn / idempotent; dedupe; legacy read equals today's `cells()`; `test_unreadable_chunk_never_overwritten`; data root override), `test_lab_query.py` (exact slice empty = untested; aggregate n / IQR; `test_lab_undefined_metric_counts`; `test_lab_query_empty_scope`; filter_hash; count invariants), vitest `labHeatmap` (empty, one-axis, losses-red scale), `test_lab_identity.py` (param_key canonicalization), `tests/products/aegis/lab_benchmark.py`; golden + identity unchanged | 107 exact slice with no match shows untested, no value; 108 aggregate square opens a distribution and cannot be pinned; 109 counts identical across heatmap, table and header |
-| **3. Linked analytics** | parallel coords (bundles / sample), Pareto, importance + interactions with bootstrap intervals (Lab tasks), neighbourhoods, robust rank, convergence; Screens B tabs and E | `lab/{analytics,neighbours,pareto,parallel,tasks}.py`; `ui/src/lab/{ParallelCoords,ParetoView,ImportanceView,InteractionMatrix,PlateauView,Trellis,NeighbourhoodMap,ConvergenceChart}.tsx`; `ui/src/lab/charts/*` (canvas primitives) | none | none (§12) | `test_lab_analytics.py` (XOR fixture: S_i≈0, S_ij high; conditional triple; refinement rows excluded; interval coverage on a known-variance fixture), `test_lab_neighbours.py` (spike vs plateau; coverage gate), `test_lab_pareto.py` (2-D / 3-D against brute force); vitest for bundle drawing math, brush → filter mapping | 110 brush updates heatmap, table, Pareto and counts coherently; 111 spike vs plateau labelled; 112 20-variable fixture: families, search, trellis, maximize, count-preserving drill-down |
-| **4. Screen H and 20 parameters** | `MAX_PARAMETERS` 10 → 20; identity beyond int64 (positions-based LHS / refine); structural relevance; statuses, events, proposals, apply → child; focus (pair investigation); stale detection | `surface.py` (cap, positions-based sampling), `experiments.py` (focus / child, reuse by `inputs_key`), new `lab/{structure,variables,searchspace}.py`; `ui/src/lab/{VariableIntelligence,InfluenceView,InteractionExplorer,ProposalPanel,EvidenceRail,SpaceContextBar}.tsx` | none (new docs `searchspaces/…`) | none | `test_lab_structure.py` (rules 1–4; active never excluded), `test_lab_variables.py` (transitions, reasons, restore, frozen ≠ excluded, stale on hash / data / range / partition, `test_ai_note_never_actor`), `test_lab_searchspace.py` (Cartesian before / after as Decimal; apply keeps strategy hash; reuse counted), `test_lab_grid_beyond_int64_keeps_trial_identity`; existing `test_aegis_surface.py` unchanged for ≤ 10 | 113 structural exclusion shows its proof trail; 114 XOR pair survives into Investigate; 115 restore and explore-any-pair in ≤ 2 interactions, filters kept; 116 budget labels "theoretical" |
+| **0. Decisions and prerequisites** (no code) | Randall reviews A–H and this plan; signs the §22 checklist; Mission 14 merged; brief copied into `docs/superpowers/specs/`; a repo-tracked lint script `tools/lint_aegis.sh` replacing the scratchpad one (Q9), which finds the repository root from its own path so it lints the worktree it lives in, not `C:\Triad` | docs only | none | none | — | — |
+| **1. Lab shell** | `optlab` page, sub-nav, Screen B layout with real regions bound to existing experiment endpoints (report main effects, cells page); dock `Expand Lab`; honest "not built" / "unavailable" states; `state/lab.tsx` store; keyboard model; **Screen H's `WorkflowStrip`** (R7): the six steps Define → Screen → Evaluate → Propose → Approve → Monitor visible from the first build, steps 2–6 disabled with "available after Phase 4" | `ui/src/App.tsx`, `SideNav.tsx`, `state/workspace.tsx` (Page), new `ui/src/lab/*` (`LabPage`, `LabContextBar`, `ParameterCatalog`, `TrialTable`, `IntelligenceRail`, `WorkflowStrip`, `labStore.ts`), `OptimizationTab.tsx`, `styles.css` | none | none | vitest: `labStore` (selection, filter_hash, pins, persistence across sub-views), `trialWindow` (row windowing math), `workflowStrip` (step states) | 103 Lab opens from Expand Lab with axes / metric kept; 104 sub-nav keeps filter and selection; 105 every unavailable control says why; 106 1672 × 941 and 1440 × 900 with no clipped primary control; 126 H's workflow strip shows all six steps with the later ones disabled and explained |
+| **2. Trial store and query layer** | layout 2 (trial_no, positions, param_key, status, `block`, compaction, manifest); `LabCache`; `/lab` summary / query / trials; views counts, matrix (exact + aggregate), page, top, marginals; optimizer source adapter; `engine_build`; dock `n` overlays and mode label; **2b**: `sharpe_trade` per scope beside, not inside, the hash-bearing metrics (§7.12), with `_side_metrics` returning the `ret` view as an added value, and the DSR functions with their reference tests; **2c, the functional vertical slice** (R7): a real 12,000-trial LHS experiment on the §9.1b benchmark strategy, created through the API on the scratch worker, flowing through `LabHeatmap` (exact + aggregate) → `ParallelCoords` (bundle mode, brought forward from Phase 3) → `TrialTable` → shared filters and brushing → pins → linked counts → `ParameterCatalog` → sub-nav B ↔ E ↔ D without losing state; `lab_benchmark.py` with `explore` (Track A) and `execute` (Track B) modes | new `app/products/aegis/lab/{__init__,store,cache,query,sources,policy,identity,sharpe}.py`; `experiments.py` (layout 2 write, compaction, reader, chunk naming fix F16, `data_pinned`, `block`), `api.py` (router include), `runs.py` + `preferences.py` (`AEGIS_DATA_ROOT` override, §9.8), `pool.py` + `backtest.py` (2b: `lab_metrics`, `ret` return value), `results.py` untouched; `ui/src/lab/{LabHeatmap,ParallelCoords}.tsx` (canvas), `Heatmap.tsx` (n overlay, hatch); `ui/src/lab/charts/canvas.ts` (scales, axes, brush, hit grid, hover, DPR) | none (new layout only for new experiments; legacy untouched) | none | `test_lab_store.py` (compaction torn / idempotent; dedupe; legacy read equals today's `cells()`; `test_unreadable_chunk_never_overwritten`; data root override), `test_lab_query.py` (exact slice empty = untested; aggregate n / IQR; `test_lab_undefined_metric_counts`; `test_lab_query_empty_scope`; filter_hash; count invariants), `test_lab_sharpe.py` (§7.12 table), vitest `labHeatmap` (empty, one-axis, losses-red scale), `parallelBundles` (bin math, brush → filter), `test_lab_identity.py` (param_key canonicalization), `tests/products/aegis/lab_benchmark.py`; golden + identity unchanged | 107 exact slice with no match shows untested, no value; 108 aggregate square opens a distribution and cannot be pinned; 109 counts identical across heatmap, table and header; **110 brush updates heatmap, parallel, table and counts coherently on the real 12k experiment; 104 re-run on it (vertical slice, checkpoint R2.5)** |
+| **3. Linked analytics** | screening `blocks = K` on experiments (the pool's `window`; rows carry `block`); importance with the three uncertainties (bootstrap, blocks, permutation floor), incremental shares `Δ`, the coarse triple screen, the residual veto, Cramér's V aliasing (§7.3–7.4); the four robustness categories, `peak` vs `robust` rankings and `CandidateCard` (§7.6); Pareto; exact-mode parallel coordinates; convergence; Screens B tabs and E | `lab/{analytics,robustness,neighbours,pareto,parallel,tasks}.py`; `experiments.py` (`blocks` in the plan and the job's units); `ui/src/lab/{ParetoView,ImportanceView,InteractionMatrix,RobustnessView,CandidateCard,Trellis,NeighbourhoodMap,ConvergenceChart}.tsx`; `ui/src/lab/charts/*` | none | none (§12) | `test_lab_analytics.py` (the nine R1 cases of §20: strong main; XOR; three-way; aliased; uneven sampling; sparse coverage; pure noise; one-block regime; range change; plus refinement rows excluded and interval coverage on a known-variance fixture), `test_lab_robustness.py` (A unresolved on untested surroundings; B never labelled A; isolated peak needs coverage; C from blocks; D from scenarios; rankings disagree → both shown), `test_lab_pareto.py` (2-D / 3-D against brute force); vitest for bundle drawing math, brush → filter mapping, the candidate card's tested / unknown states | 111 spike vs plateau labelled, with the category and its inputs; 112 20-variable fixture: families, search, trellis, maximize, count-preserving drill-down; 124 a candidate card shows four categories with tested / unknown states and the reason for each |
+| **4. Screen H and 20 parameters** | `MAX_PARAMETERS` 10 → 20; identity beyond int64 (positions-based LHS / refine); structural relevance; statuses, events, §7.4a proposals, `Review Before Apply`, apply → child; focus (pair / triple investigation); stale detection incl. range and sampler; budgets: shares summing to 100, the six counts, `PUT /lab/{exp}/budget` (R5); the `WorkflowStrip` wired live | `surface.py` (cap, positions-based sampling), `experiments.py` (focus / child, reuse by `inputs_key`, budget shares), new `lab/{structure,variables,searchspace}.py`; `ui/src/lab/{VariableIntelligence,InfluenceView,InteractionExplorer,ProposalPanel,EvidenceRail,SpaceContextBar,BudgetStrip}.tsx` | none (new docs `searchspaces/…`) | none | `test_lab_structure.py` (rules 1–4; active never excluded), `test_lab_variables.py` (transitions, reasons, restore, frozen ≠ excluded, stale on hash / data / range / partition / sampler, `test_ai_note_never_actor`, `test_insufficient_coverage_is_unresolved`, `test_deprioritize_requires_all_six_conditions`), `test_lab_searchspace.py` (Cartesian before / after as Decimal; apply keeps strategy hash; reuse counted; `test_budget_shares_sum_to_100`; `test_budget_counts_invariant`; `test_reallocation_only_while_paused_keeps_space_version`), `test_lab_grid_beyond_int64_keeps_trial_identity`; existing `test_aegis_surface.py` unchanged for ≤ 10 | 113 structural exclusion shows its proof trail; 114 XOR pair and a three-way triple survive into Investigate; 115 restore and explore-any-pair in ≤ 2 interactions, filters kept; 116 budget labels "theoretical", the six counts reconcile and the shares sum to 100 |
 | **4b. Indicator mission** (its own spec, §11.2; Q3 + Q4) | `HA_MQI`, `EWO`, `ROCKET_RSI` and `REGIME` kinds; a `regime` tag on trades only when a strategy carries REGIME; a built-in reference strategy combining the first three | `kinds.py`, `indicators.py`, `backtest.py` (tag only when present), `contracts.ts`, builder palette, `strategies.py` built-ins | none | none | one golden per kind; `test_aegis_engine_golden.py`, `builder_identity.py` and every saved strategy hash unchanged | palette and one backtest per kind; scenario 2's real ten-variable sweep |
-| **5. Partitions, funnel and Run Monitor** | experiment partitions; `partitions.bars_for`; stage-2 replays with cost scenarios; per-trial failure isolation + retry-failed; `run_log`; Screen D; Screen C (compare three, materialize on demand); unseal (record only, final runs in stage 4) | `experiments.py`, `pool.py` (error isolation), new `lab/{partitions,replays,monitor}.py`; `ui/src/lab/{RunMonitor,FunnelStrip,CountsHeader,WorkerPanel,CandidateCompare,UnsealDialog}.tsx` | none (additive fields) | none | `test_lab_partitions.py` (screening refuses final; warm-up not scored; promotion only explicit; uses counted), `test_lab_replays.py` (cost scenarios; replay hash = materialize hash), `test_lab_failures.py` (failed trial isolated; retry idempotent; reconciliation invariants) | 117 four-stage funnel boundaries; 118 cancellation + resume + retry reconcile counts; 119 A/B/C ids and values identical in table, heatmap, parallel, charts and export |
-| **6. Walk-forward, lineage and forensics** | Screen F on studies + partitions; Screen G lineage (React Flow), saved views, experiment diff, audit trail, provenance verification, trade evidence | `studies.py` (optional `candidates`), new `lab/{lineage,verify,events,views}.py`; `ui/src/lab/{WalkForwardView,FoldMatrix,LineageGraph,AuditTrail,ProvenancePanel,ExperimentDiff}.tsx` | none | none | `test_lab_lineage.py`, `test_lab_verify.py` (hash mismatch quarantines read-only), `test_lab_events.py` (append-only; reconstructed legacy) | 120 parent → child → trial → candidate with hashes and stable filters; 121 fold matrix, window × leg, sealed-OOS explanation |
+| **5. Partitions, funnel, Run Monitor, Compare and the final OOS** | experiment partitions; `partitions.bars_for`; stage-2 replays with cost scenarios; per-trial failure isolation + retry-failed; `run_log`; Screen D (incl. `BudgetStrip`); Screen C (compare three, materialize on demand); **stage 4 complete (R4)**: `lab/final_oos.py` (records, identity checks, `FinalOosJob` as a `JobRunner` kind, persistence as runs, `use_no` and the `independent` / `reused` label, post-unseal lineage marks), `FinalOosPanel` on C and D | `experiments.py`, `pool.py` (error isolation), `jobs.py` (the new kind), new `lab/{partitions,replays,monitor,final_oos}.py`; `ui/src/lab/{RunMonitor,FunnelStrip,CountsHeader,WorkerPanel,CandidateCompare,UnsealDialog,FinalOosPanel}.tsx` | none (additive fields; `.final/` records) | none | `test_lab_partitions.py` (screening refuses final; blocks inside selection only; warm-up not scored; promotion only explicit; uses counted), `test_lab_replays.py` (cost scenarios; replay hash = materialize hash), `test_lab_failures.py` (failed trial isolated; retry idempotent; reconciliation invariants), `test_lab_final_oos.py` (unseal queues the job in the same call; a candidate without a stage-2 base replay is refused; identity fields stored and the rebuilt `strategy_hash` checked; results persisted as runs with `result_hash`; `use_no` increments and the label flips to `reused`; post-unseal lineage marked and proposals blocked; the `.final/` import boundary; a mutation check that an injected `bars_for("final")` without a record fails) | 117 four-stage funnel boundaries; 118 cancellation + resume + retry reconcile counts; 119 A/B/C ids and values identical in table, heatmap, parallel, charts and export; 125 unseal → evaluation → `independent final assessment`; a second unseal → `reused holdout` on C, D, G and in the export |
+| **6. Walk-forward, lineage and forensics** | Screen F on studies + partitions (fold matrix with the sealed bar, final-range equity, the DSR band panel); Screen G lineage (React Flow) with `post-unseal` badges, saved views, experiment diff, audit trail, provenance verification incl. final runs, trade evidence | `studies.py` (optional `candidates`), new `lab/{lineage,verify,events,views}.py`; `ui/src/lab/{WalkForwardView,FoldMatrix,MultipleTestingPanel,LineageGraph,AuditTrail,ProvenancePanel,ExperimentDiff}.tsx` | none | none | `test_lab_lineage.py` (incl. `after_unseal`), `test_lab_verify.py` (hash mismatch quarantines read-only; final runs verified), `test_lab_events.py` (append-only; reconstructed legacy) | 120 parent → child → trial → candidate with hashes and stable filters; 121 fold matrix, window × leg, sealed-OOS explanation and the reuse label |
 | ~~**7. Strategy Gate**~~ | **Dropped (Q1 = not now).** The sketch (a versioned research policy; metrics recomputed from the raw trades of a materialized run; `strategy_hash`, `inputs_key` and data sha checked; a verdict with per-check evidence) stays in §12 for a later decision | — | — | — | — | 122 becomes: validation controls disabled and labelled `not built`; no AI route can write any state |
 | **8. AI explanations (optional, after Mission 14)** | rail "AI explains · gate decides" via Mission 14's Core product-reasoning route; text only; never actor | Aegis caller only if the route fits as-is; **any Core change = shared infrastructure (§12)** | none | none | Aegis tests with a stub route | 123 AI text visibly separate; no state change from AI |
-| **Milestone** | 1M synthetic dataset walk; verify.ps1 on main; independent milestone QA | — | — | — | scenario 11 / 12 timings recorded with the host | full walk |
+| **Milestone** | Track A: the synthetic 1M walk; Track B: the 100,000-trial real-engine run recorded on the host (§9.1c); verify.ps1 on main; independent milestone QA | — | — | — | scenarios 11, 12 and 24 timings recorded with the host | full walk |
 
 ### 11.1 Compatibility rules
 
@@ -1084,9 +1231,16 @@ These come from the §9.1 measurements with about a 3× margin for real data, a 
 Randall's answers to Q3 and Q4 add a separate mission between Phase 4 and Phase 5, brainstormed and specified on its own in the pattern of Missions 5 and 13:
 
 - **Four indicator kinds** in `kinds.py` and `indicators.py`: `HA_MQI`, `EWO`, `ROCKET_RSI` and `REGIME`. Each declares its outputs, pane, inputs, default length, warm-up, parameters and integer parameters exactly as the existing kinds do, so the surface, the grid validity tables, the contracts and the builder pick them up without any Lab change.
-- **Definitions are pinned in that mission's spec, not here.** EWO and RocketRSI have published sources to verify there (EWO: the 5 / 35-period oscillator of median price; RocketRSI: John Ehlers, *Technical Analysis of Stocks & Commodities*, May 2018). HA-MQI is not a published standard that I can verify: Randall supplies its definition. REGIME is deterministic from price alone, with numeric outputs so rules can reference them (trend / range and a volatility tercile are the candidates); its exact definition is that mission's first design question.
+- **Definitions come from Randall's thesis** (*HA-MQI Trading Framework: Working Thesis, Operating Rules, and Indicator Definitions*, `C:\Users\fordr\Documents\HA_MQI_Trading_Framework_Thesis.docx`, received 2026-10-27; Phase 0 copies it beside the brief as `docs/superpowers/specs/2026-10-27-ha-mqi-trading-framework-thesis.md`). The mission's spec pins them exactly; in short:
+  - *Heikin Ashi:* `HA_Close = (O + H + L + C) / 4`, `HA_Open(t) = (HA_Open(t−1) + HA_Close(t−1)) / 2`, `HA_High = max(H, HA_Open, HA_Close)`, `HA_Low = min(L, HA_Open, HA_Close)`; the input series is the body midpoint `S = (HA_Open + HA_Close) / 2`.
+  - *HA-MQI* (`HA_MQI`, outputs `value` and `smooth`): `r(t) = ln(S(t) / S(t−1))`; `MQI(t) = Σ_{i=0}^{N−1} r(t−i) / (σ_r(t, N) · √N)`; `smooth = SMA(MQI, M)`; current settings N = 10, M = 10. The framework enters on `value crosses_above smooth` and hard-exits on `crosses_below`, treating the cross as a state change.
+  - *RocketRSI* (`ROCKET_RSI`, Ehlers): `momentum(t) = Close(t) − Close(t − (L − 1))`; `filter = SuperSmoother(momentum, cutoff)`; `raw = Σ Δfilter / Σ |Δfilter|` over L bars; clamp to ±0.999; `0.5 · ln((1 + raw) / (1 − raw))`; current L = 10, cutoff = 8. The thesis reads it as "below −2 within the last 10 bars", so the kind also exposes a rolling-minimum output (`low_k`, k a parameter) that the existing operators can test.
+  - *Elliott oscillator* (`EWO`): `EMA_fast(Close) − EMA_slow(Close)`, current 5 / 20 (not the classic 5 / 35 of median price). The thesis uses it as a compression / phase filter ("fast and slow close together", and `EWO < 0.5` as a macro reset), so the kind exposes a numeric compression output (the mission defines it, e.g. `|EWO|` relative to ATR) that a rule can reference.
+  - *REGIME* stays the mission's own design question: deterministic from price alone, numeric outputs, trend / range and a volatility tercile as candidates.
+  - Details the thesis leaves open, each settled in the mission with a hand-computed golden: `σ_r` with ddof 0 or 1; the first `HA_Open` seed; the SuperSmoother coefficients; the numeric definition of "compressed".
 - **A `regime` tag on trades** (the REGIME value at entry), written only when the strategy carries a REGIME indicator, in the pattern of Mission 13's `exit_reason`: every existing strategy's trades serialize byte-identically, so no stored hash moves. The Lab's regime × window breakdowns (C, F) read that tag.
-- **A reference strategy** combining HA-MQI, EWO and RocketRSI on both sides with about ten ranged parameters, saved as a built-in document beside `ema9-sma30-cross-v1`, so scenario 2's real ten-variable sweep and Screen H's reading of those three run on real data.
+- **A reference strategy**, the thesis's framework on the **1D** timeframe, saved as a built-in document beside `ema9-sma30-cross-v1`: entry `HA_MQI.value crosses_above HA_MQI.smooth` AND `price.close greater_than ema9` (the one-bar blocker) AND `ROCKET_RSI.low_k less_than −2` AND the EWO compression condition; exit `HA_MQI.value crosses_below HA_MQI.smooth` or the stop; the short side mirrored. Ranged parameters: N, M, RocketRSI length / cutoff / threshold / lookback k, EWO fast / slow / compression, the EMA length and the stop percentage (≈ 11), so scenario 2's real ten-variable sweep and Screen H's reading of those three run on real data.
+- **Outside the indicator mission, flagged for separate decisions:** the thesis's adaptive *Chandelier stop* (an ATR trailing stop armed on RocketRSI decay that only tightens) and its *RocketRSI size modifier* are engine changes (exit kinds and allocation live in `backtest.py` / `kernel.py`), not indicator kinds; the *event calendar* block (earnings ± 2 days, Fed, NFP) needs a feed the product lacks (F4). None of them is in this plan; the reference strategy uses the stop / target levels and the clock windows that exist, and the Lab shows event controls as `feed unavailable`.
 - **Tests:** one golden per kind against a hand-computed fixture; `test_aegis_engine_golden.py`, `builder_identity.py` and every saved strategy hash unchanged; contracts regenerated; walk items for the builder palette and one backtest per kind.
 - **Blast radius:** Aegis-only. Phase 5 may run on its own branch beside it, since they touch different files; the Lab's regime states switch from "not in this strategy" to live once a strategy carries REGIME.
 
@@ -1104,12 +1258,19 @@ Under `AGENTS.md`, no item in Phases 1–6 is shared infrastructure. All of it i
 | Compacting or rewriting existing experiments | retained data | — | explicit operator approval + independent QA |
 | Moving the store to a NAS | storage / provenance infrastructure | Core storage tests if Core is involved | operator decision |
 
+**Charting decision (R7).** Every visualization was weighed against the costs the review named: axis transformations, brushing, hover inspection, keyboard navigation, accessibility, zooming, cross-view synchronization, hit testing and large-dataset aggregation.
+- *Hand-written Canvas 2D* for the five data-heavy views (heatmap, parallel coordinates, Pareto, convergence, sampling histograms), behind one shared primitive module `lab/charts/canvas.ts` (linear / ordinal scales, axes, a 1-D axis brush, a hover hit grid, a keyboard cursor, device-pixel scaling, resize). Aggregation is server-side (§9.3), so hit testing is over ≤ 40,000 squares, ≤ 2,000 bundles or ≤ 2,000 points; zoom is replaced by axis-range filters; cross-view sync is the store (§5). This matches the codebase, where every non-price chart is already hand-written.
+- *Accessibility:* Canvas is opaque to assistive technology, so every chart has a DOM twin (the `page` view and a one-line live-region summary such as "heatmap 16 × 17, best at …"), and the keyboard model of §5.2 operates the store, not the pixels.
+- *SVG* (the existing pattern) for small charts: sparklines, the fold matrix, equity compare, histograms ≤ 200 bars. *DOM* for tables. *React Flow* (installed) for the lineage graph.
+- *Reuse without a new dependency:* `Heatmap.cells()` tones and the losses-red rule; `resample_curve`; `LibraryCompare` parts. `d3-zoom` / `d3-selection` / `d3-interpolate` are only transitive through React Flow and are not imported directly (a transitive import is a hidden dependency).
+- *Decision criteria at R2.5:* the primitives stay if they are ≤ 800 lines, pass walk 106 (keyboard, contrast, no clipping) on the vertical slice and keep every interaction inside the §9.6a UI budget; otherwise the `uplot` review opens before Phase 3. Vela and the workstation shell are not replaced in either case.
+
 **JS dependency candidates.** Not adopted; a review is required before use.
 
 | Candidate | Purpose | Licence | Reason not now |
 |---|---|---|---|
 | `@tanstack/react-virtual` | table virtualization | MIT | a fixed-height window is ~60 lines; adopt only if variable row heights are needed |
-| `uplot` | fast scatter / line | MIT | canvas primitives suffice at the bounded mark counts (§9.3) |
+| `uplot` | fast line / scatter with brushing, hover and zoom on Canvas; no dependencies; ≈ 45 KB | MIT | **the fallback (R7):** adopted through this review only if, at checkpoint R2.5, the hand-written `lab/charts/canvas.ts` primitives exceed 800 lines or fail walk 106's keyboard or contrast checks on the vertical slice |
 | `d3-scale`, `d3-array` | scales, bins | ISC | colour / bin math is small; d3-interpolate is already transitive |
 | Plotly, ECharts, visx | full chart kits | MIT / Apache-2.0 | heavy, a second chart stack beside Vela; the brief forbids adopting Plotly for its references |
 
@@ -1124,7 +1285,8 @@ Under `AGENTS.md`, no item in Phases 1–6 is shared infrastructure. All of it i
 ## 13. Scope exclusions
 
 - **Strategy-structure search:** turning indicators or filters on and off, or changing dependencies. Brief §1: a separately versioned future capability.
-- **Not Lab phases, though decided:** the HA-MQI, EWO, RocketRSI and REGIME indicator kinds are the separate indicator mission after Phase 4 (§11.2, Q3 and Q4), with their own spec, goldens and review.
+- **Not Lab phases, though decided:** the HA-MQI, EWO, RocketRSI and REGIME indicator kinds are the separate indicator mission after Phase 4 (§11.2, Q3 and Q4), with their own spec, goldens and review, defined from Randall's thesis.
+- **Not decided, from the thesis:** the Chandelier stop (a new exit kind), the RocketRSI size modifier (allocation) and the event-calendar block (a feed). Each is an engine or data change with its own review (§11.2).
 - **Excluded trading and data work:**
   - an event / news feed;
   - new data downloads or canonical data promotion.
@@ -1133,6 +1295,7 @@ Under `AGENTS.md`, no item in Phases 1–6 is shared infrastructure. All of it i
   - interpolation or smoothing of untested cells;
   - continuous (step-less) parameters;
   - probability-of-better-region-if-stopped claims.
+- **Not computed:** an annualized time-series Sharpe (Q2 chose per trade; §7.12 labels it `not computed`); interaction estimators above the third order (the residual is a veto, §7.4).
 - **Excluded infrastructure:** multi-machine workers; core-hour accounting beyond this host; signatures on audit records; multi-user authorship.
 - **Live trading, paper trading, broker paths and any deployment eligibility.**
 - **Rewriting existing data:** existing runs, optimizations or experiments; converting legacy experiments to layout 2.
@@ -1149,16 +1312,16 @@ Each one changed UI behaviour or calculation meaning. The answers are the operat
 | Q3 | HA-MQI / EWO / RocketRSI: a separate indicator mission (definitions, goldens) before or after Lab Phase 4? | "add after phase 4.. add each one as an indicator. combine them in a strategy" | §11.2 indicator mission after Phase 4: one kind each, a built-in reference strategy combining them |
 | Q4 | Regimes: define a deterministic regime classifier as its own mission, or keep "not available"? | "make a regimes indicator that can be added if desired" | REGIME indicator kind in §11.2, optional per strategy; "not in this strategy" until then |
 | Q5 | The dock's square was decided as "best of the rest only, no median view" on 2026-10-20. The brief asks min / median / mean / max. Reverse that decision for the dock? | "use your discretion" | Dock keeps best-of-rest, labelled; the Lab offers best / median / mean / worst (§7.2) |
-| Q6 | Approve the initial policy constants: `AGG_MIN_N 8`; TVD 0.25; `IMPORTANCE_ROWS 50k`; bootstrap 200; 90 % intervals; θ_main = θ_int = 0.01; pair coverage 0.5; residual veto 0.3; plateau coverage 0.5; budget split 30 / 48 / 22 + 5 % reserve; stage-2 K = 20; slippage×1.5 pass rule; the §9.6 latency / memory thresholds | "yes" | All in `lab/policy.py`; §9.6 are the scenario 11 pass thresholds; `SHARPE_MIN_TRADES 20` added by Q2 |
+| Q6 | Approve the initial policy constants: `AGG_MIN_N 8`; TVD 0.25; `IMPORTANCE_ROWS 50k`; bootstrap 200; 90 % intervals; θ_main = θ_int = 0.01; pair coverage 0.5; residual veto 0.3; plateau coverage 0.5; budget split 30 / 48 / 22 + 5 % reserve; stage-2 K = 20; slippage×1.5 pass rule; the §9.6 latency / memory thresholds | "yes" | All in `lab/policy.py`; §9.6a are the scenario 11 pass thresholds; `SHARPE_MIN_TRADES 20` added by Q2. **Two corrections after the architecture review need re-approval (§22):** the budget split becomes 30 / 45 / 20 / 5 (the approved 30 / 48 / 22 + 5 summed to 105 %, R5), and the importance-analytics task budget becomes ≤ 90 s (blocks, triples and the permutation null, R1). The constants R1 and R3 add are listed in §22 |
 | Q7 | May Lab analytics run while an experiment job runs (sharing the laptop's CPU), or wait? | "yes" | §9.4: concurrent, one task at a time, yielding between resamples |
 | Q8 | Visual acceptance width: the brief's 1672 × 941, the designs' 1440, or both? | "both" | Walk 106 and every phase's screenshots at 1672 × 941 and 1440 × 900 |
 | Q9 | Commit a repo-tracked Aegis lint script (the current one lives in a past session's scratchpad and lints `C:\Triad`, not the worktree)? | "repo" | Phase 0 commits `tools/lint_aegis.sh` |
 | Q10 | Final OOS default: the last 20 % of the range by time (designs show 20 %), with selection 60 % / validation 20 %? | "good for now" | §10 rule 6: trailing 60 / 20 / 20 by bars, boundaries movable only before the start |
 | Q11 | Storage: the 1M fixture and real 1M experiments need ~0.35 GB each on a 59 GB-free disk. Any cap, or the NAS first? | "disk for now. test data can be deleted" | §9.8: fixture on disk at a scratch root, deleted after the milestone; warn below 10 GB free |
 
-## 15. Acceptance tests: the brief's 22 scenarios
+## 15. Acceptance tests: the brief's 22 scenarios, extended to 30 (R1–R7)
 
-Names are the test functions or walk items the phases add. "Phase" is where each is first green.
+Names are the test functions or walk items the phases add. "Phase" is where each is first green. Rows 1–22 are the brief's scenarios, retained; rows 23–30 come from the architecture review.
 
 | # | Scenario | Proof | Phase |
 |---|---|---|---|
@@ -1166,42 +1329,51 @@ Names are the test functions or walk items the phases add. "Phase" is where each
 | 2 | Ten-variable sweep, sparse 400 and dense 10,000+, repeated axis / filter changes with exact counts | `test_lab_query::test_counts_stable_under_axis_and_filter_churn` (property test, 200 random filter / axis sequences on fixtures of 400 and 12,000 trials, existing kinds); walk 112; after §11.2, the same walk on the real HA-MQI / EWO / RocketRSI reference strategy | 2–3, then 4b |
 | 3 | Exact slice with no matching trials | `test_lab_query::test_exact_slice_empty_is_untested`; walk 107 | 2 |
 | 4 | Aggregated cell, median and distribution, not executable | `test_lab_query::test_aggregate_square_stats`, vitest `labStore.aggregateNotPinnable`; walk 108 | 2 |
-| 5 | Sharp best vs stable cluster | `test_lab_neighbours::test_spike_vs_plateau_ranked_apart`; walk 111 | 3 |
+| 5 | Sharp best vs stable cluster; peak and robust rankings compared | `test_lab_robustness::test_isolated_peak_vs_stable_local`, `test_rankings_shown_side_by_side`; walk 111 | 3 |
 | 6 | Train vs OOS, distinct metrics, no leakage | `test_lab_partitions::test_stage1_reads_selection_only`, `test_objective_never_reads_final` | 5 |
 | 7 | Long / short asymmetric parameters and event windows | `test_lab_query::test_scope_long_short_independent` (asymmetric fixture); `test_lab_query::test_unavailable_windows_not_neutral`; walk 121 | 2, 6 |
 | 8 | A / B / C pins identical everywhere and in export | vitest `labStore.pinsCarryIds`; walk 119 compares ids / values / metric versions across table, heatmap, parallel, charts, export JSON | 5 |
 | 9 | Duplicate / failed / partial trials, unavailable indicator data, broken metrics, cancellation | `test_lab_failures::*`, `test_lab_store::test_lab_compaction_torn_is_idempotent`, `test_lab_query::test_lab_undefined_metric_counts`; walk 118 | 2, 5 |
 | 10 | Validation blocked until the gate; no AI override | Q1 = not now: walk 105 shows `not built` and disabled validation controls; `test_lab_variables::test_ai_note_never_actor` proves no AI text changes any state; walk 122 | 1, 4 |
-| 11 | 1M synthetic: server-side filter / sort / page, density, concurrent progress, memory ceiling, responsiveness, no million-node rendering, cold / warm timings and hardware | `tests/products/aegis/lab_benchmark.py` (records host + timings vs §9.6); milestone walk on `lab_fixture` (DOM rows ≤ 1,500, response bounds, long-task observer ≤ 50 ms) | 2, milestone |
+| 11 | 1M synthetic (Track A): server-side filter / sort / page, density, concurrent progress, memory ceiling, responsiveness, no million-node rendering, cold / warm timings and hardware | `lab_benchmark.py explore` (records host + timings vs §9.6a); milestone walk on `lab_fixture` (DOM rows ≤ 1,500, response bounds, long-task observer ≤ 50 ms) | 2, milestone |
 | 12 | Million-trial status reconciliation, snapshots, resume, cancel, retry idempotency | `test_lab_failures::test_reconciliation_invariants` (fixture with every status), `test_retry_idempotent`; walk 118 | 5 |
-| 13 | Four-stage funnel boundaries; leakage and improper promotion fail | `test_lab_partitions::test_promotion_only_explicit`, `test_final_requires_unseal`, `test_unseal_uses_counted`; walk 117 | 5 |
+| 13 | Four-stage funnel boundaries; leakage and improper promotion fail; the final OOS is one action | `test_lab_partitions::test_promotion_only_explicit`, `test_final_requires_unseal`, `test_unseal_uses_counted`; `test_lab_final_oos::test_unseal_queues_evaluation`; walk 117 | 5 |
 | 14 | 20 mixed variables: families, search, trellis, brushing, linked selection, maximize, count-preserving drill-down | `test_lab_query::test_drilldown_preserves_counts`; walk 112 on the 20-parameter fixture | 3–4 |
 | 15 | Lineage and provenance: parent → child → trial → candidate, hashes, stable filters, trade log | `test_lab_lineage::*`, `test_lab_verify::*`; walk 120 | 6 |
 | 16 | Walk-forward matrix, window × regime, long / short, sealed-OOS explanation, deterministic status | `test_lab_partitions::*` + study tests; walk 121 (regime rows present only when the strategy carries REGIME, §11.2; otherwise "not in this strategy" asserted) | 6 |
-| 17 | Visual QA: readable labels, contrast, keyboard, nothing clipped at 1672 × 941 or narrower | walk 106 (bounding boxes inside viewport; computed contrast ≥ 4.5:1 for status and secondary text; keyboard path through every tab) | 1, each phase |
+| 17 | Visual QA: readable labels, contrast, keyboard, nothing clipped at 1672 × 941 or narrower; compared with the UX Pilot screen | walk 106 (bounding boxes inside viewport; computed contrast ≥ 4.5:1 for status and secondary text; keyboard path through every tab; a side-by-side image against the design export per screen; every panel's empty state exercised; selections synchronized across panels asserted) | 1, each phase |
 | 18 | Structural relevance: inert excluded with evidence; active never excluded by a wrong heuristic | `test_lab_structure::test_rule_{1..4}`, `test_signal_param_not_excluded`, `test_referenced_param_never_excluded` (property over random rule trees); walk 113 | 4 |
-| 19 | Interaction trap (XOR) and conditional triple survive screening | `test_lab_analytics::test_xor_pair_kept_investigate`, `test_conditional_triple_unresolved_not_deprioritized`; walk 114 | 3–4 |
-| 20 | Status transitions, evidence, restore, warnings, counts; excluded ≠ frozen | `test_lab_variables::*`; walk 115 | 4 |
+| 19 | Interaction trap (XOR) and conditional triple survive screening | `test_lab_analytics::test_case_2_xor_pair_investigate`, `test_case_3_three_way_investigate` (incremental shares and the coarse triple screen); walk 114 | 3–4 |
+| 20 | Status transitions, evidence, restore, warnings, counts; excluded ≠ frozen; any valid pair explorable | `test_lab_variables::*`; walk 115 | 4 |
 | 21 | Search-space reduction budget recomputes; reduced space ≠ trials saved | `test_lab_searchspace::test_cartesian_before_after`, `test_labels_theoretical`; walk 116 | 4 |
-| 22 | Scope / time stability: stale on change; final OOS never drives elimination | `test_lab_variables::test_variable_status_stale_on_strategy_hash_change` (+ data / range / partition), `test_lab_partitions::test_screening_refuses_final`, `test_post_unseal_proposal_blocked` | 4–5 |
+| 22 | Scope / time stability: stale on change; final OOS never drives elimination | `test_lab_variables::test_variable_status_stale_on_strategy_hash_change` (+ data / range / partition / sampler), `test_lab_partitions::test_screening_refuses_final`, `test_post_unseal_proposal_blocked` | 4–5 |
+| 23 | **R1: the nine statistical cases** (§20 table): strong first-order; XOR; three-way only; aliased parameters; uneven sampling; sparse coverage; pure noise; one-block regime; range change | `test_lab_analytics::test_case_{1..9}_*`: each a seeded synthetic generator with the expected status and the expected reason string | 3–4 |
+| 24 | **R2: Track B execution benchmark** on the real engine: 10,000 trials at three bar counts and 100,000 at one; the costed ten-parameter strategy on both sides; trials per second, worker memory, chunk writes, compaction, resume reads, concurrent Lab queries; measured vs the cell-bar model | `lab_benchmark.py execute` writes the §9.1b table for the host; pass thresholds §9.6b; the §9.1c triggers re-run it | 2, milestone |
+| 25 | **R1: insufficient coverage is unresolved, never low** | `test_lab_variables::test_insufficient_coverage_is_unresolved` (a sparsely covered parameter cannot be proposed Deprioritized and is listed last with its coverage); walk 114 asserts the "unresolved" chip | 3–4 |
+| 26 | **R3: four robustness categories** on a candidate card with tested / unknown states; B never shown as A; isolated peak needs coverage; stable region preferred when the evidence supports it | `test_lab_robustness::test_sparse_region_never_reported_as_local`, `test_unresolved_when_untested`, `test_four_category_states`; vitest `candidateCard.testedUnknown`; walk 124 | 3 |
+| 27 | **R6: Sharpe and DSR reference cases**; `sharpe_trade` never shown alone; annualized Sharpe labelled not computed | `test_lab_sharpe.py` (the §7.12 table); vitest `candidateTable.sharpeNeverAlone`; walk 121 asserts the labels | 2b, 6 |
+| 28 | **R4: final OOS workflow**: unseal = evaluation; identity and version checks; persistence as runs with hashes; `independent` then `reused holdout`; post-unseal lineage; the `.final/` import boundary | `test_lab_final_oos::*` (§11 Phase 5); walk 125 | 5 |
+| 29 | **R5: budget arithmetic**: shares sum to 100; the six counts reconcile; reallocation only while paused, for unscheduled trials, keeping the search-space version | `test_lab_searchspace::test_budget_shares_sum_to_100`, `test_budget_counts_invariant`, `test_reallocation_only_while_paused_keeps_space_version`; walk 116 | 4 |
+| 30 | **R7: the functional vertical slice** on a real 12,000-trial experiment: heatmap → parallel coordinates → table → shared filters and brushing → pins → linked counts → catalog → navigation without losing state | walk 110 and 104 on the real experiment at the end of Phase 2c; checkpoint R2.5 | 2c |
 
 Gate 3 parity:
-- Lab metrics equal the trusted calculation: `materialize` identity (existing) on a sample of Lab trials per phase.
-- Screenshots are compared to the UX Pilot output (side-by-side images in the walk report).
+- Lab metrics equal the trusted calculation: `materialize` identity (existing) on a sample of Lab trials per phase, and the stage-2 base replay's `result_hash` for every candidate.
+- Screenshots are compared to the UX Pilot output (side-by-side images in the walk report, both widths).
 
 ## 16. Reviewer checkpoints
 
 | # | When | Who | Pass condition |
 |---|---|---|---|
-| R0 | Now | Codex (plan review) | Facts in §1/§3 verified against the repo; no unreviewed migration, engine replacement or gate authority change; open questions complete |
-| R1 | Before any code | Randall | All eight UX views reviewed and aligned with the locked mock; §14 answered; **explicit approval** of this plan (revised as needed) |
-| R2 | End of Phase 1 | Randall (screenshots, walk 103–106) | Shell matches approved designs; honest states; no clipped controls |
-| R3 | End of Phase 2 | builder + Randall; Codex optional | §9.6 budgets met on the benchmark; legacy reads identical; goldens unchanged |
-| R4 | End of Phase 4 | **independent QA recommended** (statistical claims) | Scenarios 18–22 green; statuses never change OOS use |
+| R0 | Now | Codex / MC Architecture Review (plan review) | Facts in §1/§3 verified against the repo; the seven revisions R1–R7 addressed (§18); no unreviewed migration, engine replacement or gate authority change |
+| R1 | Before any code | Randall | All eight UX views reviewed and aligned with the locked mock; the §22 checklist signed, including the two corrected numbers (budget split, Lab task budget) |
+| R2 | End of Phase 1 | Randall (screenshots, walk 103–106, 126) | Shell matches approved designs; honest states; no clipped controls; H's workflow strip shows the whole sequence |
+| **R2.5** | **End of Phase 2c (vertical slice)** | **Randall + builder; Codex optional** | The full interaction loop works on a real 12,000-trial experiment (scenario 30); the canvas primitives met the §12 criteria, or the `uplot` dependency review is opened before Phase 3 |
+| R3 | End of Phase 2 | builder + Randall; Codex optional | §9.6a Track A budgets met on the synthetic benchmark; §9.6b Track B thresholds met at 10,000 trials on the host; legacy reads identical; goldens unchanged; the Sharpe / DSR reference tests green |
+| R4 | End of Phase 4 | **independent QA** (statistical claims) | Scenarios 18–23, 25, 29 green; the nine R1 cases pass with their expected reasons; statuses never change OOS use |
 | R4b | End of the indicator mission (§11.2) | Randall (definitions) + builder; independent QA recommended for HA-MQI, whose definition has no public reference | One golden per kind; every existing golden and saved hash unchanged; the reference strategy backtests on real data |
-| R5 | End of Phase 5 | **independent QA** (leakage boundaries) | Scenario 13 tests fail on an injected leak (mutation check) |
+| R5 | End of Phase 5 | **independent QA** (leakage boundaries, holdout reuse) | Scenario 13 tests fail on an injected leak (mutation check); scenario 28: a second unseal is labelled `reused holdout` on every surface and in exports; scenario 26 D states from replays |
 | R6 | Phase 8, if chosen | **independent QA + Core governance** if Core-touching (§12) | Core tests named in §12 green |
-| R7 | Milestone | independent milestone QA + whole-branch review; `tools\verify.ps1` on main | All 22 scenarios; full walk; budgets recorded with host details |
+| R7 | Milestone | independent milestone QA + whole-branch review; `tools\verify.ps1` on main | All 30 scenarios; full walk at both widths; Track A and Track B numbers recorded with host details; the 100,000-trial real run recorded |
 
 ## 17. The brief's plan-review checklist
 
@@ -1209,10 +1381,120 @@ Gate 3 parity:
 |---|---|
 | All eight views (A–H) reviewed and aligned with the locked screenshot | §2 (all exist, unreviewed); R1 |
 | One-million-trial journeys from job start to validation | §5.4 D → §5.2 B → §5.5 E → §8 H → §10 funnel → §5.3 C → §5.6 F → §5.7 G; gate per Q1 |
-| Measurable latency, memory and throughput criteria | §9.1 measured, §9.6 proposed thresholds |
+| Measurable latency, memory and throughput criteria | §9.1a / §9.1b measured (two tracks); §9.6a / §9.6b thresholds; §9.1c verified vs estimated |
 | Vectorized exploration separated from costed replays and final validation | §10 (noting stage 1 is already costed, F8) |
 | Variable selection evidence-backed, revisable, scope / version aware; any valid pair explorable | §7.3–7.5, §8 |
 | Every UI box tied to a data source and a deterministic test | §5, §15 |
 | No unreviewed migration, engine / chart replacement or Strategy Gate authority change | §11.1, §12, F1 |
+| An early functional vertical slice before every visualization (review R7) | §11 Phase 2c; checkpoint R2.5; scenario 30 |
+
+## 18. Revision summary (Deliverable B)
+
+| Finding | Original approach | Revised approach | Affected phase | Verification |
+|---|---|---|---|---|
+| **R1** Statistical variable intelligence | First-order η², a pairwise interaction residual, a row bootstrap, coverage thresholds; an empirical `Deprioritized` proposal on two conditions; three-way checks on request | §7.3–7.4a: the ANOVA framing; **incremental shares `Δ_{i\|j}`** instead of the interaction residual as the rule input; a **coarse screen over all 1,140 triples**; the residual as a **veto only**; **three uncertainties** (the row bootstrap labelled conditional on this data; `K` screening blocks for period uncertainty; a permutation detection floor for finite samples); Cramér's V aliasing; a minimum of rows per value; **six conditions** for deprioritization, operator-confirmed, reversible, evidence-scoped; insufficient coverage is `unresolved`, never low; evidence never crosses ranges | 3, 4 | `test_lab_analytics` nine cases (scenario 23); `test_insufficient_coverage_is_unresolved` (25); `test_deprioritize_requires_all_six_conditions`; walk 114 |
+| **R2** One-million-trial execution verification | One §9 mixing a synthetic 1M-row query benchmark with a cell-bar throughput formula taken from 252-cell experiments | §9 split into **Track A** (exploration, synthetic rows) and **Track B** (execution, the real engine): 1,000 / 10,000 / 100,000 trials on real QQQ bars at three bar counts, a costed ten-parameter strategy on both sides, with and without concurrent Lab queries; an affine time model; a verified-vs-estimated statement; re-test triggers; the Sharpe overhead measured (≈ 0.2 % of a trial, +46 bytes per row) and kept in stage 1 | 2, milestone | `lab_benchmark.py execute` (scenario 24); §9.6b thresholds; checkpoints R3 and R7 |
+| **R3** Robustness classification | One grid-neighbourhood rule (r, m) with coverage ≥ 0.5, a P25 ranking and a one-off-peak flag | §7.6: **four categories** A local / B sampled-region / C temporal / D execution, each resolved with a classification or unresolved with a reason; B never reported as A; an isolated peak only with coverage; `peak` and `robust` rankings side by side; `CandidateCard` states what was tested and what is unknown | 3, 5 | `test_lab_robustness` (scenario 26); walk 124 |
+| **R4** Final OOS workflow ownership | An unseal record in Phase 5; "final runs in stage 4" with no owner, API, identity or persistence defined | §10.1: **Phase 5 owns stage 4 end to end**; unseal = evaluation in one call (`FinalOosJob`); candidate identity (trial_id, param_key, strategy_hash, spec_version, stage-2 run and hash, engine_build); append-only records under `.final/`; results as runs with `result_hash`; four verification steps; `FinalOosPanel` states; `use_no` with the `independent` / `reused holdout` labels; post-unseal lineage marks; a `.final/` import boundary | 5, 6 | `test_lab_final_oos` (scenario 28) incl. the import-boundary and mutation tests; walk 125 |
+| **R5** Search budget arithmetic | 30 / 48 / 22 plus a 5 % reserve = 105 % | **30 / 45 / 20 / 5 = 100 %**, validated; six counts defined in §6.4 with invariants; reallocation only in a new proposal or on a paused experiment for unscheduled trials, keeping `search_space.version` and bumping `sampler.revision` with an event | 4 | `test_budget_shares_sum_to_100`, `test_budget_counts_invariant`, `test_reallocation_only_while_paused_keeps_space_version` (scenario 29); walk 116 |
+| **R6** Sharpe and DSR validation | Per-trade Sharpe defined; the DSR formula stated; N = unique trials | §7.12: trade vs annualized Sharpe distinguished and labelled (`annualized Sharpe: not computed`); never shown alone; DSR moments, units and undefined cases pinned; both independence assumptions printed with a lag-1 autocorrelation flag; the effective N as a **band over three N's**; Φ⁻¹ checked against an independent bisection; eleven reference cases | 2b, 6 | `test_lab_sharpe.py` (scenario 27); vitest `sharpeNeverAlone` |
+| **R7** UX implementation strategy | Eight screens phased; Canvas charts decided in §12 without criteria; Screen H wired only in Phase 4 | §11 **Phase 2c vertical slice** on a real 12,000-trial experiment with checkpoint R2.5; §12 charting decision with explicit criteria and the `uplot` fallback review; H's `WorkflowStrip` in Phase 1 showing the whole six-step workflow; visual acceptance extended (design comparison per screen, empty states, synchronized selections, both widths) | 1, 2c, 3 | scenario 30; walk 126 and 106 extended; checkpoint R2.5 |
+
+**Preserved capabilities (review §9), where each lives:** exact and aggregated heatmap modes (§7.1–7.2); no interpolation of untested trials (global constraints, §7.1); full-size parallel coordinates (§5.5, §7.9); parameter interaction explorer (§8.3); Pareto analysis (§7.7); robustness landscape (§7.6, §5.5); candidate A/B/C comparison (§5.3); regime and temporal-window investigation (§5.3, §5.6, §11.2); fold-by-fold walk-forward analysis (§5.6); optimization convergence / history (§7.10, §5.4); trade-level investigation (§5.7); provenance and experiment lineage (§5.7, §6.2); Screen H variable intelligence (§8); manual inspection of any valid parameter pair (§7.5, §8.3); reversible variable statuses (§8.4); independent long / short analysis (§6.3, §5.3); tested vs sampled vs estimated labels (global constraints, §7.9); explicit incomplete-data states (§5 conventions, §7.3, §7.6); versioned search spaces (§8.5); preservation of existing experiments and result hashes (§11.1, §7.12). The Strategy Gate stays out of scope (Q1); no Core, broker or paper-trading work is touched.
+
+## 19. Implementation dependency review (Deliverable C)
+
+**Newly required dependencies: none**, Python or JS. The permutation null, blocks, the coarse triple screen, DSR and Acklam's Φ⁻¹ are numpy and `math`. One candidate is held in reserve under the §12 review: `uplot` (MIT), opened only if the R2.5 criteria fail.
+
+**Existing modules that must change (all Aegis-owned):**
+
+| Module | Change | Why | Pinned by |
+|---|---|---|---|
+| `backtest.py` | `_side_metrics` returns the `ret` view (`trades[:n_trades, 9]`) as an added value; Phase 4b's `regime` tag only when present | §7.12 | `test_aegis_engine_golden.py`, `test_aegis_kernel.py`, real-archive identity scripts |
+| `pool.py` | `_run_cell` adds `lab_metrics` per scope; per-trial error isolation (Phase 5) | §7.12, §9.5 | `test_aegis_pool.py`, `test_aegis_experiments.py` |
+| `experiments.py` | layout 2 write / read, chunk naming (F16), `data_pinned`, `engine_build`, `block` units (`blocks = K`), focus / child, reuse by `inputs_key`, budget shares, `run_log` | §6, §7.3, §8.5, §9.2 | legacy-read equality test; existing experiment tests |
+| `surface.py` | `MAX_PARAMETERS` 10 → 20; positions-based LHS / refinement beyond int64; the planner's pricing unchanged | §6.1, §8.6 | `test_aegis_surface.py` unchanged for ≤ 10 |
+| `jobs.py` | a new kind, `FinalOosJob`; the one-unfinished-job rule unchanged (a final evaluation queues behind a running experiment and says so) | §10.1 | `test_aegis_jobs.py` |
+| `api.py`, `runs.py`, `preferences.py` | the `/lab` router; the product-only `AEGIS_DATA_ROOT` override with an unchanged default | §5.10, §9.8 | `test_aegis_api.py`, a data-root override test |
+| `studies.py` | optional `candidates` | §6.5 | `study_identity.py` |
+| UI: `App.tsx`, `SideNav.tsx`, `state/workspace.tsx`, `OptimizationTab.tsx`, `Heatmap.tsx`, `styles.css`, `contracts.ts` (regenerated) | the Lab page, dock labels and overlays | §5 | vitest, `test_aegis_contracts.py`, walk 1–97 unchanged |
+| `tests/products/aegis/browser_workstation.py` | items 103–126 (after Mission 14's 98–102) | §15 | — |
+
+**Compatibility risks:** legacy experiments must read identically through the new reader (tested); `ExperimentDocument` gains optional fields only and `contracts.ts` must regenerate; `FinalOosJob` shares the single runner slot; the `AEGIS_DATA_ROOT` default must equal today's `DATA_ROOT/"data"/"aegis"`; Phase 1 must follow the Mission 14 merge (F12); walk numbering must not collide with Mission 14's uncommitted items.
+
+**Performance risks:** screening blocks multiply a screening experiment's cost by `K + 1` (priced and shown; off by default for non-screening sweeps); the triple screen plus the permutation null add ≈ 30–60 s per snapshot as a Lab task (budget ≤ 90 s, cached, yielding to the job); `LabCache` at 400 MB against ≈ 2.5 GB free; sustained engine throughput is below short-burst throughput on this laptop (§9.1b); concurrent Lab queries cost about a fifth of the engine's throughput (measured, §9.1b); the first chunk of every job carries ≈ 11 s of worker start-up (spawn, JIT, first indicators); the compaction pause at 1M (≤ 10 s, one unit).
+
+**Research-integrity risks and their controls:** trade Sharpe read as comparable across strategies (labels; never alone; frequency printed); a single DSR taken as a verdict (a band over three N's; inputs printed; never pass / fail); bootstrap intervals read as period uncertainty (labelled conditional; blocks added); deprioritization mistaken for exclusion (six conditions; reversible; the research principle printed); holdout reuse shown as fresh validation (`reused holdout` label everywhere; append-only records); research after an unseal (post-unseal badges; proposals blocked); screening evidence applied across ranges or samplers (stale); the optimizer `opt:` source has no partitions (labelled in-sample); legacy experiments lack data hashes (`not recorded`, never `verified`).
+
+**Work that can remain deferred:** the Strategy Gate (Q1); an annualized time-series Sharpe; estimators above the third order; TPE / Bayesian samplers and surrogates; regimes until the indicator mission (4b); an event feed; the NAS move; DuckDB beyond 10M rows; multi-host workers; AI explanations (Phase 8).
+
+## 20. Updated acceptance tests (Deliverable D)
+
+The retained 22 scenarios and the eight new ones are mapped in §15. The deterministic tests the review asked for, by area:
+
+**Statistical (R1), `test_lab_analytics.py`, each on a seeded synthetic experiment of 8–20 parameters, 5,000 uniform rows (plus 4 blocks where stated), with the expected status *and* the expected reason string asserted:**
+
+| Case | Generator | Expected |
+|---|---|---|
+| 1 strong first-order | `Y = 3·x₁ + ε` | `x₁`: `Active · detected`, `S₁` upper ≫ θ_min; the noise parameters are proposable `Deprioritized` (all six conditions hold) |
+| 2 XOR | `Y = 2·[(x₁ > m) XOR (x₂ > m)] + ε` | `S₁`, `S₂` below the floor; `Δ_{1\|2}` upper ≫ θ_min; both `Investigate · interaction not ruled out`; never proposable |
+| 3 three-way only | `Y = 2·parity(x₁ > m, x₂ > m, x₃ > m) + ε` | mains and pairs below the floor; the coarse triple's `Δ` upper > θ_min; all three `Investigate · three-way effect not ruled out` |
+| 4 aliased | `x₂ = x₁ + small jitter` by construction; `Y = 3·x₁ + ε` | Cramér's V > 0.3 → both `aliased · credit shared`; neither proposable |
+| 5 uneven sampling | rows drawn with `P(x₁ = v) ∝ v`; `Y = 3·x₂ + x₁·x₂ + ε` | the (x₁, x₂) squares are flagged `confounded?` (TVD > 0.25); `Δ_{1\|2}` upper > θ_min → `x₁` not proposable |
+| 6 sparse coverage | `x₁` has 40 values, 8 of them present | `Insufficient coverage · unresolved`, listed last with its coverage; proposal impossible |
+| 7 pure noise | `Y = ε`, 20 parameters | every share below the floor; the residual veto is raised; **no proposal is made**; every status `Active · not detected`; the warning "unexplained share high: noise or higher-order structure" |
+| 8 one-block regime | `Y = 3·x₁` in block 2 only, `0` elsewhere, `blocks = 4` | block range `[≈ 0, high]` → `x₁`: `Investigate · period-dependent`; never proposable |
+| 9 range change | `Y = 3·max(0, x₁ − 0.8·range) + ε`; a re-screen on `x₁ ∈ [0, 0.7·range]` | on the wide range `x₁` is detected; on the narrow range its old evidence is `stale`, not reused, and the fresh `S₁` is below the floor; the status is scoped to the range it came from |
+
+Plus `test_refinement_rows_excluded` (adaptive rows change nothing), `test_interval_coverage_known_variance` (90 % interval covers the true share in ≥ 85 of 100 seeds) and `test_permutation_floor_scales_with_bins`.
+
+**Performance (R2):** `lab_benchmark.py explore` (Track A, synthetic 1M rows) and `lab_benchmark.py execute` (Track B, the real engine at 10,000 trials × three bar counts and 100,000 × one), both writing a JSON record with host details, compared with §9.6a / §9.6b by `test_lab_benchmark_record` (a unit test over the record format and the thresholds, not a timing test).
+
+**Robustness (R3), `test_lab_robustness.py`:** untested surroundings → A unresolved with the coverage printed; a sampled-only surface → B resolved, A unresolved, the card never says "local"; an isolated peak needs coverage ≥ 0.5; blocks → C; cost scenarios → D; rankings that disagree are both returned; every classification carries its inputs.
+
+**Final OOS (R4), `test_lab_final_oos.py`:** the unseal call queues `FinalOosJob` in the same transaction; a candidate without a stage-2 base replay is refused; identity fields are stored and a tampered spec fails the `strategy_hash` check; results persist as runs whose `result_hash` verifies; `use_no` increments and the label flips from `independent` to `reused`; post-unseal experiments and proposals are marked and proposals cannot be applied; the `.final/` import boundary (AST scan of `lab/*.py`); the mutation check that `bars_for("final")` without a record raises.
+
+**Budgets (R5), `test_lab_searchspace.py`:** shares sum to 100 or the proposal is refused; the six counts satisfy `scheduled + remaining + reserved = budget_total` on fixtures with reuse, focus and rescreen; reallocation is refused while running and keeps `search_space.version`.
+
+**Sharpe / DSR (R6), `test_lab_sharpe.py`:** the eleven cases of §7.12.
+
+**UX (R7):** scenario 30 (the vertical slice on real data), walk 126 (the workflow strip), walk 106 extended (design comparison, empty states, synchronized selections, both widths).
+
+## 21. Residual risks (Deliverable E)
+
+| Risk | Severity | Mitigation / decision needed |
+|---|---|---|
+| Period uncertainty costs `K + 1` evaluations per screened set; an operator who turns blocks off loses category C and the period range on every share | High | Blocks default on for screening experiments (K = 4) and off for large sweeps; when off, the panel says "period uncertainty: not measured" and C is unresolved. **Decision: confirm the default (§22).** |
+| The effective number of strategies for DSR has no single correct estimate | High | A band over three N's with inputs printed; never a verdict; the DSR panel text says so |
+| Sustained engine throughput on this laptop is well below short-burst throughput (§9.1b), so projections from short benchmarks overstate | High | Projections use the sustained rate from the 100,000-trial run; the Run Monitor shows the measured live rate; hardware is Randall's call (the 2026-10-21 NAS note) |
+| Canvas charts are opaque to assistive technology | Medium | DOM twins and live-region summaries; the keyboard model operates the store; R2.5 criteria; `uplot` fallback does not remove this risk either |
+| `FinalOosJob` shares the single runner slot: a final evaluation waits behind a running experiment | Medium | Shown as `queued behind <experiment>`; evaluations are short (one full run per candidate) |
+| The coarse triple screen (q = 4) can miss fine-grained three-way structure | Medium | The residual veto; `Investigate triple` focus child; the coarsening is printed |
+| Importance analytics at d = 20 take 30–90 s per snapshot while sharing CPU with a job | Medium | Cached per snapshot; one task at a time; yields between resamples; the budget is ≤ 90 s (needs re-approval, §22) |
+| `AEGIS_DATA_ROOT` is new surface area in product code | Medium | Default unchanged and tested; used only by the fixture worker |
+| A lost `FinalOosJob` | Medium | Re-queued once under the same `use_no` only if no result exists; otherwise a new use (§10.1) |
+| HA-MQI, RocketRSI and EWO are defined by Randall's thesis, not by a public reference; `σ_r`'s ddof, the HA seed, the SuperSmoother coefficients and "compressed" are unspecified | Low | The indicator mission pins each with a hand-computed golden (§11.2); Phase 0 copies the thesis into the repo |
+| The thesis's Chandelier stop, size modifier and event calendar are not indicator kinds | Medium | Named as separate decisions (§11.2, §13); the reference strategy runs without them, which the mission's spec states |
+| Legacy experiments cannot be data-verified | Low | `not recorded`, never `verified` |
+| Walk item numbers collide with Mission 14's uncommitted items | Low | Phase 1 after the merge; items start at 103 |
+
+**Decisions not hidden in tasks:** (1) re-approve the corrected budget split 30 / 45 / 20 / 5; (2) re-approve the ≤ 90 s Lab task budget; (3) confirm screening blocks default on (K = 4); (4) accept the `uplot` fallback criteria, or forbid the dependency outright; (5) confirm the final-OOS re-queue rule for an unobserved lost job; (6) the REGIME definition and the four unspecified details of the thesis's indicators are the indicator mission's design questions; (7) the Chandelier stop and the RocketRSI size modifier are engine changes needing their own decision.
+
+## 22. Approval checklist (Deliverable F)
+
+Randall approves, by signing this list, exactly the following and nothing more:
+
+- [ ] **Architecture:** experiments as the Lab's base; an Aegis-owned `lab/` query layer; the eight screens A–H; phases 0, 1, 2 (+2b, +2c), 3, 4, 4b, 5, 6, 8 and the milestone; Phase 7 (Strategy Gate) dropped. Core untouched in every phase.
+- [ ] **R1 statistics (§7.3–7.4a):** empirical evidence can only deprioritize, under six conditions, operator-confirmed and reversible; structural exclusion only with a proof; insufficient coverage is unresolved; blocks default K = 4 for screening; constants `θ_min = 0.01`, permutation floor at the 95th percentile with P = 200, bootstrap B = 200, `IMPORTANCE_MIN_PER_VALUE = 20`, `TRIPLE_TOP = 20`, `RESIDUAL_VETO = 0.3`, aliasing at Cramér's V > 0.3.
+- [ ] **R2 verification (§9):** Track A and Track B kept separate; the §9.6b thresholds; the verified-vs-estimated statement; the re-test triggers; the Sharpe computation stays in stage 1.
+- [ ] **R3 robustness (§7.6):** four categories with resolved / unresolved states; `REGION_RADIUS = 0.15`, `REGION_AXES = 6`, `REGION_MIN_N = 30`, 75 % consistency for C, the 70 % hold rule for D; peak and robust rankings side by side.
+- [ ] **R4 final OOS (§10.1):** Phase 5 owns stage 4; unseal = evaluation in one call; `independent` for `use_no = 1`, `reused holdout` afterwards, everywhere; post-unseal badges; the re-queue rule for an unobserved lost job.
+- [ ] **R5 budgets (§8.5):** 30 / 45 / 20 / 5, replacing the 30 / 48 / 22 + 5 approved under Q6; the six counts and their invariant; reallocation rules.
+- [ ] **R6 Sharpe / DSR (§7.12):** per-trade Sharpe labelled and never alone; `annualized Sharpe: not computed`; the DSR band over three N's; never a verdict.
+- [ ] **R7 UX (§11, §12):** the Phase 2c vertical slice and checkpoint R2.5; Canvas-first with the stated `uplot` criteria; H's workflow strip from Phase 1; acceptance at 1672 × 941 and 1440 × 900 with design comparison.
+- [ ] **Lab task budget:** importance + interactions + triples + null ≤ 90 s as a background task (replacing the 30 s approved under Q6).
+- [ ] **Code boundaries:** no new dependency; `_side_metrics` gains a return value; `pool._run_cell` gains `lab_metrics`; `jobs.py` gains `FinalOosJob`; `AEGIS_DATA_ROOT` with an unchanged default; result hashes, goldens and legacy experiments unchanged.
+- [ ] **Unchanged:** Exchange CLOSED, live trading disabled, no Strategy Gate, no broker or paper-trade path, no Core change; Mission 14 merges before Phase 1; the indicator mission (4b) is specified separately from Randall's thesis (§11.2); the thesis's Chandelier stop, size modifier and event calendar are not in this plan.
+- [ ] **Nothing is implemented until this list is signed.**
 
 PLAN REVIEW REQUIRED — DO NOT IMPLEMENT UNTIL RANDALL APPROVES.
