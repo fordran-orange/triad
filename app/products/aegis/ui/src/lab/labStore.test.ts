@@ -376,6 +376,20 @@ describe('canonicalFilter and filterHash', () => {
     expect(filterHash(one)).toBe(filterHash(two));
   });
 
+  it('a reversed range pair hashes as the ordered pair (filters built directly, not through the reducer)', () => {
+    const reversed = filter({ ranges: { a: [2, 1] } });
+    const ordered = filter({ ranges: { a: [1, 2] } });
+    expect(canonicalFilter(reversed)).toBe(canonicalFilter(ordered));
+    expect(filterHash(reversed)).toBe(filterHash(ordered));
+  });
+
+  it('fixed values hash the same whatever order their keys were set in (filters built directly)', () => {
+    const one = filter({ values: { b: 1, a: 2 } });
+    const two = filter({ values: { a: 2, b: 1 } });
+    expect(canonicalFilter(one)).toBe(canonicalFilter(two));
+    expect(filterHash(one)).toBe(filterHash(two));
+  });
+
   it('filterHash differs once a bound changes', () => {
     const one = filter({ ranges: { a: [1, 2], b: [3, 4] } });
     const two = filter({ ranges: { a: [1, 2], b: [3, 5] } });
