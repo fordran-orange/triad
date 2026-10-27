@@ -162,6 +162,13 @@ export function OptimizationJobView({
     }
   };
   const pctDone = job.progress.total ? (100 * job.progress.done) / job.progress.total : 0;
+  // Expand Lab: the Optimization Lab page opens on this job, on the pair and metric the dock shows.
+  const expandLab = () =>
+    dispatch({
+      type: 'SET_PAGE',
+      page: 'optlab',
+      focus: { lab: { source: 'opt:' + job.job_id, axes: choices.length >= 3 ? axes : [job.fast_path, job.slow_path], metric } },
+    });
 
   return (
     <>
@@ -177,6 +184,11 @@ export function OptimizationJobView({
         {live && !library && (
           <button type="button" className="btn" id="cancel-optimization" onClick={cancel}>
             Cancel
+          </button>
+        )}
+        {!library && (
+          <button type="button" className="btn" id={`expand-lab-${side}`} onClick={expandLab} title="Open this job in the Optimization Lab">
+            Expand Lab
           </button>
         )}
         {choices.length >= 3 && (
@@ -221,37 +233,45 @@ export function OptimizationJobView({
       {job.status === 'lost' && <div className="notice warn">This job was still running when the worker restarted; its partial cells are what was saved.</div>}
       {cancelError && <div className="error">{cancelError}</div>}
       <div className="result-body opt">
-        {tooMany ? (
-          <div className="heatmap">
-            <div className="notice" id={`matrix-too-large-${side}`}>
-              {tooMany}
+        <div className="dock-matrix">
+          {tooMany ? (
+            <div className="heatmap">
+              <div className="notice" id={`matrix-too-large-${side}`}>
+                {tooMany}
+              </div>
             </div>
+          ) : (
+          <Heatmap
+            title={`${side.toUpperCase()} heatmap`}
+            metric={METRIC_LABELS[metric]}
+            fast={view.fast}
+            slow={view.slow}
+            matrix={view.matrix}
+            format={FORMAT[metric]}
+            profit={profitKind(metric)}
+            detail={(fast, slow) => {
+              const { cell, count } = view.cellAt(fast, slow);
+              if (!cell) return null;
+              const m = cell.metrics;
+              const line = `Net P&L ${money(m.net_pnl)} · MAR ${num(m.mar, 2)} · Max DD ${pct(m.max_drawdown)} · Trades ${num(m.trade_count, 0)}`;
+              return custom ? `${line} · ${squareTitle(count, cell, [view.rowPath, view.colPath], (p) => describeParams(p, planned))}` : line;
+            }}
+            rowLabel={label(view.rowPath) + '↓'}
+            colLabel={label(view.colPath) + '→'}
+            selected={selectedCell && selectedCell.fast !== undefined && selectedCell.slow !== undefined ? selectedCell : null}
+            onSelect={(fast, slow) => {
+              void pickSquare(fast, slow);
+            }}
+            empty="No two-axis grid for this job."
+          />
+          )}
+          <div className="sub" id={`dock-basis-${side}`}>
+            Aggregated: best of the rest · empty = untested
           </div>
-        ) : (
-        <Heatmap
-          title={`${side.toUpperCase()} heatmap`}
-          metric={METRIC_LABELS[metric]}
-          fast={view.fast}
-          slow={view.slow}
-          matrix={view.matrix}
-          format={FORMAT[metric]}
-          profit={profitKind(metric)}
-          detail={(fast, slow) => {
-            const { cell, count } = view.cellAt(fast, slow);
-            if (!cell) return null;
-            const m = cell.metrics;
-            const line = `Net P&L ${money(m.net_pnl)} · MAR ${num(m.mar, 2)} · Max DD ${pct(m.max_drawdown)} · Trades ${num(m.trade_count, 0)}`;
-            return custom ? `${line} · ${squareTitle(count, cell, [view.rowPath, view.colPath], (p) => describeParams(p, planned))}` : line;
-          }}
-          rowLabel={label(view.rowPath) + '↓'}
-          colLabel={label(view.colPath) + '→'}
-          selected={selectedCell && selectedCell.fast !== undefined && selectedCell.slow !== undefined ? selectedCell : null}
-          onSelect={(fast, slow) => {
-            void pickSquare(fast, slow);
-          }}
-          empty="No two-axis grid for this job."
-        />
-        )}
+          <div className="sub" id={`dock-validation-${side}`}>
+            Validation: no partition (grid job) · Strategy Gate: not built
+          </div>
+        </div>
         <div className="results-table">
           <div className="panel-title">
             Parameter sets <span className="small">{done.toLocaleString()} evaluated · best first by {METRIC_LABELS[job.objective]}</span>
