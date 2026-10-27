@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StrategySide, StrategySpec } from '../contracts';
 import { applyReading, type Reading } from './apply';
-import { readingLines } from './reading';
+import { readerSelection, readingLines } from './reading';
 
 const side = {
   direction: 'long',
@@ -36,6 +36,9 @@ describe('readingLines (Mission 14)', () => {
     expect(readingLines({ ...aiReading, provenance: { ...aiReading.provenance, provider: 'openai', model: 'gpt-6-astra' } }).readBy).toBe(
       'Read by Codex · gpt-6-astra · 900+60 tokens',
     );
+    expect(readingLines({ ...aiReading, provenance: { ...aiReading.provenance, provider: 'xai', model: 'grok-4.7' } }).readBy).toBe(
+      'Read by Grok · grok-4.7 · 900+60 tokens',
+    );
   });
 
   it('shows what could not be expressed, and Apply applies only what was read (Review Focus 5)', () => {
@@ -44,5 +47,31 @@ describe('readingLines (Mission 14)', () => {
     const strategy = { long_side: { ...side, stop_loss_pct: undefined }, short_side: side } as unknown as StrategySpec;
     const applied = applyReading(strategy, partial);
     expect(applied.strategy.long_side.stop_loss_pct).toBe(2); // the read side as given, nothing invented
+  });
+});
+
+describe('readerSelection (operator, 2026-10-27: each provider only while Core can route to it)', () => {
+  const choices = (available: string[]) =>
+    (['CLAUDE', 'CODEX', 'GROK'] as const).map((id) => ({ id, name: id[0] + id.slice(1).toLowerCase(), available: available.includes(id) }));
+
+  it('offers only the providers Core can route now, Grok among them when it can', () => {
+    expect(readerSelection(choices(['CLAUDE', 'GROK']), 'CLAUDE').options.map((c) => c.id)).toEqual(['CLAUDE', 'GROK']);
+    expect(readerSelection(choices(['CLAUDE', 'CODEX']), 'CLAUDE').options.map((c) => c.id)).toEqual(['CLAUDE', 'CODEX']);
+  });
+
+  it('keeps the remembered provider when it is offered', () => {
+    expect(readerSelection(choices(['CLAUDE', 'CODEX', 'GROK']), 'GROK').selected).toBe('GROK');
+  });
+
+  it('shows the first one offered when the remembered provider is not', () => {
+    expect(readerSelection(choices(['CODEX', 'GROK']), 'CLAUDE').selected).toBe('CODEX');
+  });
+
+  it('offers none and selects none when Core can route to none', () => {
+    expect(readerSelection(choices([]), 'CLAUDE')).toEqual({ options: [], selected: null });
+  });
+
+  it('offers none while the list has not arrived', () => {
+    expect(readerSelection(null, 'CODEX')).toEqual({ options: [], selected: null });
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { api, ApiError, errorMessage, type ReaderProvider } from '../../api/client';
+import { api, ApiError, errorMessage, type ReaderChoice, type ReaderProvider } from '../../api/client';
 import { applyReading, type Reading } from '../../builder/apply';
-import { providerName, readingLines } from '../../builder/reading';
+import { providerName, readerSelection, readingLines } from '../../builder/reading';
 import { SIDE_KEY, useDispatch, useWorkspace, type Side } from '../../state/workspace';
 import type { Snapshot } from './BuilderPage';
 import { LearnedPhrases } from './LearnedPhrases';
@@ -20,7 +20,6 @@ interface AiRefusal {
 }
 
 const EXAMPLE = 'buy when 9 ema crosses 30 sma and price is above 200 sma';
-const PROVIDERS: ReaderProvider[] = ['CLAUDE', 'CODEX'];
 const THINKING_AFTER_MS = 400; // the phrase reader answers well within this; only an AI reading waits longer
 
 /** The text with the words the reader could not read underlined. */
@@ -49,16 +48,34 @@ export function PhraseBar({ push, readOnly }: { push: (side: Side, snapshot: Sna
   const [busy, setBusy] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [provider, setProvider] = useState<ReaderProvider>('CLAUDE');
+  const [choices, setChoices] = useState<ReaderChoice[] | null>(null);
+  const [unavailable, setUnavailable] = useState<string | null>(null);
   const [learned, setLearned] = useState<string | null>(null);
   const [learnedVersion, setLearnedVersion] = useState(0);
   const abort = useRef<AbortController | null>(null);
+
+  // Each provider is offered only while Core can route a reading to it (operator, 2026-10-27).
+  const loadChoices = () =>
+    api
+      .readerProviders()
+      .then((r) => {
+        setChoices(r.providers);
+        setUnavailable(r.message);
+      })
+      .catch((e: unknown) => {
+        setChoices([]);
+        setUnavailable(errorMessage(e));
+      });
 
   useEffect(() => {
     api
       .preferences()
       .then((p) => p.reader_provider && setProvider(p.reader_provider))
       .catch(() => undefined);
+    void loadChoices();
   }, []);
+
+  const { options, selected } = readerSelection(choices, provider);
 
   const choose = (next: ReaderProvider) => {
     setProvider(next);
@@ -76,7 +93,7 @@ export function PhraseBar({ push, readOnly }: { push: (side: Side, snapshot: Sna
     setLearned(null);
     const timer = window.setTimeout(() => setThinking(true), THINKING_AFTER_MS);
     try {
-      setReading({ text, value: await api.readText(text, strategy, provider, controller.signal) });
+      setReading({ text, value: await api.readText(text, strategy, selected ?? undefined, controller.signal) });
     } catch (e) {
       if (controller.signal.aborted) return; // cancelled: the text stays, nothing is shown
       const raw = e instanceof ApiError ? (e.raw as { message?: string; unread?: Unread[]; ai?: AiRefusal } | null) : null;
@@ -118,7 +135,7 @@ export function PhraseBar({ push, readOnly }: { push: (side: Side, snapshot: Sna
   };
 
   const lines = reading ? readingLines(reading.value) : null;
-  const name = providerName(provider);
+  const name = providerName(selected ?? provider);
 
   return (
     <div className="phrase-bar">
@@ -135,13 +152,32 @@ export function PhraseBar({ push, readOnly }: { push: (side: Side, snapshot: Sna
         />
         <label className="phrase-provider" title="Who reads a sentence the phrase reader cannot (through Core)">
           AI
-          <select id="reader-provider" className="control" value={provider} onChange={(e) => choose(e.target.value as ReaderProvider)}>
-            {PROVIDERS.map((p) => (
-              <option key={p} value={p}>
-                {providerName(p)}
-              </option>
-            ))}
-          </select>
+          {selected ? (
+            <select
+              id="reader-provider"
+              className="control"
+              value={selected}
+              onFocus={() => void loadChoices()}
+              onChange={(e) => choose(e.target.value as ReaderProvider)}
+            >
+              {options.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            choices && (
+              <>
+                <span className="muted" id="reader-provider-none" title={unavailable ?? 'Core can route a reading to no provider now'}>
+                  none available
+                </span>
+                <button type="button" className="btn" id="reader-provider-recheck" onClick={() => void loadChoices()}>
+                  Recheck
+                </button>
+              </>
+            )
+          )}
         </label>
         <LearnedPhrases version={learnedVersion} />
       </form>
