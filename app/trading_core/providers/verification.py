@@ -10,6 +10,10 @@ from trading_core.runtime import ProviderError
 from trading_core.support import support
 from trading_core.work import ComputeBudget, State, WorkItem, now, uid
 
+# grok-4.7 answers even the transport check with up to ~1,335 output tokens (reasoning
+# included); 1,024 stopped those runs, so the check allows about three times that.
+OUTPUT_TOKENS = 4096
+
 
 def verify(control, transport_id, acceptance=False, *, expected_epoch=None):
     adapter = control.transport(transport_id)
@@ -111,7 +115,7 @@ def verify(control, transport_id, acceptance=False, *, expected_epoch=None):
                         else ("docs",),
                         execution_permissions=("read",),
                         authority_tier=0,
-                        compute_budget=ComputeBudget(max_output_tokens=1024),
+                        compute_budget=ComputeBudget(max_output_tokens=OUTPUT_TOKENS),
                         reasoning_budget=1024,
                     )
                 )
@@ -129,7 +133,7 @@ def verify(control, transport_id, acceptance=False, *, expected_epoch=None):
                     allowed_paths=work.allowed_paths,
                     execution_permissions=("read",),
                     reasoning_budget=1024,
-                    token_budget=1024,
+                    token_budget=OUTPUT_TOKENS,
                     policy_decision=policy.model_dump(mode="json"),
                     required_output_schema=AgentRunResult.model_json_schema(),
                     control_epoch=ledger.get("authority-" + work.work_item_id)["epoch"],
