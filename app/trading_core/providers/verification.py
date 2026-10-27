@@ -10,8 +10,8 @@ from trading_core.runtime import ProviderError
 from trading_core.support import support
 from trading_core.work import ComputeBudget, State, WorkItem, now, uid
 
-# grok-4.7 answers even the transport check with up to ~1,335 output tokens (reasoning
-# included); 1,024 stopped those runs, so the check allows about three times that.
+# grok-4.7 answers even the transport check with 1,028-1,937 output tokens (reasoning included;
+# Claude's largest was 2,923); 1,024 stopped those runs, so the check allows 4,096.
 OUTPUT_TOKENS = 4096
 
 

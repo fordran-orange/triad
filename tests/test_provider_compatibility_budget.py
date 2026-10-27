@@ -1,8 +1,10 @@
 """The compatibility test must leave room for a verbose model's whole structured answer.
 
-grok-4.7 answers the transport check with 1,045-1,335 output tokens (reasoning included).
-A 1,024-token allocation stopped those runs (ResourceExtensionBlocked) and kept Grok
-unroutable; the fixture drives the real verify(), runtime and resource policy.
+grok-4.7 answered the transport check with 1,028-1,937 output tokens (reasoning included) in 92
+blocked runs: a 1,024-token allocation stopped them (ResourceExtensionBlocked) and kept Grok
+unroutable. The fixture drives the real verify(), runtime and resource policy. The "test" case is
+the failure seen live; the real WorkItem reads README.md, which counts as progress and earns an
+extension, so its "workitem" case only guards that the budget alone admits the answer.
 """
 
 # ruff: noqa: F811
@@ -14,7 +16,7 @@ from trading_core.providers.verification import verify
 
 pytestmark = [pytest.mark.integration, pytest.mark.core]
 
-LARGEST_OBSERVED_GROK_ANSWER = 1335
+LARGEST_OBSERVED_GROK_ANSWER = 1937
 
 
 class GrokFixture:
