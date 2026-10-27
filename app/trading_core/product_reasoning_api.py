@@ -53,6 +53,12 @@ OWNER = Depends(require_product_key)
 REASONER = Depends(reasoner)
 
 
+@router.get("/api/core/products/{product}/reasoning/providers")
+def product_reasoning_providers(owner: str = OWNER, service=REASONER):
+    """Which providers Core would route the product's reading to now; nothing is recorded."""
+    return {"providers": service.providers(owner)}
+
+
 @router.post("/api/core/products/{product}/reasoning")
 def product_reasoning(request: ReasoningRequest, owner: str = OWNER, service=REASONER):
     try:

@@ -196,3 +196,13 @@ def test_context_above_initial_allocation_can_reach_governed_dispatch(engine):
     assert assigned.assigned_agent == "CODEX"
     with pytest.raises(ValueError):
         requirements(context_chars=1000001)
+
+
+def test_evaluate_lists_the_candidates_and_records_nothing(engine):
+    router, _ = setup_routing(engine)
+    task = work()
+    candidates = {c["agent_id"]: c for c in router.evaluate(task, requirements())}
+    assert candidates["CODEX"]["eligible"] and candidates["CLAUDE"]["eligible"]
+    assert "Agent cannot independently review" in candidates["LOCAL_QWEN"]["exclusions"]
+    with pytest.raises(KeyError):
+        router.records.get("route-" + task.work_item_id)

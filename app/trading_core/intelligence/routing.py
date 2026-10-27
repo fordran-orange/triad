@@ -211,6 +211,12 @@ class Routing:
             ),
         }
 
+    def evaluate(self, work: WorkItem, requirements: Requirements):
+        """Every configured agent as a candidate for this work, with its exclusions; nothing is
+        recorded."""
+        versions = Capabilities(self.records).current()
+        return [self._candidate(a, work, requirements, versions) for a in self.agents.list()]
+
     def create(self, work: WorkItem, requirements: Requirements):
         require_owner(self.store.scope, work.owner)
         if work.status != "CREATED" or work.assigned_agent is not None:
@@ -218,8 +224,7 @@ class Routing:
         if requirements.role == "REVIEW" and work.work_type != "review":
             raise ValueError("Separate review assignments must use the review work type")
         self.host.ledger.guard()
-        versions = Capabilities(self.records).current()
-        candidates = [self._candidate(a, work, requirements, versions) for a in self.agents.list()]
+        candidates = self.evaluate(work, requirements)
         eligible = sorted((c for c in candidates if c["eligible"]), key=lambda c: c["score"])
         if not eligible:
             self.host.append(

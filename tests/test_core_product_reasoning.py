@@ -209,3 +209,36 @@ def test_check_shape():
         {"n": 1.5, "flag": True},
         {"type": "object", "properties": {"n": {"type": "number"}, "flag": {"type": "boolean"}}},
     )
+
+
+@pytest.mark.integration
+def test_providers_say_what_routing_would_assign_a_reading_now(engine, monkeypatch):  # noqa: F811
+    from test_intelligence_routing import setup_routing
+
+    router, _ = setup_routing(engine)
+    proven = router.control.snapshot
+    router.control.snapshot = lambda transport: {
+        **proven(transport),
+        "workitem": {"actual_model": "fixture-model", "success": transport != "grok_build_cli"},
+    }
+    seen, evaluate = [], router.evaluate
+
+    def spy(work, requirements):
+        seen.append((work, requirements))
+        return evaluate(work, requirements)
+
+    router.evaluate = spy
+    monkeypatch.setattr(module, "Routing", lambda _: router)
+    found = module.ProductReasoning(Records(engine.host.store)).providers("aegis")
+    assert found == [
+        {"provider": "CLAUDE", "available": True},
+        {"provider": "CODEX", "available": True},
+        {"provider": "GROK", "available": False},
+    ]
+    ((work, need),) = seen  # a reading's own work item and requirements, nothing recorded
+    assert work.owner == "aegis" and work.work_type == "review"
+    assert work.allowed_tools == () and work.execution_permissions == ("read",)
+    assert need.role == "REVIEW" and need.capabilities == ("structured_output",)
+    assert need.billing_sources == ("SUBSCRIPTION",)
+    with pytest.raises(KeyError):
+        engine.host.store.get(work.work_item_id)

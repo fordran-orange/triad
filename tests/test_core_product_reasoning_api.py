@@ -30,6 +30,10 @@ class FakeReasoner:
         self.calls = []
         self.outcome = outcome
 
+    def providers(self, product):
+        self.calls.append((product, "providers"))
+        return [{"provider": "CLAUDE", "available": True}, {"provider": "GROK", "available": False}]
+
     def reason(self, product, request):
         self.calls.append((product, request))
         if isinstance(self.outcome, Exception):
@@ -134,3 +138,23 @@ def test_reasoning_failures_keep_their_status(client, reason, status):
     answer = c.post(PATH, json=BODY, headers=bearer(KEY))
     assert answer.status_code == status
     assert answer.json()["detail"] == {"reason": reason, "message": "what happened"}
+
+
+def test_the_providers_need_the_product_key(client):
+    c, _, reasoner = client
+    assert c.get(PATH + "/providers").status_code == 401
+    assert c.get(PATH + "/providers", headers=bearer("x" * 48)).status_code == 401
+    assert reasoner.calls == []
+
+
+def test_the_providers_are_what_core_would_route_now(client):
+    c, _, reasoner = client
+    answer = c.get(PATH + "/providers", headers=bearer(KEY))
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == {
+        "providers": [
+            {"provider": "CLAUDE", "available": True},
+            {"provider": "GROK", "available": False},
+        ]
+    }
+    assert reasoner.calls == [("aegis", "providers")]

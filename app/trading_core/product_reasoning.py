@@ -10,7 +10,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from contextlib import ExitStack
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import Field, field_validator
 
@@ -31,10 +31,46 @@ OBJECTIVE = (
 )
 # A run keeps its lease until it ends, even after its caller stopped waiting.
 _RUNS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="product-reasoning")
+Provider = Literal["CLAUDE", "CODEX", "GROK"]
+PROVIDERS = get_args(Provider)
+
+
+def _work(product: str, provider: str | None) -> WorkItem:
+    """A product reading's work item: read-only, owned by the product, no tools or paths."""
+    return WorkItem(
+        owner=product,
+        mission_id="product-reasoning-" + product,
+        title="Product reading: " + (provider or "any provider"),
+        description="Read the product's text into its JSON shape. No execution authority.",
+        work_type="review",
+        authority_tier=0,
+        allowed_tools=(),
+        allowed_paths=(),
+        execution_permissions=("read",),
+        review_required=False,
+        reasoning_budget=8192,
+        compute_budget=ComputeBudget(),
+        acceptance_criteria=(
+            "Answer only with JSON of the product's shape",
+            "Never execute or claim actions",
+        ),
+        expected_outputs=("JSON answer",),
+    )
+
+
+def _requirements(provider: str | None, context_chars: int) -> Requirements:
+    return Requirements(
+        role="REVIEW",
+        capabilities=("structured_output",),
+        preferred_agent=provider,
+        billing_sources=("SUBSCRIPTION",),
+        context_chars=context_chars,
+        reason="Product selected the provider; no silent substitution",
+    )
 
 
 class ReasoningRequest(Record):
-    provider: Literal["CODEX", "CLAUDE", "GROK"]
+    provider: Provider
     instructions: str = Field(min_length=1, max_length=20_000)
     input: str = Field(min_length=1, max_length=2_000)
     output_schema: dict
@@ -89,6 +125,15 @@ class ProductReasoning:
     def __init__(self, records):
         self.records = records
 
+    def providers(self, product: str) -> list[dict]:
+        """Which providers Core would route this product's reading to right now: the reading's
+        own work item and requirements, evaluated without recording anything. Eligibility does
+        not depend on the preferred agent (it only orders the eligible), so one evaluation
+        answers for every provider."""
+        candidates = Routing(self.records).evaluate(_work(product, None), _requirements(None, 0))
+        eligible = {c["agent_id"] for c in candidates if c["eligible"]}
+        return [{"provider": p, "available": p in eligible} for p in PROVIDERS]
+
     def reason(self, product: str, request: ReasoningRequest) -> dict:
         future = _RUNS.submit(self._run, product, request)
         try:
@@ -115,33 +160,8 @@ class ProductReasoning:
             }
             try:
                 work = Routing(self.records).create(
-                    WorkItem(
-                        owner=product,
-                        mission_id="product-reasoning-" + product,
-                        title="Product reading: " + request.provider,
-                        description="Read the product's text into its JSON shape. No execution authority.",
-                        work_type="review",
-                        authority_tier=0,
-                        allowed_tools=(),
-                        allowed_paths=(),
-                        execution_permissions=("read",),
-                        review_required=False,
-                        reasoning_budget=8192,
-                        compute_budget=ComputeBudget(),
-                        acceptance_criteria=(
-                            "Answer only with JSON of the product's shape",
-                            "Never execute or claim actions",
-                        ),
-                        expected_outputs=("JSON answer",),
-                    ),
-                    Requirements(
-                        role="REVIEW",
-                        capabilities=("structured_output",),
-                        preferred_agent=request.provider,
-                        billing_sources=("SUBSCRIPTION",),
-                        context_chars=len(json.dumps(context)),
-                        reason="Product selected the provider; no silent substitution",
-                    ),
+                    _work(product, request.provider),
+                    _requirements(request.provider, len(json.dumps(context))),
                 )
             except PermissionError as exc:
                 raise ReasoningFailed("provider_failed", 502, str(exc)) from exc
