@@ -208,6 +208,15 @@ export function filterHash(filter: LabFilter): string {
   return hash.toString(16).padStart(8, '0');
 }
 
+/** The index of the cell whose parameters are exactly `wanted` (the same keys, the same numbers), or -1. The dock's
+ *  Expand Lab hands over its selected configuration this way; the Lab selects the job's matching trial. */
+export function cellIndex(cells: ReadonlyArray<{ params: Record<string, number | null> }>, wanted: Record<string, number>): number {
+  const keys = Object.keys(wanted);
+  return cells.findIndex(
+    (cell) => Object.keys(cell.params).length === keys.length && keys.every((key) => key in cell.params && cell.params[key] === wanted[key]),
+  );
+}
+
 /** How many constraints the filter holds: ranges, fixed values, a side scope, pass and status chips. */
 export function activeFilterCount(filter: LabFilter): number {
   return Object.keys(filter.ranges).length + Object.keys(filter.values).length + (filter.scope !== 'combined' ? 1 : 0) + filter.pass.length + filter.status.length;

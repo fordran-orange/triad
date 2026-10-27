@@ -4,7 +4,7 @@ import { IntelligenceRail } from './IntelligenceRail';
 import { LabCenter, type LabTab } from './LabCenter';
 import { LabContextBar } from './LabContextBar';
 import { LabKpiStrip } from './LabKpiStrip';
-import { LabProvider, useLab, useLabDispatch } from './labState';
+import { useLab, useLabDispatch } from './labState';
 import { sourceText, type LabView } from './labStore';
 import { LabSubNav } from './LabSubNav';
 import { NotBuilt } from './NotBuilt';
@@ -25,7 +25,10 @@ const PLACEHOLDERS: Record<Exclude<LabView, 'trials' | 'variables'>, { what: str
 
 const METRIC_ORDER: TrialSort = { column: null, descending: true };
 
-function LabPage() {
+/** The Optimization Lab page (plan §5.2, Screen B, with Screen H's workflow strip): one store for every view. The
+ *  store's `LabProvider` sits above the app's page switch, so a trip to another page and back keeps the source, the
+ *  filter, the selection and the pins. */
+export function OptLabPage() {
   const lab = useLab();
   const dispatch = useLabDispatch();
   const data = useLabSource();
@@ -83,14 +86,5 @@ function LabPage() {
       </div>
       <IntelligenceRail data={data} onRefined={refined} />
     </div>
-  );
-}
-
-/** The Optimization Lab page (plan §5.2, Screen B, with Screen H's workflow strip): one store for every view. */
-export function OptLabPage() {
-  return (
-    <LabProvider>
-      <LabPage />
-    </LabProvider>
   );
 }

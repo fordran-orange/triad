@@ -162,12 +162,13 @@ export function OptimizationJobView({
     }
   };
   const pctDone = job.progress.total ? (100 * job.progress.done) / job.progress.total : 0;
-  // Expand Lab: the Optimization Lab page opens on this job, on the pair and metric the dock shows.
+  // Expand Lab: the Optimization Lab page opens on this job, on the pair and metric the dock shows,
+  // with the side's selected configuration (when there is one) selected there too.
   const expandLab = () =>
     dispatch({
       type: 'SET_PAGE',
       page: 'optlab',
-      focus: { lab: { source: 'opt:' + job.job_id, axes: choices.length >= 3 ? axes : [job.fast_path, job.slow_path], metric } },
+      focus: { lab: { source: 'opt:' + job.job_id, axes: choices.length >= 3 ? axes : [job.fast_path, job.slow_path], metric, ...(selected ? { selected } : {}) } },
     });
 
   return (

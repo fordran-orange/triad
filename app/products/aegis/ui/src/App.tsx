@@ -11,6 +11,7 @@ import { SideNav } from './components/SideNav';
 import { StatusStrip } from './components/StatusStrip';
 import { StrategyPanel } from './components/StrategyPanel';
 import { TopBar } from './components/TopBar';
+import { LabProvider } from './lab/labState';
 import { OptLabPage } from './lab/OptLabPage';
 import { loadResultsHeight, saveResultsHeight, clampResultsHeight } from './layout';
 import { TERMINAL_JOB_STATES } from './results';
@@ -93,37 +94,40 @@ export function App() {
     <div className="app">
       <TopBar runsOpen={runsOpen} onToggleRuns={() => setRunsOpen((v) => !v)} />
       <SideNav />
-      <main
-        className={'main' + (page === 'charts' && maximized ? ' results-max' : '')}
-        style={page === 'library' || page === 'lab' || page === 'optlab' ? { gridTemplateRows: 'minmax(0, 1fr)' } : page === 'charts' ? { gridTemplateRows: maximized ? '0px minmax(0, 1fr)' : `minmax(0, 1fr) ${resultsHeight}px` } : undefined}
-      >
-        {page === 'lab' ? (
-          <section className="lab-main">
-            <LabPage />
-          </section>
-        ) : page === 'library' ? (
-          <section className="library-main">
-            <LibraryPage />
-          </section>
-        ) : page === 'experiments' ? (
-          <section className="workspace">
-            <ExperimentsPage />
-            <StrategyPanel />
-          </section>
-        ) : page === 'optlab' ? (
-          <section className="optlab-main">
-            <OptLabPage />
-          </section>
-        ) : (
-          <>
+      {/* The Optimization Lab's store lives as long as the app: leaving the Lab and coming back keeps what it showed. */}
+      <LabProvider>
+        <main
+          className={'main' + (page === 'charts' && maximized ? ' results-max' : '')}
+          style={page === 'library' || page === 'lab' || page === 'optlab' ? { gridTemplateRows: 'minmax(0, 1fr)' } : page === 'charts' ? { gridTemplateRows: maximized ? '0px minmax(0, 1fr)' : `minmax(0, 1fr) ${resultsHeight}px` } : undefined}
+        >
+          {page === 'lab' ? (
+            <section className="lab-main">
+              <LabPage />
+            </section>
+          ) : page === 'library' ? (
+            <section className="library-main">
+              <LibraryPage />
+            </section>
+          ) : page === 'experiments' ? (
             <section className="workspace">
-              <ChartPanel />
+              <ExperimentsPage />
               <StrategyPanel />
             </section>
-            <ResultsTabs height={resultsHeight} onResize={resize} onResizeEnd={keep} maximized={maximized} onMaximize={setMaximized} />
-          </>
-        )}
-      </main>
+          ) : page === 'optlab' ? (
+            <section className="optlab-main">
+              <OptLabPage />
+            </section>
+          ) : (
+            <>
+              <section className="workspace">
+                <ChartPanel />
+                <StrategyPanel />
+              </section>
+              <ResultsTabs height={resultsHeight} onResize={resize} onResizeEnd={keep} maximized={maximized} onMaximize={setMaximized} />
+            </>
+          )}
+        </main>
+      </LabProvider>
       <RunsDrawer open={runsOpen} onClose={() => setRunsOpen(false)} />
       <JobPoller />
       <StatusStrip apiState={apiState} />

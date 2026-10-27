@@ -3,7 +3,7 @@ items, the 11 Mission 5 items, the 13 Mission 6 items, the 9 Mission 8 items, th
 items, the 5 limits items, the 5 Mission 10 items, the 2 Mission 11 items, the 2 Mission 12 items and the 7 Mission 13 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
 (indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
 Items 51 and 63 restart the worker detached through WMI (tools/start_product.ps1), as the DoD asks.
-The 6 Optimization Lab items (LAB_ITEMS) follow, numbered after whatever precedes them; they make
+The 8 Optimization Lab items (LAB_ITEMS) follow, numbered after whatever precedes them; they make
 their own fixtures, so `--only lab` runs them alone and never restarts the worker.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
@@ -136,14 +136,17 @@ ITEMS = [
     "text the reader cannot read is refused naming the word, and the strategy is unchanged",
     "governance unchanged since the Mission 13 plan and items 1–96 still pass",
 ]
-# Optimization Lab v2, Phase 1 (plan Task 7): six items numbered after whatever precedes them, so
-# each title starts with its nominal number; run_lab() registers them from ITEMS.index(...) + 1.
+# Optimization Lab v2, Phase 1 (plan Task 7, and the final review's fix wave): eight items numbered
+# after whatever precedes them, so each title starts with its nominal number (or the review row it
+# answers); run_lab() registers them from ITEMS.index(...) + 1. Governance stays last.
 LAB_ITEMS = [
-    "(103) Expand Lab opens the Optimization Lab with the dock's axes and metric kept",
-    "(104) the Lab's sub-nav keeps the filter, the selection and the pins across Trial Lab → Parameter Families → Run Monitor → Trial Lab",
+    "(103) Expand Lab opens the Optimization Lab with the dock's axes, metric and selection kept",
+    "(104) the Lab's sub-nav keeps the filter, the selection and the pins across Trial Lab → Parameter Families → Run Monitor → Trial Lab, and a trip to Charts and back keeps them too",
     "(105) every unavailable Lab control says why: gate not built, regimes not in this strategy, event feed unavailable, no partition, later phases named",
     "(106) at 1672 × 941 and at 1440 × 900 no primary Lab control is clipped, every text is ≥ 11 px and secondary text keeps ≥ 4.5:1",
     "(126) Variable Intelligence shows the six-step workflow strip with the later steps disabled and explained",
+    "(106b) the keyboard model works: arrows move the heatmap cursor, Enter selects the square, 1 pins, Esc clears the brush then the maximize, and the selection is synchronized across heatmap, rail and table",
+    "(RF2/3) a running experiment shows PROVISIONAL and 'no report yet', refreshes in place, and settles to done without a reload",
     "governance unchanged since the Optimization Lab v2 plan (LAB_BASE) and the Lab items pass",
 ]
 ITEMS += LAB_ITEMS
@@ -154,6 +157,10 @@ LAB_SURFACE = [  # 3 × 3 = 9 cells, the same grid for the optimization and the 
     ("long_side.indicators.ema.length", 5, 7, 1),
     ("long_side.indicators.sma.length", 20, 30, 5),
 ]
+# Item (RF2/3) runs the fixture's own body again and opens it while it runs: its 9 cells took about
+# 13 s from POST to done here (the pool starts per experiment). Give it more cells, never a sleep,
+# if the Lab ever finds it done before the running checks.
+LAB_RUNNING_SURFACE = LAB_SURFACE
 LAB_SIZES = [(1672, 941), (1440, 900)]
 LAB_PRIMARY = (  # the controls item (106) keeps inside the viewport
     "#lab-subnav button, #lab-source, #lab-scope-both, .lab-tab, #lab-pin-A, #lab-refine, "
@@ -167,6 +174,7 @@ LAB_SECONDARY = [  # the text item (106) holds to 4.5:1 against its nearest opaq
     ".trial-table th:not([aria-sort=none])",
     ".lab-tab.active",
     ".lab-tab:not(.active)",
+    "button:disabled",  # measured with its opacity; inactive controls are recorded, not asserted
 ]
 LAB_PLACEHOLDER_VIEWS = ["monitor", "families", "walkforward", "lineage", "compare"]
 LAB_TABS = ["heatmap", "interactions", "parallel", "pareto", "importance", "robustness"]
@@ -190,8 +198,10 @@ LAB_TEXT_SIZES = """
 })()
 """
 # WCAG 2 contrast of each text-holding element under the selectors: the text colour (its alpha
-# times the opacity up the tree) over the backgrounds composited down to the nearest opaque one.
-# Colours go through a 1 × 1 canvas, so any CSS colour syntax reads as sRGB bytes.
+# times the opacity up the tree, the opaque-backed element's own included, so a disabled button's
+# .55 counts) over the backgrounds composited down to the nearest opaque one. Each sample says
+# whether it sits in a disabled control. Colours go through a 1 × 1 canvas, so any CSS colour
+# syntax reads as sRGB bytes.
 LAB_CONTRAST = """
 (selectors) => {
   const canvas = document.createElement('canvas');
@@ -215,8 +225,8 @@ LAB_CONTRAST = """
     for (let n = el; n; n = n.parentElement) {
       const bg = rgba(getComputedStyle(n).backgroundColor);
       if (bg[3] > 0) layers.push(bg);
-      if (bg[3] >= 1) break;
       alpha *= parseFloat(getComputedStyle(n).opacity);
+      if (bg[3] >= 1) break;
     }
     let base = [255, 255, 255];
     if (layers.length && layers[layers.length - 1][3] >= 1) base = layers.pop();
@@ -232,7 +242,8 @@ LAB_CONTRAST = """
       for (const el of [host, ...host.querySelectorAll('*')]) {
         if (!texty(el) || el.getClientRects().length === 0) continue;
         out.push({ selector, text: el.textContent.trim().slice(0, 40),
-                   ratio: Math.round(ratio(el) * 100) / 100 });
+                   ratio: Math.round(ratio(el) * 100) / 100,
+                   disabled: !!el.closest(':disabled') });
       }
     }
   }
@@ -4368,11 +4379,12 @@ class Acceptance:
         self.item(97, item97)
 
     # -- Optimization Lab v2, Phase 1: plumbing -------------------------------------------------
-    def lab_experiment_fixture(self) -> None:
-        """The block's own experiment, made through the API: the 3 × 3 surface on the built-in
-        document, finished and reported once more, named lab-walk-<stamp> and left in the store."""
-        name = self.lab_fixtures["name"]
-        body = {
+    def lab_experiment_body(self, name: str, surface) -> dict:
+        """An exhaustive experiment over `surface` on the built-in document and LAB_RANGE."""
+        runs = 1
+        for _, start, stop, step in surface:
+            runs *= (stop - start) // step + 1
+        return {
             "name": name,
             "strategy_id": LAB_STRATEGY,
             "data": {
@@ -4385,13 +4397,18 @@ class Acceptance:
             "objective": "net_pnl",
             "surface": {
                 "parameters": [
-                    {"path": p, "start": a, "stop": b, "step": s} for p, a, b, s in LAB_SURFACE
+                    {"path": p, "start": a, "stop": b, "step": s} for p, a, b, s in surface
                 ]
             },
-            "budget": {"runs": 9, "seconds": None},
+            "budget": {"runs": runs, "seconds": None},
             "tolerance": 0.15,
             "seed": 1,
         }
+
+    def lab_experiment_fixture(self) -> None:
+        """The block's own experiment, made through the API: the 3 × 3 surface on the built-in
+        document, finished and reported once more, named lab-walk-<stamp> and left in the store."""
+        body = self.lab_experiment_body(self.lab_fixtures["name"], LAB_SURFACE)
         started = self.post("experiments", body)
         assert started.status == 202, started.text()
         exp_id = started.json()["experiment_id"]
@@ -4486,9 +4503,25 @@ class Acceptance:
     def lab_rendered_rows(self) -> int:
         return self.js("document.querySelectorAll('#trial-table tr[data-trial]').length")
 
+    def lab_round_trip(self) -> None:
+        """Leave the Lab for the Charts page and come back: the Lab page unmounts and mounts again
+        (its experiment list is fetched anew), while its store lives above the page switch."""
+        page = self.page
+        page.locator("#nav-charts").click()
+        page.wait_for_selector("#chart-mount", timeout=30_000)
+        page.wait_for_selector("#optlab-page", state="detached", timeout=30_000)
+        page.locator("#nav-optlab").click()
+        page.wait_for_selector("#optlab-page", state="visible", timeout=30_000)
+
+    def lab_trial_count(self) -> int | None:
+        """The trial count the table's toolbar reads (`N trials`), or None while it loads."""
+        text = self.js("document.querySelector('.trial-toolbar')?.innerText ?? ''")
+        found = re.search(r"([\d,]+) trials", text)
+        return int(found.group(1).replace(",", "")) if found else None
+
     # -- Optimization Lab v2, Phase 1: the items --------------------------------------------------
     def run_lab(self, first: int):
-        """The Lab block on its own fixtures, items first … first + 5. It never restarts the worker
+        """The Lab block on its own fixtures, items first … first + 7. It never restarts the worker
         and never touches port 8102's process."""
         page = self.page
         self.lab_fixtures = {"name": f"lab-walk-{self.stamp}"}
@@ -4519,10 +4552,35 @@ class Acceptance:
             picker = page.locator('.job-head select[aria-label="Heatmap metric"]')
             picker.select_option("mar")  # not the job's objective, so a kept metric shows
             dock_metric = picker.input_value()
+            # The dock's selection: its second row, so the pick is not simply the best cell.
+            dock_row = page.locator("#optimization-cells-long tbody tr").nth(1)
+            dock_row.click()
+            page.wait_for_function(
+                "document.querySelectorAll('#optimization-cells-long tbody tr.selected').length"
+                " === 1",
+                timeout=10_000,
+            )
+            dock_params = dock_row.locator("td").first.inner_text()
+            dock_shot = self.screenshot_path("dock-1600x1000")
+            page.screenshot(path=str(dock_shot))  # the viewport: the .job-head with Expand Lab
+            self.lab_fixtures["dock_screenshot"] = dock_shot.name
             page.locator("#expand-lab-long").click()
             page.wait_for_selector("#optlab-page", state="visible", timeout=30_000)
             source = f"opt:{job['job_id']}"
             self.lab_wait_rows(source)
+            page.wait_for_selector("#trial-table tr.selected[data-trial]", timeout=30_000)
+            chosen = page.locator("#trial-table tr.selected[data-trial]")
+            assert chosen.count() == 1, chosen.count()
+            trial = chosen.get_attribute("data-trial")
+            cell = job["cells"][int(trial.rsplit("#", 1)[1])]
+            numbers = re.findall(r"-?\d+(?:\.\d+)?", dock_params)
+            wanted = [
+                str(v) if not float(v).is_integer() else str(int(v))
+                for v in cell["params"].values()
+            ]
+            assert trial.startswith(source + "#") and numbers == wanted, (trial, dock_params, cell)
+            card = page.locator("#lab-selected .rail-id").inner_text()
+            assert card == trial, (card, trial)
             page.wait_for_function(
                 "/n = \\d/.test(document.getElementById('lab-heatmap-basis')?.innerText ?? '')"
                 " && !(document.getElementById('lab-heatmap-axes')?.innerText ?? '')"
@@ -4546,7 +4604,9 @@ class Acceptance:
             return (
                 f"job {job['job_id'][:8]} ({job['cells_done']} cells, run from the Optimize "
                 f"popover) → Expand Lab: source {value[:12]}…, '{axes}', metric {metric} as the "
-                f"dock showed it; catalog X = {slow}, Y = {fast}"
+                f"dock showed it; catalog X = {slow}, Y = {fast}; the dock's selected row "
+                f"'{dock_params}' is the Lab's selected trial {trial.split('#')[-1]} (table row "
+                f"and rail card); dock screenshot {dock_shot.name}"
             )
 
         self.item(first, lab103)
@@ -4587,11 +4647,31 @@ class Acceptance:
             assert "selected" in classes, classes
             assert trial in rail and pinned == trial, (rail, pinned)
             assert lo == "6", lo
+            # Review finding 3: the store lives above the page switch.
+            self.lab_round_trip()
+            self.lab_wait_rows(source)
+            back = {
+                "source": page.locator("#lab-source").input_value(),
+                "linked": page.locator("#lab-linked").inner_text(),
+                "pinned": page.locator("#lab-pin-A").get_attribute("data-pinned"),
+                "rail": page.locator("#lab-pins").inner_text(),
+                "card": page.locator("#lab-selected .rail-id").inner_text(timeout=10_000),
+                "lo": page.locator(f'.range-lo[data-path="{path}"]').input_value(),
+            }
+            row_back = page.locator(f'#trial-table tr[data-trial="{trial}"]')
+            row_back.wait_for(timeout=30_000)
+            classes_back = (row_back.get_attribute("class") or "").split()
+            assert back["source"] == source, back
+            assert back["linked"] == "Linked · 1 filter" and back["lo"] == "6", back
+            assert back["pinned"] == trial and trial in back["rail"], back
+            assert "selected" in classes_back and back["card"] == trial, (classes_back, back)
             return (
                 f"{source[:16]}…: {path} from 6, {trial.split('#')[-1]} selected and pinned A; "
                 f"'12' typed in the search pinned nothing (B, C empty); after Parameter Families → "
                 f"Run Monitor → Trial Lab: '{linked}', the row still selected, A = "
-                f"{pinned.split('#')[-1]}, the range input still 6"
+                f"{pinned.split('#')[-1]}, the range input still 6; after Charts → Optimization "
+                f"Lab: the same source, '{back['linked']}', the row selected with its rail card, "
+                f"A = {back['pinned'].split('#')[-1]}, the range input {back['lo']}"
             )
 
         self.item(first + 1, lab104)
@@ -4772,14 +4852,30 @@ class Acceptance:
             finally:
                 page.set_viewport_size({"width": 1600, "height": 1000})
             missing = [s for s, found in ratios.items() if not found]
-            low = [x for found in ratios.values() for x in found if x["ratio"] < 4.5]
+            # Every sample keeps 4.5:1, except that a text inside a disabled control may fall below
+            # it: WCAG 1.4.3 exempts inactive components, so those ratios are recorded, not failed.
+            samples = [x for found in ratios.values() for x in found]
+            low = [x for x in samples if x["ratio"] < 4.5 and not x["disabled"]]
             assert not small, small[:10]
             assert not missing and not low, (missing, low[:10])
             lowest = {s: min(x["ratio"] for x in found) for s, found in ratios.items()}
+            exempt: dict[str, float] = {}
+            for x in samples:
+                if x["disabled"] and x["ratio"] < 4.5:
+                    exempt[x["text"]] = min(x["ratio"], exempt.get(x["text"], x["ratio"]))
+            self.lab_fixtures["disabled_under_4_5"] = exempt
             return (
                 "; ".join(lines)
                 + "; every text ≥ 11 px; lowest contrast "
                 + ", ".join(f"{s} {r:.2f}" for s, r in lowest.items())
+                + "; below 4.5:1 only inside disabled controls, recorded and not asserted "
+                + "(inactive components are exempt under WCAG 1.4.3): "
+                + (
+                    ", ".join(
+                        f"'{t}' {r:.2f}" for t, r in sorted(exempt.items(), key=lambda i: i[1])
+                    )
+                    or "none"
+                )
                 + f"; screenshots {', '.join(seen)}"
             )
 
@@ -4810,6 +4906,205 @@ class Acceptance:
 
         self.item(first + 4, lab126)
 
+        def lab_keyboard():
+            opt_id = job_id()
+            source = f"opt:{opt_id}"
+            self.lab_view("trials")
+            if page.locator("#lab-source").input_value() != source:
+                self.lab_open(source)
+            page.locator("#lab-tab-heatmap").click()
+            page.wait_for_function(
+                "/n = \\d/.test(document.getElementById('lab-heatmap-basis')?.innerText ?? '')"
+                " && !!document.querySelector('#lab-panel .heat-grid')",
+                timeout=60_000,
+            )
+            squares = "#lab-panel .heat-grid .cell:not(.h)"
+            marked = (  # the index of the marked square, row by row (-1: none)
+                "s => [...document.querySelectorAll(s)]"
+                ".findIndex(c => c.classList.contains('selected'))"
+            )
+            cols = self.js(
+                "document.querySelectorAll('#lab-panel .heat-grid .cell.colhead').length"
+            )
+            assert cols >= 2 and page.evaluate(marked, squares) == -1, (cols, "a square is marked")
+            page.locator("#optlab-page").focus()
+            page.keyboard.press("ArrowDown")  # the first press shows the cursor at (0, 0)
+            page.wait_for_function(f"s => ({marked})(s) === 0", arg=squares, timeout=10_000)
+            page.keyboard.press("ArrowDown")
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function(
+                f"([s, at]) => ({marked})(s) === at", arg=[squares, cols + 1], timeout=10_000
+            )
+            page.keyboard.press("Enter")
+            page.wait_for_function(
+                "(document.getElementById('lab-selected')?.innerText ?? '').includes('Square:')",
+                timeout=10_000,
+            )
+            square = page.locator("#lab-selected").inner_text().splitlines()[1]
+            heat_title = page.locator(f"{squares}.selected").get_attribute("title") or ""
+            values = re.search(r"↓ (-?[\d.]+) / .*?→ (-?[\d.]+)", heat_title)
+            assert values, heat_title
+            assert f"= {values.group(1)} ·" in square and square.endswith(f"= {values.group(2)}"), (
+                square,
+                heat_title,
+            )
+            rows_none = self.js("document.querySelectorAll('#trial-table tr.selected').length")
+            assert rows_none == 0, rows_none
+
+            # 1 pins the clicked trial: the table, the pin chip and the rail agree.
+            row = page.locator("#trial-table tbody tr[data-trial]").nth(1)
+            trial = row.get_attribute("data-trial")
+            row.click()
+            page.wait_for_function(
+                "t => (document.getElementById('lab-selected')?.innerText ?? '').includes(t)",
+                arg=trial,
+                timeout=10_000,
+            )
+            page.keyboard.press("1")
+            page.wait_for_function(
+                "t => document.getElementById('lab-pin-A')?.dataset.pinned === t",
+                arg=trial,
+                timeout=10_000,
+            )
+            pins = page.locator("#lab-pins").inner_text()
+            chosen = page.locator("#trial-table tr.selected[data-trial]")
+            assert trial in pins and chosen.count() == 1, (pins, chosen.count())
+            assert chosen.get_attribute("data-trial") == trial, chosen.get_attribute("data-trial")
+            assert page.evaluate(marked, squares) == cols + 1  # the cursor stays where it was
+
+            # Esc clears the brush first, then the maximize.
+            page.locator(".range-lo").first.fill(
+                page.locator(".range-lo").first.get_attribute("max")
+            )
+            page.wait_for_function(
+                "document.getElementById('lab-linked')?.innerText === 'Linked · 1 filter'",
+                timeout=10_000,
+            )
+            page.locator("#optlab-page").focus()  # out of the field: its keys are text
+            page.keyboard.press("Escape")
+            page.wait_for_function(
+                "document.getElementById('lab-linked')?.innerText === 'Linked · 0 filters'"
+                " && document.querySelector('.range-lo')?.value === ''",
+                timeout=10_000,
+            )
+            page.locator("#lab-maximize").click()
+            page.wait_for_function(
+                "document.getElementById('lab-maximize')?.getAttribute('aria-pressed') === 'true'"
+                " && !!document.querySelector('.lab-body.maximized')",
+                timeout=10_000,
+            )
+            page.keyboard.press("Escape")
+            page.wait_for_function(
+                "document.getElementById('lab-maximize')?.getAttribute('aria-pressed') === 'false'"
+                " && !document.querySelector('.lab-body.maximized')"
+                " && !!document.querySelector('#trial-table tr[data-trial]')",
+                timeout=10_000,
+            )
+            kept = page.locator("#lab-pin-A").get_attribute("data-pinned")
+            assert kept == trial, (kept, trial)
+
+            # A focused row's ArrowDown moves the selection to the next row, in the rail too.
+            first_row = page.locator('#trial-table tbody tr[data-trial][data-index="0"]')
+            first_row.click()
+            next_id = page.locator(
+                '#trial-table tbody tr[data-trial][data-index="1"]'
+            ).get_attribute("data-trial")
+            page.keyboard.press("ArrowDown")
+            page.wait_for_function(
+                "t => document.querySelector('#trial-table tr.selected')?.dataset.trial === t"
+                " && (document.getElementById('lab-selected')?.innerText ?? '').includes(t)"
+                " && document.activeElement?.dataset?.index === '1'",
+                arg=next_id,
+                timeout=10_000,
+            )
+            selected = self.js(
+                "[...document.querySelectorAll('#trial-table tr.selected')].map(r => r.dataset.index)"
+            )
+            assert selected == ["1"], selected
+            return (
+                f"{source[:16]}…: ArrowDown ×2 + ArrowRight moved the heatmap cursor (0, 0) → "
+                f"(1, 1) of {cols} columns ('{heat_title.split(' · ')[0]}'); Enter selected it: "
+                f"'{square}', no table row selected; a click on trial #{trial.split('#')[-1]} and "
+                f"the key 1 pinned it as A (the table row, the pin chip and the rail agree); Esc "
+                f"cleared the brush ('Linked · 0 filters'), the next Esc the maximize; ArrowDown "
+                f"on the table's first row selected its second (trial #{next_id.split('#')[-1]}) "
+                f"in the table and the rail"
+            )
+
+        self.item(first + 5, lab_keyboard)
+
+        def lab_running():
+            experiment_id()  # the fixture's body, once it has proved itself
+            body = self.lab_experiment_body(f"{fixtures['name']}-running", LAB_RUNNING_SURFACE)
+            planned = body["budget"]["runs"]
+            started = self.post("experiments", body)
+            assert started.status == 202, started.text()
+            running_id = started.json()["experiment_id"]
+            fixtures["running_experiment"] = running_id
+            source = f"exp:{running_id}"
+            self.lab_view("trials")
+            page.evaluate("() => { window.__labWalkNoReload = true; }")
+            self.lab_round_trip()  # the Lab's picker fetches the experiment list as it mounts
+            page.wait_for_function(
+                "t => [...document.querySelectorAll('#lab-source option')].some(o => o.value === t)",
+                arg=source,
+                timeout=15_000,
+            )
+            page.locator("#lab-source").select_option(source)
+            shown = page.wait_for_function(
+                "() => { const s = document.getElementById('lab-status')?.innerText ?? '';"
+                " return s === 'PROVISIONAL · updates every 2 s' || s === 'done' ? s : null; }",
+                timeout=30_000,
+            ).json_value()
+            assert shown == "PROVISIONAL · updates every 2 s", (
+                f"the experiment finished before the Lab showed it running ({shown}): give "
+                "LAB_RUNNING_SURFACE more cells"
+            )
+            page.wait_for_function(
+                "(document.getElementById('lab-findings')?.innerText ?? '').includes('no report yet')",
+                timeout=10_000,
+            )
+            findings = page.locator("#lab-findings").inner_text().splitlines()[-1]
+            page.locator("#lab-tab-importance").click()
+            page.wait_for_function(
+                "(document.getElementById('lab-panel')?.innerText ?? '')"
+                ".includes('no report yet: recompute it on the Experiments page')",
+                timeout=10_000,
+            )
+            importance = page.locator("#lab-panel").inner_text()
+            still = page.locator("#lab-status").inner_text()
+            assert still == "PROVISIONAL · updates every 2 s", (
+                f"the experiment finished during the running checks ({still}): give "
+                "LAB_RUNNING_SURFACE more cells"
+            )
+            before = self.lab_trial_count() or 0
+            counts = [before]
+            deadline = time.monotonic() + 300
+            while time.monotonic() < deadline:
+                status = page.locator("#lab-status").inner_text()
+                count = self.lab_trial_count()
+                if count is not None and count != counts[-1]:
+                    counts.append(count)
+                if status == "done" and count == planned:
+                    break
+                page.wait_for_timeout(250)  # polled, bounded by the deadline
+            status = page.locator("#lab-status").inner_text()
+            after = self.lab_trial_count()
+            no_reload = page.evaluate("() => window.__labWalkNoReload === true")
+            api_status = self.experiment(running_id)["status"]
+            assert status == "done" and api_status == "done", (status, api_status)
+            assert after == planned and after >= before, (before, after, planned, counts)
+            assert no_reload and page.locator("#lab-source").input_value() == source, no_reload
+            page.locator("#lab-tab-heatmap").click()
+            return (
+                f"{source[:16]}… ({planned} cells, posted and opened at once): '{shown}', "
+                f"findings '{findings}', Importance '{importance.strip()}'; the table counted "
+                f"{' → '.join(str(c) for c in counts)} trials as the 2 s refresh ran, the chip "
+                f"settled to '{status}' with {after} = planned, and the page never reloaded"
+            )
+
+        self.item(first + 6, lab_running)
+
         def lab_governance():
             import subprocess
 
@@ -4826,16 +5121,16 @@ class Acceptance:
             committed = git("diff", "--name-only", LAB_BASE, "HEAD", "--", *paths).strip()
             pending = git("status", "--porcelain", "--", *paths).strip()
             assert committed == "" and pending == "", (committed, pending)
-            earlier = [r for r in self.results if first <= r["item"] < first + 5]
+            earlier = [r for r in self.results if first <= r["item"] < first + 7]
             failed = [r["item"] for r in earlier if r["status"] != "PASS"]
-            assert len(earlier) == 5 and not failed, failed
+            assert len(earlier) == 7 and not failed, failed
             return (
                 f"aegis {state['mode']} / {state['exchange']}; DailySchedule {schedule['id'][:8]} "
                 f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
-                f"{LAB_BASE}; Lab items {first}–{first + 4} PASS; fixtures {fixtures}"
+                f"{LAB_BASE}; Lab items {first}–{first + 6} PASS; fixtures {fixtures}"
             )
 
-        self.item(first + 5, lab_governance)
+        self.item(first + 7, lab_governance)
 
 
 def nested(condition: dict, depth: int) -> dict:

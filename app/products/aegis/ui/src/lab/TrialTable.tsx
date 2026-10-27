@@ -7,7 +7,7 @@ import { useLab, useLabDispatch } from './labState';
 import type { PinSlot } from './labStore';
 import { LinkedChip } from './LinkedChip';
 import { pageFor, ROW_HEIGHT, windowRows } from './trialWindow';
-import { jobPaths, type LoadedSource, type OptJob, type TrialRow } from './useLabSource';
+import { jobPaths, optRow, type LoadedSource, type OptJob, type TrialRow } from './useLabSource';
 
 /** The table's order: a column and a direction, or `column: null` for the metric in view, best first. */
 export interface TrialSort {
@@ -44,13 +44,7 @@ function expRow(experimentId: string, paths: string[], raw: CellsPage['rows'][nu
 }
 
 function optRows(job: OptJob): TrialRow[] {
-  return job.cells.map((cell, i) => ({
-    id: `opt:${job.job_id}#${i}`,
-    label: `#${i}`,
-    params: { ...cell.params },
-    values: Object.fromEntries(Object.entries(cell.metrics).map(([k, v]) => [k, numberOrNull(v)])),
-    valid: null,
-  }));
+  return job.cells.map((_, i) => optRow(job, i));
 }
 
 /** Best first: lower is better only for max drawdown. */
@@ -163,7 +157,9 @@ export function TrialTable({
     if (fresh && rendered.start >= page.offset && end <= page.offset + page.rows.length) return;
     const p = pending.current;
     if (p && p.key === queryKey && p.tick === tick && rendered.start >= p.offset && rendered.end <= p.offset + p.limit) return;
-    const request = pageFor(windowRows({ total, scrollTop: view.top, viewportHeight: view.height, overscan: FETCH_OVERSCAN }));
+    // A refresh asks over at least the trials the experiment now reports done (at least one): a table that
+    // counted none while the first chunk ran asks again on every tick instead of keeping its empty window.
+    const request = pageFor(windowRows({ total: Math.max(total, estimate), scrollTop: view.top, viewportHeight: view.height, overscan: FETCH_OVERSCAN }));
     if (request.limit === 0) return;
     const asked = { key: queryKey, tick, ...request };
     pending.current = asked;

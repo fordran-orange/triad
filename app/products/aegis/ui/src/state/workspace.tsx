@@ -15,11 +15,13 @@ export const SIDE_KEY: Record<Side, 'long_side' | 'short_side'> = { long: 'long_
 export type Page = 'charts' | 'lab' | 'library' | 'experiments' | 'optlab';
 
 /** What the compact dock hands the Optimization Lab: the result to open, and optionally the two
- *  axes and the metric to look at. `source` is `exp:<experiment_id>` or `opt:<job_id>`. */
+ *  axes, the metric to look at and the selected configuration (its parameters by path, as the
+ *  job's cells carry them). `source` is `exp:<experiment_id>` or `opt:<job_id>`. */
 export interface LabFocus {
   source: string;
   axes?: [string, string];
   metric?: string;
+  selected?: Record<string, number>;
 }
 
 /** A deep link the target page consumes once (Mission 9 plan ruling P10). */

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { profitKind } from '../components/Heatmap';
 import { DASH, money, num, pct } from '../format';
 import { PERCENT_OBJECTIVES, type ExperimentProgress, type Objective } from '../results';
 import type { LabData } from './useLabSource';
@@ -23,12 +24,14 @@ export function objectiveText(objective: string, value: number | null): string {
   return num(value, objective === 'trade_count' ? 0 : 2);
 }
 
-/** A money-signed objective below break-even loses money and shows red; profit factor breaks even at 1. */
+/** The Heatmap's profit sign (`profitKind`): below break-even loses money and shows red, above it gains, break-even
+ *  itself is neutral; profit factor breaks even at 1, the other money-signed objectives at 0. */
 export function lossTone(objective: string, value: number | null): 'loss' | 'gain' | undefined {
   if (value === null) return undefined;
-  if (objective === 'profit_factor') return value < 1 ? 'loss' : 'gain';
-  if (['net_pnl', 'net_return', 'cagr', 'mar', 'expectancy'].includes(objective)) return value < 0 ? 'loss' : 'gain';
-  return undefined;
+  const kind = profitKind(objective);
+  if (!kind) return undefined;
+  const even = kind === 'ratio' ? 1 : 0;
+  return value < even ? 'loss' : value > even ? 'gain' : undefined;
 }
 
 function dash(key: Kpi['key'], label: string, title: string): Kpi {

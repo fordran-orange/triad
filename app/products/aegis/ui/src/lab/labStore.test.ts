@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   activeFilterCount,
   canonicalFilter,
+  cellIndex,
   filterHash,
   initialLabState,
   labReducer,
@@ -449,5 +450,25 @@ describe('activeFilterCount', () => {
   it('counts ranges, fixed values, a non-combined scope, pass and status', () => {
     const f = filter({ ranges: { a: [1, 2], b: [3, 4] }, values: { c: 5 }, scope: 'short', pass: ['p', 'q'], status: ['done'] });
     expect(activeFilterCount(f)).toBe(2 + 1 + 1 + 2 + 1);
+  });
+});
+
+describe('cellIndex (the dock selection handed to Expand Lab)', () => {
+  const cells = [{ params: { a: 5, b: 20 } }, { params: { a: 6, b: 20 } }, { params: { a: 6, b: 25 } }];
+
+  it('finds the cell with the same keys and the same numbers', () => {
+    expect(cellIndex(cells, { a: 6, b: 25 })).toBe(2);
+    expect(cellIndex(cells, { b: 20, a: 6 })).toBe(1); // key order does not matter
+  });
+
+  it('is -1 when no cell matches: a value differs, a key is missing or extra, or there are no cells', () => {
+    expect(cellIndex(cells, { a: 7, b: 20 })).toBe(-1);
+    expect(cellIndex(cells, { a: 5 })).toBe(-1);
+    expect(cellIndex(cells, { a: 5, b: 20, c: 1 })).toBe(-1);
+    expect(cellIndex([], { a: 5, b: 20 })).toBe(-1);
+  });
+
+  it('never matches a null parameter', () => {
+    expect(cellIndex([{ params: { a: null, b: 20 } }], { a: 0, b: 20 })).toBe(-1);
   });
 });

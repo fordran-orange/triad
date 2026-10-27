@@ -96,6 +96,9 @@ export function LabContextBar({ data }: { data: LabData }) {
           </button>
         ))}
       </span>
+      <span className="lab-field muted" id="lab-independent">
+        Long and short: evaluated independently
+      </span>
       <label className="lab-field">
         Metric
         <select id="lab-metric" value={lab.metric} aria-label="Metric" onChange={(e) => dispatch({ type: 'SET_METRIC', metric: e.target.value })}>

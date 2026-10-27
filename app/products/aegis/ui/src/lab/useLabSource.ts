@@ -1,6 +1,7 @@
 // The Lab's data loading: the experiment list for the picker, the open source (an experiment with its report and
 // strategy name, or an optimization job), the 2-second refresh while it runs, the job's two-axis matrix, and the
-// rows the table handed over for the selection card. The components only render what this returns.
+// rows the table handed over for the selection card (kept by the provider, with the rest of what the Lab remembers
+// between visits). The components only render what this returns.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import type { ExperimentDocument } from '../contracts';
@@ -8,8 +9,8 @@ import { axisChoices, axisLength, tooManySquares } from '../optimizer';
 import { METRICS, OBJECTIVES, type AxisMatrix, type ExperimentReport, type ExperimentSummary, type JobStatus, type Metric } from '../results';
 import { useDispatch, useWorkspace } from '../state/workspace';
 import { families, parameterCount, type CatalogEntry, type Family } from './catalog';
-import { useLab, useLabDispatch } from './labState';
-import { parseSource, sourceText, type LabSource } from './labStore';
+import { useLab, useLabDispatch, useLabMemory } from './labState';
+import { cellIndex, parseSource, sourceText, type LabSource } from './labStore';
 
 /** A job status as the worker sends it: the TS type leaves out a few fields the provenance block shows. */
 export type OptJob = JobStatus & { strategy_hash?: string; engine?: string };
@@ -52,6 +53,20 @@ export function statusOf(loaded: LoadedSource): string {
 
 export function isCurrent(loaded: LoadedSource | null, source: LabSource | null): loaded is LoadedSource {
   return loaded !== null && source !== null && loaded.kind === source.kind && loaded.id === source.id;
+}
+
+const finiteOrNull = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+/** The trial row of the job's cell at `index` (in the order the status sent its cells), as the table lists it. */
+export function optRow(job: OptJob, index: number): TrialRow {
+  const cell = job.cells[index];
+  return {
+    id: `opt:${job.job_id}#${index}`,
+    label: `#${index}`,
+    params: { ...cell.params },
+    values: Object.fromEntries(Object.entries(cell.metrics).map(([k, v]) => [k, finiteOrNull(v)])),
+    valid: null,
+  };
 }
 
 /** The parameters a job varied, in plan order (the matrix may pair any two of them). */
@@ -115,6 +130,7 @@ async function fetchSource(source: LabSource, previous: LoadedSource | null): Pr
 export function useLabSource() {
   const lab = useLab();
   const dispatch = useLabDispatch();
+  const { session, knownRows, rememberRow, optSources, addOptSource } = useLabMemory();
   const { focus } = useWorkspace();
   const workspaceDispatch = useDispatch();
   const [experiments, setExperiments] = useState<ExperimentSummary[] | null>(null);
@@ -122,11 +138,7 @@ export function useLabSource() {
   const [loaded, setLoaded] = useState<LoadedSource | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
-  const [optSources, setOptSources] = useState<string[]>([]);
-  const [knownRows, setKnownRows] = useState<Record<string, TrialRow>>({});
   const [matrix, setMatrix] = useState<MatrixState>(NO_MATRIX);
-  const adopted = useRef(false);
-  const autoOpened = useRef(false);
   const loadedRef = useRef<LoadedSource | null>(null);
   loadedRef.current = loaded;
 
@@ -145,35 +157,37 @@ export function useLabSource() {
   }, []);
   useEffect(reloadList, [reloadList]);
 
-  // A deep link from the dock's Expand Lab: open what it names, with its axes and metric, then consume it.
+  // A deep link from the dock's Expand Lab: open what it names, with its axes and metric, then consume it. Its
+  // selected configuration waits in the session until the job has loaded (the post-load effect below selects it).
   useEffect(() => {
     const handed = focus?.lab;
     if (!handed) return;
-    adopted.current = true;
+    session.current.adopted = true;
     const source = parseSource(handed.source);
+    session.current.handed = source && handed.selected ? { source: sourceText(source), params: handed.selected } : null;
     if (source) dispatch({ type: 'OPEN_SOURCE', source, axes: handed.axes, metric: handed.metric });
     else dispatch({ type: 'SOURCE_FAILED', message: `${handed.source}: not a Lab source (exp:<id> or opt:<id>)` });
     workspaceDispatch({ type: 'CLEAR_FOCUS' });
-  }, [focus, dispatch, workspaceDispatch]);
+  }, [focus, dispatch, workspaceDispatch, session]);
 
-  // Nothing handed over and nothing open: once the list arrives, open the newest finished experiment.
+  // Nothing handed over and nothing open: once the first list arrives, open the newest finished experiment. The
+  // session remembers it was done, so a return to the page never opens one over the source in view.
   useEffect(() => {
-    if (autoOpened.current || experiments === null) return;
-    autoOpened.current = true;
-    if (adopted.current || lab.source !== null || lab.sourceError !== null) return;
+    if (session.current.autoOpened || experiments === null) return;
+    session.current.autoOpened = true;
+    if (session.current.adopted || lab.source !== null || lab.sourceError !== null) return;
     const newest = experiments.find((item) => item.status === 'done');
     if (newest) dispatch({ type: 'OPEN_SOURCE', source: { kind: 'exp', id: newest.id }, metric: newest.objective });
-  }, [experiments, lab.source, lab.sourceError, dispatch]);
+  }, [experiments, lab.source, lab.sourceError, dispatch, session]);
 
   // Load the open source. A failure clears it and says why; the picker stays usable.
   useEffect(() => {
     setLoaded(null);
     setRefreshError(null);
-    setKnownRows({});
     setMatrix(NO_MATRIX);
     const source = key === null ? null : parseSource(key);
     if (source === null) return;
-    if (source.kind === 'opt') setOptSources((ids) => (ids.includes(source.id) ? ids : [source.id, ...ids]));
+    if (source.kind === 'opt') addOptSource(source.id);
     let cancelled = false;
     fetchSource(source, null)
       .then((next) => !cancelled && setLoaded(next))
@@ -181,7 +195,7 @@ export function useLabSource() {
     return () => {
       cancelled = true;
     };
-  }, [key, dispatch]);
+  }, [key, dispatch, addOptSource]);
 
   // While it runs, re-fetch it every 2 s; the table re-fetches its window on the tick.
   const live = loaded !== null && isLive(statusOf(loaded));
@@ -213,14 +227,23 @@ export function useLabSource() {
     };
   }, [live, key, dispatch]);
 
-  // Once a source has loaded, make the store's axes and metric ones it has (a picked source keeps what it can).
+  // Once a source has loaded, make the store's axes and metric ones it has (a picked source keeps what it can), and
+  // select the trial the dock handed over: the job's cell with exactly its parameters (none matching: no selection).
   const loadedKey = loaded ? `${loaded.kind}:${loaded.id}` : null;
   useEffect(() => {
     if (loaded === null) return;
+    const handed = session.current.handed;
+    session.current.handed = null; // the first source to load consumes it: the handed job, or one picked over it
     if (loaded.kind === 'opt') {
       const axes = effectiveOptAxes(loaded.job, lab.axes);
       if (axes && (lab.axes === null || axes[0] !== lab.axes[0] || axes[1] !== lab.axes[1])) dispatch({ type: 'SET_AXES', axes });
       if (!(METRICS as string[]).includes(lab.metric)) dispatch({ type: 'SET_METRIC', metric: loaded.job.objective });
+      const index = handed !== null && handed.source === loadedKey ? cellIndex(loaded.job.cells, handed.params) : -1;
+      if (index >= 0) {
+        const row = optRow(loaded.job, index);
+        rememberRow(row); // as a row click does: the selection card reads it
+        dispatch({ type: 'SELECT_TRIALS', ids: [row.id] });
+      }
     } else {
       const paths = loaded.document.surface.parameters.map((p) => p.path);
       const fits = lab.axes !== null && lab.axes[0] !== lab.axes[1] && paths.includes(lab.axes[0]) && paths.includes(lab.axes[1]);
@@ -260,14 +283,6 @@ export function useLabSource() {
     // The key and the progress mark stand for the job, the pair and the metric.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matrixKey, progressMark]);
-
-  const rememberRow = useCallback((row: TrialRow) => {
-    setKnownRows((rows) => {
-      // The newest pick goes last; the selection card reads it, older picks fall away.
-      const kept = Object.entries(rows).filter(([id]) => id !== row.id).slice(-24);
-      return { ...Object.fromEntries(kept), [row.id]: row };
-    });
-  }, []);
 
   return {
     experiments,
