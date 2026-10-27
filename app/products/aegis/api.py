@@ -806,6 +806,15 @@ def read_strategy_text(
             mode="json"
         )
     except phrases.Unread as refusal:
+        if not request.ai:
+            none = {
+                "reason": "none_available",
+                "message": "No AI provider is available now, so only the phrase reader read this",
+                "provider": None,
+            }
+            raise HTTPException(
+                422, {"message": str(refusal), "unread": refusal.spans, "ai": none}
+            ) from refusal
         provider = request.provider or prefs.get()["reader_provider"]
         try:
             reading = read_with_ai(

@@ -100,7 +100,16 @@ def available_providers(client) -> dict:
         routable = {p["provider"] for p in client.providers() if p.get("available") is True}
         message = None
     except CoreReadingError as exc:
-        routable, message = set(), _explain(exc, "The AI")[1]
+        routable = set()
+        if exc.reason in ("not_issued", "refused"):
+            message = f"AI reading is not set up: {exc}"
+        elif exc.reason == "core_unavailable":
+            message = "Core is not answering, so no AI can read now"
+        else:
+            message = f"Core could not say which providers are available: {exc}"
+    except (ValueError, KeyError, TypeError, AttributeError):
+        routable = set()
+        message = "Core could not say which providers are available: its answer was not readable"
     return {
         "providers": [
             {"id": p, "name": name, "available": p in routable} for p, name in PROVIDERS.items()

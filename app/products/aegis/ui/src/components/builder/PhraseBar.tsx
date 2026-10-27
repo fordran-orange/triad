@@ -53,19 +53,25 @@ export function PhraseBar({ push, readOnly }: { push: (side: Side, snapshot: Sna
   const [learned, setLearned] = useState<string | null>(null);
   const [learnedVersion, setLearnedVersion] = useState(0);
   const abort = useRef<AbortController | null>(null);
+  const asked = useRef(0);
 
-  // Each provider is offered only while Core can route a reading to it (operator, 2026-10-27).
-  const loadChoices = () =>
-    api
+  // Each provider is offered only while Core can route a reading to it (operator, 2026-10-27);
+  // only the newest answer counts when two checks overlap.
+  const loadChoices = () => {
+    const ask = ++asked.current;
+    return api
       .readerProviders()
       .then((r) => {
+        if (ask !== asked.current) return;
         setChoices(r.providers);
         setUnavailable(r.message);
       })
       .catch((e: unknown) => {
+        if (ask !== asked.current) return;
         setChoices([]);
         setUnavailable(errorMessage(e));
       });
+  };
 
   useEffect(() => {
     api
@@ -75,7 +81,7 @@ export function PhraseBar({ push, readOnly }: { push: (side: Side, snapshot: Sna
     void loadChoices();
   }, []);
 
-  const { options, selected } = readerSelection(choices, provider);
+  const { options, selected, ai } = readerSelection(choices, provider);
 
   const choose = (next: ReaderProvider) => {
     setProvider(next);
@@ -93,7 +99,7 @@ export function PhraseBar({ push, readOnly }: { push: (side: Side, snapshot: Sna
     setLearned(null);
     const timer = window.setTimeout(() => setThinking(true), THINKING_AFTER_MS);
     try {
-      setReading({ text, value: await api.readText(text, strategy, selected ?? undefined, controller.signal) });
+      setReading({ text, value: await api.readText(text, strategy, selected ?? undefined, controller.signal, ai) });
     } catch (e) {
       if (controller.signal.aborted) return; // cancelled: the text stays, nothing is shown
       const raw = e instanceof ApiError ? (e.raw as { message?: string; unread?: Unread[]; ai?: AiRefusal } | null) : null;
@@ -150,9 +156,9 @@ export function PhraseBar({ push, readOnly }: { push: (side: Side, snapshot: Sna
           title={readOnly ? 'The built-in strategy is read-only; duplicate it to edit' : 'Press Enter to read it'}
           onChange={(e) => setText(e.target.value)}
         />
-        <label className="phrase-provider" title="Who reads a sentence the phrase reader cannot (through Core)">
-          AI
-          {selected ? (
+        {selected ? (
+          <label className="phrase-provider" title="Who reads a sentence the phrase reader cannot (through Core)">
+            AI
             <select
               id="reader-provider"
               className="control"
@@ -166,19 +172,20 @@ export function PhraseBar({ push, readOnly }: { push: (side: Side, snapshot: Sna
                 </option>
               ))}
             </select>
-          ) : (
-            choices && (
-              <>
-                <span className="muted" id="reader-provider-none" title={unavailable ?? 'Core can route a reading to no provider now'}>
-                  none available
-                </span>
-                <button type="button" className="btn" id="reader-provider-recheck" onClick={() => void loadChoices()}>
-                  Recheck
-                </button>
-              </>
-            )
-          )}
-        </label>
+          </label>
+        ) : (
+          choices && (
+            <span className="phrase-provider">
+              AI:
+              <span className="muted" id="reader-provider-none" title={unavailable ?? 'Core can route a reading to no provider now'}>
+                none available
+              </span>
+              <button type="button" className="btn" id="reader-provider-recheck" onClick={() => void loadChoices()}>
+                Recheck
+              </button>
+            </span>
+          )
+        )}
         <LearnedPhrases version={learnedVersion} />
       </form>
       {thinking && (

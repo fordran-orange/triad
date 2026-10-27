@@ -242,6 +242,34 @@ def test_the_client_asks_core_with_the_product_key(monkeypatch):
     ]
 
 
+def test_with_no_provider_offered_only_the_phrase_reader_reads(core):  # QA observation 2
+    c, fake = core
+    answer = c.post("/aegis/api/strategies/read", json=body(UNREADABLE, ai=False))
+    assert answer.status_code == 422
+    detail = answer.json()["detail"]
+    assert detail["ai"]["reason"] == "none_available" and "No AI" in detail["ai"]["message"]
+    assert detail["unread"][0]["text"] == "up"
+    assert fake.calls == []  # Core is not asked, so it records no refused routing
+    assert c.post("/aegis/api/strategies/read", json=body(REWRITE, ai=False)).status_code == 200
+
+
+@pytest.mark.parametrize("failure", [ValueError("not JSON"), KeyError("providers")])
+def test_a_malformed_core_answer_offers_none(core, failure):  # QA observation 5
+    c, fake = core
+    fake.providers = lambda: (_ for _ in ()).throw(failure)
+    answer = c.get("/aegis/api/phrases/providers")
+    assert answer.status_code == 200
+    assert not any(p["available"] for p in answer.json()["providers"])
+    assert "could not say which providers are available" in answer.json()["message"]
+
+
+def test_a_failed_availability_check_says_so(core):  # QA observation 5
+    c, fake = core
+    fake.error = CoreReadingError(500, "failed", "boom")
+    message = c.get("/aegis/api/phrases/providers").json()["message"]
+    assert message == "Core could not say which providers are available: boom"
+
+
 def test_learn_list_and_remove_routes(core):
     c, fake = core
     learned = c.post(

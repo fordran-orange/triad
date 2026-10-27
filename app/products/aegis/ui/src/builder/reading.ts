@@ -8,14 +8,15 @@ const NAMES: Record<string, string> = { anthropic: 'Claude', openai: 'Codex', xa
 
 /** The selector's options: only the providers Core can route a reading to now. The remembered
  * provider is selected when offered, else the first offered (the remembered one stays stored
- * until the operator picks); none while the list has not arrived or none is offered. */
+ * until the operator picks); none while the list has not arrived or none is offered. `ai` is
+ * false only once the list says none is offered: then only the phrase reader reads. */
 export function readerSelection(
   choices: ReaderChoice[] | null,
   remembered: ReaderProvider,
-): { options: ReaderChoice[]; selected: ReaderProvider | null } {
+): { options: ReaderChoice[]; selected: ReaderProvider | null; ai: boolean } {
   const options = (choices ?? []).filter((c) => c.available);
   const selected = options.some((c) => c.id === remembered) ? remembered : (options[0]?.id ?? null);
-  return { options, selected };
+  return { options, selected, ai: choices === null || selected !== null };
 }
 
 export function providerName(provider: string | null | undefined): string {

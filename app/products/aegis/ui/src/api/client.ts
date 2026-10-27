@@ -317,8 +317,8 @@ export const api = {
   strategyDocument: (id: string) => request<StrategyDocument>(doc(id)),
   createStrategy: (name: string, spec: StrategySpec) => request<StrategyDocument>('/strategies', post({ name, spec })),
   updateStrategy: (id: string, patch: { name?: string; spec?: StrategySpec; canvas?: Canvas }) => request<StrategyDocument>(doc(id), put(patch)),
-  readText: (text: string, strategy: StrategySpec, provider?: ReaderProvider, signal?: AbortSignal) =>
-    request<Reading>('/strategies/read', { ...post({ text, strategy, provider }), signal }),
+  readText: (text: string, strategy: StrategySpec, provider?: ReaderProvider, signal?: AbortSignal, ai = true) =>
+    request<Reading>('/strategies/read', { ...post({ text, strategy, provider, ai }), signal }),
   learn: (body: { text: string; rewrite: string; substitutions: { from: string; to: string }[]; provider?: string | null; model?: string | null; run_id?: string | null; strategy: StrategySpec }) =>
     request<{ kept: LearnedPhrase[] }>('/phrases/learn', post(body)),
   readerProviders: () => request<{ providers: ReaderChoice[]; message: string | null }>('/phrases/providers'),

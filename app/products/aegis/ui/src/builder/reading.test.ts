@@ -67,11 +67,15 @@ describe('readerSelection (operator, 2026-10-27: each provider only while Core c
     expect(readerSelection(choices(['CODEX', 'GROK']), 'CLAUDE').selected).toBe('CODEX');
   });
 
-  it('offers none and selects none when Core can route to none', () => {
-    expect(readerSelection(choices([]), 'CLAUDE')).toEqual({ options: [], selected: null });
+  it('offers none, selects none and asks no AI when Core can route to none', () => {
+    expect(readerSelection(choices([]), 'CLAUDE')).toEqual({ options: [], selected: null, ai: false });
   });
 
-  it('offers none while the list has not arrived', () => {
-    expect(readerSelection(null, 'CODEX')).toEqual({ options: [], selected: null });
+  it('offers none while the list has not arrived, but a read may still ask the remembered provider', () => {
+    expect(readerSelection(null, 'CODEX')).toEqual({ options: [], selected: null, ai: true });
+  });
+
+  it('asks the AI whenever a provider is offered', () => {
+    expect(readerSelection(choices(['GROK']), 'CLAUDE').ai).toBe(true);
   });
 });

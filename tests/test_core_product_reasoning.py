@@ -229,7 +229,17 @@ def test_providers_say_what_routing_would_assign_a_reading_now(engine, monkeypat
 
     router.evaluate = spy
     monkeypatch.setattr(module, "Routing", lambda _: router)
+
+    def rows():
+        with engine.host.store.connect() as c:
+            return [
+                c.execute(f"SELECT count(*) AS n FROM core.{table}").fetchone()["n"]
+                for table in ("day3_records", "intelligence_records")
+            ]
+
+    before = rows()
     found = module.ProductReasoning(Records(engine.host.store)).providers("aegis")
+    assert rows() == before  # no routing decision, work item or event of any id
     assert found == [
         {"provider": "CLAUDE", "available": True},
         {"provider": "CODEX", "available": True},

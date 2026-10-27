@@ -186,7 +186,12 @@ to Claude and Codex; this restores Grok and applies one rule to all three.
   and whenever it gets focus. The remembered provider is shown when offered, else the first offered
   (the remembered choice is not overwritten until the operator picks). With none offered it shows
   "none available" (`#reader-provider-none`, Core's reason as its title) and Recheck
-  (`#reader-provider-recheck`). A Grok reading reads "Read by Grok · model · tokens".
+  (`#reader-provider-recheck`), and a sentence is read with `ai: false`: only the phrase reader
+  reads it, Core is not asked, and a refusal says no AI provider is available. Overlapping checks
+  keep only the newest answer. A Grok reading reads "Read by Grok · model · tokens".
+- **Known limits (independent QA).** Available reflects routing only: a provider can be offered
+  and the reading still refused when the product is paused, when its CLI was logged out after its
+  last proof, or while another reading holds the product's lease (409). The refusal then says so.
 - **Grok's availability** depends on its provider Test passing: it was failing because the
   compatibility check allowed 1,024 output tokens and grok-4.7 answers with 1,028–1,937; that budget
   fix is a separate Core change (branch `core/grok-test-budget`).
