@@ -3,7 +3,8 @@
 One small JSON file beside the saved runs (`data/aegis/preferences.json`). `save_runs` says
 whether every backtest is saved ("every", the default) or only the runs the operator keeps
 ("kept"); `reader_provider` (Mission 14) who reads a sentence the phrase reader cannot ("CLAUDE",
-the default, or "CODEX"). An unreadable file reads as the defaults; nothing else is stored here.
+the default, "CODEX" or "GROK"). An unreadable file reads as the defaults; nothing else is stored
+here.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from products.aegis.data import DATA_ROOT
 from products.aegis.runs import _retry
 
 SAVE_MODES = ("every", "kept")
-READER_PROVIDERS = ("CLAUDE", "CODEX")  # the CLIs the operator enabled (2026-10-26)
+READER_PROVIDERS = ("CLAUDE", "CODEX", "GROK")  # offered only while Core can route to them
 DEFAULTS = {"save_runs": "every", "reader_provider": "CLAUDE"}
 
 

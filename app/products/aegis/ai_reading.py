@@ -11,7 +11,9 @@ from products.aegis.core_client import CoreReadingError
 from products.aegis.phrases import Reading, Unread, grammar_text, read
 from products.aegis.strategy import StrategySpec
 
-PROVIDERS = {"CLAUDE": "Claude", "CODEX": "Codex"}  # the CLIs the operator enabled (2026-10-26)
+# The subscription CLIs; each is offered only while Core can route a reading to it (operator,
+# 2026-10-27: "grok should be an option if available").
+PROVIDERS = {"CLAUDE": "Claude", "CODEX": "Codex", "GROK": "Grok"}
 OUTPUT_SCHEMA = {
     "type": "object",
     "required": ["rewrite", "substitutions", "unsupported"],
@@ -91,6 +93,22 @@ def _explain(exc: CoreReadingError, name: str) -> tuple[str, str]:
     return exc.reason, f"{name} could not read this: {detail}"
 
 
+def available_providers(client) -> dict:
+    """Each provider with whether Core can route a reading to it now; when Core cannot say, none
+    is available and the message says why."""
+    try:
+        routable = {p["provider"] for p in client.providers() if p.get("available") is True}
+        message = None
+    except CoreReadingError as exc:
+        routable, message = set(), _explain(exc, "The AI")[1]
+    return {
+        "providers": [
+            {"id": p, "name": name, "available": p in routable} for p, name in PROVIDERS.items()
+        ],
+        "message": message,
+    }
+
+
 def read_with_ai(
     text: str, strategy: StrategySpec, provider: str, client, examples: list[dict]
 ) -> Reading:
@@ -124,4 +142,11 @@ def read_with_ai(
     )
 
 
-__all__ = ["OUTPUT_SCHEMA", "PROVIDERS", "AIUnread", "instructions", "read_with_ai"]
+__all__ = [
+    "OUTPUT_SCHEMA",
+    "PROVIDERS",
+    "AIUnread",
+    "available_providers",
+    "instructions",
+    "read_with_ai",
+]

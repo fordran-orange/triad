@@ -30,6 +30,11 @@ class NoCore:
 
         raise CoreReadingError(503, "not_issued", "no product key issued")
 
+    def providers(self):
+        from products.aegis.core_client import CoreReadingError
+
+        raise CoreReadingError(503, "not_issued", "no product key issued")
+
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):

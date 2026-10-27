@@ -87,7 +87,8 @@ class ReadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str = Field(min_length=1, max_length=2_000)
     strategy: StrategySpec
-    provider: Literal["CLAUDE", "CODEX"] | None = None  # Mission 14: who reads what this cannot
+    # Mission 14: who reads what this cannot
+    provider: Literal["CLAUDE", "CODEX", "GROK"] | None = None
 
 
 class Reading(BaseModel):

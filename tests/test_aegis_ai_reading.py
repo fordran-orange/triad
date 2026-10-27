@@ -33,6 +33,14 @@ class FakeCore:
             "unsupported": "",
         }
         self.error = error
+        self.available = {"CLAUDE", "CODEX"}
+
+    def providers(self):
+        if self.error:
+            raise self.error
+        return [
+            {"provider": p, "available": p in self.available} for p in ("CLAUDE", "CODEX", "GROK")
+        ]
 
     def reason(self, provider, instructions, input, output_schema):
         self.calls.append(
@@ -162,7 +170,76 @@ def test_the_provider_is_remembered(core):
     assert c.get("/aegis/api/preferences").json()["reader_provider"] == "CODEX"
     c.post("/aegis/api/strategies/read", json=body(UNREADABLE))
     assert fake.calls[0]["provider"] == "CODEX"
-    assert c.put("/aegis/api/preferences", json={"reader_provider": "GROK"}).status_code == 422
+    assert c.put("/aegis/api/preferences", json={"reader_provider": "GROK"}).status_code == 200
+    assert c.get("/aegis/api/preferences").json()["reader_provider"] == "GROK"
+    assert c.put("/aegis/api/preferences", json={"reader_provider": "OPENAI"}).status_code == 422
+
+
+def test_grok_reads_when_chosen(core):  # operator, 2026-10-27
+    c, fake = core
+    answer = c.post("/aegis/api/strategies/read", json=body(UNREADABLE, provider="GROK"))
+    assert answer.status_code == 200, answer.text
+    assert fake.calls[0]["provider"] == "GROK"
+
+
+def test_the_providers_are_the_ones_core_can_route_now(core):
+    c, _ = core
+    answer = c.get("/aegis/api/phrases/providers")
+    assert answer.status_code == 200
+    assert answer.json() == {
+        "providers": [
+            {"id": "CLAUDE", "name": "Claude", "available": True},
+            {"id": "CODEX", "name": "Codex", "available": True},
+            {"id": "GROK", "name": "Grok", "available": False},
+        ],
+        "message": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("error", "words"),
+    [
+        (CoreReadingError(503, "not_issued", "no product key issued"), "AI reading is not set up"),
+        (
+            CoreReadingError(503, "core_unavailable", "Core is not answering"),
+            "Core is not answering",
+        ),
+    ],
+)
+def test_without_core_no_provider_is_available(core, error, words):
+    c, fake = core
+    fake.error = error
+    answer = c.get("/aegis/api/phrases/providers").json()
+    assert [(p["id"], p["available"]) for p in answer["providers"]] == [
+        ("CLAUDE", False),
+        ("CODEX", False),
+        ("GROK", False),
+    ]
+    assert words in answer["message"]
+
+
+def test_the_client_asks_core_with_the_product_key(monkeypatch):
+    import io
+    import json
+
+    from products.aegis import core_client
+
+    with pytest.raises(CoreReadingError) as caught:
+        core_client.CoreReasoning(key="short").providers()
+    assert caught.value.reason == "not_issued"
+    seen = []
+
+    def urlopen(request, timeout):
+        seen.append((request.full_url, request.get_method(), request.get_header("Authorization")))
+        listed = [{"provider": "GROK", "available": True}]
+        return io.BytesIO(json.dumps({"providers": listed}).encode())
+
+    monkeypatch.setattr(core_client.urllib.request, "urlopen", urlopen)
+    listed = core_client.CoreReasoning(base="http://core", key="k" * 48).providers()
+    assert listed == [{"provider": "GROK", "available": True}]
+    assert seen == [
+        ("http://core/api/core/products/aegis/reasoning/providers", "GET", "Bearer " + "k" * 48)
+    ]
 
 
 def test_learn_list_and_remove_routes(core):

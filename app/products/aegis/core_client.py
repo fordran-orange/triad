@@ -13,6 +13,7 @@ import urllib.request
 
 CORE_URL = os.environ.get("AEGIS_CORE_URL", "http://127.0.0.1:8000")
 TIMEOUT_SECONDS = 125.0  # Core's own limit is 120 s
+LIST_SECONDS = 15.0  # which providers are available: a routing check, no model run
 MIN_KEY = 32
 
 
@@ -31,23 +32,32 @@ class CoreReasoning:
         self.key = key
 
     def reason(self, provider: str, instructions: str, input: str, output_schema: dict) -> dict:
+        body = {
+            "provider": provider,
+            "instructions": instructions,
+            "input": input,
+            "output_schema": output_schema,
+        }
+        return self._call("POST", "/reasoning", body, TIMEOUT_SECONDS)
+
+    def providers(self) -> list[dict]:
+        """Which providers Core would route a reading to now: [{"provider", "available"}]."""
+        return self._call("GET", "/reasoning/providers", None, LIST_SECONDS)["providers"]
+
+    def _call(self, method: str, path: str, body: dict | None, timeout: float) -> dict:
         if len(self.key) < MIN_KEY:
             raise CoreReadingError(503, "not_issued", "no product key issued")
+        headers = {"Authorization": "Bearer " + self.key}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
         request = urllib.request.Request(
-            f"{self.base}/api/core/products/aegis/reasoning",
-            data=json.dumps(
-                {
-                    "provider": provider,
-                    "instructions": instructions,
-                    "input": input,
-                    "output_schema": output_schema,
-                }
-            ).encode("utf-8"),
-            headers={"Content-Type": "application/json", "Authorization": "Bearer " + self.key},
-            method="POST",
+            f"{self.base}/api/core/products/aegis{path}",
+            data=json.dumps(body).encode("utf-8") if body is not None else None,
+            headers=headers,
+            method=method,
         )
         try:
-            with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
             try:

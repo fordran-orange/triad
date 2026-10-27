@@ -26,7 +26,7 @@ from products.aegis import display, phrases
 from products.aegis import experiments as experiments_module
 from products.aegis import optimize as optimize_module
 from products.aegis import studies as studies_module
-from products.aegis.ai_reading import AIUnread, read_with_ai
+from products.aegis.ai_reading import AIUnread, available_providers, read_with_ai
 from products.aegis.backtest import (
     MIN_BARS,
     BacktestRequest,
@@ -337,7 +337,7 @@ class BacktestBody(BacktestRequest):
 class PreferencesBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     save_runs: Literal["every", "kept"] | None = None
-    reader_provider: Literal["CLAUDE", "CODEX"] | None = None  # Mission 14
+    reader_provider: Literal["CLAUDE", "CODEX", "GROK"] | None = None  # Mission 14
 
 
 @router.get("/preferences")
@@ -835,6 +835,13 @@ def learn_phrases(body: LearnBody, learned: LearnedPhrases = LEARNED):
     provenance = {"provider": body.provider, "model": body.model, "run_id": body.run_id}
     kept = learned.learn(body.text, body.rewrite, body.substitutions, provenance, body.strategy)
     return {"kept": kept}
+
+
+@router.get("/phrases/providers")
+def reader_providers(core: CoreReasoning = CORE):
+    """Mission 14: the providers the builder may offer, each only while Core can route a reading
+    to it (operator, 2026-10-27)."""
+    return available_providers(core)
 
 
 @router.get("/phrases/learned")

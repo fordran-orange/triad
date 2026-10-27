@@ -35,8 +35,9 @@ def test_the_reader_provider_is_remembered(tmp_path):  # Mission 14
     assert prefs.get() == {"save_runs": "kept", "reader_provider": "CLAUDE"}  # an older file
     assert prefs.set(reader_provider="CODEX") == {"save_runs": "kept", "reader_provider": "CODEX"}
     assert prefs.set("every") == {"save_runs": "every", "reader_provider": "CODEX"}
+    assert prefs.set(reader_provider="GROK")["reader_provider"] == "GROK"  # operator, 2026-10-27
     with pytest.raises(ValueError, match="reader_provider"):
-        prefs.set(reader_provider="GROK")  # only the enabled CLIs (operator, 2026-10-26)
+        prefs.set(reader_provider="OPENAI")
 
 
 def test_unsaved_runs_keep_only_the_last_20():
