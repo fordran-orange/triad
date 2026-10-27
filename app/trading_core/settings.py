@@ -26,3 +26,5 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen3:4b"
     local_model_enabled: bool = False
     triad_operator_token: SecretStr = SecretStr("")
+    # Mission 14: a product worker's key for its read-only reasoning route; never the operator token.
+    aegis_product_key: SecretStr = SecretStr("")

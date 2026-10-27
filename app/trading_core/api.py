@@ -347,6 +347,10 @@ from trading_core.conversation_api import router as conversation_router
 
 app.include_router(conversation_router)
 
+from trading_core.product_reasoning_api import router as product_reasoning_router
+
+app.include_router(product_reasoning_router)
+
 
 @app.get("/launch", include_in_schema=False)
 def launchpad():

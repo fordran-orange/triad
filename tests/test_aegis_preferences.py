@@ -14,16 +14,30 @@ def test_preferences_default_and_round_trip(tmp_path):
     from products.aegis.preferences import Preferences
 
     prefs = Preferences(tmp_path)
-    assert prefs.get() == {"save_runs": "every"}
-    assert prefs.set("kept") == {"save_runs": "kept"}
-    assert Preferences(tmp_path).get() == {"save_runs": "kept"}
+    assert prefs.get() == {"save_runs": "every", "reader_provider": "CLAUDE"}
+    assert prefs.set("kept") == {"save_runs": "kept", "reader_provider": "CLAUDE"}
+    assert Preferences(tmp_path).get() == {"save_runs": "kept", "reader_provider": "CLAUDE"}
     assert json.loads((tmp_path / "preferences.json").read_text(encoding="utf-8")) == {
-        "save_runs": "kept"
+        "save_runs": "kept",
+        "reader_provider": "CLAUDE",
     }
     with pytest.raises(ValueError, match="save_runs"):
         prefs.set("sometimes")
     (tmp_path / "preferences.json").write_text("{broken", encoding="utf-8")
-    assert Preferences(tmp_path).get() == {"save_runs": "every"}  # unreadable: the default
+    assert Preferences(tmp_path).get() == {"save_runs": "every", "reader_provider": "CLAUDE"}
+
+
+def test_the_reader_provider_is_remembered(tmp_path):  # Mission 14
+    from products.aegis.preferences import Preferences
+
+    prefs = Preferences(tmp_path)
+    (tmp_path / "preferences.json").write_text('{"save_runs": "kept"}', encoding="utf-8")
+    assert prefs.get() == {"save_runs": "kept", "reader_provider": "CLAUDE"}  # an older file
+    assert prefs.set(reader_provider="CODEX") == {"save_runs": "kept", "reader_provider": "CODEX"}
+    assert prefs.set("every") == {"save_runs": "every", "reader_provider": "CODEX"}
+    assert prefs.set(reader_provider="GROK")["reader_provider"] == "GROK"  # operator, 2026-10-27
+    with pytest.raises(ValueError, match="reader_provider"):
+        prefs.set(reader_provider="OPENAI")
 
 
 def test_unsaved_runs_keep_only_the_last_20():
@@ -49,9 +63,9 @@ def kept(client):  # noqa: F811
     c, _, repository = client
     unsaved = UnsavedRuns()
     server.app.dependency_overrides[api.get_unsaved] = lambda: unsaved
-    assert c.get("/aegis/api/preferences").json() == {"save_runs": "every"}
+    assert c.get("/aegis/api/preferences").json()["save_runs"] == "every"
     switched = c.put("/aegis/api/preferences", json={"save_runs": "kept"})
-    assert switched.status_code == 200 and switched.json() == {"save_runs": "kept"}
+    assert switched.status_code == 200 and switched.json()["save_runs"] == "kept"
     return c, repository
 
 
@@ -185,7 +199,7 @@ def test_preferences_survive_a_file_held_by_another_reader(tmp_path, monkeypatch
         return real_read(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "replace", replace)
-    assert prefs.set("kept") == {"save_runs": "kept"} and refusals["replace"] == 0
+    assert prefs.set("kept")["save_runs"] == "kept" and refusals["replace"] == 0
     monkeypatch.setattr(Path, "read_text", read_text)
-    assert prefs.get() == {"save_runs": "kept"} and refusals["read"] == 0  # not the default
+    assert prefs.get()["save_runs"] == "kept" and refusals["read"] == 0  # not the default
     assert not list(tmp_path.glob("*.tmp"))

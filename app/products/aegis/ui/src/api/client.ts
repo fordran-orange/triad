@@ -144,8 +144,30 @@ export interface IndicatorsResponse {
 /** Whether every backtest is saved or only what the operator keeps (Mission 10). */
 export type SaveMode = 'every' | 'kept';
 
+/** Who reads a sentence the phrase reader cannot (Mission 14): the subscription CLIs, each offered
+ * only while Core can route a reading to it (operator, 2026-10-27). */
+export type ReaderProvider = 'CLAUDE' | 'CODEX' | 'GROK';
+
+/** A reader provider and whether Core can route a reading to it now. */
+export interface ReaderChoice {
+  id: ReaderProvider;
+  name: string;
+  available: boolean;
+}
+
 export interface Preferences {
   save_runs: SaveMode;
+  reader_provider: ReaderProvider;
+}
+
+/** A learned phrase (Mission 14): kept from an applied AI reading, removable. */
+export interface LearnedPhrase {
+  id: string;
+  from: string;
+  to: string;
+  learned_at: string;
+  example: string;
+  provider: string | null;
 }
 
 /** The candles a chart asks for (Mission 10): at most `maxBars` over [from, to] epoch ms. */
@@ -270,6 +292,7 @@ export const api = {
   keepRun: (id: string) => request<{ saved: string }>(`/runs/${encodeURIComponent(id)}/keep`, post({})),
   preferences: () => request<Preferences>('/preferences'),
   setPreferences: (save_runs: SaveMode) => request<Preferences>('/preferences', put({ save_runs })),
+  setReaderProvider: (reader_provider: ReaderProvider) => request<Preferences>('/preferences', put({ reader_provider })),
   optimizePlan: (body: OptimizeBody) => request<OptimizePlan>('/optimize/plan', post(body)),
   optimize: (body: OptimizeBody) => request<OptimizeStarted>('/optimize', post(body)),
   optimizations: () => request<JobSummary[]>('/optimize'),
@@ -294,7 +317,13 @@ export const api = {
   strategyDocument: (id: string) => request<StrategyDocument>(doc(id)),
   createStrategy: (name: string, spec: StrategySpec) => request<StrategyDocument>('/strategies', post({ name, spec })),
   updateStrategy: (id: string, patch: { name?: string; spec?: StrategySpec; canvas?: Canvas }) => request<StrategyDocument>(doc(id), put(patch)),
-  readText: (text: string, strategy: StrategySpec) => request<Reading>('/strategies/read', post({ text, strategy })),
+  readText: (text: string, strategy: StrategySpec, provider?: ReaderProvider, signal?: AbortSignal, ai = true) =>
+    request<Reading>('/strategies/read', { ...post({ text, strategy, provider, ai }), signal }),
+  learn: (body: { text: string; rewrite: string; substitutions: { from: string; to: string }[]; provider?: string | null; model?: string | null; run_id?: string | null; strategy: StrategySpec }) =>
+    request<{ kept: LearnedPhrase[] }>('/phrases/learn', post(body)),
+  readerProviders: () => request<{ providers: ReaderChoice[]; message: string | null }>('/phrases/providers'),
+  learned: () => request<LearnedPhrase[]>('/phrases/learned'),
+  removeLearned: (id: string) => request<{ removed: string }>(`/phrases/learned/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   duplicateStrategy: (id: string, name: string) => request<StrategyDocument>(doc(id) + '/duplicate', post({ name })),
   deleteStrategy: (id: string) => request<{ deleted: string }>(doc(id), { method: 'DELETE' }),
   experimentPlan: (body: ExperimentBody) => request<Plan>('/experiments/plan', post(body)),
