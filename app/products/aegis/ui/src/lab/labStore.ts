@@ -140,7 +140,7 @@ export function labReducer(state: LabState, action: LabAction): LabState {
       return { ...state, filter: { ...state.filter, values: { ...state.filter.values, [action.path]: action.value } } };
     }
     case 'SELECT_TRIALS':
-      return { ...state, selected: { trials: action.ids } };
+      return { ...state, selected: action.ids.length > 0 ? { trials: action.ids } : null }; // an empty selection is no selection
     case 'SELECT_SQUARE':
       return { ...state, selected: { square: { x: action.x, y: action.y } } };
     case 'CLEAR_SELECTION':
@@ -163,8 +163,9 @@ export function labReducer(state: LabState, action: LabAction): LabState {
       return { ...state, pins };
     }
     case 'MOVE_CURSOR': {
-      const from = state.cursor ?? { r: 0, c: 0 };
-      return { ...state, cursor: { r: clamp(from.r + action.dr, action.rows), c: clamp(from.c + action.dc, action.cols) } };
+      // The first key press only makes the cursor appear at (0, 0); later presses move it.
+      if (state.cursor === null) return { ...state, cursor: { r: 0, c: 0 } };
+      return { ...state, cursor: { r: clamp(state.cursor.r + action.dr, action.rows), c: clamp(state.cursor.c + action.dc, action.cols) } };
     }
     case 'ESCAPE': {
       if (Object.keys(state.filter.ranges).length > 0 || Object.keys(state.filter.values).length > 0) {

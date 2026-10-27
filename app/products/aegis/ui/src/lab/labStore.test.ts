@@ -198,6 +198,14 @@ describe('labReducer selection', () => {
     expect(next.selected).toEqual({ trials: ['t1', 't2'] });
   });
 
+  it('SELECT_TRIALS with an empty list sets selected to null, the same as CLEAR_SELECTION', () => {
+    const before = state({ selected: { trials: ['t1'] }, pins: { A: 't1' } });
+    const next = labReducer(before, { type: 'SELECT_TRIALS', ids: [] });
+    expect(next.selected).toBeNull();
+    expect(next).toEqual(labReducer(before, { type: 'CLEAR_SELECTION' }));
+    expect(labReducer(state({ selected: { square: { x: 1, y: 2 } } }), { type: 'SELECT_TRIALS', ids: [] }).selected).toBeNull();
+  });
+
   it('SELECT_SQUARE selects the square', () => {
     const next = labReducer(initialLabState, { type: 'SELECT_SQUARE', x: 3, y: 4 });
     expect(next.selected).toEqual({ square: { x: 3, y: 4 } });
@@ -273,14 +281,19 @@ describe('labReducer PIN and UNPIN', () => {
 });
 
 describe('labReducer MOVE_CURSOR', () => {
-  it('starts at (0, 0) when the cursor is null and applies the step', () => {
-    const next = labReducer(initialLabState, { type: 'MOVE_CURSOR', dr: 1, dc: 2, rows: 5, cols: 5 });
-    expect(next.cursor).toEqual({ r: 1, c: 2 });
+  it('lands on (0, 0) from a null cursor whatever the step is', () => {
+    for (const [dr, dc] of [[1, 2], [0, 0], [-3, 4], [5, 5]]) {
+      const next = labReducer(initialLabState, { type: 'MOVE_CURSOR', dr, dc, rows: 5, cols: 5 });
+      expect(next.cursor).toEqual({ r: 0, c: 0 });
+    }
   });
 
-  it('stays at (0, 0) for a zero step from null', () => {
-    const next = labReducer(initialLabState, { type: 'MOVE_CURSOR', dr: 0, dc: 0, rows: 5, cols: 5 });
-    expect(next.cursor).toEqual({ r: 0, c: 0 });
+  it('the first ArrowDown from nothing lands on row 0, col 0; the second lands on row 1', () => {
+    const down = { type: 'MOVE_CURSOR', dr: 1, dc: 0, rows: 5, cols: 5 } as const;
+    const first = labReducer(initialLabState, down);
+    expect(first.cursor).toEqual({ r: 0, c: 0 });
+    const second = labReducer(first, down);
+    expect(second.cursor).toEqual({ r: 1, c: 0 });
   });
 
   it('moves relative to the current cursor', () => {
@@ -299,7 +312,7 @@ describe('labReducer MOVE_CURSOR', () => {
   });
 
   it('clamps to (0, 0) when there are no rows or columns', () => {
-    const next = labReducer(initialLabState, { type: 'MOVE_CURSOR', dr: 1, dc: 1, rows: 0, cols: 0 });
+    const next = labReducer(state({ cursor: { r: 2, c: 2 } }), { type: 'MOVE_CURSOR', dr: 1, dc: 1, rows: 0, cols: 0 });
     expect(next.cursor).toEqual({ r: 0, c: 0 });
   });
 });
