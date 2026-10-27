@@ -51,6 +51,9 @@ def strict_schema(schema):
             if k not in {"default", "format", "minimum", "maximum", "minLength", "maxLength"}
         }
         if schema.get("type") == "object":
+            # Strict formatters require properties even for a closed empty object.
+            # Preserve the existing no-additional-fields contract for bare dicts.
+            schema.setdefault("properties", {})
             schema["additionalProperties"] = False
             schema["required"] = list(schema.get("properties", {}))
         return schema
