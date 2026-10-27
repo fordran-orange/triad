@@ -314,6 +314,8 @@ tr.muted td{color:#4f6b80}
 .optlab-page:focus{outline:none}
 /* Nothing in the Lab below 11 px (plan §5 conventions): the shared small classes are lifted inside it. */
 .optlab-page .small,.optlab-page .badge,.optlab-page th,.optlab-page .cell,.optlab-page .section-label{font-size:11px}
+/* Table headers keep 4.5:1 on the Lab's panels: the global #607b90 header colour is 4.14:1 on --panel. */
+.optlab-page th{color:var(--muted)}
 .lab-subnav{border-right:1px solid var(--line);background:#09131d;padding:10px 6px;display:flex;flex-direction:column;gap:3px;overflow:auto;min-height:0}
 .lab-subnav-title{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:2px 10px 8px}
 .lab-subnav button.nav{background:none;border:none;font:inherit;text-align:left;width:100%;cursor:pointer}
@@ -370,6 +372,7 @@ tr.muted td{color:#4f6b80}
 .trial-table th,.trial-table td{padding:0 6px;line-height:20px;white-space:nowrap}
 .trial-table thead th{position:sticky;top:0;z-index:1;background:var(--panel);text-transform:none}
 .trial-table .sort-button{background:none;border:0;color:inherit;font:inherit;padding:0;cursor:pointer}
+.trial-table th[aria-sort=ascending],.trial-table th[aria-sort=descending]{color:var(--text)}
 .trial-table tbody tr[data-trial]{cursor:pointer}
 .trial-table tbody tr[data-trial]:hover td{background:#0f1d2b}
 .trial-table tbody tr[data-trial]:focus{outline:1px solid var(--blue);outline-offset:-1px}
