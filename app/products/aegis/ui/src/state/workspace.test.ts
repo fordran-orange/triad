@@ -418,3 +418,11 @@ describe('the builder in the workspace (Mission 13)', () => {
   });
 });
 
+describe('the Optimization Lab page and its dock hand-off', () => {
+  it('opens the Optimization Lab with a lab focus and clears it', () => {
+    const opened = reducer(initialState, { type: 'SET_PAGE', page: 'optlab', focus: { lab: { source: 'opt:job-1', axes: ['a', 'b'], metric: 'mar' } } });
+    expect(opened.page).toBe('optlab');
+    expect(opened.focus?.lab?.source).toBe('opt:job-1');
+    expect(reducer(opened, { type: 'CLEAR_FOCUS' }).focus).toBeNull();
+  });
+});

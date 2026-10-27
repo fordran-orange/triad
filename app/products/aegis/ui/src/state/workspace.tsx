@@ -12,7 +12,15 @@ export type Side = 'long' | 'short';
 export const SIDES: Side[] = ['long', 'short'];
 export const SIDE_KEY: Record<Side, 'long_side' | 'short_side'> = { long: 'long_side', short: 'short_side' };
 
-export type Page = 'charts' | 'lab' | 'library' | 'experiments';
+export type Page = 'charts' | 'lab' | 'library' | 'experiments' | 'optlab';
+
+/** What the compact dock hands the Optimization Lab: the result to open, and optionally the two
+ *  axes and the metric to look at. `source` is `exp:<experiment_id>` or `opt:<job_id>`. */
+export interface LabFocus {
+  source: string;
+  axes?: [string, string];
+  metric?: string;
+}
 
 /** A deep link the target page consumes once (Mission 9 plan ruling P10). */
 export interface Focus {
@@ -20,6 +28,7 @@ export interface Focus {
   studyId?: string;
   libraryKind?: LibraryKind;
   libraryId?: string;
+  lab?: LabFocus;
 }
 
 export interface Selection {

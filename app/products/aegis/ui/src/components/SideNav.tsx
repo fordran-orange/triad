@@ -8,6 +8,7 @@ const ITEMS: Array<{ label: string; page?: Page; id?: string; disabled?: boolean
   { label: 'Indicators', disabled: true },
   { label: 'Data', disabled: true },
   { label: 'Experiments', page: 'experiments', id: 'nav-experiments' },
+  { label: 'Optimization Lab', page: 'optlab', id: 'nav-optlab' },
   { label: 'Paper Trade', disabled: true },
   { label: 'Settings', disabled: true },
 ];

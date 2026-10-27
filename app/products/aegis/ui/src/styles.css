@@ -308,3 +308,5 @@ tr.muted td{color:#4f6b80}
 .learned-row button{grid-column:2;grid-row:1 / span 2}
 .learned-pair{color:var(--bright)}
 
+/* Optimization Lab v2: the page */
+.optlab-main{min-height:0;min-width:0;overflow:hidden}

@@ -11,6 +11,7 @@ import { SideNav } from './components/SideNav';
 import { StatusStrip } from './components/StatusStrip';
 import { StrategyPanel } from './components/StrategyPanel';
 import { TopBar } from './components/TopBar';
+import { OptLabPage } from './lab/OptLabPage';
 import { loadResultsHeight, saveResultsHeight, clampResultsHeight } from './layout';
 import { TERMINAL_JOB_STATES } from './results';
 import { useDocumentSync } from './state/documents';
@@ -94,7 +95,7 @@ export function App() {
       <SideNav />
       <main
         className={'main' + (page === 'charts' && maximized ? ' results-max' : '')}
-        style={page === 'library' || page === 'lab' ? { gridTemplateRows: 'minmax(0, 1fr)' } : page === 'charts' ? { gridTemplateRows: maximized ? '0px minmax(0, 1fr)' : `minmax(0, 1fr) ${resultsHeight}px` } : undefined}
+        style={page === 'library' || page === 'lab' || page === 'optlab' ? { gridTemplateRows: 'minmax(0, 1fr)' } : page === 'charts' ? { gridTemplateRows: maximized ? '0px minmax(0, 1fr)' : `minmax(0, 1fr) ${resultsHeight}px` } : undefined}
       >
         {page === 'lab' ? (
           <section className="lab-main">
@@ -108,6 +109,10 @@ export function App() {
           <section className="workspace">
             <ExperimentsPage />
             <StrategyPanel />
+          </section>
+        ) : page === 'optlab' ? (
+          <section className="optlab-main">
+            <OptLabPage />
           </section>
         ) : (
           <>
