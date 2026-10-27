@@ -165,3 +165,30 @@ reader's language); separating product workers' secrets (chip `task_1efcb8c1`).
 - **A plausible misreading.** The reader's check, the "Read as" line and Apply-only-by-the-operator
   are the guard; learning rule 4 keeps a misread phrase from generalising silently, and Remove
   undoes it.
+
+## 9. Amendment 2026-10-27: Grok, offered only while available
+
+**Operator:** "grok should be an option if available", then "add Grok to the Mission 14 selector,
+shown only when Core says it's available". The build had narrowed decision 3's Codex/Claude/Grok
+to Claude and Codex; this restores Grok and applies one rule to all three.
+
+- **Core.** `GET /api/core/products/{product}/reasoning/providers`, behind the same product key,
+  answers `{"providers": [{"provider": "CLAUDE" | "CODEX" | "GROK", "available": bool}]}`.
+  Available means Core's routing would assign the product's reading to that provider right now: the
+  reading's own work item and requirements (shared helpers in `product_reasoning.py`, so the check
+  and a reading cannot drift) through `Routing.evaluate`, which `create` reuses and which records
+  nothing. A reading itself is unchanged: an unavailable provider is still refused, never
+  substituted.
+- **Worker.** GROK is accepted in read requests and as the remembered `reader_provider`.
+  `GET /aegis/api/phrases/providers` gives each provider's id, name and availability; when Core
+  cannot say (no key issued, Core not answering) none is available and `message` says why.
+- **Builder.** The selector (`#reader-provider`) lists only the available providers, fetched on load
+  and whenever it gets focus. The remembered provider is shown when offered, else the first offered
+  (the remembered choice is not overwritten until the operator picks). With none offered it shows
+  "none available" (`#reader-provider-none`, Core's reason as its title) and Recheck
+  (`#reader-provider-recheck`). A Grok reading reads "Read by Grok · model · tokens".
+- **Grok's availability** depends on its provider Test passing: it was failing because the
+  compatibility check allowed 1,024 output tokens and grok-4.7 answers with 1,028–1,937; that budget
+  fix is a separate Core change (branch `core/grok-test-budget`).
+- **Acceptance.** Item 101 (selector set to Codex, remembered across a reload) needs Codex
+  available when the walk runs; a Grok item belongs in the walk once Grok is routable.
