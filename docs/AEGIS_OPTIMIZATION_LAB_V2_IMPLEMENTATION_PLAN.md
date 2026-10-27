@@ -1,6 +1,6 @@
 # Aegis Optimization Lab v2: Implementation Plan (Gate 1)
 
-> **Status: PLAN ONLY.** This is for Codex review, then Randall's approval. No implementation is authorized. Nothing in this document was built.
+> **Status: PLAN ONLY.** This is for Codex review, then Randall's approval. No implementation is authorized. Nothing in this document was built. Revised the same day with Randall's answers to the open questions ("Operator decisions", below): the questions are closed, the hard stop is not.
 >
 > When a phase is approved, it gets its own task-level plan in the writing-plans format, executed with superpowers:subagent-driven-development or superpowers:executing-plans. This document fixes the decisions, interfaces, budgets and tests those task plans must follow.
 
@@ -37,6 +37,26 @@
 - `AGENTS.md` and `docs/CORE_CHAT_VISION.md`, including its 2026-10-09 and 2026-10-13 operator corrections.
 - The repository at `main` 042d5c9. Reconnaissance used this worktree and read-only inspection of `C:\Triad`.
 
+## Operator decisions (2026-10-27)
+
+Randall answered the eleven open questions of §14 in this session, before Codex review. They are recorded here and applied through the plan; §14 keeps each question beside its answer.
+
+| # | Decision |
+|---|---|
+| Q1 | No Strategy Gate now ("default"). The UI says `Strategy Gate: not built`; nothing in this plan builds a gate. |
+| Q2 | Sharpe is **per trade** (§7.12), stored beside the hash-bearing metrics, never inside them. |
+| Q3 | HA-MQI, EWO and RocketRSI come **after Phase 4**, each as an indicator kind, combined in a strategy (§11.2). |
+| Q4 | Regimes become a **REGIME indicator** a strategy can add if desired (§11.2). |
+| Q5 | Left to the builder's discretion: the dock keeps best-of-rest (the 2026-10-20 decision stands); the Lab offers best / median / mean / worst. |
+| Q6 | The policy constants and the latency / memory budgets are approved as listed. |
+| Q7 | Lab analytics may run while an experiment job runs. |
+| Q8 | Visual acceptance at both 1672 × 941 and 1440 × 900. |
+| Q9 | The Aegis lint script is committed to the repository (Phase 0). |
+| Q10 | 60 / 20 / 20 selection / validation / final OOS, trailing by bars. |
+| Q11 | Disk for now; test data can be deleted after use. |
+
+Unchanged by these answers: the hard stop. Codex reviews this revision; implementation needs Randall's explicit approval after that review.
+
 ## Global constraints
 
 Every phase implicitly includes these.
@@ -44,7 +64,7 @@ Every phase implicitly includes these.
 **Product boundaries**
 - Exchange stays CLOSED and live trading stays disabled.
 - No broker, order, account or paper-trade path is touched. The designs' `TRADE` mode tab stays disabled.
-- Strategy Gate authority is not changed. **There is no Strategy Gate in the repository today** (§1, finding F1), so any gate is new and needs Randall's decision (Q1).
+- Strategy Gate authority is not changed. **There is no Strategy Gate in the repository today** (§1, finding F1). Randall decided on 2026-10-27 not to build one now (Q1): no phase of this plan builds a gate.
 - AI may explain and propose. It never writes a gate verdict, a variable status, a search-space version or a validation state. Only deterministic code does, after a human action.
 
 **Engine and saved data**
@@ -105,11 +125,11 @@ These are the five inputs or conditions the brief implies but that no single pha
 
 | # | Finding | Consequence for this plan |
 |---|---|---|
-| F1 | **No Strategy Gate exists.** Nothing in `app/products/aegis` or `app/trading_core` computes a gate verdict, validation status, sealed OOS or deployment eligibility. The only "gate" in the UI is `experiment-gate`, the "save or revert the document first" notice in `ExperimentsPage.tsx:109-118`. | Every gate panel, "Send to Validation", "NOT VALIDATED" badge and DSR threshold in screens A–C and F–H has no backend. Phase 7 builds a gate only if Randall chooses it (Q1). Until then the UI says `Strategy Gate: not built`, never `pending`. |
-| F2 | **HA-MQI, EWO and RocketRSI do not exist.** The indicator kinds are EMA, SMA, RSI, ATR, BB, DONCHIAN and MACD (`kinds.py:33-55`). The Mission 6 spec calls HA-MQI "undefined" (`docs/superpowers/specs/2026-10-12-aegis-experiments-design.md:395`). | The "~10 HA-MQI variables" sweep cannot run. Scenarios 2, 14 and 19 use the existing kinds plus synthetic fixtures. New indicators are a separate mission (Q3) with their own definitions and goldens. |
-| F3 | **There is no Sharpe metric.** The metrics are `net_pnl, net_return, cagr, max_drawdown, mar, win_rate, expectancy, profit_factor, trade_count, exposure` × `combined/long/short` (`pool.py:22-34`). Every design ranks by Sharpe. Adding a key inside `backtest._metrics` (`backtest.py:992`) would change `canonical_payload` (`results.py:49-66`), so every new run's `result_hash` would differ from an identical old computation, and `materialize`'s identity check would fail. | Sharpe (and DSR in F) needs a definition and a home **outside** the hash-bearing metrics (Q2). Until then the Lab's default objective is the experiment's own objective. |
-| F4 | **No regimes, no event feed, no IS/validation/OOS partition on experiments.** Event windows are hand-supplied and ANALYZE-only (`temporal.py:1-7`). Experiments run on one range, and all data is `RAW ARCHIVE · NOT RESEARCH-ELIGIBLE` (`data.py:56`, `study_rules.py:45`). Walk-forward (Mission 4) and studies (Mission 8) do have IS/OOS windows. | Regime and FOMC/Earnings controls render as "unavailable", never as neutral (scenario 7). Phase 5 adds partitions. Phase 6 reuses studies for folds. |
-| F5 | **The compact optimizer is a different machine.** It is a per-side grid of ≤ 100,000 cells held in one JSON document (`optimize.py:40-41`). Status sends the best 1,000 cells (`:43`). The matrix square is **best of the rest** (max), not an exact slice or a median (`optimize.py:232-333`). Its objectives are `net_pnl, mar, max_drawdown, trade_count`. Randall chose best-of-rest only on 2026-10-20 ("no median view"). | The dock keeps its job. It gains honest labels (`Aggregated: best of the rest`), an `n` overlay and `Expand Lab`. Adding median/mean/worst to the dock reverses a 2026-10-20 decision (Q5). |
+| F1 | **No Strategy Gate exists.** Nothing in `app/products/aegis` or `app/trading_core` computes a gate verdict, validation status, sealed OOS or deployment eligibility. The only "gate" in the UI is `experiment-gate`, the "save or revert the document first" notice in `ExperimentsPage.tsx:109-118`. | Every gate panel, "Send to Validation", "NOT VALIDATED" badge and DSR threshold in screens A–C and F–H has no backend. Randall chose not to build one now (Q1): the UI says `Strategy Gate: not built`, never `pending`, and the gate's sketch stays in §12 for a later decision. |
+| F2 | **HA-MQI, EWO and RocketRSI do not exist.** The indicator kinds are EMA, SMA, RSI, ATR, BB, DONCHIAN and MACD (`kinds.py:33-55`). The Mission 6 spec calls HA-MQI "undefined" (`docs/superpowers/specs/2026-10-12-aegis-experiments-design.md:395`). | The "~10 HA-MQI variables" sweep cannot run yet. Scenarios 2, 14 and 19 use the existing kinds plus synthetic fixtures until the indicator mission Randall chose (Q3) lands after Phase 4: each as an indicator kind, combined in a reference strategy (§11.2). |
+| F3 | **There is no Sharpe metric.** The metrics are `net_pnl, net_return, cagr, max_drawdown, mar, win_rate, expectancy, profit_factor, trade_count, exposure` × `combined/long/short` (`pool.py:22-34`). Every design ranks by Sharpe. Adding a key inside `backtest._metrics` (`backtest.py:992`) would change `canonical_payload` (`results.py:49-66`), so every new run's `result_hash` would differ from an identical old computation, and `materialize`'s identity check would fail. | Randall chose per-trade Sharpe (Q2): defined in §7.12, computed beside the metrics (never inside `_metrics`), stored as `<scope>.sharpe_trade`. The Lab's default objective stays the experiment's own; trade Sharpe is a selectable Lab metric, and DSR builds on it. |
+| F4 | **No regimes, no event feed, no IS/validation/OOS partition on experiments.** Event windows are hand-supplied and ANALYZE-only (`temporal.py:1-7`). Experiments run on one range, and all data is `RAW ARCHIVE · NOT RESEARCH-ELIGIBLE` (`data.py:56`, `study_rules.py:45`). Walk-forward (Mission 4) and studies (Mission 8) do have IS/OOS windows. | FOMC/Earnings controls render as "feed unavailable", never as neutral (scenario 7). Regimes: Randall chose a REGIME indicator a strategy can add (Q4, §11.2); until a strategy carries it, regime controls say "not in this strategy". Phase 5 adds partitions. Phase 6 reuses studies for folds. |
+| F5 | **The compact optimizer is a different machine.** It is a per-side grid of ≤ 100,000 cells held in one JSON document (`optimize.py:40-41`). Status sends the best 1,000 cells (`:43`). The matrix square is **best of the rest** (max), not an exact slice or a median (`optimize.py:232-333`). Its objectives are `net_pnl, mar, max_drawdown, trade_count`. Randall chose best-of-rest only on 2026-10-20 ("no median view"). | The dock keeps its job. It gains honest labels (`Aggregated: best of the rest`), an `n` overlay and `Expand Lab`. Q5 was left to the builder's discretion: the dock keeps best-of-rest (the 2026-10-20 decision stands), and the Lab offers best / median / mean / worst one click away. |
 | F6 | **Experiments are the right base, with five scale limits:** `MAX_PARAMETERS = 10` (`surface.py:34`); `CHUNK_CELLS = 200` gives 5,000 Parquet files per million trials (`experiments.py:62`); `cells()`, `row()` and `done_cells()` read every chunk on every call (`experiments.py:277-306`); `analysis._columns` converts the whole table to Python lists (`analysis.py:36-47`); `GET /experiments/{id}/cells` re-reads all chunks per request (`api.py:964-988`). | Phase 2 replaces the read path (compaction plus a column cache), keeping the proven write path. Phase 4 lifts the parameter cap to 20 with an identity that survives int64 overflow. |
 | F7 | **Compute is the binding constraint, not storage or queries.** Measured cost is 0.0245–0.0304 ms per cell-bar per worker (the 8 newest 252-cell experiments in `data/aegis/experiments`). With 10 workers × 0.8 efficiency (`surface.py:40-41`), one million trials takes about `bars × 0.94 ms`, or **≈ 1.9 h at 2,000 bars and ≈ 9.4 h at 10,000 bars**. At 200,000 bars it is ≈ 7.8 days. | The Lab shows the funnel's real budget. One million trials is a coarse-timeframe or short-range proposition on this laptop (§9.6), and the UI says so. |
 | F8 | **Every stage-1 trial is already costed.** The kernel applies `commission_per_side` and `slippage_bps` (`backtest.py:435-462`, `strategy.py:426-431`). A trial is a complete metrics-only backtest without trades, markers or envelope. | The funnel's stage 1 is not "cost-unaware". Stage 2 is "full envelope plus cost stress". The UI must not call stage-1 rows "backtests" in counts (brief §3). |
@@ -117,7 +137,7 @@ These are the five inputs or conditions the brief implies but that no single pha
 | F10 | **Chart stack:** Vela 0.8.3 is a time-axis OHLCV chart only, with no heatmap or scatter primitive. Non-price charts are hand-written SVG paths (MainEffects, EquityTab, StudyReport, …). The heatmap is a DOM CSS grid (`Heatmap.tsx`). React Flow 12.12.0 is installed, and pulls d3-zoom/drag/selection/interpolate and zustand. No chart, scale, virtualization or table library is installed. | Lab charts are hand-built Canvas 2D renderers behind a small `lab/charts` boundary, with server-side aggregation (§12). React Flow is reused for the lineage graph (G). Virtualized rows are hand-written. Each alternative library is listed in §12 for a later decision. |
 | F11 | **There are no statistics libraries.** scipy, scikit-learn, statsmodels, duckdb, polars, optuna and plotly are all absent. | All estimators are numpy over Arrow columns (§7), with seeded bootstrap intervals. TPE/Bayesian samplers (Screen D's "TPE + Sobol") are excluded (§13). |
 | F12 | **Work in flight.** Mission 14 (`aegis/ai-reading`, 13 commits ahead of main) touches `ui/src/api/client.ts`, `ui/src/styles.css`, `preferences.py`, `phrases.py` and `tests/test_aegis_api.py`, and adds walk items 98–102 in an uncommitted edit in `C:\Triad`. | Phase 1 starts after Mission 14 merges, or rebases onto it. New walk items start at **103**. |
-| F13 | **The designs are 1440 px wide.** UX Pilot A–H render at 1440 × 1024–1059. The baseline "Workstation" design is 1672 × 1024. The brief asks for 1672 × 941. The walk's viewport is 1600 × 1000 (`browser_workstation.py:4288`). | Visual acceptance runs at **1672 × 941** (the brief) and **1440 × 900** ("slightly narrower desktop"). Q8 asks whether 1440 is the review width. |
+| F13 | **The designs are 1440 px wide.** UX Pilot A–H render at 1440 × 1024–1059. The baseline "Workstation" design is 1672 × 1024. The brief asks for 1672 × 941. The walk's viewport is 1600 × 1000 (`browser_workstation.py:4288`). | Visual acceptance runs at **1672 × 941** (the brief) and **1440 × 900** ("slightly narrower desktop"). Randall chose both widths (Q8). |
 | F14 | **Some design content is illustrative and infeasible here:** a 64-worker cluster and core-hours; TPE sampler; authors "R. Chen" and "A. Patel"; a "signed" audit trail; FX symbols (EURUSD) where the archives are US equities and ETFs (QQQ, SPY, ITOT, …); "Interpolated est." cells. | §4 lists each item and what the product shows instead. |
 | F15 | **Experiments store weaker provenance than runs.** Runs, optimizations and walk-forwards carry the pinned source (`sha256`, `data_hash`, vintage, resampling policy). An experiment stores only the `DataReference` {symbol, timeframe, start, end} (`experiments.py:119`; confirmed on a saved document). No Aegis document records an engine or code version, only `"kernel"`/`"reference"`. Optimization and walk-forward documents record `"kernel" if kernel.AVAILABLE`, not the engine a cell actually used (`optimize.py:532`, `walkforward.py:476`). | Phase 2 pins data provenance and an `engine_build` on new experiments (§6.2). Provenance verification (Screen G) can only be "not recorded" for legacy experiments' data, never "verified". |
 | F16 | **A latent overwrite in today's chunk writer.** `chunks_done` counts *readable* chunk files (`experiments.py:452`, `_readable`), and the next chunk is named `f"{chunks_done:06d}.parquet"` (`experiments.py:286`). If an earlier chunk is unreadable, the next write replaces an existing readable file, and its cells are lost after already being counted as done. Found by reading the code; not reproduced. | Phase 2 names chunks by the highest existing index + 1 and adds a regression test (`test_lab_store::test_unreadable_chunk_never_overwritten`). This touches the existing write path, so the experiment tests run in full. |
@@ -273,10 +293,10 @@ Measured `C:\Triad\data\aegis`, 2026-10-27: **1.5 GB**.
 
 | Assumed | Reality | Plan |
 |---|---|---|
-| Deterministic Strategy Gate that recomputes from raw trades | Absent (F1) | Q1; Phase 7 optional |
-| Sharpe, DSR | Absent (F3) | Q2; Phase 2b if approved |
-| HA-MQI / EWO / RocketRSI, ~10 variables | Absent (F2) | Q3; fixtures meanwhile |
-| Regimes (Trend/Range/HiVol) | Absent | Q4; "unavailable" state |
+| Deterministic Strategy Gate that recomputes from raw trades | Absent (F1) | Q1 = not now; no gate in this plan |
+| Sharpe, DSR | Absent (F3) | Q2 = per trade; Phase 2b (§7.12) |
+| HA-MQI / EWO / RocketRSI, ~10 variables | Absent (F2) | Q3 = indicator mission after Phase 4 (§11.2); fixtures meanwhile |
+| Regimes (Trend/Range/HiVol) | Absent | Q4 = REGIME indicator in that mission; "not in this strategy" meanwhile |
 | FOMC / earnings windows | No feed; ANALYZE-only, hand-supplied | "Feed unavailable" state |
 | Train / Validation / sealed OOS partitions | Not on experiments; WF/studies have IS/OOS windows. Core's Triad-era `trading_core/research/contracts.py:132-171` has `Partition` (training / validation / test) and refuses parameter search on `test` (`research/service.py:565-566`), but Aegis does not import it | Phase 5: Aegis-owned partitions (`selection / validation / final_oos`) mirroring Core's names and its rule. Adopting Core's research contract would be a new product → Core dependency on a contract built for another path, so it is not proposed |
 | Search-space versioning, variable statuses | Absent (`freeze` lever only) | Phase 4 |
@@ -329,15 +349,15 @@ Measured `C:\Triad\data\aegis`, 2026-10-27: **1.5 GB**.
 
 | Design element | Product behaviour |
 |---|---|
-| Sharpe everywhere (A, B, C, E, F, H) | The experiment's objective metric, until Q2 is decided; then `sharpe` appears as a Lab metric |
-| HA-MQI / EWO / RocketRSI parameter names | The strategy's real parameter paths, grouped by indicator family (§5.2) |
+| Sharpe everywhere (A, B, C, E, F, H) | `sharpe_trade` (per trade, not annualized, §7.12) as a Lab metric; the default objective stays the experiment's own |
+| HA-MQI / EWO / RocketRSI parameter names | The strategy's real parameter paths, grouped by indicator family (§5.2); those three kinds arrive with §11.2 |
 | EURUSD / FX pips | The archive symbol and timeframe; slippage in bps, commission per side |
 | "64 workers · 2 stalled · 1 lost", core-hours (D, G) | "N workers on this host"; per-chunk wall time; measured ms per cell-bar; CPU-hours computed as workers × wall time, labelled "on this host" |
 | TPE + Sobol sampler (D, G) | "Grid / Latin hypercube + plateau refinement" with seed |
 | Authors (R. Chen, A. Patel), "signed" audit trail (G) | Single operator; an append-only event log with timestamps; no signatures (§13) |
 | `Interpolated est.` legend cell (B) | Never produced; the label is not shown (no interpolation in scope) |
-| Gate panels, `Send to Validation`, `Promote for validation`, DSR thresholds | Phase 7 only if Q1 = yes; before that a disabled control with `Strategy Gate: not built` |
-| Regime selector, Regime × window grid (B, C, F) | "Regimes: not available" plus the clock windows that exist; event columns "feed unavailable" |
+| Gate panels, `Send to Validation`, `Promote for validation`, DSR thresholds | Not built (Q1): a disabled control labelled `Strategy Gate: not built`; DSR itself is shown as a number with its inputs (§7.12), never as a pass / fail |
+| Regime selector, Regime × window grid (B, C, F) | "Regimes: not in this strategy" until the strategy carries the REGIME indicator (§11.2), then its values; the clock windows that exist; event columns "feed unavailable" |
 | `TRADE` top tab | Present but disabled ("Exchange closed") |
 | "Unseal & confirm once (type ID)" (F) | Phase 5: real, one-time, logged unseal of the final OOS partition for named candidates |
 | Bayesian "surrogate fit failed for regime HiVol" (H) | No surrogate models; errors are the real query or job errors |
@@ -379,12 +399,12 @@ Measured `C:\Triad\data\aegis`, 2026-10-27: **1.5 GB**.
 | Heatmap | `Heatmap` (DOM) | `Heatmap` + `n` badge per square + hatch for untested + legend (Tested / Untested / Selected / Robust plateau) | matrix `values` + `counts` | click → select trial (exact) or square distribution (aggregate) | E: "No two-axis grid for this job" (existing); too many squares (existing notice) |
 | Trial count, progress | job head + progress | unchanged + `PROVISIONAL` while running | job status | Cancel | lost / failed (existing) |
 | Top-10 table | "Parameter sets" table | adds trial number and `Tested` badge; first page = top 10 in the dock | `cells` | row click selects | — |
-| Validation mini panel | — | `Validation: no partition (grid job)` + `Strategy Gate: not built` until Phases 5/7 | — | — | — |
+| Validation mini panel | — | `Validation: no partition (grid job)` until Phase 5; `Strategy Gate: not built` (Q1) | — | — | — |
 | Trellis entry, convergence preview, Walk-Forward entry (§5 corrections) | — | `Trellis (k pairs) ↗` link; 120 × 28 px convergence sparkline (best-so-far by evaluation order); link to Walk-Forward tab | job cells (order) | click → Lab E / WF tab | E: < 10 cells "not enough cells for a trend" |
 | `Expand Lab` | — | primary button → Lab page, `source=opt:<job_id>`, axes/metric/selection carried | — | click | — |
 | Right rail | `StrategyPanel` | unchanged | — | — | — |
 
-\* Median, mean and worst in the dock depend on Q5.
+\* Q5 decided: the dock keeps best-of-rest, labelled; median, mean and worst live in the Lab (§7.2).
 
 ### 5.2 Screen B: Expanded Lab ("Trial Lab")
 
@@ -392,7 +412,7 @@ A new page `'optlab'` is added to `SideNav` as "Optimization Lab", between Exper
 
 | UX region | Planned component | Data source | Events | States |
 |---|---|---|---|---|
-| Context toolbar: strategy, experiment + parent breadcrumb, dataset, regime, window, direction (L / S / Both = scope), independent L/S eval, partition, objectives, run status | `LabContextBar` | experiment document; `GET /lab/{src}/summary` | scope / objective / partition change → store | Regime: "not available". Event windows: "feed unavailable". Partition: "none" for legacy experiments |
+| Context toolbar: strategy, experiment + parent breadcrumb, dataset, regime, window, direction (L / S / Both = scope), independent L/S eval, partition, objectives, run status | `LabContextBar` | experiment document; `GET /lab/{src}/summary` | scope / objective / partition change → store | Regime: "not in this strategy" until the strategy carries REGIME (§11.2). Event windows: "feed unavailable". Partition: "none" for legacy experiments |
 | KPI strip: trials, coverage of valid space, best, median, robust regions, failed | `LabKpiStrip` | `summary.counts` + `summary.headline` | click count → sets filter | P |
 | Parameter rail: search, families (indicator id per side, levels, side), X / Y / fix toggles, range sliders, presets | `ParameterCatalog` (collapsible, searchable; 20 rows fit) | `summary.parameters` (values, types, coverage per value) | set axis; fix value (exact slice); brush range; save preset | E: "no parameters" |
 | Centre tabs: Heatmap · Interaction matrix · Parallel coords · Pareto · Importance · Robust plateaus | `LabHeatmap` (canvas), `InteractionMatrix`, `ParallelCoords`, `ParetoView`, `ImportanceView`, `PlateauView` | `POST /lab/{src}/query` views `matrix`, `interactions`, `parallel`, `pareto`, `importance`, `neighbourhood` | cell click; brush; reorder axes; Maximize (Esc to restore) | per panel L/E/P/X; basis label always visible |
@@ -412,7 +432,7 @@ A new page `'optlab'` is added to `SideNav` as "Optimization Lab", between Exper
 | Equity curves with IS / OOS divider | `CompareEquity` (SVG, as LibraryCompare) | stored 128-point curves when kept (≤ 20,000 planned), else materialize on demand (button, job) | P: "materializing A…" |
 | All parameters (differences highlighted) | `ParamDiff` | trial rows | — |
 | Drawdown, trade return distribution, costs & slippage, temporal windows | reuse `LibraryCompare` parts on materialized runs; costs from stage-2 rows | `GET /runs/{id}`, `GET /lab/{src}/replays` | E: "needs a full run: Materialize" |
-| Regimes · Sharpe | — | — | "Regimes: not available" |
+| Regimes · trade Sharpe | `ScopeTable` by regime | the trades' `regime` tag when the strategy carries REGIME (§11.2) | E: "Regimes: not in this strategy" |
 | Long vs short (independent) | `ScopeTable` | trial rows (long / short / combined) | — |
 | IS vs OOS decay | `DecayTable` | Phase 5 partitions | E: "no partition on this experiment" |
 | Rail: findings, gate, `Queue focused follow-up sweep`, `Send to Validation` | `IntelligenceRail` | — | gate "not built" |
@@ -455,9 +475,9 @@ A new page `'optlab'` is added to `SideNav` as "Optimization Lab", between Exper
 | Stitched fold equity vs selection backtest; fold metric distribution; fold-level metrics | reuse `StudyReport` charts + new `FoldDistribution` | study windows | — |
 | Regime × window | `WindowGrid` | run temporal breakdown (`temporal` tags) | regimes unavailable; windows with n < 30 trades hatched |
 | Neighbourhood persistence by fold | `PersistenceStrip` | study per-window plateau membership | — |
-| OOS decay & multiple testing (decay, trials in selection, raw and deflated Sharpe) | `MultipleTestingPanel` | Q2-dependent | "needs Sharpe (Q2)" |
+| OOS decay & multiple testing (decay, trials in selection, raw and deflated trade Sharpe with its inputs) | `MultipleTestingPanel` | `sharpe_trade` + DSR (§7.12) | E: fewer than 20 trades: "too few trades for a Sharpe" |
 | Sealed final OOS: `Unseal & confirm once (type ID)` | `UnsealDialog` | `POST /lab/{id}/final-oos/unseal` (Phase 5) | irreversible; logged |
-| Gate checks | `GatePanel` | Phase 7 | "not built" |
+| Gate checks | — | — | "Strategy Gate: not built" (Q1) |
 
 ### 5.7 Screen G: History, Lineage & Forensics
 
@@ -470,7 +490,7 @@ A new page `'optlab'` is added to `SideNav` as "Optimization Lab", between Exper
 | Trade-level evidence for a candidate | `TradesTab` reuse, virtualized | materialized run | E: "materialize to see trades" |
 | Provenance with hash verification | `ProvenancePanel` | `POST /lab/{id}/verify`: recompute `strategy_hash` from the pinned spec, re-hash the archive file against `sha256`, and check each named run's `result_hash` by streaming | X: mismatch → "artefact quarantined" (read-only flag, nothing deleted) |
 | Return without losing state | URL hash state + the store | — | — |
-| `Promote for validation`, `Fork new focused sweep` | Phase 7 gate / existing `refine` + Phase 4 `focus` | — | gate "not built" |
+| `Promote for validation`, `Fork new focused sweep` | `Promote` disabled (no gate, Q1) / existing `refine` + Phase 4 `focus` | — | gate "not built" |
 
 ### 5.8 Screen H: Variable Intelligence
 
@@ -546,7 +566,7 @@ These are interfaces only. Bodies are fixed by each phase's task plan.
 | `skip_reason` / `error` | string | — |
 | `attempt` | uint8 | retry count |
 | `<scope>.<metric>` | float64 × 30 | existing metrics, unchanged |
-| `<scope>.sharpe` … | float64 | **only if Q2 approves.** Computed in the pool beside the metrics, never inside `backtest._metrics`, so no `result_hash` moves |
+| `<scope>.sharpe_trade` | float64 | per-trade Sharpe (§7.12), computed in the pool beside the metrics, never inside `backtest._metrics`, so no `result_hash` moves |
 | `elapsed_ms` | float32 | — |
 | `engine` | dictionary\<string\> | `kernel` / `reference` |
 | `chunk` | int32 | commit unit |
@@ -716,6 +736,13 @@ All of these are numpy/pyarrow over projected columns, seeded and pure. The cons
 - Uniform-design rows for importance and interactions.
 - Metrics are in-sample on the selection partition unless the panel says otherwise.
 - Data are raw archives, not research-eligible.
+
+### 7.12 Trade Sharpe and the deflated Sharpe ratio (Q2: per trade)
+
+- **The per-trade return already exists.** Both engines write `ret = net / capital_at_entry` on every trade (`kernel.py:188, 266`; the reference engine's `capital_at_entry`, `backtest.py:455, 463`). Nothing new is computed inside the engines.
+- **`sharpe_trade`** for a scope is `mean(ret) / std(ret, ddof=1)` over that scope's trades; `combined` is both sides' trades merged in exit order. It is null with fewer than 2 trades or zero variance, and flagged `low n` below `SHARPE_MIN_TRADES = 20` (policy). It is **not annualized** and carries the label "trade Sharpe · per trade · not annualized", so strategies with different trade frequencies are not comparable on it, and the panel says so.
+- **Where it is computed:** in the pool worker beside `run_metrics`, from `trades_array[:, 9]` on the kernel path and from each trade's `net_pnl / capital_at_entry` on the reference path, returned as a separate `lab_metrics` dict per scope. It is never added to `backtest._metrics` or `_metrics_arrays`, so `canonical_payload` and every `result_hash` stay as they are. For saved runs the Lab computes it on read from the stored trades.
+- **Deflated Sharpe ratio** (Bailey and López de Prado, 2014), for Screen F's multiple-testing panel: `DSR = Φ((SR − SR₀) · √(N − 1) / √(1 − γ₃·SR + ((γ₄ − 1) / 4)·SR²))`, where SR is the candidate's `sharpe_trade`, N its trade count, γ₃ and γ₄ the skew and kurtosis (not excess) of its `ret`, and `SR₀ = √V · ((1 − γ)·Φ⁻¹(1 − 1/M) + γ·Φ⁻¹(1 − 1/(M·e)))`, with γ the Euler–Mascheroni constant, V the variance of `sharpe_trade` across the experiment's unique completed trials and M their count. Counting every unique trial as independent overstates M and makes DSR conservative; the panel states that beside M, V, N, γ₃ and γ₄. `Φ⁻¹` is Acklam's rational approximation (no scipy), tested against tabulated quantiles to 1e-9. DSR is shown as a number with its inputs, never as a pass / fail (no gate, Q1).
 
 ## 8. Screen H contract: Variable Intelligence and search-space design
 
@@ -932,7 +959,7 @@ Rules:
 
 - **Stage-1 trials:** the existing experiment job (one unfinished job across kinds: `jobs.py`).
 - **Heavy Lab analytics** (bootstrap importance, interaction screen, plateau pass) run as **Lab tasks**: a single-thread executor separate from `JobRunner`, one task at a time. The result is cached per `(experiment, generation, filter_hash, method)` and is cancellable at checkpoints between bootstrap resamples. Status is polled by the view.
-- **Lab tasks never start pool processes.** They share the CPU with a running experiment, and the UI shows "analysis waits while a job runs" when the measured CPU share is above 90 % (Q7: may Lab tasks run concurrently with a job?).
+- **Lab tasks never start pool processes.** Randall decided (Q7) that they run while an experiment job runs: one task at a time, yielding between bootstrap resamples so the job's chunks keep their pace, with the UI showing "sharing CPU with the running job" and the task's own progress.
 - **Progressive results:** each compaction generation is a snapshot. Responses carry `snapshot` and `provisional`. The UI shows `PROVISIONAL · snapshot hh:mm:ss`. A live best-so-far curve is never labelled complete.
 - **Cancellation / pause / resume:** existing behaviour (pause = cancel with pause flag; resume continues from the trials on disk).
 - **New:** `run_log` segments record every start, pause, loss and resume.
@@ -949,7 +976,7 @@ Rules:
 
 ### 9.6 Budgets for approval (pass thresholds proposed for scenario 11)
 
-These are proposed from the §9.1 measurements with about a 3× margin for real data, a busy laptop and HTTP overhead. Randall sets the final values (Q6).
+These come from the §9.1 measurements with about a 3× margin for real data, a busy laptop and HTTP overhead. **Approved by Randall on 2026-10-27 (Q6)** as the scenario 11 pass thresholds, with the §7 policy constants.
 
 | Interaction (1,000,000 completed trials, warm cache) | Budget (p95) |
 |---|---|
@@ -997,6 +1024,7 @@ These are proposed from the §9.1 measurements with about a 3× margin for real 
 - It is not run through the engine (it would take hours).
 - It is marked `DEMO · synthetic` in its name and document.
 - The data root has no override today (§3.4a). Phase 2 therefore adds a product-only `AEGIS_DATA_ROOT` environment override, read in the same places that default to `DATA_ROOT/"data"/"aegis"`. The milestone walk then runs against a **scratch worker on port 8103** holding the fixture (`--base http://127.0.0.1:8103/aegis/`), and the fixture never enters `C:\Triad\data\aegis`.
+- After the milestone the fixture folder is deleted (Q11: test data can be deleted), and the walk report records its size and the deletion. The Lab warns below 10 GB free on the data root's disk.
 
 ## 10. Staged compute funnel
 
@@ -1013,6 +1041,7 @@ These are proposed from the §9.1 measurements with about a 3× margin for real 
 3. A candidate is promoted only by an explicit operator action, recorded with `{from_stage, to_stage, trial_id, at}`. No code path auto-promotes.
 4. **Repeated unsealing for a different candidate set is allowed but counted.** Each unseal increments `final_oos.uses`, the multiple-testing panel shows it, and once `uses > 1` every final-OOS number carries "re-used holdout".
 5. Legacy experiments have no partition. Their views say "no partition: in-sample only", and stages 3–4 are unavailable for them until a partitioned child is created.
+6. **Default partition (Q10):** trailing 60 / 20 / 20 by bars: the first 60 % of the range is selection, the next 20 % validation, the last 20 % final OOS, sealed at experiment creation. The planner shows the three bar counts and dates, and the operator may move the two boundaries before the experiment starts, never after.
 
 ## 11. Phases
 
@@ -1031,14 +1060,15 @@ These are proposed from the §9.1 measurements with about a 3× margin for real 
 
 | Phase | Scope | Touched files (main) | Migrations | Dependencies | Tests (new) | Walk items |
 |---|---|---|---|---|---|---|
-| **0. Decisions and prerequisites** (no code) | Randall reviews A–H and this plan; answers §14; Mission 14 merged; brief copied into `docs/superpowers/specs/`; a repo-tracked lint script `tools/lint_aegis.sh` replacing the scratchpad one (Q9) | docs only | none | none | — | — |
+| **0. Decisions and prerequisites** (no code) | Randall reviews A–H and this plan; answers §14; Mission 14 merged; brief copied into `docs/superpowers/specs/`; a repo-tracked lint script `tools/lint_aegis.sh` replacing the scratchpad one (Q9: yes), which finds the repository root from its own path so it lints the worktree it lives in, not `C:\Triad` | docs only | none | none | — | — |
 | **1. Lab shell** | `optlab` page, sub-nav, Screen B layout with real regions bound to existing experiment endpoints (report main effects, cells page); dock `Expand Lab`; honest "not built" / "unavailable" states; `state/lab.tsx` store; keyboard model | `ui/src/App.tsx`, `SideNav.tsx`, `state/workspace.tsx` (Page), new `ui/src/lab/*` (`LabPage`, `LabContextBar`, `ParameterCatalog`, `TrialTable`, `IntelligenceRail`, `labStore.ts`), `OptimizationTab.tsx`, `styles.css` | none | none | vitest: `labStore` (selection, filter_hash, pins, persistence across sub-views), `trialWindow` (row windowing math) | 103 Lab opens from Expand Lab with axes / metric kept; 104 sub-nav keeps filter and selection; 105 every unavailable control says why; 106 1672 × 941 and 1440 × 900 with no clipped primary control |
-| **2. Trial store and query layer** | layout 2 (trial_no, positions, param_key, status, compaction, manifest); `LabCache`; `/lab` summary / query / trials; views counts, matrix (exact + aggregate), page, top, marginals; optimizer source adapter; `engine_build`; benchmark script; dock `n` overlays and mode label; **2b (if Q2 = yes)**: lab metrics (Sharpe) beside, not inside, the hash-bearing metrics | new `app/products/aegis/lab/{__init__,store,cache,query,sources,policy,identity}.py`; `experiments.py` (layout 2 write, compaction, reader, chunk naming fix F16, `data_pinned`), `api.py` (router include), `runs.py` + `preferences.py` (`AEGIS_DATA_ROOT` override, §9.8), `pool.py` (2b only), `results.py` untouched; `ui/src/lab/LabHeatmap.tsx` (canvas), `Heatmap.tsx` (n overlay, hatch) | none (new layout only for new experiments; legacy untouched) | none | `test_lab_store.py` (compaction torn / idempotent; dedupe; legacy read equals today's `cells()`; `test_unreadable_chunk_never_overwritten`; data root override), `test_lab_query.py` (exact slice empty = untested; aggregate n / IQR; `test_lab_undefined_metric_counts`; `test_lab_query_empty_scope`; filter_hash; count invariants), vitest `labHeatmap` (empty, one-axis, losses-red scale), `test_lab_identity.py` (param_key canonicalization), `tests/products/aegis/lab_benchmark.py`; golden + identity unchanged | 107 exact slice with no match shows untested, no value; 108 aggregate square opens a distribution and cannot be pinned; 109 counts identical across heatmap, table and header |
+| **2. Trial store and query layer** | layout 2 (trial_no, positions, param_key, status, compaction, manifest); `LabCache`; `/lab` summary / query / trials; views counts, matrix (exact + aggregate), page, top, marginals; optimizer source adapter; `engine_build`; benchmark script; dock `n` overlays and mode label; **2b**: `sharpe_trade` per scope beside, not inside, the hash-bearing metrics (§7.12) | new `app/products/aegis/lab/{__init__,store,cache,query,sources,policy,identity}.py`; `experiments.py` (layout 2 write, compaction, reader, chunk naming fix F16, `data_pinned`), `api.py` (router include), `runs.py` + `preferences.py` (`AEGIS_DATA_ROOT` override, §9.8), `pool.py` (2b only), `results.py` untouched; `ui/src/lab/LabHeatmap.tsx` (canvas), `Heatmap.tsx` (n overlay, hatch) | none (new layout only for new experiments; legacy untouched) | none | `test_lab_store.py` (compaction torn / idempotent; dedupe; legacy read equals today's `cells()`; `test_unreadable_chunk_never_overwritten`; data root override), `test_lab_query.py` (exact slice empty = untested; aggregate n / IQR; `test_lab_undefined_metric_counts`; `test_lab_query_empty_scope`; filter_hash; count invariants), vitest `labHeatmap` (empty, one-axis, losses-red scale), `test_lab_identity.py` (param_key canonicalization), `tests/products/aegis/lab_benchmark.py`; golden + identity unchanged | 107 exact slice with no match shows untested, no value; 108 aggregate square opens a distribution and cannot be pinned; 109 counts identical across heatmap, table and header |
 | **3. Linked analytics** | parallel coords (bundles / sample), Pareto, importance + interactions with bootstrap intervals (Lab tasks), neighbourhoods, robust rank, convergence; Screens B tabs and E | `lab/{analytics,neighbours,pareto,parallel,tasks}.py`; `ui/src/lab/{ParallelCoords,ParetoView,ImportanceView,InteractionMatrix,PlateauView,Trellis,NeighbourhoodMap,ConvergenceChart}.tsx`; `ui/src/lab/charts/*` (canvas primitives) | none | none (§12) | `test_lab_analytics.py` (XOR fixture: S_i≈0, S_ij high; conditional triple; refinement rows excluded; interval coverage on a known-variance fixture), `test_lab_neighbours.py` (spike vs plateau; coverage gate), `test_lab_pareto.py` (2-D / 3-D against brute force); vitest for bundle drawing math, brush → filter mapping | 110 brush updates heatmap, table, Pareto and counts coherently; 111 spike vs plateau labelled; 112 20-variable fixture: families, search, trellis, maximize, count-preserving drill-down |
-| **4. Screen H and 20 parameters** | `MAX_PARAMETERS` 10 → 20; identity beyond int64 (positions-based LHS / refine); structural relevance; statuses, events, proposals, apply → child; focus (pair investigation); stale detection | `surface.py` (cap, positions-based sampling), `experiments.py` (focus / child, reuse by `inputs_key`), new `lab/{structure,variables,searchspace}.py`; `ui/src/lab/{VariableIntelligence,InfluenceView,InteractionExplorer,ProposalPanel,EvidenceRail,SpaceContextBar}.tsx` | none (new docs `searchspaces/…`) | none | `test_lab_structure.py` (rules 1–4; active never excluded), `test_lab_variables.py` (transitions, reasons, restore, frozen ≠ excluded, stale on hash / data / range / partition), `test_lab_searchspace.py` (Cartesian before / after as Decimal; apply keeps strategy hash; reuse counted), `test_lab_grid_beyond_int64_keeps_trial_identity`; existing `test_aegis_surface.py` unchanged for ≤ 10 | 113 structural exclusion shows its proof trail; 114 XOR pair survives into Investigate; 115 restore and explore-any-pair in ≤ 2 interactions, filters kept; 116 budget labels "theoretical" |
+| **4. Screen H and 20 parameters** | `MAX_PARAMETERS` 10 → 20; identity beyond int64 (positions-based LHS / refine); structural relevance; statuses, events, proposals, apply → child; focus (pair investigation); stale detection | `surface.py` (cap, positions-based sampling), `experiments.py` (focus / child, reuse by `inputs_key`), new `lab/{structure,variables,searchspace}.py`; `ui/src/lab/{VariableIntelligence,InfluenceView,InteractionExplorer,ProposalPanel,EvidenceRail,SpaceContextBar}.tsx` | none (new docs `searchspaces/…`) | none | `test_lab_structure.py` (rules 1–4; active never excluded), `test_lab_variables.py` (transitions, reasons, restore, frozen ≠ excluded, stale on hash / data / range / partition, `test_ai_note_never_actor`), `test_lab_searchspace.py` (Cartesian before / after as Decimal; apply keeps strategy hash; reuse counted), `test_lab_grid_beyond_int64_keeps_trial_identity`; existing `test_aegis_surface.py` unchanged for ≤ 10 | 113 structural exclusion shows its proof trail; 114 XOR pair survives into Investigate; 115 restore and explore-any-pair in ≤ 2 interactions, filters kept; 116 budget labels "theoretical" |
+| **4b. Indicator mission** (its own spec, §11.2; Q3 + Q4) | `HA_MQI`, `EWO`, `ROCKET_RSI` and `REGIME` kinds; a `regime` tag on trades only when a strategy carries REGIME; a built-in reference strategy combining the first three | `kinds.py`, `indicators.py`, `backtest.py` (tag only when present), `contracts.ts`, builder palette, `strategies.py` built-ins | none | none | one golden per kind; `test_aegis_engine_golden.py`, `builder_identity.py` and every saved strategy hash unchanged | palette and one backtest per kind; scenario 2's real ten-variable sweep |
 | **5. Partitions, funnel and Run Monitor** | experiment partitions; `partitions.bars_for`; stage-2 replays with cost scenarios; per-trial failure isolation + retry-failed; `run_log`; Screen D; Screen C (compare three, materialize on demand); unseal (record only, final runs in stage 4) | `experiments.py`, `pool.py` (error isolation), new `lab/{partitions,replays,monitor}.py`; `ui/src/lab/{RunMonitor,FunnelStrip,CountsHeader,WorkerPanel,CandidateCompare,UnsealDialog}.tsx` | none (additive fields) | none | `test_lab_partitions.py` (screening refuses final; warm-up not scored; promotion only explicit; uses counted), `test_lab_replays.py` (cost scenarios; replay hash = materialize hash), `test_lab_failures.py` (failed trial isolated; retry idempotent; reconciliation invariants) | 117 four-stage funnel boundaries; 118 cancellation + resume + retry reconcile counts; 119 A/B/C ids and values identical in table, heatmap, parallel, charts and export |
 | **6. Walk-forward, lineage and forensics** | Screen F on studies + partitions; Screen G lineage (React Flow), saved views, experiment diff, audit trail, provenance verification, trade evidence | `studies.py` (optional `candidates`), new `lab/{lineage,verify,events,views}.py`; `ui/src/lab/{WalkForwardView,FoldMatrix,LineageGraph,AuditTrail,ProvenancePanel,ExperimentDiff}.tsx` | none | none | `test_lab_lineage.py`, `test_lab_verify.py` (hash mismatch quarantines read-only), `test_lab_events.py` (append-only; reconstructed legacy) | 120 parent → child → trial → candidate with hashes and stable filters; 121 fold matrix, window × leg, sealed-OOS explanation |
-| **7. Strategy Gate (only if Q1 = yes)** | deterministic research gate: policy JSON versioned; recompute metrics from raw trades of a materialized run; check `strategy_hash`, `inputs_key`, data sha; verdict + per-check evidence; `Send to Validation` | new `lab/gate.py` (or Core, see §12); UI `GatePanel` | none | none | `test_lab_gate.py` (recompute equals; tampered trade fails; strategy edit invalidates; AI route cannot write) | 122 validation blocked until gate checks; no AI override |
+| ~~**7. Strategy Gate**~~ | **Dropped (Q1 = not now).** The sketch (a versioned research policy; metrics recomputed from the raw trades of a materialized run; `strategy_hash`, `inputs_key` and data sha checked; a verdict with per-check evidence) stays in §12 for a later decision | — | — | — | — | 122 becomes: validation controls disabled and labelled `not built`; no AI route can write any state |
 | **8. AI explanations (optional, after Mission 14)** | rail "AI explains · gate decides" via Mission 14's Core product-reasoning route; text only; never actor | Aegis caller only if the route fits as-is; **any Core change = shared infrastructure (§12)** | none | none | Aegis tests with a stub route | 123 AI text visibly separate; no state change from AI |
 | **Milestone** | 1M synthetic dataset walk; verify.ps1 on main; independent milestone QA | — | — | — | scenario 11 / 12 timings recorded with the host | full walk |
 
@@ -1049,13 +1079,24 @@ These are proposed from the §9.1 measurements with about a 3× margin for real 
 - `ExperimentDocument` gains optional fields only. `contracts.ts` regenerates (`test_aegis_contracts.py`).
 - Run envelopes, `canonical_payload`, `strategy_hash`, the engine goldens, `builder_identity.py` and `study_identity.py` are unchanged in every phase.
 
+### 11.2 The indicator mission (after Phase 4; its own spec, not a Lab phase)
+
+Randall's answers to Q3 and Q4 add a separate mission between Phase 4 and Phase 5, brainstormed and specified on its own in the pattern of Missions 5 and 13:
+
+- **Four indicator kinds** in `kinds.py` and `indicators.py`: `HA_MQI`, `EWO`, `ROCKET_RSI` and `REGIME`. Each declares its outputs, pane, inputs, default length, warm-up, parameters and integer parameters exactly as the existing kinds do, so the surface, the grid validity tables, the contracts and the builder pick them up without any Lab change.
+- **Definitions are pinned in that mission's spec, not here.** EWO and RocketRSI have published sources to verify there (EWO: the 5 / 35-period oscillator of median price; RocketRSI: John Ehlers, *Technical Analysis of Stocks & Commodities*, May 2018). HA-MQI is not a published standard that I can verify: Randall supplies its definition. REGIME is deterministic from price alone, with numeric outputs so rules can reference them (trend / range and a volatility tercile are the candidates); its exact definition is that mission's first design question.
+- **A `regime` tag on trades** (the REGIME value at entry), written only when the strategy carries a REGIME indicator, in the pattern of Mission 13's `exit_reason`: every existing strategy's trades serialize byte-identically, so no stored hash moves. The Lab's regime × window breakdowns (C, F) read that tag.
+- **A reference strategy** combining HA-MQI, EWO and RocketRSI on both sides with about ten ranged parameters, saved as a built-in document beside `ema9-sma30-cross-v1`, so scenario 2's real ten-variable sweep and Screen H's reading of those three run on real data.
+- **Tests:** one golden per kind against a hand-computed fixture; `test_aegis_engine_golden.py`, `builder_identity.py` and every saved strategy hash unchanged; contracts regenerated; walk items for the builder palette and one backtest per kind.
+- **Blast radius:** Aegis-only. Phase 5 may run on its own branch beside it, since they touch different files; the Lab's regime states switch from "not in this strategy" to live once a strategy carries REGIME.
+
 ## 12. Shared-infrastructure register and dependency reviews
 
 Under `AGENTS.md`, no item in Phases 1–6 is shared infrastructure. All of it is under `app/products/aegis/`, its tests and its docs. The following items **would** be shared infrastructure; each needs the named Core tests and independent QA.
 
 | Item | Why shared | If chosen: Core tests | QA |
 |---|---|---|---|
-| A Strategy Gate owned by Core (Q1 option b) | governance / contract that products consume | `TRIAD_PYTEST_SCOPE=core .venv/Scripts/python.exe -m pytest -q -p no:cacheprovider` over the new module + `tests/test_architecture.py` + `tests/test_product_*` isolation tests | independent QA + Core governance review |
+| A Strategy Gate owned by Core (Q1 option b; not chosen on 2026-10-27, kept for a later decision) | governance / contract that products consume | `TRIAD_PYTEST_SCOPE=core .venv/Scripts/python.exe -m pytest -q -p no:cacheprovider` over the new module + `tests/test_architecture.py` + `tests/test_product_*` isolation tests | independent QA + Core governance review |
 | Any gate output read by a paper / live path | live-money / risk limits | n/a (excluded: Exchange CLOSED) | — |
 | Any change to Mission 14's Core route for Phase 8 | provider authority / shared contract | `tests/test_core_product_reasoning*.py`, `tests/test_intelligence_routing.py` | independent QA |
 | A new Python package (e.g. scipy, duckdb) | environment-level: both lock files + Core-owned `tests/test_environments.py:31,45-46` | `tests/test_environments.py`, `tests/test_pytest_scope.py`, `tools\verify.ps1` all scopes | measured blocker surfaced first |
@@ -1083,9 +1124,8 @@ Under `AGENTS.md`, no item in Phases 1–6 is shared infrastructure. All of it i
 ## 13. Scope exclusions
 
 - **Strategy-structure search:** turning indicators or filters on and off, or changing dependencies. Brief §1: a separately versioned future capability.
+- **Not Lab phases, though decided:** the HA-MQI, EWO, RocketRSI and REGIME indicator kinds are the separate indicator mission after Phase 4 (§11.2, Q3 and Q4), with their own spec, goldens and review.
 - **Excluded trading and data work:**
-  - new indicator kinds (HA-MQI, EWO, RocketRSI: Q3);
-  - regime detection (Q4);
   - an event / news feed;
   - new data downloads or canonical data promotion.
 - **Excluded samplers, models and claims:**
@@ -1098,23 +1138,23 @@ Under `AGENTS.md`, no item in Phases 1–6 is shared infrastructure. All of it i
 - **Rewriting existing data:** existing runs, optimizations or experiments; converting legacy experiments to layout 2.
 - **Replacing Vela, the engine, the Strategy Lab builder or the experiment store.**
 
-## 14. Open questions for Randall
+## 14. Open questions, answered by Randall on 2026-10-27
 
-Each one changes UI behaviour or calculation meaning.
+Each one changed UI behaviour or calculation meaning. The answers are the operator's words; the "Applied as" column says what the plan does with them.
 
-| # | Question | Default if unanswered |
-|---|---|---|
-| Q1 | No Strategy Gate exists. Build one? (a) Aegis-owned research gate (Phase 7; product code; verdict = "passes research policy vN", no execution meaning), (b) Core-owned (shared contract, independent QA), (c) not now (UI says "not built") | (c) |
-| Q2 | Sharpe: which definition? (a) daily mark-to-market returns, annualized √252, needs per-bar equity from the kernel (cost to be measured), (b) per-trade return ratio, labelled "trade Sharpe". Either is stored beside, not inside, hash-bearing metrics. DSR needs it too. | none: the objective stays the experiment's own metric |
-| Q3 | HA-MQI / EWO / RocketRSI: a separate indicator mission (definitions, goldens) before or after Lab Phase 4? | after; the Lab uses existing kinds |
-| Q4 | Regimes: define a deterministic regime classifier (e.g. trend / range by ADX-like rule, volatility tercile) as its own mission, or keep "not available"? | keep "not available" |
-| Q5 | The dock's square was decided as "best of the rest only, no median view" on 2026-10-20. The brief asks min / median / mean / max. Reverse that decision for the dock? | Lab offers all four; dock keeps best-of-rest |
-| Q6 | Approve the initial policy constants: `AGG_MIN_N 8`; TVD 0.25; `IMPORTANCE_ROWS 50k`; bootstrap 200; 90 % intervals; θ_main = θ_int = 0.01; pair coverage 0.5; residual veto 0.3; plateau coverage 0.5; budget split 30 / 48 / 22 + 5 % reserve; stage-2 K = 20; slippage×1.5 pass rule; the §9.6 latency / memory thresholds | as listed, all in `lab/policy.py` |
-| Q7 | May Lab analytics run while an experiment job runs (sharing the laptop's CPU), or wait? | run, at lowest priority, one task at a time |
-| Q8 | Visual acceptance width: the brief's 1672 × 941, the designs' 1440, or both? | both |
-| Q9 | Commit a repo-tracked Aegis lint script (the current one lives in a past session's scratchpad and lints `C:\Triad`, not the worktree)? | yes, in Phase 0 |
-| Q10 | Final OOS default: the last 20 % of the range by time (designs show 20 %), with selection 60 % / validation 20 %? | 60 / 20 / 20 by bars, trailing |
-| Q11 | Storage: the 1M fixture and real 1M experiments need ~0.35 GB each on a 59 GB-free disk. Any cap, or the NAS first? | warn below 10 GB free |
+| # | Question | Answer | Applied as |
+|---|---|---|---|
+| Q1 | No Strategy Gate exists. Build one? (a) Aegis-owned research gate (product code; verdict = "passes research policy vN", no execution meaning), (b) Core-owned (shared contract, independent QA), (c) not now (UI says "not built") | "default" = (c) | No gate in this plan; Phase 7 dropped; `Strategy Gate: not built` everywhere; sketch kept in §12 |
+| Q2 | Sharpe: which definition? (a) daily mark-to-market returns, annualized √252, needs per-bar equity from the kernel, (b) per-trade return ratio, labelled "trade Sharpe". Either is stored beside, not inside, hash-bearing metrics. DSR needs it too. | "per trade" = (b) | §7.12 `sharpe_trade` and DSR; Phase 2b |
+| Q3 | HA-MQI / EWO / RocketRSI: a separate indicator mission (definitions, goldens) before or after Lab Phase 4? | "add after phase 4.. add each one as an indicator. combine them in a strategy" | §11.2 indicator mission after Phase 4: one kind each, a built-in reference strategy combining them |
+| Q4 | Regimes: define a deterministic regime classifier as its own mission, or keep "not available"? | "make a regimes indicator that can be added if desired" | REGIME indicator kind in §11.2, optional per strategy; "not in this strategy" until then |
+| Q5 | The dock's square was decided as "best of the rest only, no median view" on 2026-10-20. The brief asks min / median / mean / max. Reverse that decision for the dock? | "use your discretion" | Dock keeps best-of-rest, labelled; the Lab offers best / median / mean / worst (§7.2) |
+| Q6 | Approve the initial policy constants: `AGG_MIN_N 8`; TVD 0.25; `IMPORTANCE_ROWS 50k`; bootstrap 200; 90 % intervals; θ_main = θ_int = 0.01; pair coverage 0.5; residual veto 0.3; plateau coverage 0.5; budget split 30 / 48 / 22 + 5 % reserve; stage-2 K = 20; slippage×1.5 pass rule; the §9.6 latency / memory thresholds | "yes" | All in `lab/policy.py`; §9.6 are the scenario 11 pass thresholds; `SHARPE_MIN_TRADES 20` added by Q2 |
+| Q7 | May Lab analytics run while an experiment job runs (sharing the laptop's CPU), or wait? | "yes" | §9.4: concurrent, one task at a time, yielding between resamples |
+| Q8 | Visual acceptance width: the brief's 1672 × 941, the designs' 1440, or both? | "both" | Walk 106 and every phase's screenshots at 1672 × 941 and 1440 × 900 |
+| Q9 | Commit a repo-tracked Aegis lint script (the current one lives in a past session's scratchpad and lints `C:\Triad`, not the worktree)? | "repo" | Phase 0 commits `tools/lint_aegis.sh` |
+| Q10 | Final OOS default: the last 20 % of the range by time (designs show 20 %), with selection 60 % / validation 20 %? | "good for now" | §10 rule 6: trailing 60 / 20 / 20 by bars, boundaries movable only before the start |
+| Q11 | Storage: the 1M fixture and real 1M experiments need ~0.35 GB each on a 59 GB-free disk. Any cap, or the NAS first? | "disk for now. test data can be deleted" | §9.8: fixture on disk at a scratch root, deleted after the milestone; warn below 10 GB free |
 
 ## 15. Acceptance tests: the brief's 22 scenarios
 
@@ -1123,7 +1163,7 @@ Names are the test functions or walk items the phases add. "Phase" is where each
 | # | Scenario | Proof | Phase |
 |---|---|---|---|
 | 1 | 30-SMA / 9-EMA crossover, small exhaustive grid, known selection, linked consistency | `test_lab_query::test_reference_crossover_grid_matches_optimizer` (Lab on `opt:` and on an experiment of the same grid give the same squares and best); walk 109 | 2 |
-| 2 | Ten-variable sweep, sparse 400 and dense 10,000+, repeated axis / filter changes with exact counts | `test_lab_query::test_counts_stable_under_axis_and_filter_churn` (property test, 200 random filter / axis sequences on fixtures of 400 and 12,000 trials, existing kinds); walk 112 | 2–3 |
+| 2 | Ten-variable sweep, sparse 400 and dense 10,000+, repeated axis / filter changes with exact counts | `test_lab_query::test_counts_stable_under_axis_and_filter_churn` (property test, 200 random filter / axis sequences on fixtures of 400 and 12,000 trials, existing kinds); walk 112; after §11.2, the same walk on the real HA-MQI / EWO / RocketRSI reference strategy | 2–3, then 4b |
 | 3 | Exact slice with no matching trials | `test_lab_query::test_exact_slice_empty_is_untested`; walk 107 | 2 |
 | 4 | Aggregated cell, median and distribution, not executable | `test_lab_query::test_aggregate_square_stats`, vitest `labStore.aggregateNotPinnable`; walk 108 | 2 |
 | 5 | Sharp best vs stable cluster | `test_lab_neighbours::test_spike_vs_plateau_ranked_apart`; walk 111 | 3 |
@@ -1131,13 +1171,13 @@ Names are the test functions or walk items the phases add. "Phase" is where each
 | 7 | Long / short asymmetric parameters and event windows | `test_lab_query::test_scope_long_short_independent` (asymmetric fixture); `test_lab_query::test_unavailable_windows_not_neutral`; walk 121 | 2, 6 |
 | 8 | A / B / C pins identical everywhere and in export | vitest `labStore.pinsCarryIds`; walk 119 compares ids / values / metric versions across table, heatmap, parallel, charts, export JSON | 5 |
 | 9 | Duplicate / failed / partial trials, unavailable indicator data, broken metrics, cancellation | `test_lab_failures::*`, `test_lab_store::test_lab_compaction_torn_is_idempotent`, `test_lab_query::test_lab_undefined_metric_counts`; walk 118 | 2, 5 |
-| 10 | Validation blocked until the gate; no AI override | Q1 (c): walk 105 shows "not built" and disabled controls; Q1 (a / b): `test_lab_gate::*`, walk 122 | 1 / 7 |
+| 10 | Validation blocked until the gate; no AI override | Q1 = not now: walk 105 shows `not built` and disabled validation controls; `test_lab_variables::test_ai_note_never_actor` proves no AI text changes any state; walk 122 | 1, 4 |
 | 11 | 1M synthetic: server-side filter / sort / page, density, concurrent progress, memory ceiling, responsiveness, no million-node rendering, cold / warm timings and hardware | `tests/products/aegis/lab_benchmark.py` (records host + timings vs §9.6); milestone walk on `lab_fixture` (DOM rows ≤ 1,500, response bounds, long-task observer ≤ 50 ms) | 2, milestone |
 | 12 | Million-trial status reconciliation, snapshots, resume, cancel, retry idempotency | `test_lab_failures::test_reconciliation_invariants` (fixture with every status), `test_retry_idempotent`; walk 118 | 5 |
 | 13 | Four-stage funnel boundaries; leakage and improper promotion fail | `test_lab_partitions::test_promotion_only_explicit`, `test_final_requires_unseal`, `test_unseal_uses_counted`; walk 117 | 5 |
 | 14 | 20 mixed variables: families, search, trellis, brushing, linked selection, maximize, count-preserving drill-down | `test_lab_query::test_drilldown_preserves_counts`; walk 112 on the 20-parameter fixture | 3–4 |
 | 15 | Lineage and provenance: parent → child → trial → candidate, hashes, stable filters, trade log | `test_lab_lineage::*`, `test_lab_verify::*`; walk 120 | 6 |
-| 16 | Walk-forward matrix, window × regime, long / short, sealed-OOS explanation, deterministic status | `test_lab_partitions::*` + study tests; walk 121 (regimes "not available" asserted) | 6 |
+| 16 | Walk-forward matrix, window × regime, long / short, sealed-OOS explanation, deterministic status | `test_lab_partitions::*` + study tests; walk 121 (regime rows present only when the strategy carries REGIME, §11.2; otherwise "not in this strategy" asserted) | 6 |
 | 17 | Visual QA: readable labels, contrast, keyboard, nothing clipped at 1672 × 941 or narrower | walk 106 (bounding boxes inside viewport; computed contrast ≥ 4.5:1 for status and secondary text; keyboard path through every tab) | 1, each phase |
 | 18 | Structural relevance: inert excluded with evidence; active never excluded by a wrong heuristic | `test_lab_structure::test_rule_{1..4}`, `test_signal_param_not_excluded`, `test_referenced_param_never_excluded` (property over random rule trees); walk 113 | 4 |
 | 19 | Interaction trap (XOR) and conditional triple survive screening | `test_lab_analytics::test_xor_pair_kept_investigate`, `test_conditional_triple_unresolved_not_deprioritized`; walk 114 | 3–4 |
@@ -1158,8 +1198,9 @@ Gate 3 parity:
 | R2 | End of Phase 1 | Randall (screenshots, walk 103–106) | Shell matches approved designs; honest states; no clipped controls |
 | R3 | End of Phase 2 | builder + Randall; Codex optional | §9.6 budgets met on the benchmark; legacy reads identical; goldens unchanged |
 | R4 | End of Phase 4 | **independent QA recommended** (statistical claims) | Scenarios 18–22 green; statuses never change OOS use |
+| R4b | End of the indicator mission (§11.2) | Randall (definitions) + builder; independent QA recommended for HA-MQI, whose definition has no public reference | One golden per kind; every existing golden and saved hash unchanged; the reference strategy backtests on real data |
 | R5 | End of Phase 5 | **independent QA** (leakage boundaries) | Scenario 13 tests fail on an injected leak (mutation check) |
-| R6 | Phase 7 / 8, if chosen | **independent QA + Core governance** if Core-owned or Core-touching (§12) | Core tests named in §12 green |
+| R6 | Phase 8, if chosen | **independent QA + Core governance** if Core-touching (§12) | Core tests named in §12 green |
 | R7 | Milestone | independent milestone QA + whole-branch review; `tools\verify.ps1` on main | All 22 scenarios; full walk; budgets recorded with host details |
 
 ## 17. The brief's plan-review checklist
