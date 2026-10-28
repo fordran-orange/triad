@@ -230,6 +230,19 @@ def test_lab_benchmark_record():
     del quiet["with_queries"]
     assert evaluate(quiet)["query_throughput_ratio"] == "absent"
     assert evaluate(quiet)["query_p95_ratio"] == "absent"
+    # The measured per-trial cost uses the pool observed (4), never the size expected (10).
+    observed = {"bars": 2_603, "trials_per_s": 100.0, "pool_workers": 4, "workers_expected": 10}
+    cost = lab_benchmark.per_trial_cost(observed)
+    model = 27 + 0.0079 * 2_603
+    assert cost["measured_worker_ms_per_trial"] == 40.0  # 4 × 1000 / 100, not 10 × 1000 / 100
+    assert cost["model_ms_per_trial"] == round(model, 3)
+    assert cost["measured_to_model"] == round(40.0 / model, 3)
+    assert cost["workers_mismatch"] == "expected 10 workers; the pool ran 4"
+    matched = lab_benchmark.per_trial_cost({**observed, "workers_expected": 4})
+    assert "workers_mismatch" not in matched and matched["measured_worker_ms_per_trial"] == 40.0
+    unmeasured = lab_benchmark.per_trial_cost({**observed, "trials_per_s": None})
+    assert unmeasured["measured_worker_ms_per_trial"] is None
+    assert unmeasured["measured_to_model"] is None
 
     # A record as explore and execute build it carries the host, the mode, the engine build,
     # the commit and its operations or cases (no timing is run here).
@@ -292,7 +305,16 @@ def _no_network(base):
     raise AssertionError(f"/health/live of {base} was asked before the data-root refusal")
 
 
-def test_explore_refuses_product_root(monkeypatch, capsys):
+def _past_the_refusal(*args, **kwargs):
+    raise AssertionError("a benchmark mode went past its refusal")
+
+
+# What explore and execute do after their refusal: ask the worker, resolve its processes, take
+# the host record, write the fixture, open a connection. Each fails the test if it is reached.
+PAST_THE_REFUSAL = ("_require_worker_root", "worker_process", "new_record", "_fixture", "_Http")
+
+
+def test_explore_refuses_product_root(monkeypatch, capsys, tmp_path):
     assert product_root() == _git_common_dir().parent / "data" / "aegis"
     monkeypatch.setattr(lab_benchmark, "health_live", _no_network)
     text = _refused(lambda: refuse_product_targets(product_root(), None))
@@ -303,6 +325,27 @@ def test_explore_refuses_product_root(monkeypatch, capsys):
     assert lab_benchmark.main([*argv, "--pid-file", "logs/none.pid", "--trials", "4000"]) == 2
     assert "refused: --data-root is the product root" in capsys.readouterr().err
     assert sorted((CHECKOUT / "logs").glob("lab-benchmark-*.json")) == logs
+    # explore refuses by itself (the walk imports it), before any request, process or file.
+    for name in PAST_THE_REFUSAL:
+        monkeypatch.setattr(lab_benchmark, name, _past_the_refusal)
+    bench = product_root() / "bench"
+    held = bench.exists()
+    pid_file = tmp_path / "none.pid"
+    for base in ("http://127.0.0.1:8103/aegis/", "http://127.0.0.1:8102/aegis/"):
+        text = _refused(
+            lambda base=base: lab_benchmark.explore(
+                product_root(), base=base, pid_file=pid_file, trials=4_000
+            )
+        )
+        assert text == "refused: --data-root is the product root; pass --data-root <scratch>"
+    scratch = tmp_path / "scratch"
+    text = _refused(
+        lambda: lab_benchmark.explore(
+            scratch, base="http://127.0.0.1:8102/aegis/", pid_file=pid_file, trials=4_000
+        )
+    )
+    assert text == "refused: the worker on port 8102 is the product worker"
+    assert not scratch.exists() and bench.exists() == held
 
 
 def test_execute_refuses_product_worker(monkeypatch, tmp_path):
@@ -322,6 +365,28 @@ def test_execute_refuses_product_worker(monkeypatch, tmp_path):
     assert text == "refused: the worker on port 8102 is the product worker"
     # A scratch worker on a scratch root passes.
     assert refuse_product_targets(scratch, "http://127.0.0.1:8103/aegis/") is None
+
+    # execute refuses by itself (the walk imports this module), before any request or job.
+    for name in PAST_THE_REFUSAL:
+        monkeypatch.setattr(lab_benchmark, name, _past_the_refusal)
+    pid_file = tmp_path / "none.pid"
+
+    def execute(base: str, data_root: Path):
+        return lambda: lab_benchmark.execute(
+            base, cases=["A"], pid_file=pid_file, data_root=data_root
+        )
+
+    monkeypatch.setattr(lab_benchmark, "health_live", _no_network)
+    text = _refused(execute("http://127.0.0.1:8102/aegis/", scratch))
+    assert text == "refused: the worker on port 8102 is the product worker"
+    text = _refused(execute("http://127.0.0.1:8103/aegis/", product_root()))
+    assert text == "refused: --data-root is the product root; pass --data-root <scratch>"
+    # A worker on another port that serves the product store: refused from its /health/live.
+    answers["data_root"] = str(product_root())
+    monkeypatch.setattr(lab_benchmark, "health_live", health)
+    text = _refused(execute("http://127.0.0.1:8103/aegis/", scratch))
+    assert text == "refused: the worker's data_root is the product root"
+    assert not scratch.exists()
 
 
 # --- re-test triggers ------------------------------------------------------------------------

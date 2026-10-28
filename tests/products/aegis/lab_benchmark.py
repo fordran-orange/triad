@@ -727,6 +727,7 @@ class _Sampler:
         self.samples = 0
         self.listener_max: int | None = None
         self.children: dict[int, int] = {}
+        self.pool_size = 0  # the most pool children alive at once: the observed pool
         self.child_throttling: str | None = None  # read while a pool child is alive
         script = f"$l = {listener}; while ($true) {{ {_SAMPLE}; Start-Sleep -Milliseconds 1000 }}"
         self._process = subprocess.Popen(
@@ -749,6 +750,7 @@ class _Sampler:
             self.samples += 1
             if sample["working_set"] is not None:
                 self.listener_max = max(self.listener_max or 0, int(sample["working_set"]))
+            self.pool_size = max(self.pool_size, len(sample["children"]))
             for child in sample["children"]:
                 pid, ws = child["pid"], child["working_set"]
                 self.children[pid] = max(self.children.get(pid, 0), ws)
@@ -1013,7 +1015,9 @@ def explore(
     """Track A: the fixture (written when absent), then each §9.6a interaction `runs` times over
     HTTP through the scratch worker serving `data_root`, the worker's memory before the first
     open and after the warm set, the folder's size, the compaction proxy and the 10,000-row
-    timings; with `inprocess`, the same interactions through the routes in this process."""
+    timings; with `inprocess`, the same interactions through the routes in this process. Refuses
+    the product store and the product worker before anything else, as `main` does."""
+    refuse_product_targets(data_root, base)
     from trading_core.process_power import opt_out_of_power_throttling
 
     data_root = Path(data_root)
@@ -1158,6 +1162,25 @@ def _chunk_times(cells_dir: Path) -> tuple[list[int], list[int], list[float]]:
     return indices.tolist(), rows.tolist(), times
 
 
+def per_trial_cost(case: dict) -> dict:
+    """§9.1b's affine model beside the measurement: `model_ms_per_trial = 27 + 0.0079 × bars`
+    and the worker time one trial took, `pool_workers × 1000 / trials_per_s`, over the pool
+    observed while the case ran (never the size the run expected: a pool of another size than
+    `workers_expected` is named in `workers_mismatch`)."""
+    bars, rate, pool = case.get("bars"), case.get("trials_per_s"), case.get("pool_workers")
+    model = None if bars is None else 27 + 0.0079 * bars
+    measured = pool * 1000 / rate if rate and pool else None
+    cost = {
+        "model_ms_per_trial": None if model is None else round(model, 3),
+        "measured_worker_ms_per_trial": None if measured is None else round(measured, 3),
+        "measured_to_model": None if measured is None or not model else round(measured / model, 3),
+    }
+    expected = case.get("workers_expected")
+    if expected is not None and pool != expected:
+        cost["workers_mismatch"] = f"expected {expected} workers; the pool ran {pool}"
+    return cost
+
+
 def _run_case(
     http_client: _Http,
     label: str,
@@ -1165,9 +1188,11 @@ def _run_case(
     stamp: str,
     data_root: Path,
     listener: int,
-    workers: int,
+    expected_workers: int,
+    queries: _QueryLoad | None = None,
 ) -> dict:
-    """One §9.1b case through the worker's API, polled every second until it finishes."""
+    """One §9.1b case through the worker's API, polled every second until it finishes; with
+    `queries`, that load runs against this very experiment from its creation to its end."""
     from products.aegis.experiments import ExperimentStore
     from products.aegis.lab.store import read_manifest
     from products.aegis.runs import JsonRunRepository
@@ -1185,6 +1210,8 @@ def _run_case(
         experiment_id = created["experiment_id"]
         if created["job_id"] is None:
             raise SystemExit(f"another job is running on the worker: {experiment_id} is queued")
+        if queries is not None:
+            queries.start(f"exp:{experiment_id}")
         planned = int(created["plan"]["planned_runs"])
         cells_dir = data_root / "experiments" / f"{experiment_id}.cells"
         polls: list[float] = []
@@ -1210,19 +1237,25 @@ def _run_case(
                 raise SystemExit(f"{experiment_id} did not finish in time")
             time.sleep(max(0.0, 1.0 - (time.perf_counter() - tick)))
     finally:
+        if queries is not None:
+            queries.stop()
         sampler.stop()
     after_finalize = _done_cells_s(store, experiment_id)
     indices, rows, times = _chunk_times(cells_dir)
     steady_rows, steady_s = sum(rows[1:]), (times[-1] - times[0]) if len(times) > 1 else 0.0
     rate = steady_rows / steady_s if steady_s > 0 else None
     manifest = read_manifest(cells_dir)
-    compaction = [g.get("compaction_ms") or 0.0 for g in (manifest.generations if manifest else [])]
+    generations = manifest.generations if manifest else []
+    compaction = [g["compaction_ms"] for g in generations if g.get("compaction_ms") is not None]
     counts = document.get("counts") or {}
     bars = int(document["plan"]["bars"])
-    model = 27 + 0.0079 * bars
-    measured = None if rate is None else workers * 1000 / rate
     children = sampler.children
-    return {
+    if sampler.pool_size:
+        pool, pool_source = sampler.pool_size, "sampled pool children (the most alive at once)"
+    else:
+        pool = document.get("workers")
+        pool_source = "the document's workers (planned at creation; the job refits at start)"
+    record = {
         "experiment_id": experiment_id,
         "status": document["status"],
         "timeframe": case.timeframe,
@@ -1233,8 +1266,9 @@ def _run_case(
         "bars_nominal": case.bars_nominal,
         "bars_drift": round(abs(bars - case.bars_nominal) / case.bars_nominal, 5),
         "free_memory_gb_at_start": round(free / 1e9, 2),
-        "workers": workers,
-        "pool_workers": document.get("workers"),
+        "workers_expected": expected_workers,
+        "pool_workers": pool,
+        "pool_workers_source": pool_source,
         "chunks": len(indices),
         "trials_per_s": None if rate is None else round(rate, 3),
         "first_chunk_s": round(times[0] - started, 3) if times else None,
@@ -1242,7 +1276,7 @@ def _run_case(
         "chunk_write_ms_p95": None if not write_ms else round(_p95(list(write_ms.values())), 3),
         "chunk_write_ms_n": len(write_ms),
         "compaction_s": round(max(compaction) / 1000, 3) if compaction else None,
-        "generations": len(compaction),
+        "generations": len(generations),
         "resume_read_s": {"before_finalize": before_finalize, "after_finalize": after_finalize},
         "worker_peak_mb": round(max(children.values()) / MB, 3) if children else None,
         "pool_children": [
@@ -1262,68 +1296,100 @@ def _run_case(
         "invalid": counts.get("invalid"),
         "failed": counts.get("failed"),
         "completed": counts.get("completed"),
-        "model_ms_per_trial": round(model, 3),
-        "measured_worker_ms_per_trial": None if measured is None else round(measured, 3),
-        "measured_to_model": None if measured is None else round(measured / model, 3),
         "progress_poll_ms_p95": round(_p95(polls), 3),
         "progress_polls": len(polls),
     }
+    record.update(per_trial_cost(record))
+    return record
 
 
-def _query_set(source: str, document: dict) -> list[Step]:
-    """§9.1b's query set, one request each: summary, a two-range counts, an aggregate matrix
-    and the top 200 (each over HTTP, the Lab's own routes)."""
-    surface = document["surface"]["parameters"]
+QUERY_RATE = 1  # requests per second, cycling through the set (§9.1b's cadence)
+QUIET_REQUESTS = 20  # the quiet baseline's requests, after a warm-up cycle
+
+
+def _query_set(source: str) -> list[tuple[str, Step]]:
+    """§9.1b's query set against `source`, by name: the summary, a two-range counts, an
+    aggregate matrix and the top 200 (the Lab's own routes, over every case's bench surface)."""
+    surface = bench_surface().parameters
     lab = f"lab/{quote(source, safe=':')}"
-
-    def middle(entry: dict) -> list[float]:
-        return [entry["start"], (entry["start"] + entry["stop"]) / 2]
-
-    ranges = {entry["path"]: middle(entry) for entry in surface[2:4]}
+    ranges = {p.path: [p.start, (p.start + p.stop) / 2] for p in surface[2:4]}
     matrix = {
         "view": "matrix",
-        "rows": surface[0]["path"],
-        "cols": surface[1]["path"],
+        "rows": surface[0].path,
+        "cols": surface[1].path,
         "metric": "net_pnl",
         "mode": "aggregate",
         "stat": "median",
     }
     return [
-        ("GET", f"{lab}/summary", None),
-        ("POST", f"{lab}/query", {"filter": {"ranges": ranges}, "view": "counts"}),
-        ("POST", f"{lab}/query", {"filter": {}, **matrix}),
-        ("POST", f"{lab}/query", {"filter": {}, "view": "top", "k": 200}),
+        ("summary", ("GET", f"{lab}/summary", None)),
+        ("counts", ("POST", f"{lab}/query", {"filter": {"ranges": ranges}, "view": "counts"})),
+        ("matrix", ("POST", f"{lab}/query", {"filter": {}, **matrix})),
+        ("top", ("POST", f"{lab}/query", {"filter": {}, "view": "top", "k": 200})),
     ]
 
 
 class _QueryLoad:
-    """The query set once per second on a thread with its own connection."""
+    """§9.1b's query set against one experiment, one request per second (`QUERY_RATE`) cycling
+    through its four requests, on a connection of its own; a refused request (a snapshot
+    expired under the running job, say) is counted in `errors`, never timed."""
 
-    def __init__(self, base: str, steps: list[Step]) -> None:
+    def __init__(self, base: str) -> None:
         self.http = _Http(base)
-        self.steps = steps
-        self.samples: list[float] = []
+        self.steps: list[tuple[str, Step]] = []
+        self.samples: list[tuple[str, float]] = []
+        self.errors: list[str] = []
+        self._next = 0
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread: threading.Thread | None = None
 
-    def one(self) -> float:
+    def one(self) -> tuple[str, float] | None:
+        name, (method, path, body) = self.steps[self._next % len(self.steps)]
+        self._next += 1
         started = time.perf_counter()
-        for method, path, body in self.steps:
+        try:
             self.http.call(method, "api/" + path, body)
-        return (time.perf_counter() - started) * 1000
+        except (RuntimeError, OSError, http.client.HTTPException) as exc:
+            self.errors.append(f"{name}: {exc}"[:300])
+            return None
+        return name, (time.perf_counter() - started) * 1000
+
+    def run(self, count: int) -> list[tuple[str, float]]:
+        """`count` requests at the same cadence, on the caller's thread."""
+        samples = []
+        for _ in range(count):
+            started = time.perf_counter()
+            sample = self.one()
+            if sample is not None:
+                samples.append(sample)
+            time.sleep(max(0.0, 1.0 / QUERY_RATE - (time.perf_counter() - started)))
+        return samples
 
     def _loop(self) -> None:
         while not self._stop.is_set():
-            self.samples.append(self.one())
-            self._stop.wait(1.0)
+            started = time.perf_counter()
+            sample = self.one()
+            if sample is not None:
+                self.samples.append(sample)
+            self._stop.wait(max(0.0, 1.0 / QUERY_RATE - (time.perf_counter() - started)))
 
-    def start(self) -> None:
+    def start(self, source: str) -> None:
+        self.steps = _query_set(source)
+        self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
-        self._thread.join(timeout=120)
+        if self._thread is not None:
+            self._thread.join(timeout=120)
+
+    def close(self) -> None:
         self.http.close()
+
+
+def _by_request(samples: list[tuple[str, float]]) -> dict:
+    names = dict.fromkeys(name for name, _ in samples)
+    return {name: _stats([ms for n, ms in samples if n == name]) for name in names}
 
 
 def execute(
@@ -1336,8 +1402,12 @@ def execute(
 ) -> dict:
     """Track B: each case's experiment created through the scratch worker's API (lab-bench-10p,
     LHS over the 2.87 × 10¹¹-cell surface, budget = the case's trials, seed 1, QQQ at the
-    case's timeframe and range) and measured while it runs; then, with case A, the same again
-    beside a thread issuing §9.1b's query set once per second against the quiet A experiment."""
+    case's timeframe and range) and measured while it runs; then, with case A, case A again
+    while a thread sends §9.1b's query set against that running experiment, one request per
+    second. `workers` is the pool size the run expects (the worker's own setting, never sent):
+    the measured cost uses the pool observed, and a case whose pool differs says so. Refuses
+    the product store and the product worker before anything else, as `main` does."""
+    refuse_product_targets(data_root, base)
     from trading_core.process_power import opt_out_of_power_throttling
 
     data_root = Path(data_root)
@@ -1359,9 +1429,10 @@ def execute(
         {
             "base": base,
             "data_root": str(data_root),
-            "workers": workers,
+            "workers_expected": workers,
             "strategy_id": strategy["id"],
             "worker": worker,
+            "worker_engine_build": http_client.get("api/lab/build")["engine_build"],
             "basis": HTTP_BASIS,
         }
     )
@@ -1371,27 +1442,37 @@ def execute(
         )
     if "A" in record["cases"]:
         quiet = record["cases"]["A"]
-        source = f"exp:{quiet['experiment_id']}"
-        steps = _query_set(source, http_client.get(f"api/experiments/{quiet['experiment_id']}"))
-        load = _QueryLoad(base, steps)
-        load.one()  # the quiet experiment's columns into the Lab cache first
-        idle = []
-        for _ in range(10):
-            idle.append(load.one())
-            time.sleep(1.0)
-        load.start()
+        load = _QueryLoad(base)
         try:
             loaded = _run_case(
-                http_client, "A", strategy["id"], f"{stamp}-q", data_root, listener, workers
+                http_client,
+                "A",
+                strategy["id"],
+                f"{stamp}-q",
+                data_root,
+                listener,
+                workers,
+                queries=load,
             )
+            during = list(load.samples)
+            load.run(len(load.steps))  # the finished experiment's columns into the Lab cache
+            baseline = load.run(QUIET_REQUESTS)
         finally:
-            load.stop()
-        quiet_p95, loaded_p95 = _p95(idle), _p95(load.samples)
+            load.close()
+        during_ms, quiet_ms = [ms for _, ms in during], [ms for _, ms in baseline]
+        quiet_p95, loaded_p95 = _p95(quiet_ms), _p95(during_ms)
         record["with_queries"] = {
-            "source": source,
-            "query_set": [f"{method} {path}" for method, path, _ in steps],
-            "quiet_ms": _stats(idle),
-            "during_ms": _stats(load.samples) if load.samples else None,
+            "source": f"exp:{loaded['experiment_id']}",
+            "queries_per_s": QUERY_RATE,
+            "query_set": [f"{name}: {method} {path}" for name, (method, path, _) in load.steps],
+            "during_ms": _stats(during_ms) if during_ms else None,
+            "during_by_request": _by_request(during),
+            "quiet_ms": _stats(quiet_ms) if quiet_ms else None,
+            "quiet_basis": "the same requests on the same experiment once finished, the pool "
+            "idle, after one warm-up cycle",
+            "quiet_by_request": _by_request(baseline),
+            "errors": load.errors[:20],
+            "error_count": len(load.errors),
             "case": loaded,
             "query_throughput_ratio": None
             if not (loaded["trials_per_s"] and quiet["trials_per_s"])
@@ -1438,7 +1519,13 @@ def main(argv: Sequence[str]) -> int:
     execute_args.add_argument("--pid-file", type=Path, required=True)
     execute_args.add_argument("--data-root", type=Path, required=True)
     execute_args.add_argument("--cases", default="A,B,C")
-    execute_args.add_argument("--workers", type=int, default=10)
+    execute_args.add_argument(
+        "--workers",
+        type=int,
+        default=10,
+        help="the pool size expected (the launcher's -Workers); a different observed pool is "
+        "noted in the record, and the measured cost always uses the observed one",
+    )
     args = parser.parse_args(list(argv))
     pid_file = args.pid_file if args.pid_file.is_absolute() else ROOT / args.pid_file
     try:
