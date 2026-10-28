@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ExperimentDocument } from '../contracts';
-import type { Cell } from '../results';
-import { effectiveOptAxes, isCurrent, isLive, jobPaths, matrixKeyOf, optMetric, optRow, sourceFamilies, statusOf, type LoadedSource, type OptJob } from './useLabSource';
+import type { AxisMatrix, Cell } from '../results';
+import { currentMatrix, effectiveOptAxes, isCurrent, isLive, jobPaths, matrixKeyOf, NO_MATRIX, optMetric, optRow, sourceFamilies, statusOf, type LoadedSource, type MatrixState, type OptJob } from './useLabSource';
 
 const FAST = 'indicators.fast.length';
 const SLOW = 'indicators.slow.length';
@@ -164,5 +164,26 @@ describe('matrixKeyOf', () => {
     expect(matrixKeyOf('j1', [SLOW, FAST], 'mar')).not.toBe(matrixKeyOf('j1', [FAST, SLOW], 'mar'));
     expect(matrixKeyOf('j1', null, 'mar')).toBeNull();
     expect(matrixKeyOf('j1', [FAST, SLOW], null)).toBeNull();
+  });
+});
+
+describe('currentMatrix: the one key check the job heatmap and the Lab keys share (Task 11)', () => {
+  const matrix: AxisMatrix = { rows_path: FAST, cols_path: SLOW, rows: [5, 6], cols: [20], counts: [[1], [1]], metrics: {}, cells: [] };
+  const answered: MatrixState = { key: matrixKeyOf('j1', [FAST, SLOW], 'net_pnl'), matrix, loading: false, error: null, notice: null };
+
+  it('is the state answering the job, the pair and the metric in view', () => {
+    expect(currentMatrix({ loaded: optSource('done'), matrix: answered, optAxes: [FAST, SLOW], optMetric: 'net_pnl' })).toBe(answered);
+  });
+
+  it('is NO_MATRIX for a state built for another pair or metric (its answer still on the way)', () => {
+    expect(currentMatrix({ loaded: optSource('done'), matrix: answered, optAxes: [SLOW, FAST], optMetric: 'net_pnl' })).toBe(NO_MATRIX);
+    expect(currentMatrix({ loaded: optSource('done'), matrix: answered, optAxes: [FAST, SLOW], optMetric: 'mar' })).toBe(NO_MATRIX);
+  });
+
+  it('is NO_MATRIX for an experiment or no source, and keeps a one-axis notice', () => {
+    expect(currentMatrix({ loaded: expSource('done'), matrix: answered, optAxes: [FAST, SLOW], optMetric: 'net_pnl' })).toBe(NO_MATRIX);
+    expect(currentMatrix({ loaded: null, matrix: answered, optAxes: null, optMetric: null })).toBe(NO_MATRIX);
+    const notice: MatrixState = { ...NO_MATRIX, notice: 'one axis: no matrix (the job varied fewer than two parameters)' };
+    expect(currentMatrix({ loaded: optSource('done'), matrix: notice, optAxes: null, optMetric: 'net_pnl' })).toBe(notice);
   });
 });

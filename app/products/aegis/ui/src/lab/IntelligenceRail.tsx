@@ -5,12 +5,13 @@ import { recommendationText } from '../experiments';
 import { DASH, money, num, pct, shortHash } from '../format';
 import type { LabTrial } from '../results';
 import { metricsLine, squareAt } from './LabCenter';
+import { valueText } from './labHeatmapModel';
 import { lowN, SHARPE, SHARPE_LABEL } from './labQuery';
 import { useLab } from './labState';
 import { sourceText, type PinSlot } from './labStore';
 import { lossTone } from './LabKpiStrip';
 import { LabError } from './NotBuilt';
-import type { LabData, LoadedSource, TrialRow } from './useLabSource';
+import { currentMatrix, type LabData, type LoadedSource, type TrialRow } from './useLabSource';
 
 const PINS: PinSlot[] = ['A', 'B', 'C'];
 /** The card's metrics: the four Phase 1 ones, exposure, and the trade Sharpe last — never without net P&L, max
@@ -138,7 +139,7 @@ function TrialCard({ row, scope, bars }: { row: TrialRow; scope: string; bars: n
  *  pins, risk, the gate, provenance with Copy JSON, and the follow-up sweep. */
 export function IntelligenceRail({ data, onRefined }: { data: LabData; onRefined: (child: ExperimentDocument) => void }) {
   const lab = useLab();
-  const { loaded, loading, knownRows, matrix } = data;
+  const { loaded, loading, knownRows } = data;
   const [busy, setBusy] = useState(false);
   const [refineError, setRefineError] = useState<string | null>(null);
   const [copied, setCopied] = useState<'idle' | 'copied' | 'manual'>('idle');
@@ -201,8 +202,19 @@ export function IntelligenceRail({ data, onRefined }: { data: LabData; onRefined
       ) : (
         <div className="mono">{selected.trials[0]}</div>
       );
+  } else if (loaded?.kind === 'exp') {
+    // An experiment's square: its two values; the heatmap's square panel shows what it holds.
+    const { axes, values } = selected.square;
+    selection = (
+      <>
+        <div>
+          Square: {axes[0]} = {valueText(values[0])} · {axes[1]} = {valueText(values[1])}
+        </div>
+        <div className="sub">a square is not a trial, so it cannot be pinned: the heatmap&apos;s square panel shows what it holds</div>
+      </>
+    );
   } else {
-    const m = matrix.matrix;
+    const m = currentMatrix(data).matrix;
     const metric = data.optMetric;
     const { x, y } = selected.square;
     if (m === null || metric === null || m.rows[y] === undefined || m.cols[x] === undefined) selection = <div className="muted">A square of a matrix no longer in view.</div>;

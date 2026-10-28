@@ -206,17 +206,17 @@ describe('labReducer selection', () => {
     const next = labReducer(before, { type: 'SELECT_TRIALS', ids: [] });
     expect(next.selected).toBeNull();
     expect(next).toEqual(labReducer(before, { type: 'CLEAR_SELECTION' }));
-    expect(labReducer(state({ selected: { square: { x: 1, y: 2 } } }), { type: 'SELECT_TRIALS', ids: [] }).selected).toBeNull();
+    expect(labReducer(state({ selected: { square: { x: 1, y: 2, axes: ['a', 'b'], values: [1, 2] } } }), { type: 'SELECT_TRIALS', ids: [] }).selected).toBeNull();
   });
 
   it('SELECT_SQUARE selects the square', () => {
-    const next = labReducer(initialLabState, { type: 'SELECT_SQUARE', x: 3, y: 4 });
-    expect(next.selected).toEqual({ square: { x: 3, y: 4 } });
+    const next = labReducer(initialLabState, { type: 'SELECT_SQUARE', x: 3, y: 4, axes: ['a', 'b'], values: [7, 9] });
+    expect(next.selected).toEqual({ square: { x: 3, y: 4, axes: ['a', 'b'], values: [7, 9] } });
   });
 
   it('a square replaces a trial selection and the trials replace a square', () => {
-    const square = labReducer(state({ selected: { trials: ['t1'] } }), { type: 'SELECT_SQUARE', x: 0, y: 0 });
-    expect(square.selected).toEqual({ square: { x: 0, y: 0 } });
+    const square = labReducer(state({ selected: { trials: ['t1'] } }), { type: 'SELECT_SQUARE', x: 0, y: 0, axes: ['a', 'b'], values: [1, 2] });
+    expect(square.selected).toEqual({ square: { x: 0, y: 0, axes: ['a', 'b'], values: [1, 2] } });
     const trials = labReducer(square, { type: 'SELECT_TRIALS', ids: ['t2'] });
     expect(trials.selected).toEqual({ trials: ['t2'] });
   });
@@ -240,7 +240,7 @@ describe('labReducer PIN and UNPIN', () => {
   });
 
   it('PIN is refused (same state object) while a square is selected', () => {
-    const before = state({ selected: { square: { x: 1, y: 1 } } });
+    const before = state({ selected: { square: { x: 1, y: 1, axes: ['a', 'b'], values: [1, 2] } } });
     expect(labReducer(before, { type: 'PIN', slot: 'A', trialId: 't1' })).toBe(before);
   });
 
@@ -517,12 +517,9 @@ describe('aggregate squares carry their defining filter (Task 10)', () => {
     expect(activeFilterCount(defining)).toBe(2);
   });
 
-  it('SELECT_SQUARE carries axes and values', () => {
+  it('SELECT_SQUARE carries axes and values, the keyboard path as the click (Task 11)', () => {
     const next = labReducer(initialLabState, { type: 'SELECT_SQUARE', x: 2, y: 1, axes, values: [6, 25] });
     expect(next.selected).toEqual({ square: { x: 2, y: 1, axes, values: [6, 25] } });
-    // The keyboard path (until Task 11's cursorDims) still dispatches x and y alone.
-    const bare = labReducer(initialLabState, { type: 'SELECT_SQUARE', x: 0, y: 3 });
-    expect(bare.selected).toEqual({ square: { x: 0, y: 3 } });
-    expect(Object.keys((bare.selected as { square: SquareSelection }).square)).toEqual(['x', 'y']);
+    expect(Object.keys((next.selected as { square: SquareSelection }).square)).toEqual(['x', 'y', 'axes', 'values']);
   });
 });

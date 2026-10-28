@@ -50,6 +50,15 @@ export function matrixKeyOf(jobId: string, axes: [string, string] | null, metric
   return axes && metric ? `${jobId}|${axes[0]}|${axes[1]}|${metric}` : null;
 }
 
+/** The job's matrix state when it answers the job, pair and metric in view, else NO_MATRIX: a matrix built for
+ *  another pair or metric (its request still on the way) is never drawn under this one's labels nor walked by the
+ *  keyboard. The job's heatmap and the Lab's keys both read the matrix through this one check. */
+export function currentMatrix(data: Pick<LabData, 'loaded' | 'matrix' | 'optAxes' | 'optMetric'>): MatrixState {
+  const job = data.loaded?.kind === 'opt' ? data.loaded.job : null;
+  if (job === null) return NO_MATRIX;
+  return data.matrix.key === matrixKeyOf(job.job_id, data.optAxes, data.optMetric) ? data.matrix : NO_MATRIX;
+}
+
 export function isLive(status: string): boolean {
   return status === 'running' || status === 'queued';
 }

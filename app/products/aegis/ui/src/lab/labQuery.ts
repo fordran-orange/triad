@@ -77,14 +77,9 @@ export function isCurrentHash(envelope: { filter_hash: string | null }, state: P
   return envelope.filter_hash !== null && envelope.filter_hash === filterHash(state.filter);
 }
 
-/** An aggregate square as the filter that defines it: its two axis values fixed, nothing else (without the axes
- *  and values, as the keyboard path sends it until Task 11, it constrains nothing). */
+/** An aggregate square as the filter that defines it: its two axis values fixed, nothing else. */
 export function squareFilter(square: SquareSelection): LabFilter {
-  const values: Record<string, number> = {};
-  if (square.axes && square.values) {
-    values[square.axes[0]] = square.values[0];
-    values[square.axes[1]] = square.values[1];
-  }
+  const values: Record<string, number> = { [square.axes[0]]: square.values[0], [square.axes[1]]: square.values[1] };
   return { ranges: {}, values, scope: 'combined', pass: [], status: [] };
 }
 

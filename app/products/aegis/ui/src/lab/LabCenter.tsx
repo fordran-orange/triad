@@ -3,11 +3,14 @@ import { MainEffects } from '../components/MainEffects';
 import { DASH, money, num, pct } from '../format';
 import { compactMoney } from '../layout';
 import { METRIC_LABELS, type AxisMatrix, type Metric } from '../results';
+import { cursorDims, selectSquareAction } from './labHeatmapModel';
+import { LabHeatmap } from './LabHeatmap';
 import { useLab, useLabDispatch } from './labState';
 import { NotBuilt } from './NotBuilt';
+import { ParallelCoords } from './ParallelCoords';
 import { TrialTable, type ScrollMemory, type TrialSort } from './TrialTable';
 import type { LabQueryData } from './useLabQuery';
-import { matrixKeyOf, NO_MATRIX, type LabData, type TrialRow } from './useLabSource';
+import { currentMatrix, type LabData, type TrialRow } from './useLabSource';
 
 export type LabTab = 'heatmap' | 'interactions' | 'parallel' | 'pareto' | 'importance' | 'robustness';
 
@@ -53,9 +56,8 @@ function JobMatrix({ data }: { data: LabData }) {
   const job = data.loaded?.kind === 'opt' ? data.loaded.job : null;
   if (job === null) return null;
   // Only the matrix of the job, pair and metric in view: one built for another (the pair or the metric just changed,
-  // its request still on the way) is never drawn under this one's labels.
-  const currentKey = matrixKeyOf(job.job_id, data.optAxes, data.optMetric);
-  const state = data.matrix.key === currentKey ? data.matrix : NO_MATRIX;
+  // its request still on the way) is never drawn under this one's labels. The Lab's keys read it the same way.
+  const state = currentMatrix(data);
   const metric = data.optMetric ?? job.objective;
   const m = state.matrix;
   const n = m ? m.counts.flat().reduce((a, b) => a + b, 0) : null;
@@ -66,12 +68,13 @@ function JobMatrix({ data }: { data: LabData }) {
   const mark = lab.cursor && rows && cols ? { r: Math.min(lab.cursor.r, rows - 1), c: Math.min(lab.cursor.c, cols - 1) } : square ? { r: square.y, c: square.x } : null;
   const highlight = m && mark && m.rows[mark.r] !== undefined && m.cols[mark.c] !== undefined ? { fast: m.rows[mark.r], slow: m.cols[mark.c] } : null;
   const select = (fast: number, slow: number) => {
-    if (!m) return;
+    const dims = cursorDims(m);
+    if (!m || dims === null) return;
     const r = m.rows.indexOf(fast);
     const c = m.cols.indexOf(slow);
     if (r < 0 || c < 0) return;
-    // The square carries the filter that defines it: the pair in view and its two values.
-    dispatch({ type: 'SELECT_SQUARE', x: c, y: r, ...(data.optAxes ? { axes: data.optAxes, values: [m.rows[r], m.cols[c]] as [number, number] } : {}) });
+    // The square carries the filter that defines it: the pair in view and its two values, as Enter sends it.
+    dispatch(selectSquareAction(dims, r, c));
     if (lab.cursor) dispatch({ type: 'MOVE_CURSOR', dr: r - lab.cursor.r, dc: c - lab.cursor.c, rows, cols }); // the cursor follows the click
   };
   return (
@@ -115,7 +118,7 @@ function JobMatrix({ data }: { data: LabData }) {
 function Importance({ data }: { data: LabData }) {
   const { loaded, loading } = data;
   if (loaded === null) return <div className="lab-empty">{loading ? 'Loading…' : 'No source open.'}</div>;
-  if (loaded.kind === 'opt') return <NotBuilt what="Importance for a grid job" phase={2} />;
+  if (loaded.kind === 'opt') return <NotBuilt what="Importance for a grid job" phase={3} />;
   const { report } = loaded;
   if (report === null) return <div className="lab-empty">no report yet: recompute it on the Experiments page</div>;
   return (
@@ -153,17 +156,26 @@ export function LabCenter({
   const dispatch = useLabDispatch();
   const { loaded, loading } = data;
   const kind = loaded?.kind ?? lab.source?.kind ?? null;
+  const none = <div className="lab-empty">{loading ? 'Loading…' : 'No source open: choose one in the context bar.'}</div>;
+  // A grid job keeps the Phase 1 heatmap (the worker's best-of-the-rest matrix); an experiment's heatmap and either
+  // source's parallel coordinates read the /lab query layer.
   const panel =
     tab === 'heatmap' ? (
       kind === 'opt' ? (
         <JobMatrix data={data} />
+      ) : kind === 'exp' ? (
+        <LabHeatmap data={data} />
       ) : (
-        <NotBuilt what="Exact slices and aggregated projections" phase={2} />
+        none
       )
     ) : tab === 'interactions' ? (
       <NotBuilt what="Interaction matrix" phase={3} />
     ) : tab === 'parallel' ? (
-      <NotBuilt what="Parallel coordinates (the vertical slice)" phase={2} />
+      kind === null ? (
+        none
+      ) : (
+        <ParallelCoords data={data} />
+      )
     ) : tab === 'pareto' ? (
       <NotBuilt what="Pareto view" phase={3} />
     ) : tab === 'importance' ? (

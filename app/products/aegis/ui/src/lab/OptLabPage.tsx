@@ -3,6 +3,7 @@ import type { ExperimentDocument } from '../contracts';
 import { IntelligenceRail } from './IntelligenceRail';
 import { LabCenter, type LabTab } from './LabCenter';
 import { LabContextBar } from './LabContextBar';
+import { cursorDims } from './labHeatmapModel';
 import { LabKpiStrip } from './LabKpiStrip';
 import { useLab, useLabDispatch } from './labState';
 import { sourceText, type LabView } from './labStore';
@@ -12,7 +13,7 @@ import { ParameterCatalog } from './ParameterCatalog';
 import type { TrialSort } from './TrialTable';
 import { useLabKeys } from './useLabKeys';
 import { useLabQuery } from './useLabQuery';
-import { sourceFamilies, type TrialRow } from './useLabSource';
+import { currentMatrix, sourceFamilies, type TrialRow } from './useLabSource';
 import { VariableIntelligence } from './VariableIntelligence';
 
 /** The views a later phase builds: each one says what it is and when it arrives, inside the same layout. */
@@ -41,12 +42,12 @@ export function OptLabPage() {
   // metric hides would otherwise stick.
   useEffect(() => setSort(METRIC_ORDER), [key, lab.filter.scope, lab.metric]);
 
-  const { loaded, matrix } = data;
-  const dims =
-    lab.view === 'trials' && tab === 'heatmap' && loaded?.kind === 'opt' && matrix.matrix !== null && matrix.notice === null
-      ? { rows: matrix.matrix.rows.length, cols: matrix.matrix.cols.length }
-      : null;
-  const onKeyDown = useLabKeys(dims);
+  const { loaded, expMatrix } = data;
+  // The keys walk the matrix the Heatmap tab draws: an experiment's /lab matrix, or a grid job's own, read through
+  // the same key check its heatmap uses.
+  const job = currentMatrix(data);
+  const shown = loaded?.kind === 'exp' ? expMatrix.envelope : job.notice === null ? job.matrix : null;
+  const onKeyDown = useLabKeys(lab.view === 'trials' && tab === 'heatmap' ? cursorDims(shown) : null);
   const list = useMemo(() => (loaded ? sourceFamilies(loaded) : null), [loaded]);
 
   const select = (row: TrialRow) => {

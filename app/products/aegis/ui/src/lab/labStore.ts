@@ -30,10 +30,10 @@ export interface LabFilter {
   status: string[];
 }
 
-/** A heatmap square: its column (x) and row (y) and, when the click knows them, the two axis paths ([rows, columns])
- *  and its two values ([row value, column value]) — the filter that defines it (`squareFilter`). The keyboard path
- *  still sends x and y alone until its cursor carries the values (Task 11). */
-export type SquareSelection = { x: number; y: number; axes?: [string, string]; values?: [number, number] };
+/** A heatmap square: its column (x) and row (y), the two axis paths ([rows, columns]) and its two values ([row value,
+ *  column value]) — the filter that defines it (`squareFilter`). A click and Enter send all four alike
+ *  (`selectSquareAction`). */
+export type SquareSelection = { x: number; y: number; axes: [string, string]; values: [number, number] };
 export type LabSelection = { trials: string[] } | { square: SquareSelection } | null;
 export type PinSlot = 'A' | 'B' | 'C';
 
@@ -65,7 +65,7 @@ export type LabAction =
   | { type: 'SET_RANGE'; path: string; range: [number, number] | null }
   | { type: 'FIX_VALUE'; path: string; value: number | null }
   | { type: 'SELECT_TRIALS'; ids: string[] }
-  | { type: 'SELECT_SQUARE'; x: number; y: number; axes?: [string, string]; values?: [number, number] }
+  | { type: 'SELECT_SQUARE'; x: number; y: number; axes: [string, string]; values: [number, number] }
   | { type: 'CLEAR_SELECTION' }
   | { type: 'PIN'; slot: PinSlot; trialId: string }
   | { type: 'UNPIN'; slot: PinSlot }
@@ -146,11 +146,7 @@ export function labReducer(state: LabState, action: LabAction): LabState {
     case 'SELECT_TRIALS':
       return { ...state, selected: action.ids.length > 0 ? { trials: action.ids } : null }; // an empty selection is no selection
     case 'SELECT_SQUARE': {
-      const square: SquareSelection = { x: action.x, y: action.y };
-      if (action.axes && action.values) {
-        square.axes = action.axes;
-        square.values = action.values;
-      }
+      const square: SquareSelection = { x: action.x, y: action.y, axes: action.axes, values: action.values };
       return { ...state, selected: { square } };
     }
     case 'CLEAR_SELECTION':
