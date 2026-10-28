@@ -30,7 +30,7 @@ ENGINE_SOURCES = (
     "temporal.py",
 )
 _ENGINE_ROOT = Path(__file__).resolve().parents[1]  # beside products/aegis/__init__.py
-_DATA_IDENTITY = ("sha256", "data_hash", "timeframe", "start", "end")
+_DATA_IDENTITY = ("symbol", "sha256", "data_hash", "timeframe", "start", "end")
 _DESIGNS = {
     "grid": "uniform",
     "sample": "uniform",
@@ -95,8 +95,10 @@ def param_key(
     spec: StrategySpec, params: Mapping[str, float], steps: Mapping[str, float] | None = None
 ) -> bytes:
     """16-byte BLAKE2b of the canonical `{path: value}` JSON of the full effective set updated
-    with `params`. Values are floats, so 15 and 15.0 are one configuration; a path with a step is
-    rounded as `Parameter.values()` rounds its lattice, so `1.0 + 3 * 0.1` and 1.3 agree."""
+    with `params`. Every value is a float, lengths and unstepped values included, so a
+    configuration's key never depends on the surface it was reached through (15 and 15.0 are one
+    value); a path with a step is rounded as `Parameter.values()` rounds its lattice, so
+    `1.0 + 7 * 0.1` and 1.7 agree."""
     values = full_effective_params(spec)
     values.update({path: float(value) for path, value in params.items()})
     for path, step in (steps or {}).items():
@@ -113,8 +115,11 @@ def param_key_hex(
 
 def inputs_key(strategy_hash: str, data: Mapping, settings: Mapping, engine_build: str) -> str:
     """32 hex characters naming the computation: two evaluations are the same iff `inputs_key`,
-    `param_key` and `block` agree. `data` is the pinned source (or the `DataReference` when none
-    was pinned) and `settings` the settings' JSON dump, never the model."""
+    `param_key` and `block` agree. `data` is the pinned source, or the `DataReference` when none
+    was pinned; its identity is six keys, `symbol`, `sha256`, `data_hash`, `timeframe`, `start`
+    and `end`, each `None` when the mapping lacks it, so a pinned source contributes all six and
+    a reference its own fields (two symbols on one timeframe and range never share a key).
+    `settings` is the settings' JSON dump, never the model."""
     payload = {
         "strategy_hash": strategy_hash,
         "data": {name: data.get(name) for name in _DATA_IDENTITY},

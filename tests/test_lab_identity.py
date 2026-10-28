@@ -35,6 +35,7 @@ EMA = "short_side.indicators.ema.length"
 SMA = "short_side.indicators.sma.length"
 STOP = "long_side.stop_loss_pct"
 DATA = {
+    "symbol": "QQQ",
     "sha256": "a" * 64,
     "data_hash": "d" * 64,
     "timeframe": "1D",
@@ -158,6 +159,12 @@ def test_inputs_key_differs_by_engine_build_and_data():
     assert inputs_key("s" * 64, dict(DATA), dict(SETTINGS), "b" * 64) == base
     assert inputs_key("s" * 64, DATA, SETTINGS, "c" * 64) != base
     assert inputs_key("s" * 64, {**DATA, "data_hash": "e" * 64}, SETTINGS, "b" * 64) != base
+    assert inputs_key("s" * 64, {**DATA, "symbol": "SPY"}, SETTINGS, "b" * 64) != base
+    # An unpinned document's identity is its DataReference: two symbols on one timeframe and
+    # range never share a key.
+    reference = {"symbol": "QQQ", "timeframe": "1D", "start": "2020-01-02", "end": "2024-12-31"}
+    legacy = inputs_key("s" * 64, reference, SETTINGS, "b" * 64)
+    assert inputs_key("s" * 64, {**reference, "symbol": "SPY"}, SETTINGS, "b" * 64) != legacy
 
 
 def test_inputs_key_is_32_hex():
