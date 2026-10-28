@@ -170,42 +170,40 @@ def test_scratch_launcher_never_names_the_product_port(tmp_path):
     pwsh = shutil.which("pwsh")
     if pwsh is None:
         return
+
+    def launch(name: str, *arguments: str) -> tuple[int, str]:
+        # A file, never a pipe: a worker that a regressed refusal started would inherit a pipe
+        # and hold it open, and subprocess.run would then wait past its timeout.
+        log = tmp_path / f"{name}.log"
+        with log.open("w", encoding="utf-8") as out:
+            done = subprocess.run(
+                [pwsh, "-NoProfile", "-NonInteractive", "-File", str(SCRIPT), *arguments],
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=subprocess.STDOUT,
+                cwd=CHECKOUT,
+                timeout=120,
+                check=False,
+            )
+        return done.returncode, log.read_text(encoding="utf-8", errors="replace")
+
+    # A missing interpreter under -EnvironmentRoot stops a regressed run before Start-Process.
     refused_pid = tmp_path / "refused.pid"
-    refused = subprocess.run(
-        [pwsh, "-NoProfile", "-NonInteractive", "-File", str(SCRIPT), "-Port", "8102"]
-        + ["-DataRoot", str(tmp_path), "-PidFile", str(refused_pid)],
-        capture_output=True,
-        text=True,
-        cwd=CHECKOUT,
-        timeout=120,
-        check=False,
+    code, output = launch(
+        "refused",
+        *["-Port", "8102", "-DataRoot", str(tmp_path), "-EnvironmentRoot", str(tmp_path)],
+        *["-PidFile", str(refused_pid)],
     )
-    assert refused.returncode != 0, refused.stdout
-    assert "refused: port 8102 is a product port" in refused.stdout + refused.stderr
+    assert code != 0 and "refused: port 8102 is a product port" in output, output
     assert not refused_pid.exists()
-    # The product store is refused before the port checks: a scratch worker live on 8103 must
-    # not turn this into a port-in-use refusal.
+    # The product store is refused before the port checks: on the product port a missing or
+    # misordered store check answers with the port refusal instead, and starts nothing.
     store_pid = tmp_path / "refused-store.pid"
-    store = subprocess.run(
-        [pwsh, "-NoProfile", "-NonInteractive", "-File", str(SCRIPT), "-Port", "8103"]
-        + ["-DataRoot", "C:\\Triad\\data\\aegis", "-PidFile", str(store_pid)],
-        capture_output=True,
-        text=True,
-        cwd=CHECKOUT,
-        timeout=120,
-        check=False,
+    code, output = launch(
+        "refused-store",
+        *["-Port", "8102", "-DataRoot", "C:\\Triad\\data\\aegis", "-PidFile", str(store_pid)],
     )
-    assert store.returncode != 0, store.stdout
-    assert "refused: -DataRoot is the product store" in store.stdout + store.stderr
+    assert code != 0 and "refused: -DataRoot is the product store" in output, output
     assert not store_pid.exists()
-    nothing = subprocess.run(
-        [pwsh, "-NoProfile", "-NonInteractive", "-File", str(SCRIPT), "-Stop"]
-        + ["-PidFile", str(tmp_path / "none.pid")],
-        capture_output=True,
-        text=True,
-        cwd=CHECKOUT,
-        timeout=120,
-        check=False,
-    )
-    assert nothing.returncode == 0, nothing.stdout + nothing.stderr
-    assert "nothing to stop" in nothing.stdout
+    code, output = launch("nothing", "-Stop", "-PidFile", str(tmp_path / "none.pid"))
+    assert code == 0 and "nothing to stop" in output, output
