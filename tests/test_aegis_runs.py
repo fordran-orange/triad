@@ -379,3 +379,49 @@ def test_a_read_racing_the_first_save_finds_the_new_document(tmp_path, monkeypat
     assert repo.get_experiment("x")["status"] == "running"
     with pytest.raises(KeyError):
         repo.get_experiment("nope")
+
+
+# --- Optimization Lab v2, Phase 2 (Task 6): every attachment goes with its experiment ----------
+
+
+def test_delete_experiment_removes_every_attachment_folder(tmp_path):
+    from products.aegis.runs import ITEM_FOLDERS
+
+    repo = JsonRunRepository(tmp_path / "aegis")
+    folder = tmp_path / "aegis" / "experiments"
+    assert ITEM_FOLDERS["experiments"] == (
+        "cells",
+        "curves",
+        "reports",
+        "replays",
+        "final",
+        "folds",
+        "searchspaces",
+        "holdout",
+        "views",
+        "events.jsonl",
+    )
+    for identifier in ("twelve", "twelve-b"):  # a neighbour whose id starts with the same name
+        repo.save_experiment({"id": identifier, "name": identifier, "status": "done"})
+        for suffix in ITEM_FOLDERS["experiments"]:
+            path = folder / f"{identifier}.{suffix}"
+            if suffix.endswith(".jsonl"):
+                path.write_text('{"event": "created"}\n', encoding="utf-8")
+                continue
+            (path / "nested").mkdir(parents=True)
+            (path / "000000.parquet").write_bytes(b"x")
+            (path / "nested" / "1.json").write_text("{}", encoding="utf-8")
+    repo.delete_experiment("twelve")
+    assert not any(p.name.startswith("twelve.") for p in folder.iterdir())
+    kept = sorted(p.name for p in folder.iterdir())
+    assert kept == sorted(
+        [
+            "twelve-b.json.gz",
+            "twelve-b.summary.json",
+            *[f"twelve-b.{suffix}" for suffix in ITEM_FOLDERS["experiments"]],
+        ]
+    )
+    assert (folder / "twelve-b.cells" / "nested" / "1.json").is_file()
+    assert [s["id"] for s in repo.list_experiments()] == ["twelve-b"]
+    with pytest.raises(KeyError):
+        repo.delete_experiment("twelve")

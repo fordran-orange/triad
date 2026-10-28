@@ -65,7 +65,12 @@ from products.aegis.optimize import (
 from products.aegis.pool import fitted_workers
 from products.aegis.preferences import Preferences
 from products.aegis.results import envelope
-from products.aegis.runs import JsonRunRepository, RunRepository, aegis_data_root
+from products.aegis.runs import (
+    ExperimentReferenced,
+    JsonRunRepository,
+    RunRepository,
+    aegis_data_root,
+)
 from products.aegis.strategies import (
     BuiltinRefused,
     StrategyLibrary,
@@ -934,11 +939,38 @@ def experiment_plan(
     return planned.model_dump(mode="json")
 
 
+def _pinned_bars(
+    document: experiments_module.ExperimentDocument, store: ArchiveStore, *, verb: str
+) -> tuple[pd.DataFrame, PinnedSource]:
+    """The bars a document's trials run on. A layout-2 document reloads exactly the archive it
+    was pinned to, so a resumed or materialized trial runs on the bytes its rows were computed
+    from; provenance it never recorded, or an archive whose bytes moved, is a 409 naming why,
+    never a silent fall forward. A legacy document re-selects its data reference as before."""
+    if document.cells_layout == 2:
+        try:
+            pinned = PinnedSource.model_validate(document.data_pinned)
+        except ValidationError as exc:
+            raise HTTPException(409, f"{verb} refused: data provenance not recorded") from exc
+        try:
+            return store.load_pinned(pinned), pinned
+        except SourceUnavailable as exc:
+            raise HTTPException(409, f"{verb} refused: data drift: {exc}") from exc
+    return _experiment_bars(document.data, store)
+
+
 def _start_experiment(
-    document, store: ArchiveStore, runner: JobRunner, repository: RunRepository
+    document,
+    store: ArchiveStore,
+    runner: JobRunner,
+    repository: RunRepository,
+    *,
+    frame: pd.DataFrame | None = None,
+    pinned: PinnedSource | None = None,
 ) -> str | None:
-    """Start (or resume) the runner job for a document; None when another job is running."""
-    frame, pinned = _experiment_bars(document.data, store)
+    """Start (or resume) the runner job for a document; None when another job is running. The
+    bars are re-selected from the document's data reference unless the caller loaded them."""
+    if frame is None:
+        frame, pinned = _experiment_bars(document.data, store)
     try:
         job = experiments_module.ExperimentJob(document, frame, pinned, repository)
     except ValueError as exc:  # not even one pool worker fits in free memory now
@@ -1026,7 +1058,17 @@ def resume_experiment(
             f"experiment {experiment_id} is {document.status}; "
             "only queued, paused or failed experiments resume",
         )
-    job_id = _start_experiment(document, store, runner, repository)
+    frame, pinned = _pinned_bars(document, store, verb="resume")
+    if document.cells_layout == 2:  # the engine its trials ran on must be this worker's
+        recorded = str((document.versions or {}).get("engine_build"))
+        worker = identity.engine_build()
+        if recorded != worker:
+            raise HTTPException(
+                409,
+                f"resume refused: engine build drift (document {recorded[:12]}, "
+                f"worker {worker[:12]})",
+            )
+    job_id = _start_experiment(document, store, runner, repository, frame=frame, pinned=pinned)
     if job_id is None:
         raise HTTPException(409, "an optimization is already running")
     return {"experiment_id": experiment_id, "job_id": job_id, "status": "running"}
@@ -1104,7 +1146,7 @@ def materialize_cell(
     experiments: experiments_module.ExperimentStore = EXPERIMENTS,
 ):
     document = _experiment(experiments, experiment_id)
-    frame, pinned = _experiment_bars(document.data, store)
+    frame, pinned = _pinned_bars(document, store, verb="materialize")
     try:
         return experiments_module.materialize(
             document,
@@ -1232,11 +1274,12 @@ def delete_experiment(
     repository: RunRepository = REPOSITORY,
 ):
     """Moves the experiment to Recently deleted (Mission 9 spec §6.2) with its existing rules:
-    unfinished experiments are cancelled first; a parent with studies cannot go."""
+    unfinished experiments are cancelled first; a parent with studies or live child experiments
+    cannot go."""
     _experiment(experiments, experiment_id)
     try:
         Library(repository, experiments).delete("experiment", experiment_id)
-    except Refused as exc:
+    except (Refused, ExperimentReferenced) as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"deleted": experiment_id}
 
@@ -1605,7 +1648,7 @@ def delete_library_item(kind: str, item_id: str, library: Library = LIBRARY_INDE
         library.delete(kind, item_id)
     except (KeyError, ValueError) as exc:
         raise HTTPException(404, f"unknown {kind} {item_id!r}") from exc
-    except Refused as exc:
+    except (Refused, ExperimentReferenced) as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"deleted": item_id}
 

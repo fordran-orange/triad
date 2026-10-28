@@ -591,3 +591,53 @@ def test_a_pooled_optimization_headlines_its_cells_not_its_chunks(world):  # lim
     assert (entry.headline["cells_run"], entry.headline["cells_total"]) == (560, 560)
     summary = next(s for s in repository.list_optimizations() if s["job_id"] == "opt-pooled")
     assert summary["cells_done"] == 560  # the sidecar carries it for listings without the document
+
+
+# --- Optimization Lab v2, Phase 2 (Task 6): a parent with live children cannot go ---------------
+
+
+from products.aegis.runs import ExperimentReferenced
+from test_aegis_api import client  # noqa: F401 - the worker routes on this test's tmp_path
+
+
+def test_parent_with_children_is_refused_with_experiment_referenced(world, client):  # noqa: F811
+    repository, library, _run = world
+    c, _, _ = client  # its repository is the world's: both live under tmp_path / "aegis"
+    store = ExperimentStore(repository)
+    parent = store.get("exp-a")
+    for identifier in ("exp-a-refined", "exp-a-wider"):
+        store.save(parent.model_copy(update={"id": identifier, "parent": "exp-a"}))
+    # A parent with both a study and children is refused for its studies, never its children.
+    with pytest.raises(Refused, match="experiment exp-a has studies: study-a; delete them first"):
+        library.delete("experiment", "exp-a")
+    for url in ("/aegis/api/experiments/exp-a", "/aegis/api/library/experiment/exp-a"):
+        response = c.delete(url)
+        assert response.status_code == 409, response.text
+        assert "has studies" in response.json()["detail"]
+        assert "is the parent of" not in response.json()["detail"]
+    repository.delete_study("study-a")
+
+    with pytest.raises(ExperimentReferenced, match="is the parent of") as refused:
+        library.delete("experiment", "exp-a")
+    message = str(refused.value)
+    head, tail = "experiment exp-a is the parent of ", "; delete them first"
+    assert message.startswith(head) and message.endswith(tail)
+    named = message.removeprefix(head).removesuffix(tail).split(", ")
+    assert sorted(named) == ["exp-a-refined", "exp-a-wider"]  # both named, nothing else
+    for url in ("/aegis/api/experiments/exp-a", "/aegis/api/library/experiment/exp-a"):
+        response = c.delete(url)
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"] == message
+    assert repository.read_document("experiments", "exp-a")["id"] == "exp-a"  # still live
+
+    # A trashed child does not hold its parent: once both are in the trash, the parent goes.
+    library.delete("experiment", "exp-a-wider")
+    with pytest.raises(
+        ExperimentReferenced,
+        match="experiment exp-a is the parent of exp-a-refined; delete them first",
+    ):
+        library.delete("experiment", "exp-a")
+    library.delete("experiment", "exp-a-refined")
+    library.delete("experiment", "exp-a")
+    trashed = {(e.kind, e.id) for e in library.query(LibraryQuery(deleted=True))["entries"]}
+    assert {("experiment", "exp-a"), ("experiment", "exp-a-refined")} <= trashed

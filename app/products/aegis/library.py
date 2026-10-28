@@ -19,7 +19,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from products.aegis.experiments import ExperimentStore
-from products.aegis.runs import RunRepository, _retry
+from products.aegis.runs import ExperimentReferenced, RunRepository, _retry
 
 KINDS = ("backtest", "optimization", "walkforward", "experiment", "study")
 FOLDERS = {
@@ -387,7 +387,8 @@ class Library:
         return self.repository.read_document(FOLDERS[kind], identifier)  # KeyError when unknown
 
     def delete(self, kind: str, identifier: str) -> None:
-        """Move an item to Recently deleted, or raise Refused naming why it cannot go."""
+        """Move an item to Recently deleted, or raise Refused naming why it cannot go (or
+        ExperimentReferenced for an experiment that live experiments name as their parent)."""
         document = self._live(kind, identifier)
         status = document.get("status")
         if kind in ("optimization", "walkforward") and status in UNFINISHED_JOBS:
@@ -404,6 +405,12 @@ class Library:
                 raise Refused(
                     f"experiment {identifier} has studies: {', '.join(children)}; delete them first"
                 )
+            # Only once its studies are gone: a refined child holds its parent the same way.
+            children = [
+                s.get("id") for s in self._summaries("experiment") if s.get("parent") == identifier
+            ]
+            if children:
+                raise ExperimentReferenced(identifier, children)
         block = headline(kind, document, self.experiments)
         name = self._entry(kind, identifier, document, {"version": VERSION, **block}, None).name
         meta = {

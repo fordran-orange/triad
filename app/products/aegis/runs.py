@@ -91,8 +91,25 @@ STUDY_SUMMARY_KEYS = (
     "job_id",
     "error",
 )
-# Folders that belong to one item (moved with it to Recently deleted).
-ITEM_FOLDERS = {"experiments": ("cells", "curves", "reports"), "studies": ("windows",)}
+# What belongs to one item beside its document, as `<id>.<entry>`: moved with it to Recently
+# deleted, restored with it and removed by its hard delete, so the three paths share one list.
+# Every entry is a folder except `events.jsonl`, a file: a loose `<id>.*.json` would list as a
+# document (`_list`), so the views live in a folder of their own.
+ITEM_FOLDERS = {
+    "experiments": (
+        "cells",
+        "curves",
+        "reports",
+        "replays",
+        "final",
+        "folds",
+        "searchspaces",
+        "holdout",
+        "views",
+        "events.jsonl",
+    ),
+    "studies": ("windows",),
+}
 STRATEGY_SUMMARY_KEYS = (
     "id",
     "name",
@@ -137,6 +154,17 @@ class RunRepository(Protocol):
     def read_trashed(self, folder: str, identifier: str) -> dict: ...
     def erase_from_trash(self, folder: str, identifier: str) -> None: ...
     def trashed_ids(self, folder: str) -> set[str]: ...
+
+
+class ExperimentReferenced(Exception):
+    """An experiment that live experiments still name as their parent cannot be deleted (409):
+    each child goes first, as each study does before its experiment."""
+
+    def __init__(self, identifier: str, children: list[str]) -> None:
+        self.identifier, self.children = identifier, children
+        super().__init__(
+            f"experiment {identifier} is the parent of {', '.join(children)}; delete them first"
+        )
 
 
 def _check_id(identifier: str) -> str:
@@ -533,10 +561,12 @@ class JsonRunRepository:
         sidecar = folder / f"{identifier}.summary.json"
         if sidecar.is_file():
             _retry(sidecar.unlink)
-        for kind in ("cells", "curves", "reports"):
-            tree = folder / f"{identifier}.{kind}"
-            if tree.is_dir():
-                shutil.rmtree(tree, ignore_errors=True)
+        for entry in ITEM_FOLDERS["experiments"]:  # the trash's list: nothing of it stays behind
+            path = folder / f"{identifier}.{entry}"
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            elif path.is_file():
+                _retry(path.unlink)
 
     # Studies (Mission 8 spec §6): the document on the repository, each window's files under
     # `studies/<id>.windows/<symbol>/`.

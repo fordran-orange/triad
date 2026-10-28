@@ -17,17 +17,19 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from products.aegis import api
 from products.aegis import experiments as exp
 from products.aegis.analysis import _columns, _paths_of, analyse
 from products.aegis.jobs import JobRunner
 from products.aegis.lab import identity, policy
 from products.aegis.lab import store as lab_store
 from products.aegis.pool import METRICS, SCOPES
-from products.aegis.runs import JsonRunRepository
+from products.aegis.runs import ITEM_FOLDERS, JsonRunRepository
 from products.aegis.strategies import StrategyLibrary
 from products.aegis.surface import KERNEL_MS_PER_BAR, Budget, Parameter, Surface, build_grid
 from products.aegis.surface import plan as plan_surface
 from test_aegis_api import _experiment_body, _runner, _wait_experiment, client  # noqa: F401
+from test_aegis_data import write_archive
 from test_aegis_experiments import (  # noqa: F401 - `world` is the shared experiments fixture
     PINNED_DATA,
     ROWS,
@@ -1334,3 +1336,215 @@ def test_job_compacts_every_fifty_chunks_and_at_finalize(world, monkeypatch):  #
     assert counts["unique"] <= counts["completed"]  # §6.4
     assert counts["unique_generation"] == manifest.unique_generation == 2
     assert store.done_cells(doc.id) == set(range(11))
+
+
+# --- Task 6: attachments travel together; resume and materialize through the pinned source ------
+
+
+def attachment_contents(folder: Path, experiment_id: str) -> dict[str, str]:
+    """Every file of an experiment beside its document (the document, its sidecar and each
+    attachment folder's files), as its path under `folder` with its bytes' sha256."""
+    found = {}
+    for piece in sorted(folder.iterdir()):
+        if not piece.name.startswith(f"{experiment_id}."):
+            continue
+        files = [piece] if piece.is_file() else sorted(p for p in piece.rglob("*") if p.is_file())
+        for path in files:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            found[path.relative_to(folder).as_posix()] = digest
+    return found
+
+
+def test_experiment_attachments_travel_with_trash_and_restore(tmp_path):
+    repository = JsonRunRepository(tmp_path / "aegis")
+    store = exp.ExperimentStore(repository)
+    strategy = StrategyLibrary(repository).create("Breakout", pinned())
+    cells_dir = layout2_dir(tmp_path, [rows_of(range(6)), rows_of(range(6, 12))])
+    hand_document(repository, strategy, experiment_id=EXPERIMENT, status="done", layout2=True)
+    lab_store.compact(cells_dir, now=NOW)
+    lab_store.reclaim(cells_dir, now=NOW + 601)
+    assert sorted(path.name for path in cells_dir.iterdir()) == ["manifest.json", "part-1.parquet"]
+    folder = repository.root / "experiments"
+    named = ("curves", "reports", "replays", "views", "events.jsonl")  # the spec's attachments
+    others = [s for s in ITEM_FOLDERS["experiments"] if s != "cells" and s not in named]
+    for suffix in (*named, *others):
+        path = folder / f"{EXPERIMENT}.{suffix}"
+        if suffix.endswith(".jsonl"):
+            path.write_text('{"event": "created"}\n{"event": "done"}\n', encoding="utf-8")
+            continue
+        (path / "nested").mkdir(parents=True)
+        (path / "000000.parquet").write_bytes(suffix.encode())
+        (path / "nested" / "1.json").write_text(f'{{"{suffix}": 1}}', encoding="utf-8")
+    before = lab_store.read_latest(cells_dir)
+    contents = attachment_contents(folder, EXPERIMENT)
+    pieces = {f"{EXPERIMENT}.{suffix}" for suffix in ("cells", *named, *others)}
+    assert {name.split("/")[0] for name in contents} == pieces | {
+        f"{EXPERIMENT}.json.gz",
+        f"{EXPERIMENT}.summary.json",
+    }
+
+    repository.move_to_trash("experiments", EXPERIMENT, {"kind": "experiment", "id": EXPERIMENT})
+    assert attachment_contents(folder, EXPERIMENT) == {}  # nothing of it is left live
+    trash = repository.root / "trash" / "experiments" / EXPERIMENT
+    assert {path.name for path in trash.iterdir()} == pieces | {
+        f"{EXPERIMENT}.json.gz",
+        f"{EXPERIMENT}.summary.json",
+        "trash.json",
+    }
+    assert attachment_contents(trash, EXPERIMENT) == contents  # moved whole, byte for byte
+    assert [item["id"] for item in repository.list_trash()] == [EXPERIMENT]
+
+    repository.restore_from_trash("experiments", EXPERIMENT)
+    assert not trash.exists()
+    assert attachment_contents(folder, EXPERIMENT) == contents
+    after = lab_store.read_latest(cells_dir)
+    assert after.table.equals(before.table) and after.snapshot == before.snapshot
+    assert after.table.to_pylist() == before.table.to_pylist()
+    assert store.layout(EXPERIMENT) == 2 and len(store.cells(EXPERIMENT)) == 12
+
+
+def finished_through_api(c, runner, name: str) -> str:
+    """A layout-2 experiment created through `POST /experiments` (so `data_pinned` and `versions`
+    are written) and run to `done`. It waits for the runner's own record too: the runner saves the
+    document once more after the experiment's finalize, so a test that rewrites the document
+    must not race that last save."""
+    created = c.post("/aegis/api/experiments", json=_experiment_body(c, name=name))
+    assert created.status_code == 202, created.text
+    experiment_id, job_id = created.json()["experiment_id"], created.json()["job_id"]
+    assert job_id
+    done = _wait_experiment(c, experiment_id, ("done", "failed"))
+    assert done["status"] == "done", done.get("error")
+    assert wait_for(lambda: runner.status(job_id)["status"] == "done")
+    return experiment_id
+
+
+def paused_layout2(c, runner, repository, name: str) -> dict:
+    """A finished layout-2 experiment persisted as paused with a dead job, the way
+    test_aegis_api.py's paused-experiment test does: a `done` document is refused before any
+    drift check, and `/pause` answers 409 unless the document is running with a live job."""
+    experiment_id = finished_through_api(c, runner, name)
+    document = exp.ExperimentStore(repository).get(experiment_id)
+    assert document.cells_layout == 2 and document.data_pinned and document.versions
+    paused = {**document.model_dump(mode="json"), "status": "paused", "job_id": "dead"}
+    repository.save_experiment(paused)
+    return paused
+
+
+def bars_spy(monkeypatch) -> list[tuple[str, str]]:
+    """Record each call of the module-level `_experiment_bars` (the legacy re-selection)."""
+    calls = []
+    real = api._experiment_bars
+
+    def spy(data, store):
+        calls.append((data.symbol, data.timeframe))
+        return real(data, store)
+
+    monkeypatch.setattr(api, "_experiment_bars", spy)
+    return calls
+
+
+def test_resume_refuses_vintage_drift(client, tmp_path, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    c, _, repository = client
+    runner = _runner(repository)
+    paused = paused_layout2(c, runner, repository, "vintage drift")
+    write_archive(tmp_path, "20260301T000000000000Z", "QQQ", price=101.0)  # same vintage, new bytes
+    response = c.post(f"/aegis/api/experiments/{paused['id']}/resume")
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail.startswith("resume refused: data drift: ") and "sha256 mismatch" in detail
+    after = c.get(f"/aegis/api/experiments/{paused['id']}").json()
+    assert after["status"] == "paused" and after["data_pinned"] == paused["data_pinned"]
+    assert repository.get_experiment(paused["id"]) == paused  # the document is unchanged
+
+
+def test_resume_refuses_engine_build_drift(client, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    c, _, repository = client
+    runner = _runner(repository)
+    paused = paused_layout2(c, runner, repository, "engine drift")
+    recorded = paused["versions"]["engine_build"]
+    assert recorded == identity.engine_build()
+    monkeypatch.setattr(identity, "engine_build", lambda: "0" * 64)
+    response = c.post(f"/aegis/api/experiments/{paused['id']}/resume")
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == (
+        f"resume refused: engine build drift (document {recorded[:12]}, worker {'0' * 12})"
+    )
+    after = c.get(f"/aegis/api/experiments/{paused['id']}").json()
+    assert after["status"] == "paused" and after["data_pinned"] == paused["data_pinned"]
+    assert repository.get_experiment(paused["id"]) == paused
+
+
+def test_materialize_refuses_vintage_drift(client, tmp_path, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    c, _, repository = client
+    runner = _runner(repository)
+    store = exp.ExperimentStore(repository)
+    # (1) A finished layout-2 experiment: its trial is re-run on the bytes its row came from.
+    first = finished_through_api(c, runner, "pinned materialize")
+    document = store.get(first)
+    url = f"/aegis/api/experiments/{first}/cells/0/materialize"
+    ran = c.post(url)
+    assert ran.status_code == 200, ran.text
+    assert ran.json()["data"]["sha256"] == document.data_pinned["sha256"]
+    runs = len(repository.list_runs())
+    # (2) The fixture's vintage folder rewritten with new bytes under the same name.
+    write_archive(tmp_path, "20260301T000000000000Z", "QQQ", price=101.0)
+    # (3) The layout-2 materialize refuses the drift (load_pinned re-hashes the file on disk).
+    refused = c.post(url)
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"].startswith("materialize refused: data drift: ")
+    assert len(repository.list_runs()) == runs  # no new run saved
+    # (4) A second experiment, made legacy. The fixture's ArchiveStore cached the sources and the
+    # frame before the rewrite, so this one is pinned to the old digest too and its layout-2
+    # materialize would be refused the same way: its folder and document become layout 1.
+    second = finished_through_api(c, runner, "legacy materialize")
+    assert store.get(second).data_pinned["sha256"] == document.data_pinned["sha256"]
+    cells_dir = store.cells_dir(second)
+    legacy = store.cells(second)  # the layout-1 column set, as `test_legacy_read_equals_cells`
+    assert legacy.schema.equals(exp._cells_schema(store.get(second).surface.paths()))
+    assert sorted(path.name for path in cells_dir.iterdir()) == ["manifest.json", "part-1.parquet"]
+    (cells_dir / "part-1.parquet").unlink()
+    (cells_dir / lab_store.MANIFEST).unlink()
+    pq.write_table(legacy, cells_dir / "000000.parquet")
+    raw = repository.get_experiment(second)
+    for key in LAYOUT2_FIELDS:
+        raw.pop(key, None)
+    repository.save_experiment(raw)
+    assert store.layout(second) == 1 and store.get(second).cells_layout == 1
+    assert store.get(second).data_pinned is None and store.get(second).versions is None
+    # (5) Its materialize takes today's path: the module-level re-selection, once.
+    calls = bars_spy(monkeypatch)
+    again = c.post(f"/aegis/api/experiments/{second}/cells/0/materialize")
+    assert again.status_code == 200, again.text
+    assert calls == [("QQQ", "15m")]
+    assert len(repository.list_runs()) == runs + 1
+
+
+def test_legacy_resume_unchanged(client, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    c, _, repository = client
+    runner = _runner(repository)
+    store = exp.ExperimentStore(repository)
+    body = exp.ExperimentRequest.model_validate(_experiment_body(c, name="legacy resume"))
+    doc = exp.create(store, StrategyLibrary(repository), body, bars=52, max_workers=2)
+    (store.cells_dir(doc.id) / lab_store.MANIFEST).unlink()  # a cells folder from before layout 2
+    raw = {**doc.model_dump(mode="json"), "status": "paused", "job_id": "dead"}
+    for key in LAYOUT2_FIELDS:
+        del raw[key]
+    repository.save_experiment(raw)
+    legacy = store.get(doc.id)
+    assert legacy.cells_layout == 1 and legacy.data_pinned is None and legacy.versions is None
+    assert store.layout(doc.id) == 1
+    calls = bars_spy(monkeypatch)
+    resumed = c.post(f"/aegis/api/experiments/{doc.id}/resume")
+    assert resumed.status_code == 202, resumed.text
+    assert calls == [("QQQ", "15m")]  # re-selected once, as before Task 6
+    job_id = resumed.json()["job_id"]
+    assert wait_for(lambda: runner.status(job_id)["status"] in ("done", "failed", "cancelled"))
+    finished = store.get(doc.id)
+    assert finished.status == "done", finished.error
+    assert finished.progress["cells_done"] == 4
+    assert store.layout(doc.id) == 1  # today's path: layout-1 chunks, never compacted
+    assert lab_store.read_manifest(store.cells_dir(doc.id)) is None

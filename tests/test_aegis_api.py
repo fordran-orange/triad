@@ -1196,11 +1196,15 @@ def test_resume_continues_a_failed_experiment(client, monkeypatch):
     from products.aegis import experiments as exp
     from products.aegis.strategies import StrategyLibrary
 
-    c, _, repository = client
+    c, archive, repository = client
     _runner(repository)
     store = exp.ExperimentStore(repository)
     body = exp.ExperimentRequest.model_validate(_experiment_body(c, name="failed one"))
-    doc = exp.create(store, StrategyLibrary(repository), body, bars=52, max_workers=2)
+    # Pinned as `POST /experiments` pins it: a layout-2 resume reloads exactly that data (Task 6).
+    _, pinned = archive.bars("QQQ", "15m", RANGE["start"], RANGE["end"])
+    doc = exp.create(
+        store, StrategyLibrary(repository), body, bars=52, max_workers=2, pinned=pinned
+    )
     repository.save_experiment(
         {
             **doc.model_dump(mode="json"),
