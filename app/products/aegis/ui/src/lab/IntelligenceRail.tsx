@@ -3,17 +3,23 @@ import { api, errorMessage } from '../api/client';
 import type { ExperimentDocument } from '../contracts';
 import { recommendationText } from '../experiments';
 import { DASH, money, num, pct, shortHash } from '../format';
+import type { LabTrial } from '../results';
 import { metricsLine, squareAt } from './LabCenter';
+import { lowN, SHARPE, SHARPE_LABEL } from './labQuery';
 import { useLab } from './labState';
 import { sourceText, type PinSlot } from './labStore';
 import { lossTone } from './LabKpiStrip';
+import { LabError } from './NotBuilt';
 import type { LabData, LoadedSource, TrialRow } from './useLabSource';
 
 const PINS: PinSlot[] = ['A', 'B', 'C'];
-const CARD_METRICS = ['net_pnl', 'mar', 'max_drawdown', 'trade_count'] as const;
-const CARD_LABELS: Record<(typeof CARD_METRICS)[number], string> = { net_pnl: 'Net P&L', mar: 'MAR', max_drawdown: 'Max DD', trade_count: 'Trades' };
-const cardValue = (metric: (typeof CARD_METRICS)[number], value: number | null) =>
-  metric === 'net_pnl' ? money(value) : metric === 'max_drawdown' ? pct(value) : num(value, metric === 'trade_count' ? 0 : 2);
+/** The card's metrics: the four Phase 1 ones, exposure, and the trade Sharpe last — never without net P&L, max
+ *  drawdown, trade count and exposure beside it (§7.12). */
+const CARD_METRICS = ['net_pnl', 'mar', 'max_drawdown', 'trade_count', 'exposure', 'sharpe_trade'] as const;
+type CardMetric = (typeof CARD_METRICS)[number];
+const CARD_LABELS: Record<CardMetric, string> = { net_pnl: 'Net P&L', mar: 'MAR', max_drawdown: 'Max DD', trade_count: 'Trades', exposure: 'Exposure', sharpe_trade: SHARPE_LABEL };
+const cardValue = (metric: CardMetric, value: number | null) =>
+  metric === 'net_pnl' ? money(value) : metric === 'max_drawdown' || metric === 'exposure' ? pct(value) : num(value, metric === 'trade_count' ? 0 : 2);
 
 interface Provenance {
   source: string;
@@ -49,7 +55,43 @@ function provenance(loaded: LoadedSource): Provenance {
   };
 }
 
-function TrialCard({ row, scope }: { row: TrialRow; scope: string }) {
+/** The bars the source's trials ran on (an experiment's plan, a job's frame), for the trade frequency. */
+function barsOf(loaded: LoadedSource | null): number | null {
+  if (loaded === null) return null;
+  const bars = loaded.kind === 'exp' ? loaded.document.plan.bars : loaded.job.bars;
+  return typeof bars === 'number' && bars > 0 ? bars : null;
+}
+
+function TrialCard({ row, scope, bars }: { row: TrialRow; scope: string; bars: number | null }) {
+  // An experiment's trial: its every metric from the trial route (a table page carries the columns it shows).
+  const exp = row.id.startsWith('exp:');
+  const [detail, setDetail] = useState<{ id: string; trial: LabTrial } | null>(null);
+  const [failed, setFailed] = useState<{ id: string; message: string } | null>(null);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    if (!exp) return;
+    let cancelled = false;
+    const src = row.id.slice(0, row.id.lastIndexOf('#'));
+    api
+      .labTrial(src, row.id)
+      .then((trial) => {
+        if (cancelled) return;
+        setDetail({ id: row.id, trial });
+        setFailed(null);
+      })
+      .catch((e: unknown) => !cancelled && setFailed({ id: row.id, message: errorMessage(e) }));
+    return () => {
+      cancelled = true;
+    };
+  }, [exp, row.id, retry]);
+  const metrics = detail !== null && detail.id === row.id ? (detail.trial.metrics[scope as 'combined' | 'long' | 'short'] ?? null) : null;
+  const valueOf = (m: CardMetric): number | null => {
+    const v: unknown = metrics !== null ? metrics[m] : row.values[exp ? `${scope}.${m}` : m];
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  };
+  const trades = valueOf('trade_count');
+  const low = trades === null || lowN(trades);
+  const perBars = trades !== null && bars !== null ? num((trades / bars) * 1000, 1) : DASH;
   return (
     <>
       <div className="rail-id mono">{row.id}</div>
@@ -63,8 +105,20 @@ function TrialCard({ row, scope }: { row: TrialRow; scope: string }) {
       </dl>
       <div className="rail-metrics">
         {CARD_METRICS.map((m) => {
-          const value = row.values[row.id.startsWith('exp:') ? `${scope}.${m}` : m] ?? null;
+          const value = valueOf(m);
           const tone = lossTone(m, value);
+          if (m === SHARPE)
+            return (
+              <span key={m} className="rail-sharpe" title={value === null ? 'undefined: fewer than 2 trades, zero variance, or not computed for this source' : `${scope} ${SHARPE_LABEL}`}>
+                {CARD_LABELS[m]} <b>{cardValue(m, value)}</b>
+                {low && (
+                  <span className="low-n" title={trades === null ? 'the trade count is not known' : `${trades} trades: fewer than the minimum for a trade Sharpe`}>
+                    low n
+                  </span>
+                )}{' '}
+                · {perBars} trades / 1,000 bars
+              </span>
+            );
           return (
             <span key={m} title={value === null ? 'no value for this trial' : `${scope} ${m}`}>
               {CARD_LABELS[m]} <b className={tone === 'loss' ? 'red' : tone === 'gain' ? 'green' : undefined}>{cardValue(m, value)}</b>
@@ -72,7 +126,10 @@ function TrialCard({ row, scope }: { row: TrialRow; scope: string }) {
           );
         })}
       </div>
+      <div className="sub">annualized Sharpe: not computed</div>
+      <div className="sub">temporal consistency: Phase 3</div>
       <div className="sub">metrics for {scope === 'combined' ? 'both sides together' : `the ${scope} side`}</div>
+      {failed !== null && failed.id === row.id && <LabError message={`Trial detail unavailable: ${failed.message}`} onRetry={() => setRetry((n) => n + 1)} />}
     </>
   );
 }
@@ -140,7 +197,7 @@ export function IntelligenceRail({ data, onRefined }: { data: LabData; onRefined
       selected.trials.length !== 1 ? (
         <div>{selected.trials.length.toLocaleString('en-US')} trials selected</div>
       ) : row ? (
-        <TrialCard row={row} scope={scope} />
+        <TrialCard row={row} scope={scope} bars={barsOf(loaded)} />
       ) : (
         <div className="mono">{selected.trials[0]}</div>
       );

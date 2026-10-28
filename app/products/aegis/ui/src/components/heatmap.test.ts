@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cells, profitKind } from './Heatmap';
+import { badge, cells, profitKind } from './Heatmap';
 
 describe('heatmap mapping', () => {
   it('matrix maps to cells with fast rows and slow columns', () => {
@@ -55,5 +55,45 @@ describe('losing money is red, always (operator, 2026-10-19)', () => {
     expect(['net_pnl', 'net_return', 'cagr', 'mar', 'expectancy'].map(profitKind)).toEqual(['sign', 'sign', 'sign', 'sign', 'sign']);
     expect(profitKind('profit_factor')).toBe('ratio');
     expect(['max_drawdown', 'trade_count', 'win_rate', 'exposure'].map(profitKind)).toEqual([null, null, null, null]);
+  });
+});
+
+describe('the dock overlays (Task 10): n badges and hatched untested squares', () => {
+  it('cells() keeps its tone rules: the overlays never change a tone', () => {
+    const matrix = [
+      [-5, 0, 10],
+      [null, 40, 100],
+    ];
+    const grid = cells([5, 6], [8, 9, 10], matrix, false, 'sign');
+    expect(grid.map((r) => r.map((c) => c.tone))).toEqual([
+      ['loss', 'mid', 'gain'],
+      ['empty', 'gain', 'hot'],
+    ]);
+    const counts = [
+      [1, 1, 1],
+      [0, 1, 1],
+    ];
+    expect(grid.map((r, i) => r.map((c, j) => badge(counts, i, j, c.tone)).map((b) => b.hatched))).toEqual([
+      [false, false, false],
+      [true, false, false],
+    ]);
+    expect(cells([5, 6], [8, 9, 10], matrix, false, 'sign')).toEqual(grid);
+  });
+
+  it('badge formats n and marks an empty square hatched only when counts is given', () => {
+    expect(badge(undefined, 0, 0, 'empty')).toEqual({ n: null, text: null, hatched: false });
+    expect(badge(null, 1, 1, 'hot')).toEqual({ n: null, text: null, hatched: false });
+    const counts = [
+      [0, 3],
+      [1200, 2_500_000],
+    ];
+    expect(badge(counts, 0, 0, 'empty')).toEqual({ n: 0, text: null, hatched: true });
+    expect(badge(counts, 0, 1, 'hot')).toEqual({ n: 3, text: '3', hatched: false });
+    expect(badge(counts, 1, 0, 'gain')).toEqual({ n: 1200, text: '1.2k', hatched: false });
+    expect(badge(counts, 1, 1, 'loss')).toEqual({ n: 2_500_000, text: '2.5M', hatched: false });
+    // Tested with no value (every trial there null-valued): counted, never hatched, never coloured.
+    expect(badge(counts, 0, 1, 'empty')).toEqual({ n: 3, text: '3', hatched: false });
+    // A square outside the counts is untested.
+    expect(badge(counts, 5, 5, 'empty')).toEqual({ n: 0, text: null, hatched: true });
   });
 });

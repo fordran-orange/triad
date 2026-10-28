@@ -1,20 +1,11 @@
 import { useState } from 'react';
+import { filterLines } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
-import { activeFilterCount, type LabFilter } from './labStore';
+import { activeFilterCount, canonicalFilter } from './labStore';
 
-/** One line per active constraint of the linked filter. */
-function filterLines(filter: LabFilter): string[] {
-  const lines: string[] = [];
-  for (const [path, [lo, hi]] of Object.entries(filter.ranges)) lines.push(`${path} ∈ [${lo}, ${hi}]`);
-  for (const [path, value] of Object.entries(filter.values)) lines.push(`${path} = ${value}`);
-  if (filter.scope !== 'combined') lines.push(`direction: ${filter.scope} only`);
-  for (const pass of filter.pass) lines.push(`pass: ${pass}`);
-  for (const status of filter.status) lines.push(`status: ${status}`);
-  return lines;
-}
-
-/** `Linked · k filters` on every panel that reads the shared filter; a click lists the filters with Clear.
- *  Only the context bar's chip carries an id (`#lab-linked`, its Clear `#lab-linked-clear`). */
+/** `Linked · k filters` on every panel that reads the shared filter; a click lists the filters with Clear. The
+ *  chip carries the exact filter as `data-filter` (its canonical text). Only the context bar's chip carries an id
+ *  (`#lab-linked`, its Clear `#lab-linked-clear`). */
 export function LinkedChip({ id }: { id?: string }) {
   const { filter } = useLab();
   const dispatch = useLabDispatch();
@@ -33,6 +24,7 @@ export function LinkedChip({ id }: { id?: string }) {
         type="button"
         className={'linked-chip' + (count > 0 ? ' on' : '')}
         id={id}
+        data-filter={canonicalFilter(filter)}
         aria-expanded={open}
         title="The filter every Lab panel shares; click to list it"
         onClick={() => setOpen((v) => !v)}

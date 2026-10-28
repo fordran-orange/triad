@@ -1,6 +1,7 @@
 // Result shapes exactly as POST /aegis/api/backtest and GET /aegis/api/runs/{id} return them
 // (products/aegis/backtest.py, results.py, api.py). Nothing here is computed in the browser.
 import type { StrategySpec } from './contracts';
+import type { LabFilter } from './lab/labStore';
 
 export interface Metrics {
   net_pnl: number | null;
@@ -13,6 +14,9 @@ export interface Metrics {
   profit_factor: number | null;
   trade_count: number;
   exposure: number;
+  /** The Lab's trade Sharpe (per trade, not annualized): never one of the engine's metrics, so a run or a cell
+   *  leaves it out; a Lab trial carries it per scope, null below two trades or with zero variance. */
+  sharpe_trade?: number | null;
 }
 
 export interface Trade {
@@ -407,6 +411,227 @@ export interface CellsPage {
   total: number;
   rows: Array<Record<string, unknown> & { cell: number; valid: boolean }>;
   columns: string[];
+}
+
+// --- the Optimization Lab's query layer (Phase 2: GET /lab/{src}/summary, POST /lab/{src}/query,
+// GET /lab/{src}/trials/{trial}, GET /lab/build; products/aegis/lab/query.py and sources.py) -------------
+
+/** A query's view (`QueryRequest.view`); distinct from the Lab's sub-nav `LabView`. */
+export type LabQueryView = 'counts' | 'matrix' | 'page' | 'top' | 'marginals' | 'parallel' | 'square_trials';
+
+/** The §6.4 counts of one filter (`scope_counts`, its 22 keys in order). `space` is a string above 2^63. */
+export interface LabCounts {
+  space: number | string;
+  valid: number;
+  budget_total: number;
+  reserved: number;
+  scheduled: number;
+  evaluations: number;
+  remaining: number;
+  reused: number;
+  attempted: number;
+  evaluations_done: number;
+  completed: number;
+  invalid: number;
+  failed: number;
+  pending: number;
+  unique: number;
+  duplicates: number;
+  filtered: number;
+  shown: number;
+  undefined: number;
+  basis: string;
+  block: 0;
+  filters_active: number;
+}
+
+/** The file set a response was read at: a layout-2 manifest generation and its chunk watermark (generation 0 for
+ *  a legacy folder's synthesized snapshot). An optimizer source has none. */
+export interface LabSnapshot {
+  generation: number;
+  chunk_watermark: number;
+}
+
+/** One searched parameter of a source, with the completed trials at each value (or bucket). */
+export interface LabParameter {
+  path: string;
+  side: string;
+  family: string;
+  type: 'int' | 'float';
+  start: number;
+  stop: number;
+  step: number;
+  n_values: number;
+  values: number[] | null;
+  tested_per_value: number[];
+  bucketed: boolean;
+}
+
+/** GET /lab/{src}/summary. `layout` is null for an optimizer source (not a cells folder); `versions` is null for a
+ *  legacy experiment and an optimizer; `spec_values` (the §7.1 default slice) is null for an optimizer. */
+export interface LabSummary {
+  source: string;
+  kind: 'exp' | 'opt';
+  layout: 1 | 2 | null;
+  status: string;
+  counts: LabCounts;
+  parameters: LabParameter[];
+  headline: { objective: string; best: { trial_id: string; value: number | null; params: Record<string, number> } | null; completed: number; undefined: number };
+  snapshots: { latest: LabSnapshot | null };
+  provisional: boolean;
+  versions: Record<string, unknown> | null;
+  data_pinned: Provenance | null;
+  engine: string | null;
+  spec_values: Record<string, number> | null;
+  filter_hash: null;
+}
+
+/** Every query answer: the echoed `filter_hash`, the filter's counts, the snapshot read and the explicit empty
+ *  state (`no trials match: k filters active`, or the view's own), beside the view's payload. A `counts` query
+ *  carries no payload: `LabEnvelope<{}>`. */
+export type LabEnvelope<T> = {
+  view: LabQueryView;
+  filter_hash: string | null;
+  scope: LabCounts;
+  snapshot: LabSnapshot | null;
+  provisional: boolean;
+  empty: string | null;
+} & T;
+
+/** POST /lab/{src}/query, field for field (`QueryRequest`, extra fields forbidden): only `filter` and `view` are
+ *  required; a view checks its own arguments. */
+export interface LabQueryBody {
+  filter: LabFilter;
+  view: LabQueryView;
+  filter_hash: string | null;
+  rows?: string;
+  cols?: string;
+  metric?: string;
+  mode?: 'exact' | 'aggregate';
+  stat?: 'best' | 'median' | 'mean' | 'worst';
+  fixed?: Record<string, number> | null;
+  sort?: string;
+  descending?: boolean;
+  offset?: number;
+  limit?: number;
+  k?: number;
+  paths?: string[];
+  axes?: string[];
+  row_value?: number;
+  col_value?: number;
+}
+
+/** A trial as the page, top and square-trials views send it: `values` holds the loaded `<scope>.<metric>` columns,
+ *  an undefined metric as null. An optimizer row's `cell` is its `trial_no`. */
+export interface LabRow {
+  trial_id: string;
+  trial_no: number;
+  cell: number | null;
+  params: Record<string, number>;
+  values: Record<string, number | null>;
+  valid: boolean | null;
+  status: string | null;
+  pass: string | null;
+  design: string | null;
+}
+
+/** An aggregate square's distribution (§7.2); null for a square no trial tested. */
+export interface LabSquareStats {
+  n: number;
+  p25: number | null;
+  p75: number | null;
+  min: number | null;
+  max: number | null;
+  low_n: boolean;
+  confounded: string[];
+  histogram: { edges: number[]; counts: number[]; nulls: number };
+}
+
+/** The matrix view: exact squares carry their lowest trial's id and the duplicates beside it; aggregate squares
+ *  carry their statistics instead. An untested square's value is null and its count 0. */
+export interface LabMatrix {
+  rows_path: string;
+  cols_path: string;
+  rows: number[];
+  cols: number[];
+  values: Array<Array<number | null>>;
+  counts: number[][];
+  basis: string;
+  legend: string;
+  trial_ids?: Array<Array<string | null>>;
+  duplicates?: number[][];
+  stats?: Array<Array<LabSquareStats | null>>;
+}
+
+/** The page and square-trials views: one offset window of the filtered trials, `total` of them in all. */
+export interface LabPage {
+  total: number;
+  rows: LabRow[];
+  columns: string[];
+}
+
+/** The best k filtered trials with a defined value; `metric` is the `<scope>.<metric>` column ranked. */
+export interface LabTop {
+  metric: string;
+  rows: LabRow[];
+}
+
+export interface LabMarginal {
+  values?: number[];
+  buckets?: Array<[number, number]>;
+  n: number[];
+  best: Array<number | null>;
+  median: Array<number | null>;
+}
+
+export interface LabMarginals {
+  metric: string;
+  marginals: Record<string, LabMarginal>;
+}
+
+/** Parallel-coordinate bundles: each axis's q + 1 quantile edges and q centres, the largest bundles first. */
+export interface LabParallel {
+  axes: string[];
+  bins: Array<{ edges: number[]; centres: number[] }>;
+  bundles: Array<{ bins: number[]; count: number; median: number | null }>;
+  total_bundles: number;
+  shown_bundles: number;
+  basis: string;
+}
+
+/** One scope of a trial: the ten experiment metrics, the trade Sharpe and its `low_n` flag. */
+export type LabTrialMetrics = Record<Objective, number | null> & { sharpe_trade: number | null; low_n: boolean };
+
+/** GET /lab/{src}/trials/{trial}: one trial's canonical row, every scope's metrics with the trade Sharpe and its
+ *  `low_n` flag (fewer than SHARPE_MIN_TRADES trades, or none known). */
+export interface LabTrial {
+  trial_id: string;
+  trial_no: number;
+  cell: number | null;
+  params: Record<string, number>;
+  pos: Array<number | null>;
+  param_key: string | null;
+  status: string | null;
+  attempt: number | null;
+  block: number | null;
+  pass: string | null;
+  design: string | null;
+  metrics: Record<'combined' | 'long' | 'short', LabTrialMetrics>;
+  elapsed_ms: number | null;
+  engine: string | null;
+  chunk: number | null;
+  finished_at: string | null;
+  identity: { inputs_key: string | null; strategy_hash: string | null; data_pinned?: Record<string, unknown> | null; data?: Record<string, unknown> };
+}
+
+/** GET /lab/build: the worker's engine build and versions, its roots, the Lab cache and the data root's disk. */
+export interface LabBuild {
+  engine_build: string;
+  versions: Record<string, unknown>;
+  app_root: string;
+  data_root: string;
+  cache: { bytes: number; entries: number; hits: number; misses: number };
+  disk: { free_gb: number; low: boolean; root: string };
 }
 
 export interface Spread {

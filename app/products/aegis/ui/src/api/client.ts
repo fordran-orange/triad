@@ -11,6 +11,11 @@ import type {
   ExperimentSummary,
   JobStatus,
   JobSummary,
+  LabBuild,
+  LabEnvelope,
+  LabQueryBody,
+  LabSummary,
+  LabTrial,
   LibraryEntry,
   LibraryFilters,
   LibraryKind,
@@ -230,6 +235,7 @@ const put = (body: unknown): RequestInit => ({ method: 'PUT', body: JSON.stringi
 const doc = (id: string) => `/strategies/${encodeURIComponent(id)}`;
 const exp = (id: string) => `/experiments/${encodeURIComponent(id)}`;
 const study = (id: string) => `/studies/${encodeURIComponent(id)}`;
+const lab = (src: string) => `/lab/${encodeURIComponent(src)}`;
 
 /** POST /experiments and /experiments/plan body (ExperimentRequest in contracts.ts). */
 export interface ExperimentBody {
@@ -369,4 +375,9 @@ export const api = {
   libraryRestore: (kind: LibraryKind, id: string) => request<{ restored: string }>(`/library/${kind}/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
   libraryEmpty: (items: Array<{ kind: LibraryKind; id: string }> | null) => request<{ erased: number }>('/library/trash/empty', post({ items })),
   libraryCompare: (a: string, b: string) => request<CompareResult>(`/library/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
+  // The Optimization Lab's query layer (Phase 2): `src` is `exp:<experiment id>` or `opt:<job id>`.
+  labSummary: (src: string) => request<LabSummary>(`${lab(src)}/summary`),
+  labQuery: <T>(src: string, body: LabQueryBody) => request<LabEnvelope<T>>(`${lab(src)}/query`, post(body)),
+  labTrial: (src: string, trialId: string) => request<LabTrial>(`${lab(src)}/trials/${encodeURIComponent(trialId)}`),
+  labBuild: () => request<LabBuild>('/lab/build'),
 };

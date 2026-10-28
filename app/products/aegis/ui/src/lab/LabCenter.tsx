@@ -6,6 +6,7 @@ import { METRIC_LABELS, type AxisMatrix, type Metric } from '../results';
 import { useLab, useLabDispatch } from './labState';
 import { NotBuilt } from './NotBuilt';
 import { TrialTable, type ScrollMemory, type TrialSort } from './TrialTable';
+import type { LabQueryData } from './useLabQuery';
 import { matrixKeyOf, NO_MATRIX, type LabData, type TrialRow } from './useLabSource';
 
 export type LabTab = 'heatmap' | 'interactions' | 'parallel' | 'pareto' | 'importance' | 'robustness';
@@ -19,11 +20,14 @@ export const LAB_TABS: Array<{ tab: LabTab; label: string }> = [
   { tab: 'robustness', label: 'Robustness' },
 ];
 
-const FORMAT: Record<Metric, (v: number) => string> = {
+/** How a square prints its value: the four optimizer metrics, and the trade Sharpe (per trade, two decimals) for
+ *  an experiment's heatmap. */
+export const FORMAT: Record<Metric | 'sharpe_trade', (v: number) => string> = {
   net_pnl: compactMoney, // a square holds "$47.2k"; its hover title gives the full amount
   mar: (v) => num(v, 2),
   max_drawdown: pct,
   trade_count: (v) => num(v, 0),
+  sharpe_trade: (v) => num(v, 2),
 };
 
 /** A job path without the `indicators.` prefix: `ema.length`, `stop_loss_pct`. */
@@ -66,7 +70,8 @@ function JobMatrix({ data }: { data: LabData }) {
     const r = m.rows.indexOf(fast);
     const c = m.cols.indexOf(slow);
     if (r < 0 || c < 0) return;
-    dispatch({ type: 'SELECT_SQUARE', x: c, y: r });
+    // The square carries the filter that defines it: the pair in view and its two values.
+    dispatch({ type: 'SELECT_SQUARE', x: c, y: r, ...(data.optAxes ? { axes: data.optAxes, values: [m.rows[r], m.cols[c]] as [number, number] } : {}) });
     if (lab.cursor) dispatch({ type: 'MOVE_CURSOR', dr: r - lab.cursor.r, dc: c - lab.cursor.c, rows, cols }); // the cursor follows the click
   };
   return (
@@ -136,7 +141,7 @@ export function LabCenter({
   onSelect,
   memory,
 }: {
-  data: LabData;
+  data: LabQueryData;
   tab: LabTab;
   onTab: (tab: LabTab) => void;
   sort: TrialSort;
@@ -199,7 +204,7 @@ export function LabCenter({
       </div>
       {!lab.maximized &&
         (loaded ? (
-          <TrialTable key={`${loaded.kind}:${loaded.id}`} loaded={loaded} tick={data.tick} sort={sort} onSort={onSort} onSelect={onSelect} memory={memory} />
+          <TrialTable key={`${loaded.kind}:${loaded.id}`} data={data} sort={sort} onSort={onSort} onSelect={onSelect} memory={memory} />
         ) : (
           <div className="lab-trials">
             <div className="lab-empty">{loading ? 'Loading trials…' : 'No source open: choose one in the context bar.'}</div>

@@ -5161,10 +5161,11 @@ class Acceptance:
             page.locator("#lab-source").select_option(source)
             shown = page.wait_for_function(
                 "() => { const s = document.getElementById('lab-status')?.innerText ?? '';"
-                " return s === 'PROVISIONAL · updates every 2 s' || s === 'done' ? s : null; }",
+                " return /^PROVISIONAL · snapshot \\d\\d:\\d\\d:\\d\\d/.test(s) || s === 'done'"
+                " ? s : null; }",
                 timeout=30_000,
             ).json_value()
-            assert shown == "PROVISIONAL · updates every 2 s", (
+            assert shown.startswith("PROVISIONAL"), (
                 f"the experiment finished before the Lab showed it running ({shown}): give "
                 "LAB_RUNNING_SURFACE more cells"
             )
@@ -5181,7 +5182,7 @@ class Acceptance:
             )
             importance = page.locator("#lab-panel").inner_text()
             still = page.locator("#lab-status").inner_text()
-            assert still == "PROVISIONAL · updates every 2 s", (
+            assert still.startswith("PROVISIONAL"), (
                 f"the experiment finished during the running checks ({still}): give "
                 "LAB_RUNNING_SURFACE more cells"
             )

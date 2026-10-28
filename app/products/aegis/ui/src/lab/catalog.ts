@@ -5,6 +5,7 @@
 //   <side>_side.stop_loss_pct | <side>_side.take_profit_pct
 
 import type { StrategySpec, Surface } from '../contracts';
+import type { LabAction } from './labStore';
 
 export interface CatalogEntry {
   path: string;
@@ -97,4 +98,17 @@ export function searchFamilies(list: Family[], text: string): Family[] {
       f.label.toLowerCase().includes(needle) ||
       f.entries.some((e) => e.path.toLowerCase().includes(needle) || e.field.toLowerCase().includes(needle)),
   );
+}
+
+/** A number field's text as a number: blank, whitespace or anything that is not a finite number is null. */
+export function parseNumber(text: string): number | null {
+  if (text.trim() === '') return null;
+  const value = Number(text);
+  return Number.isFinite(value) ? value : null;
+}
+
+/** What the catalog's fix-value input dispatches for the text it holds: `FIX_VALUE` with the number, or with null
+ *  (the value cleared) when the field is blank. A fixed value filters the trials and holds the exact slice too. */
+export function fixValueAction(path: string, text: string): LabAction {
+  return { type: 'FIX_VALUE', path, value: parseNumber(text) };
 }

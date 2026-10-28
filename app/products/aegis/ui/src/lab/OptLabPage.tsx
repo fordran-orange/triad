@@ -11,7 +11,8 @@ import { NotBuilt } from './NotBuilt';
 import { ParameterCatalog } from './ParameterCatalog';
 import type { TrialSort } from './TrialTable';
 import { useLabKeys } from './useLabKeys';
-import { sourceFamilies, useLabSource, type TrialRow } from './useLabSource';
+import { useLabQuery } from './useLabQuery';
+import { sourceFamilies, type TrialRow } from './useLabSource';
 import { VariableIntelligence } from './VariableIntelligence';
 
 /** The views a later phase builds: each one says what it is and when it arrives, inside the same layout. */
@@ -31,7 +32,7 @@ const METRIC_ORDER: TrialSort = { column: null, descending: true };
 export function OptLabPage() {
   const lab = useLab();
   const dispatch = useLabDispatch();
-  const data = useLabSource();
+  const data = useLabQuery();
   const [tab, setTab] = useState<LabTab>('heatmap');
   const [sort, setSort] = useState<TrialSort>(METRIC_ORDER);
   const memory = useRef({ key: '', top: 0 });

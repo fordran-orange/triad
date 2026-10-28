@@ -1,7 +1,8 @@
 import { NotBuilt } from './NotBuilt';
 import { ParameterCatalog } from './ParameterCatalog';
 import { TrialTable, type ScrollMemory, type TrialSort } from './TrialTable';
-import { sourceFamilies, type LabData, type TrialRow } from './useLabSource';
+import type { LabQueryData } from './useLabQuery';
+import { sourceFamilies, type TrialRow } from './useLabSource';
 import { WorkflowStrip } from './WorkflowStrip';
 
 /** Screen H in Phase 1: the whole six-step workflow (only Define works yet), every parameter of the source with its
@@ -14,7 +15,7 @@ export function VariableIntelligence({
   onSelect,
   memory,
 }: {
-  data: LabData;
+  data: LabQueryData;
   sort: TrialSort;
   onSort: (sort: TrialSort) => void;
   onSelect: (row: TrialRow) => void;
@@ -34,7 +35,7 @@ export function VariableIntelligence({
             <NotBuilt what="Influence, interactions and search-space proposals" phase={4} />
           </div>
           {loaded ? (
-            <TrialTable key={`${loaded.kind}:${loaded.id}`} loaded={loaded} tick={data.tick} sort={sort} onSort={onSort} onSelect={onSelect} memory={memory} />
+            <TrialTable key={`${loaded.kind}:${loaded.id}`} data={data} sort={sort} onSort={onSort} onSelect={onSelect} memory={memory} />
           ) : (
             <div className="lab-trials">
               <div className="lab-empty">{loading ? 'Loading trials…' : 'No source open: choose one in the context bar.'}</div>

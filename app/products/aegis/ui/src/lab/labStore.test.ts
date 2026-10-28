@@ -10,7 +10,9 @@ import {
   sourceText,
   type LabFilter,
   type LabState,
+  type SquareSelection,
 } from './labStore';
+import { squareFilter } from './labQuery';
 
 const EXP = { kind: 'exp', id: 'e1' } as const;
 
@@ -496,5 +498,31 @@ describe('filterHash golden', () => {
     const next = labReducer(initialLabState, { type: 'SET_RANGE', path: 'a', range: [10, 9] });
     expect(next.filter.ranges.a).toEqual([9, 10]);
     expect(canonicalFilter(filter({ ranges: { a: [10, 9] } }))).toBe('{"pass":[],"ranges":{"a":[9,10]},"scope":"combined","status":[],"values":{}}');
+  });
+});
+
+describe('aggregate squares carry their defining filter (Task 10)', () => {
+  const axes: [string, string] = ['long_side.indicators.ema.length', 'long_side.indicators.sma.length'];
+
+  it('aggregateNotPinnable: PIN returns the same object while a square is selected, and squareFilter fixes exactly its two values', () => {
+    const before = state({ selected: { square: { x: 2, y: 1, axes, values: [6, 25] } } });
+    expect(labReducer(before, { type: 'PIN', slot: 'A', trialId: 'exp:e1#4' })).toBe(before);
+    const square = (before.selected as { square: SquareSelection }).square;
+    const defining = squareFilter(square);
+    expect(defining.values).toEqual({ [axes[0]]: 6, [axes[1]]: 25 });
+    expect(defining.ranges).toEqual({});
+    expect(defining.scope).toBe('combined');
+    expect(defining.pass).toEqual([]);
+    expect(defining.status).toEqual([]);
+    expect(activeFilterCount(defining)).toBe(2);
+  });
+
+  it('SELECT_SQUARE carries axes and values', () => {
+    const next = labReducer(initialLabState, { type: 'SELECT_SQUARE', x: 2, y: 1, axes, values: [6, 25] });
+    expect(next.selected).toEqual({ square: { x: 2, y: 1, axes, values: [6, 25] } });
+    // The keyboard path (until Task 11's cursorDims) still dispatches x and y alone.
+    const bare = labReducer(initialLabState, { type: 'SELECT_SQUARE', x: 0, y: 3 });
+    expect(bare.selected).toEqual({ square: { x: 0, y: 3 } });
+    expect(Object.keys((bare.selected as { square: SquareSelection }).square)).toEqual(['x', 'y']);
   });
 });

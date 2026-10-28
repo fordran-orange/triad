@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Parameter, StrategySpec, Surface } from '../contracts';
-import { families, parameterCount, parsePath, searchFamilies } from './catalog';
+import { families, fixValueAction, parameterCount, parsePath, searchFamilies } from './catalog';
+import { initialLabState, labReducer } from './labStore';
 
 function surfaceOf(...parameters: Array<[string, number, number, number]>): Surface {
   return { parameters: parameters.map(([path, start, stop, step]): Parameter => ({ path, start, stop, step })) };
@@ -236,5 +237,27 @@ describe('parameterCount and parsePath guards', () => {
     expect(parsePath('long_side.indicators.bb.params.mult')).toEqual({ side: 'long', id: 'bb', field: 'params.mult' });
     expect(parsePath('short_side.indicators.ema.length')).toEqual({ side: 'short', id: 'ema', field: 'length' });
     expect(parsePath('long_side.stop_loss_pct')).toEqual({ side: 'long', id: 'levels', field: 'stop_loss_pct' });
+  });
+});
+
+describe('the fix-value input (Task 10)', () => {
+  const path = 'long_side.indicators.ema.length';
+
+  it('fix-value input dispatches FIX_VALUE and blank clears it', () => {
+    expect(fixValueAction(path, '6')).toEqual({ type: 'FIX_VALUE', path, value: 6 });
+    const fixed = labReducer(initialLabState, fixValueAction(path, '6'));
+    expect(fixed.filter.values).toEqual({ [path]: 6 });
+    const moved = labReducer(fixed, fixValueAction(path, '7.5'));
+    expect(moved.filter.values).toEqual({ [path]: 7.5 });
+    for (const blank of ['', '   ']) {
+      expect(fixValueAction(path, blank)).toEqual({ type: 'FIX_VALUE', path, value: null });
+      expect(labReducer(moved, fixValueAction(path, blank)).filter.values).toEqual({});
+    }
+    expect(labReducer(fixed, fixValueAction(path, '0')).filter.values).toEqual({ [path]: 0 }); // a fixed zero is a value
+  });
+
+  it('text that is not a finite number clears the value rather than fixing a NaN', () => {
+    expect(fixValueAction(path, 'abc')).toEqual({ type: 'FIX_VALUE', path, value: null });
+    expect(fixValueAction(path, 'Infinity')).toEqual({ type: 'FIX_VALUE', path, value: null });
   });
 });

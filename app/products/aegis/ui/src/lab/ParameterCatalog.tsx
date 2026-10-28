@@ -1,15 +1,9 @@
 import { useEffect, useState } from 'react';
-import { searchFamilies, type CatalogEntry, type Family } from './catalog';
+import { fixValueAction, parseNumber as parse, searchFamilies, type CatalogEntry, type Family } from './catalog';
 import { useLab, useLabDispatch } from './labState';
 import { LinkedChip } from './LinkedChip';
 
 const ACTIVE_TITLE = 'no screening evidence yet: all parameters Active (Phase 4)';
-
-function parse(text: string): number | null {
-  if (text.trim() === '') return null;
-  const value = Number(text);
-  return Number.isFinite(value) ? value : null;
-}
 
 /** A parameter's [lo, hi] brush: written to the shared filter on every change; both empty removes it. A bound
  *  left empty is the parameter's own end, shown as the placeholder. */
@@ -66,8 +60,39 @@ function RangeInputs({ entry }: { entry: CatalogEntry }) {
   );
 }
 
+/** A parameter's fixed value (§5.2's "fix a value"): written to the shared filter on every change, blank removes it.
+ *  A fixed value filters the trials and holds the exact slice of the heatmap too. Cleared elsewhere (the chip's
+ *  Clear, Escape, a new source) like the ranges. */
+function FixValueInput({ entry }: { entry: CatalogEntry }) {
+  const fixed = useLab().filter.values[entry.path];
+  const dispatch = useLabDispatch();
+  const [text, setText] = useState(fixed === undefined ? '' : String(fixed));
+  useEffect(() => {
+    if (fixed === undefined) setText('');
+  }, [fixed]);
+  return (
+    <label className="entry-fix" title="fix one value: only the trials with it, and the exact slice holds it">
+      =
+      <input
+        type="number"
+        className="fix-value"
+        data-path={entry.path}
+        aria-label={`${entry.path} fixed value`}
+        min={entry.start}
+        max={entry.stop}
+        step={entry.step}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          dispatch(fixValueAction(entry.path, e.target.value));
+        }}
+      />
+    </label>
+  );
+}
+
 /** The parameter rail: families per side, collapsible and searchable. In `controls` mode each parameter carries
- *  the X / Y axis radios (X = the heatmap's columns, Y = its rows) and a range brush; in `status` mode (Variable
+ *  the X / Y axis radios (X = the heatmap's columns, Y = its rows), a range brush and a fixed value; in `status` mode (Variable
  *  Intelligence) it carries its variable status instead. */
 export function ParameterCatalog({ list, mode, loading }: { list: Family[] | null; mode: 'controls' | 'status'; loading: boolean }) {
   const { axes } = useLab();
@@ -135,6 +160,7 @@ export function ParameterCatalog({ list, mode, loading }: { list: Family[] | nul
                             <input type="radio" name="lab-axis-y" data-path={entry.path} checked={axes?.[0] === entry.path} onChange={() => setY(entry.path)} /> Y
                           </label>
                           <RangeInputs entry={entry} />
+                          <FixValueInput entry={entry} />
                         </div>
                       ) : (
                         <div className="entry-controls">

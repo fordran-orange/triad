@@ -20,6 +20,11 @@ export interface HeatmapProps {
   profit?: ProfitKind;
   /** The full numbers of a cell for its hover title (the cell itself shows a compact value). */
   detail?: (fast: number, slow: number) => string | null;
+  /** How many trials (cells) each square holds, in the matrix's shape: each square then carries its `n` badge,
+   *  and a square no trial tested is told apart from a tested one without a value. */
+  counts?: ReadonlyArray<ReadonlyArray<number>> | null;
+  /** Draw the squares no trial tested hatched (needs `counts`): an untested square is never filled. */
+  hatchUntested?: boolean;
 }
 
 /** 'sign': below 0 loses money (net P&L, return, CAGR, MAR, expectancy); 'ratio': below 1
@@ -33,7 +38,7 @@ export function profitKind(metric: string): ProfitKind {
   return metric === 'profit_factor' ? 'ratio' : null;
 }
 
-type Tone = 'empty' | 'hot' | 'gain' | 'mid' | 'cool' | 'loss';
+export type Tone = 'empty' | 'hot' | 'gain' | 'mid' | 'cool' | 'loss';
 
 function third(t: number): 'top' | 'middle' | 'bottom' {
   return t >= 0.67 ? 'top' : t <= 0.33 ? 'bottom' : 'middle';
@@ -69,7 +74,52 @@ export function cells(fast: number[], slow: number[], matrix: HeatmapProps['matr
   );
 }
 
-export function Heatmap({ title, metric, fast, slow, matrix, format, rowLabel = 'fast↓', colLabel = 'slow→', selected, onSelect, empty, lowerIsBetter = false, profit = null, detail }: HeatmapProps) {
+/** A count as a badge fits a square: 3, 999, 1.2k, 12k, 2.5M. */
+function countText(n: number): string {
+  const short = (v: number) => String(Number(v.toFixed(v < 10 ? 1 : 0)));
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${short(n / 1000)}k`;
+  return `${short(n / 1_000_000)}M`;
+}
+
+/** A square's `n` badge: its count and the badge text (none for an untested square), and whether it is hatched
+ *  (no trial tested it: its tone is 'empty' and its count 0). Without `counts` there is no badge and no hatch.
+ *  Pure; vitest-covered (heatmap.test.ts). The tone itself always comes from `cells()`. */
+export function badge(counts: ReadonlyArray<ReadonlyArray<number>> | null | undefined, r: number, c: number, tone: Tone): { n: number | null; text: string | null; hatched: boolean } {
+  if (!counts) return { n: null, text: null, hatched: false };
+  const n = counts[r]?.[c] ?? 0;
+  return { n, text: n > 0 ? countText(n) : null, hatched: tone === 'empty' && n === 0 };
+}
+
+/** The legend the dock's basis line carries (spec §5.1): what a square's look means. The robust plateau overlay
+ *  arrives with Phase 3's robustness estimators. */
+export function HeatLegend() {
+  return (
+    <span className="heat-legend">
+      <span className="heat-key">
+        <i className="swatch tested" />
+        Tested
+      </span>
+      {' · '}
+      <span className="heat-key">
+        <i className="swatch hatched" />
+        Untested (hatched)
+      </span>
+      {' · '}
+      <span className="heat-key">
+        <i className="swatch selected" />
+        Selected
+      </span>
+      {' · '}
+      <span className="heat-key muted" title="the robustness estimators arrive in Phase 3">
+        <i className="swatch plateau" />
+        Robust plateau (Phase 3)
+      </span>
+    </span>
+  );
+}
+
+export function Heatmap({ title, metric, fast, slow, matrix, format, rowLabel = 'fast↓', colLabel = 'slow→', selected, onSelect, empty, lowerIsBetter = false, profit = null, detail, counts, hatchUntested = false }: HeatmapProps) {
   const grid = cells(fast, slow, matrix, lowerIsBetter, profit);
   const fmt = format ?? ((v: number) => v.toFixed(0));
   return (
@@ -97,19 +147,35 @@ export function Heatmap({ title, metric, fast, slow, matrix, format, rowLabel = 
           {grid.map((row, r) => (
             <div key={'r' + fast[r]} style={{ display: 'contents' }}>
               <div className="cell h rowhead">{fast[r]}</div>
-              {row.map((cell) => {
+              {row.map((cell, c) => {
                 const isSelected = selected?.fast === cell.fast && selected?.slow === cell.slow;
-                const className = 'cell ' + (cell.tone === 'mid' ? '' : cell.tone) + (isSelected ? ' selected' : '');
+                const n = badge(counts, r, c, cell.tone);
+                const hatched = hatchUntested && n.hatched;
+                const className = 'cell ' + (cell.tone === 'mid' ? '' : cell.tone) + (hatched ? ' hatched' : '') + (n.text ? ' has-n' : '') + (isSelected ? ' selected' : '');
                 const label = cell.value === null ? DASH : fmt(cell.value);
                 const more = cell.value === null ? null : (detail?.(cell.fast, cell.slow) ?? null);
-                const title = `${rowLabel} ${cell.fast} / ${colLabel} ${cell.slow}${cell.value === null ? ' · skipped or pending' : more ? ` · ${more}` : ''}`;
+                const state =
+                  n.n === null
+                    ? cell.value === null
+                      ? ' · skipped or pending'
+                      : more
+                        ? ` · ${more}`
+                        : ''
+                    : n.n === 0
+                      ? ' · untested'
+                      : `${cell.value === null ? ' · no value' : more ? ` · ${more}` : ''} · n ${n.n}`;
+                const title = `${rowLabel} ${cell.fast} / ${colLabel} ${cell.slow}${state}`;
+                // The badge's digits are CSS content (attr(data-n)), so a square's text stays its value alone.
+                const mark = n.text ? <span className="cell-n" data-n={n.text} aria-hidden="true" /> : null;
                 return onSelect && cell.value !== null ? (
                   <button type="button" key={`${cell.fast}-${cell.slow}`} className={className} title={title} onClick={() => onSelect(cell.fast, cell.slow)} aria-pressed={isSelected}>
                     {label}
+                    {mark}
                   </button>
                 ) : (
                   <div key={`${cell.fast}-${cell.slow}`} className={className} title={title}>
                     {label}
+                    {mark}
                   </div>
                 );
               })}

@@ -7,8 +7,9 @@ import { axisChoices, axisLength, squareTitle, tooManySquares } from '../optimiz
 import { METRICS, METRIC_LABELS, TERMINAL_JOB_STATES, type AxisMatrix, type Cell, type JobStatus, type Metric } from '../results';
 import { useRunBacktest } from '../state/run';
 import { applyConfigs, selectionText, SIDES, SIDE_KEY, useDispatch, useWorkspace, type Side } from '../state/workspace';
+import { dockChipText } from '../lab/labQuery';
 import { formatSeconds } from './OptimizePopover';
-import { Heatmap, profitKind } from './Heatmap';
+import { HeatLegend, Heatmap, profitKind } from './Heatmap';
 
 const FORMAT: Record<Metric, (v: number) => string> = {
   net_pnl: compactMoney, // a cell holds "$47.2k"; its hover title gives the full amount
@@ -120,6 +121,15 @@ export function OptimizationJobView({
             return { cell, count: cell ? 1 : 0 };
           },
         };
+  // The trials behind each square, for its `n` badge: the worker's counts for a chosen pair; for the job's own grid
+  // one per evaluated cell (a cell the pool refused counts none; a square with a value was tested even when the
+  // status no longer lists its cell). A square with none is untested, drawn hatched.
+  const parameterCount = choices.length >= 2 ? choices.length : [job.fast_path, job.slow_path].filter((p) => typeof p === 'string' && p !== '').length;
+  const tested = new Set(job.cells.filter((c) => !(c as Cell & { skip_reason?: string | null }).skip_reason).map((c) => `${c.fast}|${c.slow}`));
+  const counts =
+    custom && axisMatrix
+      ? axisMatrix.counts
+      : view.fast.map((fast, r) => view.slow.map((slow, c) => (tested.has(`${fast}|${slow}`) || (view.matrix?.[r]?.[c] ?? null) !== null ? 1 : 0)));
   const selectedCell = selected ? { fast: selected[view.rowPath], slow: selected[view.colPath] } : null;
   // The table: the best cells the status sends, then the rest a page at a time.
   const shown = job.cells_shown ?? job.cells.length;
@@ -226,6 +236,13 @@ export function OptimizationJobView({
             ))}
           </select>
         </label>
+        <span
+          className="chip dock-mode"
+          id={`dock-mode-${side}`}
+          title={parameterCount === 2 ? 'the job varies two parameters: each square is the one cell with its two values' : `the job varies ${parameterCount} parameters: each square is the best of the cells sharing its two values`}
+        >
+          {dockChipText(parameterCount)}
+        </span>
       </div>
       <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={job.progress.total} aria-valuenow={job.progress.done}>
         <i style={{ width: `${pctDone}%` }} />
@@ -264,10 +281,12 @@ export function OptimizationJobView({
               void pickSquare(fast, slow);
             }}
             empty="No two-axis grid for this job."
+            counts={counts}
+            hatchUntested
           />
           )}
           <div className="sub" id={`dock-basis-${side}`}>
-            Aggregated: best of the rest · empty = untested
+            {dockChipText(parameterCount)} · empty = untested · <HeatLegend />
           </div>
           <div className="sub" id={`dock-validation-${side}`}>
             Validation: no partition (grid job) · Strategy Gate: not built

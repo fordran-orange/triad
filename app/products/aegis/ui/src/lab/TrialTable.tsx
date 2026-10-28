@@ -1,13 +1,16 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject, type ReactElement } from 'react';
-import { api, errorMessage } from '../api/client';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MutableRefObject, type ReactElement } from 'react';
+import { errorMessage } from '../api/client';
 import { DASH } from '../format';
-import type { CellsPage } from '../results';
+import type { LabEnvelope, LabPage, LabRow } from '../results';
 import { lossTone, objectiveText } from './LabKpiStrip';
+import { defaultSort, emptyTableText, expRowFromLab, optPath, optRowFromLab, pageKey, panelLabel, SHARPE, SHARPE_TITLE, tableValueColumns, undefinedLast } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
-import type { PinSlot } from './labStore';
+import { sourceText, type PinSlot } from './labStore';
 import { LinkedChip } from './LinkedChip';
+import { LabError } from './NotBuilt';
 import { pageFor, ROW_HEIGHT, windowRows } from './trialWindow';
-import { jobPaths, optRow, type LoadedSource, type OptJob, type TrialRow } from './useLabSource';
+import type { LabQueryData, Stamped } from './useLabQuery';
+import { jobPaths, optMetric, optRow, type TrialRow } from './useLabSource';
 
 /** The table's order: a column and a direction, or `column: null` for the metric in view, best first. */
 export interface TrialSort {
@@ -19,6 +22,7 @@ export interface TrialSort {
 export type ScrollMemory = MutableRefObject<{ key: string; top: number }>;
 
 interface Column {
+  /** As the worker names it: `trial_no`, a parameter path, `<scope>.<metric>`, or `valid` (not sortable). */
   key: string;
   label: string;
   title: string;
@@ -32,36 +36,27 @@ const PINS: PinSlot[] = ['A', 'B', 'C'];
 const numberOrNull = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const shortPath = (path: string) => path.replace('_side.indicators.', '.').replace('_side.', '.');
 const paramText = (value: number | null) => (value === null ? DASH : Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6))));
-/** `exp:<id>#94` → `cell 94`; `opt:<id>#3` → `#3`. */
-export const trialShort = (id: string) => (id.startsWith('exp:') ? `cell ${id.slice(id.lastIndexOf('#') + 1)}` : id.slice(id.lastIndexOf('#')));
-
-function expRow(experimentId: string, paths: string[], raw: CellsPage['rows'][number]): TrialRow {
-  const params: Record<string, number | null> = {};
-  for (const path of paths) params[path] = numberOrNull(raw[path]);
-  const values: Record<string, number | null> = {};
-  for (const [column, value] of Object.entries(raw)) if (/^(combined|long|short)\./.test(column)) values[column] = numberOrNull(value);
-  return { id: `exp:${experimentId}#${raw.cell}`, label: `cell ${raw.cell}`, params, values, valid: raw.valid };
-}
-
-function optRows(job: OptJob): TrialRow[] {
-  return job.cells.map((_, i) => optRow(job, i));
-}
+/** `exp:<id>#94` → `trial 94`; `opt:<id>#3` → `#3`. */
+export const trialShort = (id: string) => (id.startsWith('exp:') ? `trial ${id.slice(id.lastIndexOf('#') + 1)}` : id.slice(id.lastIndexOf('#')));
 
 /** Best first: lower is better only for max drawdown. */
 const bestDescending = (metric: string) => metric !== 'max_drawdown';
+const metricOf = (column: string) => column.slice(column.indexOf('.') + 1);
 
-/** The trials table: windowed rows (22 px, overscan 10), sortable, one click or arrow key selects a trial; the
- *  experiment's rows come a page at a time from the worker, a job's rows are the cells its status sent. */
+/** The page the table holds: what it answers (the key and the refresh tick), its window of rows and the answer. */
+type Page = { key: string; tick: number; offset: number; rows: LabRow[]; total: number; envelope: Stamped<LabEnvelope<LabPage>> };
+
+/** The trials table: windowed rows (22 px, overscan 10), sortable, one click or arrow key selects a trial. The rows
+ *  come a page at a time from the worker's `page` view of the linked filter, for an experiment and a grid job alike;
+ *  every row is a tested trial. */
 export function TrialTable({
-  loaded,
-  tick,
+  data,
   sort,
   onSort,
   onSelect,
   memory,
 }: {
-  loaded: LoadedSource;
-  tick: number;
+  data: LabQueryData;
   sort: TrialSort;
   onSort: (sort: TrialSort) => void;
   onSelect: (row: TrialRow) => void;
@@ -69,55 +64,57 @@ export function TrialTable({
 }) {
   const lab = useLab();
   const dispatch = useLabDispatch();
+  const { tick, summary } = data;
+  const loaded = data.loaded;
   const scroller = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLTableSectionElement>(null);
   const [view, setView] = useState({ top: 0, height: 0 });
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState<{ key: string; tick: number; offset: number; rows: TrialRow[]; total: number } | null>(null);
+  const [retry, setRetry] = useState(0);
+  const [page, setPage] = useState<Page | null>(null);
   const seq = useRef(0);
-  const pending = useRef<{ key: string; tick: number; offset: number; limit: number } | null>(null);
+  const pending = useRef<{ key: string; tick: number; retry: number; offset: number; limit: number } | null>(null);
   const focusNext = useRef<number | null>(null);
 
-  const scope = loaded.kind === 'opt' ? loaded.job.side : lab.filter.scope;
-  const metric = lab.metric;
-  const metricColumn = loaded.kind === 'exp' ? `${scope}.${metric}` : metric;
-  const sortColumn = sort.column ?? metricColumn;
-  const descending = sort.column === null ? bestDescending(metric) : sort.descending;
-  const queryKey = `${loaded.kind}:${loaded.id}|${sortColumn}|${descending}`;
+  const source = loaded ? sourceText(loaded) : '';
+  const job = loaded?.kind === 'opt' ? loaded.job : null;
+  const scope = job ? job.side : lab.filter.scope;
+  const metric = job ? optMetric(job, lab.metric) : lab.metric;
+  const objective = job ? job.objective : loaded?.kind === 'exp' ? loaded.document.objective : 'net_pnl';
+  // The summary names the layout; while it loads, the experiment document's own `cells_layout` does.
+  const layout = (summary?.layout ?? (loaded?.kind === 'exp' ? loaded.document.cells_layout : null)) === 2 ? 2 : 1;
+  const fallback = defaultSort(scope, metric, objective); // never the trade Sharpe (§7.12)
+  const sortColumn = sort.column ?? fallback.column;
+  const descending = sort.column === null ? fallback.descending : sort.descending;
+  const queryKey = pageKey(source, sortColumn, descending, lab.filter);
 
-  const paths = loaded.kind === 'exp' ? loaded.document.surface.parameters.map((p) => p.path) : jobPaths(loaded.job);
+  const paths = loaded === null ? [] : loaded.kind === 'opt' ? jobPaths(loaded.job).map((path) => optPath(path, loaded.job.side)) : loaded.document.surface.parameters.map((p) => p.path);
+  const metricColumn = `${scope}.${metric}`;
+  const values = tableValueColumns(scope, objective, layout);
+  const shownValues = values.includes(metricColumn) ? values : [metricColumn, ...values];
+  const side = scope === 'combined' ? 'combined sides' : `${scope} side`;
   const columns: Column[] = [
-    loaded.kind === 'exp' ? { key: 'cell', label: 'cell', title: 'the cell number in the experiment', kind: 'id' } : { key: 'index', label: '#', title: 'the cell’s place in the list the job sent', kind: 'id' },
+    { key: 'trial_no', label: 'trial', title: 'the trial number in the source; every row is a tested trial', kind: 'id' },
     ...paths.map((path): Column => ({ key: path, label: shortPath(path), title: path, kind: 'param' })),
-    { key: metricColumn, label: loaded.kind === 'exp' ? metricColumn : `${scope}.${metric}`, title: `${metric} for the ${scope === 'combined' ? 'combined sides' : `${scope} side`}`, kind: 'metric' },
-    ...(loaded.kind === 'exp' ? [{ key: 'valid', label: 'valid', title: 'whether the cell is a valid parameter combination', kind: 'valid' } as Column] : []),
+    ...shownValues.map(
+      (column): Column => ({ key: column, label: column, title: metricOf(column) === SHARPE ? SHARPE_TITLE : `${metricOf(column)} for the ${side}`, kind: 'metric' }),
+    ),
+    ...(job ? [] : [{ key: 'valid', label: 'valid', title: 'whether the trial is a valid parameter combination', kind: 'valid' } as Column]),
   ];
 
-  // A job's rows live in its status: sorted here, no paging.
-  const optSorted = useMemo(() => {
-    if (loaded.kind !== 'opt') return null;
-    const rows = optRows(loaded.job);
-    const value = (row: TrialRow, index: number): number | null => (sortColumn === 'index' ? index : sortColumn in row.params ? row.params[sortColumn] : (row.values[sortColumn] ?? null));
-    const indexed = rows.map((row, index) => ({ row, index, v: value(row, index) }));
-    indexed.sort((a, b) => {
-      if (a.v === null && b.v === null) return a.index - b.index;
-      if (a.v === null) return 1; // nulls last whichever way
-      if (b.v === null) return -1;
-      const order = a.v < b.v ? -1 : a.v > b.v ? 1 : a.index - b.index;
-      return descending ? -order : order;
-    });
-    return indexed.map((x) => x.row);
-  }, [loaded, sortColumn, descending]);
-
-  const progress = loaded.kind === 'exp' ? (loaded.document.progress as { cells_done?: unknown }) : null;
-  const estimate = Math.max(1, numberOrNull(progress?.cells_done) ?? 1); // probes once; the response gives the total
-  const total = optSorted ? optSorted.length : page ? page.total : estimate;
+  const progress = loaded?.kind === 'exp' ? (loaded.document.progress as { cells_done?: unknown }) : null;
+  const estimate = Math.max(1, job ? job.cells.length : (numberOrNull(progress?.cells_done) ?? 1)); // probes once; the response gives the total
+  const current = page !== null && page.key === queryKey ? page : null;
+  const total = page ? page.total : estimate;
   const rendered = windowRows({ total, scrollTop: view.top, viewportHeight: view.height });
-  const rowAt = (i: number): TrialRow | null => {
-    if (optSorted) return optSorted[i] ?? null;
-    if (page && page.key === queryKey && i >= page.offset && i < page.offset + page.rows.length) return page.rows[i - page.offset];
-    return null;
+  const rowAt = (i: number): LabRow | null => (current && i >= current.offset && i < current.offset + current.rows.length ? current.rows[i - current.offset] : null);
+  /** The row as the selection card reads it: a grid job's own cell when its status still holds it (all four
+   *  optimizer metrics), else the page row. */
+  const trialRow = (row: LabRow): TrialRow => {
+    if (!job) return expRowFromLab(row);
+    return job.cells[row.trial_no] !== undefined ? optRow(job, row.trial_no) : optRowFromLab(row, job.side);
   };
+  const select = (row: LabRow) => onSelect(trialRow(row));
 
   const measure = () => {
     const el = scroller.current;
@@ -126,8 +123,8 @@ export function TrialTable({
     setView({ top, height: Math.max(0, el.clientHeight - (head.current?.offsetHeight ?? 0)) });
     memory.current = { key: queryKey, top };
   };
-  // Back from another view: the same rows in the same place; a new order starts at the top. (Idempotent for the
-  // same key, so React's development double-run of effects does not undo the restore.)
+  // Back from another view: the same rows in the same place; a new order or a new filter starts at the top.
+  // (Idempotent for the same key, so React's development double-run of effects does not undo the restore.)
   const lastKey = useRef<string | null>(null);
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -148,27 +145,27 @@ export function TrialTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryKey]);
 
-  // The experiment's rows: fetch the page around the window when the cached page does not hold it.
-  const experimentId = loaded.kind === 'exp' ? loaded.id : null;
+  // The rows: the page view of the linked filter around the window, when the cached page does not hold it.
   useEffect(() => {
-    if (experimentId === null) return;
+    if (loaded === null) return;
     const fresh = page !== null && page.key === queryKey && page.tick === tick;
     const end = Math.min(rendered.end, page?.total ?? rendered.end);
     if (fresh && rendered.start >= page.offset && end <= page.offset + page.rows.length) return;
     const p = pending.current;
-    if (p && p.key === queryKey && p.tick === tick && rendered.start >= p.offset && rendered.end <= p.offset + p.limit) return;
-    // A refresh asks over at least the trials the experiment now reports done (at least one): a table that
-    // counted none while the first chunk ran asks again on every tick instead of keeping its empty window.
+    if (p && p.key === queryKey && p.tick === tick && p.retry === retry && rendered.start >= p.offset && rendered.end <= p.offset + p.limit) return;
+    // A refresh asks over at least the trials the source now reports done (at least one): a table that counted
+    // none while the first chunk ran asks again on every tick instead of keeping its empty window.
     const request = pageFor(windowRows({ total: Math.max(total, estimate), scrollTop: view.top, viewportHeight: view.height, overscan: FETCH_OVERSCAN }));
     if (request.limit === 0) return;
-    const asked = { key: queryKey, tick, ...request };
+    const asked = { key: queryKey, tick, retry, ...request };
     pending.current = asked;
     const mine = ++seq.current;
-    api
-      .experimentCells(experimentId, { offset: request.offset, limit: request.limit, sort: sortColumn, descending })
-      .then((result) => {
-        if (mine !== seq.current) return; // a newer request owns the table
-        setPage({ key: asked.key, tick: asked.tick, offset: request.offset, rows: result.rows.map((raw) => expRow(experimentId, paths, raw)), total: result.total });
+    data
+      .query<LabPage>('page', { sort: sortColumn, descending, offset: request.offset, limit: request.limit })
+      .then((envelope) => {
+        if (mine !== seq.current || envelope === null) return; // a newer request owns the table, or the filter moved on
+        // The worker lists undefined values last whichever the direction; the page is held to that.
+        setPage({ key: asked.key, tick: asked.tick, offset: request.offset, rows: undefinedLast(envelope.rows, sortColumn, descending), total: envelope.total, envelope });
         setError(null);
       })
       .catch((e: unknown) => mine === seq.current && setError(errorMessage(e)))
@@ -176,7 +173,7 @@ export function TrialTable({
         if (pending.current === asked) pending.current = null;
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [experimentId, queryKey, tick, rendered.start, rendered.end, total, page]);
+  }, [source, queryKey, tick, retry, rendered.start, rendered.end, total, page]);
 
   // Arrow keys move the focus with the selection; the focus lands once the row is drawn.
   useEffect(() => {
@@ -202,29 +199,29 @@ export function TrialTable({
       const next = i + (e.key === 'ArrowDown' ? 1 : -1);
       if (next < 0 || next >= total) return;
       const row = rowAt(next);
-      if (row) onSelect(row);
+      if (row) select(row);
       focusNext.current = next;
       ensureVisible(next);
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       e.stopPropagation();
       const row = rowAt(i);
-      if (row) onSelect(row);
+      if (row) select(row);
     }
   };
 
   const clickHeader = (column: Column) => {
+    if (column.kind === 'valid') return; // the worker does not sort by it
     if (column.key === sortColumn) onSort({ column: column.key, descending: !descending });
-    else onSort({ column: column.key, descending: column.kind === 'metric' ? bestDescending(metric) : false });
+    else onSort({ column: column.key, descending: column.kind === 'metric' ? bestDescending(metricOf(column.key)) : false });
   };
 
   const selectedIds = lab.selected && 'trials' in lab.selected ? lab.selected.trials : [];
   const single = selectedIds.length === 1 ? selectedIds[0] : null;
   const square = lab.selected !== null && 'square' in lab.selected;
-  const filtersOff = Object.keys(lab.filter.ranges).length + Object.keys(lab.filter.values).length;
-  const known = optSorted !== null || (page !== null && page.key === queryKey);
-  const shown = loaded.kind === 'opt' ? (loaded.job.cells_shown ?? loaded.job.cells.length) : 0;
-  const done = loaded.kind === 'opt' ? (loaded.job.cells_done ?? loaded.job.progress.done) : 0;
+  const scopeCounts = current?.envelope.scope ?? null;
+  const shown = job ? (job.cells_shown ?? job.cells.length) : 0;
+  const done = job ? (job.cells_done ?? job.progress.done) : 0;
 
   const body: ReactElement[] = [];
   for (let i = rendered.start; i < rendered.end; i++) {
@@ -239,27 +236,36 @@ export function TrialTable({
       );
       continue;
     }
-    const isSelected = selectedIds.includes(row.id);
+    const isSelected = selectedIds.includes(row.trial_id);
     body.push(
       <tr
-        key={row.id}
-        data-trial={row.id}
+        key={row.trial_id}
+        data-trial={row.trial_id}
         data-index={i}
         tabIndex={0}
         className={(isSelected ? 'selected' : '') + (row.valid === false ? ' muted' : '')}
         aria-selected={isSelected}
-        onClick={() => onSelect(row)}
+        onClick={() => select(row)}
         onKeyDown={(e) => onRowKey(e, i)}
       >
         {columns.map((column) => {
-          if (column.kind === 'id') return <td key={column.key}>{loaded.kind === 'exp' ? row.label.replace('cell ', '') : row.label.replace('#', '')}</td>;
-          if (column.kind === 'param') return <td key={column.key}>{paramText(row.params[column.key] ?? null)}</td>;
+          if (column.kind === 'id')
+            return (
+              <td key={column.key}>
+                {row.trial_no}
+                <span className="badge trial-tested" title="a tested trial: its values are the engine's own, nothing estimated">
+                  Tested
+                </span>
+              </td>
+            );
+          if (column.kind === 'param') return <td key={column.key}>{paramText(numberOrNull(row.params[column.key]))}</td>;
           if (column.kind === 'valid') return <td key={column.key}>{row.valid === null ? DASH : row.valid ? 'yes' : 'no'}</td>;
-          const value = row.values[column.key] ?? null;
-          const tone = lossTone(metric, value);
+          const name = metricOf(column.key);
+          const value = numberOrNull(row.values[column.key]);
+          const tone = lossTone(name, value);
           return (
-            <td key={column.key} className={tone === 'loss' ? 'red' : tone === 'gain' ? 'green' : undefined} title={value === null ? 'no value: the cell was skipped or has no trades' : undefined}>
-              {objectiveText(metric, value)}
+            <td key={column.key} className={tone === 'loss' ? 'red' : tone === 'gain' ? 'green' : undefined} title={value === null ? `${name}: undefined for this trial (never ranked as zero)` : undefined}>
+              {objectiveText(name, value)}
             </td>
           );
         })}
@@ -267,27 +273,31 @@ export function TrialTable({
     );
   }
 
+  const emptyText =
+    scopeCounts !== null && scopeCounts.completed > 0
+      ? emptyTableText(scopeCounts.completed, lab.filter)
+      : `No trials yet${loaded?.kind === 'exp' && loaded.document.status === 'running' ? ': the first chunk is still running' : ''}.`;
+
   return (
     <div className="lab-trials">
       <div className="trial-toolbar">
-        <span className="lab-basis" title="every row is a tested trial; nothing here is estimated">
-          Tested (exact)
-        </span>
-        <span className="muted">
-          {loaded.kind === 'opt'
-            ? shown < done
-              ? `the best ${shown.toLocaleString('en-US')} of ${done.toLocaleString('en-US')} cells the job sent`
-              : `${optSorted?.length.toLocaleString('en-US')} cells`
-            : known
-              ? `${total.toLocaleString('en-US')} trials`
-              : 'loading trials…'}
-        </span>
-        <LinkedChip />
-        {filtersOff > 0 && (
-          <span className="muted" title="the experiment endpoints take no filter; the Phase 2 query layer applies it on the worker">
-            ranges are recorded; the table lists every trial until Phase 2
+        {scopeCounts === null ? (
+          <span className="muted">loading trials…</span>
+        ) : (
+          <span className="muted trial-count" data-filtered={scopeCounts.filtered} data-completed={scopeCounts.completed} title="the trials the linked filter keeps, of the completed trials">
+            {scopeCounts.filtered.toLocaleString('en-US')} of {scopeCounts.completed.toLocaleString('en-US')} trials
           </span>
         )}
+        <span className="lab-basis" title="every row is a tested trial; nothing here is estimated">
+          · Tested (exact)
+          {panelLabel(current?.envelope ?? null)}
+        </span>
+        {job && shown < done && (
+          <span className="muted" title="the job's status holds its best cells; the Lab lists those">
+            the best {shown.toLocaleString('en-US')} of {done.toLocaleString('en-US')} cells the job sent
+          </span>
+        )}
+        <LinkedChip />
         <span className="trial-pins">
           {PINS.map((slot) => {
             const held = lab.pins[slot];
@@ -326,30 +336,36 @@ export function TrialTable({
         <table>
           <thead ref={head}>
             <tr>
-              {columns.map((column) => (
-                <th
-                  key={column.key}
-                  data-sort={column.key}
-                  title={column.title}
-                  aria-sort={column.key === sortColumn ? (descending ? 'descending' : 'ascending') : 'none'}
-                  onClick={() => clickHeader(column)}
-                >
-                  <button type="button" className="sort-button">
+              {columns.map((column) =>
+                column.kind === 'valid' ? (
+                  <th key={column.key} title={column.title} aria-sort="none">
                     {column.label}
-                    {column.key === sortColumn ? (descending ? ' ↓' : ' ↑') : ''}
-                  </button>
-                </th>
-              ))}
+                  </th>
+                ) : (
+                  <th
+                    key={column.key}
+                    data-sort={column.key}
+                    title={column.title}
+                    aria-sort={column.key === sortColumn ? (descending ? 'descending' : 'ascending') : 'none'}
+                    onClick={() => clickHeader(column)}
+                  >
+                    <button type="button" className="sort-button">
+                      {column.label}
+                      {column.key === sortColumn ? (descending ? ' ↓' : ' ↑') : ''}
+                    </button>
+                  </th>
+                ),
+              )}
             </tr>
           </thead>
           <tbody>
             <tr className="trial-pad-top" aria-hidden="true" style={{ height: rendered.padTop }}>
               <td colSpan={columns.length} />
             </tr>
-            {known && total === 0 ? (
+            {current !== null && current.total === 0 ? (
               <tr className="trial-empty">
                 <td colSpan={columns.length} className="muted">
-                  No trials yet{loaded.kind === 'exp' && loaded.document.status === 'running' ? ': the first chunk is still running' : ''}.
+                  {emptyText}
                 </td>
               </tr>
             ) : (
@@ -360,7 +376,7 @@ export function TrialTable({
             </tr>
           </tbody>
         </table>
-        {error && <div className="error trial-error">Trials unavailable: {error}</div>}
+        {error && <LabError message={`Trials unavailable: ${error}`} onRetry={() => setRetry((n) => n + 1)} />}
       </div>
     </div>
   );

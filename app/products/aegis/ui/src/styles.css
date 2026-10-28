@@ -90,6 +90,20 @@ background-size:100% 48px,74px 100%}
 .cell.h{background:transparent;color:#698396}.cell.hot{background:#1b5c42;color:#d9ffe9}.cell.gain{background:#143125;color:#9fdcbd}
 .cell.cool{background:#35232a;color:#dd98a0}.cell.loss{background:#4a1f27;color:#ffb3bb}
 .cell.empty{background:#0f1a24;color:#4f6b80}
+/* The dock's overlays (spec §5.1): each square's n (its digits are CSS content, so a square's text stays its value),
+   a hatch for a square no trial tested (never filled), and the legend on the basis line. */
+.cell.has-n{position:relative}
+.cell-n{position:absolute;top:1px;right:3px;font-size:8px;line-height:1;opacity:.8;pointer-events:none}
+.cell-n::after{content:attr(data-n)}
+.cell.empty.hatched{background:repeating-linear-gradient(135deg,#0f1a24 0 4px,#1b2935 4px 6px)}
+.heat-legend{display:inline}
+.heat-key{white-space:nowrap}
+.swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:3px;vertical-align:-1px}
+.swatch.tested{background:#1b5c42}
+.swatch.hatched{background:repeating-linear-gradient(135deg,#0f1a24 0 2px,#2c3d4b 2px 3px)}
+.swatch.selected{background:#16222e;outline:2px solid #f5bd51;outline-offset:-2px}
+.swatch.plateau{border:1px dashed var(--muted)}
+.chip.dock-mode{cursor:default}
 .results-table{padding:12px;overflow:auto}
 table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:6px 8px;border-bottom:1px solid #152430;color:#9fb2c0}
 th{font-size:10px;text-transform:uppercase;color:#607b90}th:first-child,td:first-child{text-align:left}
@@ -391,6 +405,13 @@ tr.muted td{color:#4f6b80}
 .trial-table tr.trial-pad-top,.trial-table tr.trial-pad-bottom{height:auto}
 .trial-table tr.trial-pad-top td,.trial-table tr.trial-pad-bottom td{padding:0;border:0;line-height:0}
 .trial-error{padding:6px 10px}
+.trial-table .trial-tested{display:inline-block;margin-left:6px;padding:0 4px;line-height:14px;vertical-align:middle}
+/* A panel's X state (spec:390): the message and a Retry for that one query. */
+.lab-error{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;color:var(--red);font-size:11px;padding:6px 10px}
+.lab-error .lab-retry{height:24px;padding:0 10px;font-size:11px}
+.lab-kpis .lab-error,.lab-context .lab-error,.rail-block .lab-error{grid-column:1/-1;padding:0}
+.entry-fix input{width:56px;height:22px;background:#07121b;border:1px solid var(--line);border-radius:3px;color:var(--text);padding:0 4px}
+.low-n{margin-left:4px;color:var(--amber);font-size:11px}
 .lab-rail{border-left:1px solid var(--line);overflow:auto;padding:10px;display:flex;flex-direction:column;gap:10px;min-height:0}
 .rail-block{border:1px solid var(--line);border-radius:5px;padding:8px;background:var(--panel)}
 .rail-block p{margin:4px 0}
