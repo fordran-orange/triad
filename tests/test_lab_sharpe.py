@@ -196,6 +196,12 @@ def test_zero_variance():
     assert result.value is None and result.reason == "zero variance"
     assert result.sr is None
     assert lag1_autocorrelation(ret) is None
+    # a cohort whose Sharpes are all equal has V = 0, which leaves SR₀ undefined
+    varied = np.random.default_rng(5).normal(0.001, 0.02, 40)
+    flat_cohort = deflated_sharpe(varied, [0.07] * 5)
+    assert flat_cohort.value is None and flat_cohort.reason == "cohort variance zero"
+    assert flat_cohort.variance == 0.0 and flat_cohort.sr0 is None
+    assert abs(flat_cohort.sr - hand_sharpe(varied)) < 1e-12
 
 
 def test_skew_direction_three_cases():
@@ -291,6 +297,24 @@ def test_research_history_cohort_parent_child_sibling():
     ]
     assert lineage_ids(legacy, "b") == ["b", "a"]
 
+    # A pinned child of a legacy (unpinned) parent compares the DataReference of both.
+    reference = {"symbol": "QQQ", "timeframe": "1h", "start": "2016-01-01", "end": "2026-09-18"}
+    pin = {"sha256": "sha-1", "data_hash": "d-1"}
+    mixed = [
+        {"id": "legacy", "parent": None, "strategy_hash": "h", "data": reference},
+        {"id": "pinned", "parent": "legacy", "strategy_hash": "h", "data": reference},
+        {
+            "id": "moved",
+            "parent": "legacy",
+            "strategy_hash": "h",
+            "data": {**reference, "end": "2026-10-01"},
+        },
+    ]
+    for document in mixed[1:]:
+        document["data_pinned"] = pin
+    assert lineage_ids(mixed, "pinned") == ["pinned", "legacy"]
+    assert lineage_ids(mixed, "moved") == ["moved"]
+
 
 def test_non_finite_input_undefined():
     base = np.random.default_rng(5).normal(0.001, 0.02, 40)
@@ -366,14 +390,23 @@ def test_heuristic_scenarios_undefined_below_two():
     one_cluster = {"clusters": {"k": 2, "groups": [{"exemplar": 1}]}, "plateaus": regions}
     clusters_scenario, regions_scenario = heuristic_scenarios(one_cluster, sharpe_by_cell)
     assert clusters_scenario["value"] is None and clusters_scenario["reason"] == "cohort below 2"
-    assert clusters_scenario["n"] == 1
-    assert regions_scenario["reason"] is None and regions_scenario["n"] == 2
+    assert clusters_scenario["n"] == 1 and clusters_scenario["sr0"] is None
+    # without a candidate the cohort's SR₀ is still reported, and the DSR is undefined
+    assert regions_scenario["reason"] == "no candidate" and regions_scenario["value"] is None
+    assert regions_scenario["n"] == 2
     variance = hand_variance([0.20, 0.25])
     assert regions_scenario["variance"] == pytest.approx(variance, rel=1e-12)
-    assert abs(regions_scenario["value"] - hand_sr0(2, variance)) < 1e-9
+    assert abs(regions_scenario["sr0"] - hand_sr0(2, variance)) < 1e-9
     for scenario in (clusters_scenario, regions_scenario):
+        assert set(scenario) == {"label", "n", "variance", "sr0", "value", "reason"}
         assert scenario["label"].startswith("heuristic scenario")
     assert "clusters" in clusters_scenario["label"] and "regions" in regions_scenario["label"]
+    equal = heuristic_scenarios(
+        {"clusters": {"groups": []}, "plateaus": [{"centre": {"cell": c}} for c in (7, 8)]},
+        {7: 0.15, 8: 0.15},
+    )[1]
+    assert equal["reason"] == "cohort variance zero" and equal["variance"] == 0.0
+    assert equal["sr0"] is None and equal["value"] is None
 
     # an undefined exemplar is no member, and a refused clustering has none
     undefined = {"clusters": {"groups": [{"exemplar": 1}, {"exemplar": 5}]}, "plateaus": []}
@@ -392,7 +425,25 @@ def test_heuristic_scenarios_undefined_below_two():
     second = heuristic_scenarios(
         {"clusters": {"groups": narrow}, "plateaus": centres_wide}, sharpe_by_cell
     )
-    assert first[0]["value"] > first[1]["value"] and second[0]["value"] < second[1]["value"]
+    assert first[0]["sr0"] > first[1]["sr0"] and second[0]["sr0"] < second[1]["sr0"]
     for scenarios in (first, second):
         assert "clusters" in scenarios[0]["label"] and "regions" in scenarios[1]["label"]
-    assert abs(first[0]["value"] - hand_sr0(3, hand_variance([0.10, 0.30, -0.05]))) < 1e-9
+    assert abs(first[0]["sr0"] - hand_sr0(3, hand_variance([0.10, 0.30, -0.05]))) < 1e-9
+
+    # with a candidate, each scenario's value is the candidate's PSR at that scenario's SR₀
+    ret = np.random.default_rng(7).normal(0.001, 0.02, 500)
+    candidate = deflated_sharpe(ret, np.random.default_rng(11).normal(0.0, 0.03, 100).tolist())
+    two_clusters = {"clusters": {"groups": [{"exemplar": 1}, {"exemplar": 2}]}, "plateaus": regions}
+    scenarios = heuristic_scenarios(two_clusters, sharpe_by_cell, candidate=candidate)
+    sr = hand_sharpe(ret)
+    skew, kurt = hand_moments(ret)
+    for scenario, members in zip(scenarios, ([0.10, 0.30], [0.20, 0.25]), strict=True):
+        sr0 = hand_sr0(2, hand_variance(members))
+        assert scenario["reason"] is None and abs(scenario["sr0"] - sr0) < 1e-9
+        assert abs(scenario["value"] - hand_psr(sr, sr0, 500, skew, kurt)) < 1e-9
+    assert "clusters" in scenarios[0]["label"] and "regions" in scenarios[1]["label"]
+    assert scenarios[0]["value"] < scenarios[1]["value"]  # the input order, not sorted by value
+    no_sharpe = deflated_sharpe(np.full(50, 0.01), [0.01, 0.02])
+    assert [
+        s["reason"] for s in heuristic_scenarios(two_clusters, sharpe_by_cell, candidate=no_sharpe)
+    ] == ["no candidate", "no candidate"]

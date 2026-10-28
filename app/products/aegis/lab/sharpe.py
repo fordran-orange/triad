@@ -230,8 +230,8 @@ def deflated_sharpe(
 ) -> Dsr:
     """DSR = PSR(SR₀) of the candidate's trade returns `ret` against the cohort's Sharpe values.
     Undefined, in order of precedence: "non-finite input" (in `ret` or the cohort), "too few
-    trades" (T < 2), "zero variance" (every return equal), "cohort below 2", then "zero variance"
-    again when every cohort Sharpe is equal (V = 0 leaves SR₀ undefined), "moment denominator"."""
+    trades" (T < 2), "zero variance" (every return equal), "cohort below 2", "cohort variance
+    zero" (every cohort Sharpe equal: V = 0 leaves SR₀ undefined), "moment denominator"."""
     values = np.asarray(ret, dtype=np.float64)
     sharpes = np.array(
         [math.nan if s is None else float(s) for s in cohort_sharpes], dtype=np.float64
@@ -277,7 +277,7 @@ def deflated_sharpe(
     sr0 = expected_max_sharpe(n, variance)
     if sr0 is None:
         return undefined(
-            "zero variance" if variance == 0.0 else "non-finite input", variance=variance
+            "cohort variance zero" if variance == 0.0 else "non-finite input", variance=variance
         )
     value, reason = psr(sr, sr0, t, skew, kurt)
     return Dsr(
@@ -314,23 +314,33 @@ def research_cohort(members: Iterable[tuple[str, bytes, float | None]]) -> Cohor
     return Cohort(sharpes=sharpes, n=len(sharpes), per_experiment=per_experiment)
 
 
-def _lineage_identity(document: Mapping) -> tuple:
-    """The strategy hash and the data identity: the pinned archive (sha256 + data_hash) when the
-    experiment recorded one, else its DataReference."""
-    pinned = document.get("data_pinned")
-    if pinned:
-        data = ("pinned", pinned.get("sha256"), pinned.get("data_hash"))
-    else:
-        data = ("reference", document.get("data"))
-    return document.get("strategy_hash"), data
+def _reference(document: Mapping) -> tuple[str, ...]:
+    """The DataReference fields (symbol, timeframe, start, end) as text, so a date and its ISO
+    string compare equal."""
+    data = document.get("data") or {}
+    return tuple(str(data.get(field)) for field in ("symbol", "timeframe", "start", "end"))
+
+
+def _same_data(a: Mapping, b: Mapping) -> bool:
+    """The pins (sha256 + data_hash) when both experiments carry one; otherwise the DataReference
+    fields of both, so a pinned child of a legacy (unpinned) parent on the same reference keeps it
+    (over-inclusion only raises N, the cautious direction)."""
+    pin_a, pin_b = a.get("data_pinned"), b.get("data_pinned")
+    if pin_a and pin_b:
+        return (pin_a.get("sha256"), pin_a.get("data_hash")) == (
+            pin_b.get("sha256"),
+            pin_b.get("data_hash"),
+        )
+    return _reference(a) == _reference(b)
 
 
 def lineage_ids(documents: Sequence[dict], experiment_id: str) -> list[str]:
     """The research history of one experiment: itself first, then its ancestors (nearest first)
     and its descendants (breadth first, in the documents' order) by `parent`, kept when they share
-    its strategy hash and data identity. Siblings and cousins are not ancestors or descendants."""
+    its strategy hash and data identity (`_same_data`). Siblings and cousins are not ancestors or
+    descendants."""
     by_id = {document["id"]: document for document in documents}
-    identity = _lineage_identity(by_id[experiment_id])
+    target = by_id[experiment_id]
     seen = {experiment_id}
     related: list[str] = []
     parent = by_id[experiment_id].get("parent")
@@ -350,29 +360,50 @@ def lineage_ids(documents: Sequence[dict], experiment_id: str) -> list[str]:
                 seen.add(child)
                 related.append(child)
                 queue.append(child)
-    return [experiment_id] + [i for i in related if _lineage_identity(by_id[i]) == identity]
+    return [experiment_id] + [
+        i
+        for i in related
+        if by_id[i].get("strategy_hash") == target.get("strategy_hash")
+        and _same_data(by_id[i], target)
+    ]
 
 
-def _scenario(label: str, cells: list[int], sharpe_by_cell: Mapping[int, float | None]) -> dict:
+def _scenario(
+    label: str,
+    cells: list[int],
+    sharpe_by_cell: Mapping[int, float | None],
+    candidate: Dsr | None,
+) -> dict:
     sharpes = [float(s) for s in (sharpe_by_cell.get(cell) for cell in cells) if _finite(s)]
     n = len(sharpes)
+    scenario = {"label": label, "n": n, "variance": None, "sr0": None, "value": None}
     if n < 2:
-        return {"label": label, "n": n, "variance": None, "value": None, "reason": "cohort below 2"}
+        return {**scenario, "reason": "cohort below 2"}
     variance = _cohort_variance(np.array(sharpes, dtype=np.float64))
-    value = expected_max_sharpe(n, variance)
-    reason = None
-    if value is None:
-        reason = "zero variance" if variance == 0.0 else "non-finite input"
-    return {"label": label, "n": n, "variance": variance, "value": value, "reason": reason}
+    sr0 = expected_max_sharpe(n, variance)
+    scenario.update(variance=variance, sr0=sr0)
+    if sr0 is None:
+        return {
+            **scenario,
+            "reason": "cohort variance zero" if variance == 0.0 else "non-finite input",
+        }
+    if candidate is None or candidate.sr is None:
+        return {**scenario, "reason": "no candidate"}
+    value, reason = psr(candidate.sr, sr0, candidate.t, candidate.skew, candidate.kurt)
+    return {**scenario, "value": value, "reason": reason}
 
 
-def heuristic_scenarios(report: dict, sharpe_by_cell: Mapping[int, float | None]) -> list[dict]:
-    """The two sensitivity scenarios of §7.12, labelled heuristic: N and V taken over (a) the
-    exemplar (medoid) trials of the report's outcome clusters and (b) the centre trials of its
-    plateaus. Each carries its N, V and `value` = SR₀, the expected maximum Sharpe of that cohort
-    (the candidate's DSR under the scenario is `psr(sr, value, t, skew, kurt)`); fewer than 2
-    defined members leave it undefined, "cohort below 2". They are not bounds and never sorted:
-    the list is always the clusters scenario, then the regions scenario."""
+def heuristic_scenarios(
+    report: dict, sharpe_by_cell: Mapping[int, float | None], *, candidate: Dsr | None = None
+) -> list[dict]:
+    """The two sensitivity scenarios of §7.12, labelled heuristic: the candidate's DSR with N and
+    V taken over (a) the exemplar (medoid) trials of the report's outcome clusters and (b) the
+    centre trials of its plateaus. Each carries `label`, `n`, `variance`, `sr0` (that cohort's
+    expected maximum Sharpe), `value` = `psr(candidate.sr, sr0, candidate.t, candidate.skew,
+    candidate.kurt)` and `reason`. Undefined, in order of precedence: "cohort below 2" (fewer
+    than 2 defined members), "cohort variance zero", "no candidate" (none given, or its `sr` is
+    None), then `psr`'s own reasons. They are not bounds and never sorted: the list is always the
+    clusters scenario, then the regions scenario."""
     clusters = report.get("clusters")
     groups = (clusters.get("groups") or []) if isinstance(clusters, dict) else []
     plateaus = report.get("plateaus") or []
@@ -381,11 +412,13 @@ def heuristic_scenarios(report: dict, sharpe_by_cell: Mapping[int, float | None]
             f"heuristic scenario: if only the {len(groups)} clusters counted as distinct strategies",
             [group["exemplar"] for group in groups],
             sharpe_by_cell,
+            candidate,
         ),
         _scenario(
             f"heuristic scenario: if only the {len(plateaus)} regions counted as distinct "
             "strategies",
             [plateau["centre"]["cell"] for plateau in plateaus],
             sharpe_by_cell,
+            candidate,
         ),
     ]
