@@ -562,6 +562,21 @@ class ExperimentStore:
 # --- creation --------------------------------------------------------------------------------
 
 
+POSITION_MAX = 65_535  # a layout-2 `pos.<k>` is a uint16 grid position
+
+
+def _check_positions(surface: Surface) -> None:
+    """Refuse a surface whose value positions a layout-2 chunk cannot hold, before anything is
+    planned or saved (a ValueError, as every other refusal of `create`)."""
+    for parameter in surface.parameters:
+        count = len(parameter.values())
+        if count > POSITION_MAX:
+            raise ValueError(
+                f"parameter {parameter.path} has {count} values; "
+                f"a layout-2 position holds at most {POSITION_MAX}"
+            )
+
+
 def _layout2_fields(
     spec: StrategySpec,
     surface: Surface,
@@ -609,6 +624,7 @@ def create(
     layout-2 experiment recording its search space, sampler, versions (with `engine_build` when
     given, the worker's) and, when given, the data it was pinned to."""
     document = library.get(request.strategy_id)  # KeyError when unknown
+    _check_positions(request.surface)
     spec = document.spec
     measured = store.last_ms_per_cell_bar()
     planned = plan_surface(
@@ -754,6 +770,8 @@ class ExperimentJob:
         self.layout = self.store.layout(document.id)
         self.steps = {p.path: p.step for p in document.surface.parameters}
         self.counters = lab_store.Counters.from_document(document)
+        if self.layout == 2:
+            self._recount_counters()
         done = self.store.done_cells(document.id)
         self.cells_done = len(done)
         self.chunks_done = self.store.chunk_count(document.id)
@@ -766,6 +784,17 @@ class ExperimentJob:
         self.pool: Pool | None = None
         self.status: str = "queued"
         self.ms_per_cell_bar = document.ms_per_cell_bar
+
+    def _recount_counters(self) -> None:
+        """`attempted`, `completed`, `invalid` and `failed` from the trials on disk, the rows of
+        the readable chunks `done_cells` reads: those never rerun, and an unreadable chunk adds
+        nothing, so its trials rerun and are counted once. Every start and resume recounts, so a
+        lost or torn chunk, or a crash before the document's last save, never skews the counts."""
+        statuses: list[str] = []
+        for path in _readable(self.store.cells_dir(self.document.id)):
+            statuses += pq.read_table(path, columns=["status"]).column("status").to_pylist()
+        self.counters.recount(statuses)
+        self.document = self.document.model_copy(update={"counts": self.counters.as_dict()})
 
     # -- planning the units ---------------------------------------------------------------
     def _valid_indices(self) -> Iterable[int]:
@@ -949,15 +978,7 @@ class ExperimentJob:
         self.document = self.document.model_copy(update=update)
 
     def _count(self, rows: list[dict]) -> None:
-        for row in rows:
-            status = _status_of(row)
-            self.counters.attempted += 1
-            if status == "ok":
-                self.counters.completed += 1
-            elif status == "invalid":
-                self.counters.invalid += 1
-            else:
-                self.counters.failed += 1
+        self.counters.tally(_status_of(row) for row in rows)
 
     def _progress(self) -> dict:
         return {
@@ -1179,6 +1200,7 @@ def refine(
         raise ValueError("the latest report has no recommendation to refine around")
     grid = build_grid(document.spec, document.surface, bars)
     narrowed = refined_surface(document.surface, grid, plateau["cells"])
+    _check_positions(narrowed)
     measured = store.last_ms_per_cell_bar()
     planned = plan_surface(
         document.spec,

@@ -216,7 +216,12 @@ def test_unreadable_chunk_never_overwritten(world):  # noqa: F811
     assert sorted(resumed.pending_cells()) == list(range(5, 12))
     JobRunner(repository, after_unit=after_first).start(resumed)
     assert wait_for(lambda: document_of(repository, doc.id).status in ("done", "failed"))
-    assert document_of(repository, doc.id).status == "done"
+    done = document_of(repository, doc.id)
+    assert done.status == "done"
+    # Recounted from the readable rows on resume: the torn chunk's cells count once, not twice.
+    counts = done.counts
+    assert counts["attempted"] == counts["scheduled"] == 12 and counts["pending"] == 0
+    assert counts["completed"] + counts["invalid"] + counts["failed"] == counts["attempted"]
     assert listings == [["000000.parquet", "000001.parquet", "000002.parquet"]]
     assert (folder / "000001.parquet").read_bytes() == b"x"  # never merged, never overwritten
     cells = store.cells(doc.id).column("cell").to_pylist()
@@ -522,6 +527,23 @@ def test_data_pinned_written_at_creation(world):  # noqa: F811
     bare = exp.create(store, library, request(document, name="bare"), bars=len(ROWS), max_workers=2)
     assert bare.data_pinned is None and document_of(repository, bare.id).data_pinned is None
     assert bare.versions["engine_build"] == identity.engine_build()
+
+
+def test_create_refuses_more_values_than_a_position_holds(world):  # noqa: F811
+    """A layout-2 `pos.<k>` is a uint16: a parameter of 70,001 values is refused at creation,
+    before anything is planned or written, never at the first commit."""
+    repository, library, document = world
+    store = exp.ExperimentStore(repository)
+    wide = Surface(
+        parameters=[
+            Parameter(path="long_side.indicators.donchian.length", start=0, stop=70000, step=1)
+        ]
+    )
+    body = request(document, name="too wide", surface=wide.model_dump())
+    with pytest.raises(ValueError, match="65535"):
+        exp.create(store, library, body, bars=len(ROWS), max_workers=2, pinned=PINNED_DATA)
+    folder = repository.root / "experiments"
+    assert not folder.exists() or list(folder.iterdir()) == []
 
 
 def test_legacy_document_stays_layout_1(world):  # noqa: F811

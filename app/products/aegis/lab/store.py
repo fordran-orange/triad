@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
@@ -55,6 +56,25 @@ class Counters:
 
     def as_dict(self) -> dict:
         return {**asdict(self), "pending": self.scheduled - self.attempted}
+
+    def tally(self, statuses: Iterable[str]) -> None:
+        """Count one more attempt per status (`ok`, `invalid` or `failed`)."""
+        for status in statuses:
+            if status == "ok":
+                self.completed += 1
+            elif status == "invalid":
+                self.invalid += 1
+            elif status == "failed":
+                self.failed += 1
+            else:
+                raise ValueError(f"unknown trial status {status!r}")
+            self.attempted += 1
+
+    def recount(self, statuses: Iterable[str]) -> None:
+        """The four outcome counts from the trials on disk, replacing what a document carried;
+        `scheduled`, `budget_total`, `unique` and `unique_generation` are kept."""
+        self.attempted = self.completed = self.invalid = self.failed = 0
+        self.tally(statuses)
 
     @classmethod
     def from_document(cls, document) -> Counters:
