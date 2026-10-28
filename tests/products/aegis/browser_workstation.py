@@ -3,7 +3,7 @@ items, the 11 Mission 5 items, the 13 Mission 6 items, the 9 Mission 8 items, th
 items, the 5 limits items, the 5 Mission 10 items, the 2 Mission 11 items, the 2 Mission 12 items and the 7 Mission 13 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
 (indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
 Items 51 and 63 restart the scratch worker through tools/start_aegis_scratch.ps1 -Stop and require --pid-file.
-The 8 Optimization Lab items (LAB_ITEMS) follow, numbered after whatever precedes them; they make
+The 13 Optimization Lab items (LAB_ITEMS) follow, numbered after whatever precedes them; they make
 their own fixtures, so `--only lab` runs them alone and never restarts the worker.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -28,6 +29,14 @@ from urllib.parse import urlsplit
 from playwright.sync_api import Page, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[3]
+# This checkout's code and the Lab benchmark module first (as engine_golden.py does): the walk runs on
+# the Core interpreter, whose editable install resolves products.* to the main checkout, so without
+# this bench_strategy() would silently come from main's code. lab_benchmark's module level needs only
+# the standard library, numpy and products.aegis.strategy.
+for path in (ROOT / "app", ROOT / "tests" / "products" / "aegis"):
+    sys.path.insert(0, str(path))
+
+import lab_benchmark  # after the sys.path insert above
 
 
 def git(*args) -> str:
@@ -153,9 +162,10 @@ ITEMS = [
     "text the reader cannot read is refused naming the word, and the strategy is unchanged",
     "governance unchanged since the Mission 13 plan and items 1–96 still pass",
 ]
-# Optimization Lab v2, Phase 1 (plan Task 7, and the final review's fix wave): eight items numbered
-# after whatever precedes them, so each title starts with its nominal number (or the review row it
-# answers); run_lab() registers them from ITEMS.index(...) + 1. Governance stays last.
+# Optimization Lab v2, Phase 1 (plan Task 7, and the final review's fix wave) and Phase 2 (Task 12,
+# the five on the real 12,000-trial experiment): thirteen items numbered after whatever precedes
+# them, so each title starts with its nominal number (or the review row it answers); run_lab()
+# registers them from ITEMS.index(...) + 1. Governance stays last.
 LAB_ITEMS = [
     "(103) Expand Lab opens the Optimization Lab with the dock's axes, metric and selection kept",
     "(104) the Lab's sub-nav keeps the filter, the selection and the pins across Trial Lab → Parameter Families → Run Monitor → Trial Lab, and a trip to Charts and back keeps them too",
@@ -164,6 +174,11 @@ LAB_ITEMS = [
     "(126) Variable Intelligence shows the six-step workflow strip with the later steps disabled and explained",
     "(106b) the keyboard model works: arrows move the heatmap cursor, Enter selects the square, 1 pins, Esc clears the brush then the maximize, and the selection is synchronized across heatmap, rail and table",
     "(RF2/3) a running experiment shows PROVISIONAL and 'no report yet', refreshes in place, and settles to done without a reload",
+    "(107) exact slice with no match shows untested squares with no value",
+    "(108) an aggregate square opens its distribution and cannot be pinned",
+    "(109) counts are identical across the heatmap, the table and the header",
+    "(110) a brush updates the heatmap, the parallel coordinates, the table and the counts together on the real 12k experiment",
+    "(104b) the Lab's sub-nav keeps the filter, the selection and the pins on the real 12,000-trial experiment",
     "governance unchanged since the Optimization Lab v2 plan (LAB_BASE) and the Lab items pass",
 ]
 ITEMS += LAB_ITEMS
@@ -181,8 +196,9 @@ LAB_RUNNING_SURFACE = LAB_SURFACE
 LAB_SIZES = [(1672, 941), (1440, 900)]
 LAB_PRIMARY = (  # the controls item (106) keeps inside the viewport
     "#lab-subnav button, #lab-source, #lab-scope-both, .lab-tab, #lab-pin-A, #lab-refine, "
-    "#lab-catalog-search"
+    "#lab-catalog-search, #lab-mode-exact, #lab-stat, #lab-square-pin, .fix-value"
 )
+LAB_BENCH_TRIALS = 12_000  # the slice's LHS budget on lab-bench-10p (§9.1b case A's range, 1h)
 LAB_SECONDARY = [  # the text item (106) holds to 4.5:1 against its nearest opaque background
     ".workflow-step[data-state=disabled]",
     ".not-built",
@@ -267,6 +283,35 @@ LAB_CONTRAST = """
   return out;
 }
 """
+# The Lab's numbers and states as the page shows them (Task 12): JS expressions the waits combine.
+LAB_HEAT_N = (  # `n = N` of the heatmap's basis (aggregate mode), else null
+    "(() => { const m = /n = (\\d+)/.exec(document.getElementById('lab-heatmap-basis')?.innerText"
+    " ?? ''); return m ? Number(m[1]) : null; })()"
+)
+LAB_HEAT_BASIS = "(document.getElementById('lab-heatmap-basis')?.innerText ?? '')"
+LAB_HEAT_READY = "(document.getElementById('lab-heatmap')?.dataset.loading === 'false')"
+LAB_PARALLEL_BASIS = "(document.getElementById('lab-parallel-basis')?.innerText ?? '')"
+LAB_PARALLEL_READY = "(document.getElementById('lab-parallel')?.dataset.loading === 'false')"
+LAB_TOOLBAR_COUNTS = (  # [filtered, completed] of the trials toolbar, else null while it loads
+    "(() => { const s = document.querySelector('.trial-toolbar .trial-count');"
+    " return s ? [Number(s.dataset.filtered), Number(s.dataset.completed)] : null; })()"
+)
+LAB_KPI_TRIALS = (  # [primary, the filtered sub line or null] of the Trials KPI, else null
+    "(() => { const k = document.querySelector('#lab-kpis [data-kpi=trials]'); if (!k) return null;"
+    " const n = (t) => Number(t.replace(/,/g, ''));"
+    " const sub = /([\\d,]+) filtered/.exec(k.querySelector('.kpi-sub')?.innerText ?? '');"
+    " return [n(k.querySelector('.kpi-value')?.innerText ?? ''), sub ? n(sub[1]) : null]; })()"
+)
+LAB_LINKED = "(document.getElementById('lab-linked')?.innerText ?? '')"
+# Installed before a timed interaction (longtask entries are not buffered): the long tasks since,
+# and the page clock the timing starts from. A previous observer is disconnected, never doubled.
+LAB_LONGTASKS = (
+    "() => { window.__labLongObserver?.disconnect(); window.__labLongTasks = [];"
+    " window.__labLongObserver = new PerformanceObserver((list) =>"
+    " window.__labLongTasks.push(...list.getEntries().map((e) => e.duration)));"
+    " window.__labLongObserver.observe({ entryTypes: ['longtask'] });"
+    " window.__labTimedFrom = performance.now(); }"
+)
 RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
 MISSION5_BASE = (
     "a73f70e"  # the Mission 5 spec commit; Core, platform host and Triad are frozen since
@@ -4607,12 +4652,307 @@ class Acceptance:
         found = re.search(r"([\d,]+) trials", text)
         return int(found.group(1).replace(",", "")) if found else None
 
+    def lab_dock_chip(self, job: dict) -> str:
+        """`dockChipText` (labQuery.ts) of the job's parameter count, counted as the dock counts it
+        (OptimizationTab.tsx): the side's enabled optimization paths, else its two axis paths."""
+        side = (job.get("strategy") or {}).get(f"{job.get('side')}_side") or {}
+        choices = [p for p in side.get("optimization") or [] if p.get("enabled") is not False]
+        count = len(choices)
+        if count < 2:
+            axes = (job.get("fast_path"), job.get("slow_path"))
+            count = len([p for p in axes if isinstance(p, str) and p])
+        return "Exact slice" if count == 2 else "Aggregated: best of the rest"
+
+    # -- Optimization Lab v2, Phase 2 (Task 12): the real 12,000-trial experiment --------------------
+    def lab_bench_fixture(self) -> None:
+        """The slice's experiment, made through the scratch worker's API: lab-bench-10p (§9.1b) as a
+        strategy, then an experiment over its ten ranged paths (BENCH_SURFACE as plain data), budget
+        12,000, seed 1, net_pnl, QQQ at case A's timeframe and range (1h, ≈ 2,603 bars), waited
+        ≤ 600 s for done and reported. Then the Gate 3 parity sample (spec:1419): the page's first
+        two trials materialized through the pinned source, each on the document's pinned bytes and
+        with every metric of its page row equal to the run's. Refuses the product root."""
+        self.require_scratch_root()
+        from products.aegis.pool import METRICS  # this checkout's ten (the sys.path insert)
+
+        strategy = self.post(
+            "strategies",
+            {
+                "name": f"lab-bench-10p-{self.stamp}",
+                "spec": lab_benchmark.bench_strategy().model_dump(mode="json"),
+            },
+        )
+        assert strategy.status == 201, strategy.text()[:300]
+        case = lab_benchmark.BENCH_CASES["A"]
+        body = {
+            "name": f"{self.lab_fixtures['name']}-bench",
+            "strategy_id": strategy.json()["id"],
+            "data": {
+                "symbol": "QQQ",
+                "timeframe": case.timeframe,
+                "start": case.start.isoformat(),
+                "end": case.end.isoformat(),
+            },
+            "objective": "net_pnl",
+            "surface": {
+                "parameters": [
+                    {"path": p.path, "start": p.start, "stop": p.stop, "step": p.step}
+                    for p in lab_benchmark.BENCH_SURFACE
+                ]
+            },
+            "budget": {"runs": LAB_BENCH_TRIALS},
+            "seed": 1,
+        }
+        started = time.perf_counter()
+        created = self.post("experiments", body)
+        assert created.status == 202, created.text()[:300]
+        exp_id = created.json()["experiment_id"]
+        self.lab_fixtures["bench_started"] = exp_id
+        finished = self.wait_until(
+            lambda: self.experiment(exp_id)["status"] in ("done", "failed", "cancelled"), 600, 2
+        )
+        elapsed = round(time.perf_counter() - started, 1)
+        document = self.experiment(exp_id)
+        assert finished, f"{exp_id} not finished in 600 s: {document.get('progress')}"
+        assert document["status"] == "done", (document["status"], document.get("error"))
+        method = (document.get("sampler") or {}).get("method")
+        self.lab_fixtures["bench_sampler"] = method
+        assert method == "lhs+refine", document.get("sampler")  # the engine picks it, never asked
+        # A report over 12,000 trials of ten parameters takes longer than a request's default
+        # 30 s here (the first run's report took 30-90 s), so it has its own bound.
+        report_started = time.perf_counter()
+        reported = self.page.request.post(
+            self.base + f"api/experiments/{exp_id}/report",
+            data="{}",
+            headers={"content-type": "application/json"},
+            timeout=300_000,
+        )
+        assert reported.ok, reported.text()[:300]
+        self.lab_fixtures["bench_report_s"] = round(time.perf_counter() - report_started, 1)
+        pinned = (document.get("data_pinned") or {}).get("sha256")
+        assert pinned, document.get("data_pinned")
+        sample = self.post(f"lab/exp:{exp_id}/query", {"filter": {}, "view": "page", "limit": 2})
+        assert sample.ok, sample.text()[:300]
+        rows = sample.json()["rows"]
+        assert len(rows) == 2, rows
+        materialized = []
+        for row in rows:
+            ran = self.post(f"experiments/{exp_id}/cells/{row['cell']}/materialize", {})
+            assert ran.status == 200, (row["trial_id"], ran.status, ran.text()[:300])
+            run = ran.json()
+            assert run["data"]["sha256"] == pinned, (run["data"].get("sha256"), pinned)
+            compared = []
+            for column, value in row["values"].items():
+                scope, _, metric = column.partition(".")
+                if metric not in METRICS:
+                    continue  # the trade Sharpe is the Lab's, not the run's
+                got = run["result"][scope]["metrics"][metric]
+                same = (value is None and got is None) or (
+                    value is not None and got is not None and float(value) == float(got)
+                )
+                assert same, (row["trial_id"], column, value, got)
+                compared.append(column)
+            assert compared, row["values"]
+            materialized.append(
+                {
+                    "trial_id": row["trial_id"],
+                    "cell": row["cell"],
+                    "run_id": run["run_id"],
+                    "result_hash": run["result_hash"],
+                }
+            )
+        self.lab_bench = {
+            "experiment": exp_id,
+            "bars": int(document["plan"]["bars"]),
+            "elapsed_s": elapsed,
+            "materialized": materialized,
+        }
+        self.lab_fixtures["bench"] = exp_id
+
+    def lab_counts(self, source: str, filter: dict) -> dict:
+        """The §6.4 scope of `filter` on `source`: the counts view, through the page's request
+        context."""
+        answer = self.post(f"lab/{source}/query", {"filter": filter, "view": "counts"})
+        assert answer.ok, answer.text()[:300]
+        return answer.json()["scope"]
+
+    def lab_active_filter(self) -> dict:
+        """The store's filter as the Linked chip carries it (canonicalFilter, Task 10)."""
+        return json.loads(self.page.locator("#lab-linked").get_attribute("data-filter"))
+
+    def lab_toolbar_counts(self) -> tuple[int, int]:
+        """(filtered, completed) of the trials toolbar's count span."""
+        span = self.page.locator(".trial-toolbar .trial-count")
+        return int(span.get_attribute("data-filtered")), int(span.get_attribute("data-completed"))
+
+    def lab_kpi_trials(self) -> tuple[int, int | None]:
+        """The Trials KPI: its primary number (completed) and its `N filtered` sub line, if any."""
+        kpi = self.page.locator('#lab-kpis [data-kpi="trials"]')
+        primary = int(kpi.locator(".kpi-value").inner_text().replace(",", ""))
+        sub = kpi.locator(".kpi-sub")
+        found = re.search(r"([\d,]+) filtered", sub.inner_text()) if sub.count() else None
+        return primary, int(found.group(1).replace(",", "")) if found else None
+
+    def lab_heatmap_n(self) -> int:
+        """`n = N` of `#lab-heatmap-basis` (aggregate mode: every reader clicks
+        `#lab-mode-aggregate` itself first)."""
+        basis = self.page.locator("#lab-heatmap-basis").inner_text()
+        found = re.search(r"n = (\d+)", basis)
+        assert found, f"no n in the heatmap basis: {basis!r}"
+        return int(found.group(1))
+
+    def lab_wait(self, predicate_js: str, timeout_ms: int = 30_000):
+        """Every check after an interaction: the matrix, the bundles, the page and the counts
+        arrive asynchronously through the hook, so the walk waits for them, never asserts once."""
+        return self.page.wait_for_function(predicate_js, timeout=timeout_ms)
+
+    def lab_timed(
+        self,
+        label: str,
+        action: Callable[[], None] | None,
+        settled_js: str,
+        budget_key: str,
+    ) -> dict:
+        """One §9.6a interaction timed in the page's own clock, from just before `action` until
+        `settled_js` (an expression) first holds, polled every animation frame, against
+        TRACK_A_BUDGETS_MS[budget_key]. The long-task observer is installed before the action;
+        after the settle one animation frame passes (observer callbacks arrive asynchronously)
+        and the long tasks since are counted (each one is > 50 ms by definition). `action` None
+        times a second view of the previous action: its start and its observer. A latency over
+        the budget raises; long tasks are a recorded finding, never a failure here."""
+        budget = lab_benchmark.TRACK_A_BUDGETS_MS[budget_key]
+        page = self.page
+        if action is not None:
+            page.evaluate(LAB_LONGTASKS)
+            action()
+        page.wait_for_function(
+            "() => { const settled = (" + settled_js + ");"
+            " if (settled) window.__labSettledAt = performance.now(); return settled; }",
+            timeout=30_000,
+        )
+        page.evaluate("() => new Promise((done) => requestAnimationFrame(() => done()))")
+        ms, tasks = page.evaluate(
+            "() => [window.__labSettledAt - window.__labTimedFrom, window.__labLongTasks.slice()]"
+        )
+        timing = {
+            "ms": round(ms, 1),
+            "budget_key": budget_key,
+            "budget_ms": budget,
+            "longtasks_over_50ms": len(tasks),
+            "longest_ms": round(max(tasks), 1) if tasks else 0,
+        }
+        self.lab_timings[label] = timing
+        assert timing["ms"] <= budget, f"{label}: {timing['ms']} ms > {budget} ms ({budget_key})"
+        return timing
+
+    def lab_heap_mb(self) -> float | None:
+        """The tab's used JS heap in MB (Chromium's performance.memory), or None without it."""
+        return self.page.evaluate(
+            "performance.memory ? performance.memory.usedJSHeapSize / 1048576 : null"
+        )
+
+    def lab_heap_sample(self, label: str) -> str:
+        """`lab_heap_mb()` recorded under `label` and held to TRACK_A_LIMITS["browser_heap_mb"];
+        no reading fails the item that asked (never skipped)."""
+        heap = self.lab_heap_mb()
+        self.lab_heap[label] = None if heap is None else round(heap, 1)
+        assert heap is not None, "performance.memory unavailable"
+        limit = lab_benchmark.TRACK_A_LIMITS["browser_heap_mb"]
+        assert heap <= limit, f"the tab's JS heap {heap:.1f} MB > {limit} MB"
+        return f"JS heap {heap:.1f} MB ≤ {limit:.0f} MB"
+
+    def lab_keep_state(self, source: str, path: str, lo: str) -> str:
+        """Items 104 and 104b: a range from `lo` on `path`, the first filtered row selected and
+        pinned A, then Parameter Families → Run Monitor → Trial Lab and Charts → the Lab keep the
+        filter, the selection and the pin. The number input echoes the text filled, so the range
+        input is compared with `lo` verbatim."""
+        page = self.page
+        self.lab_open(source)
+        selector = f'.range-lo[data-path="{path}"]'
+        page.locator(selector).fill(lo)
+        self.lab_wait(
+            f"{LAB_LINKED} === 'Linked · 1 filter'"
+            f" && document.querySelector({json.dumps(selector)})?.value === {json.dumps(lo)}"
+        )
+        scope = self.lab_counts(source, self.lab_active_filter())
+        filtered, completed = scope["filtered"], scope["completed"]
+        # The row clicked is the filtered page's own: the table counts the filter's trials first.
+        self.lab_wait(
+            f"{LAB_TOOLBAR_COUNTS}?.[0] === {filtered}"
+            " && !!document.querySelector('#trial-table tbody tr[data-trial]')"
+        )
+        row = page.locator("#trial-table tbody tr[data-trial]").first
+        trial = row.get_attribute("data-trial")
+        row.click()
+        page.locator("#lab-pin-A").click()
+        page.wait_for_function(
+            "t => document.getElementById('lab-pin-A')?.dataset.pinned === t",
+            arg=trial,
+            timeout=10_000,
+        )
+        # Review Focus 5: digits typed into a field are text, never the 1 / 2 / 3 pin keys
+        # (2 would move the pinned trial into B if the keys leaked).
+        page.locator("#lab-catalog-search").press_sequentially("12")
+        page.wait_for_timeout(200)
+        typed = page.locator("#lab-catalog-search").input_value()
+        pins = {s: page.locator(f"#lab-pin-{s}").get_attribute("data-pinned") for s in "ABC"}
+        assert typed == "12" and pins == {"A": trial, "B": "", "C": ""}, (typed, pins)
+        for view in ("families", "monitor", "trials"):
+            self.lab_view(view)
+        self.lab_wait_rows(source)
+        linked = page.locator("#lab-linked").inner_text()
+        again = page.locator(f'#trial-table tr[data-trial="{trial}"]')
+        again.wait_for(timeout=30_000)
+        classes = (again.get_attribute("class") or "").split()
+        rail = page.locator("#lab-pins").inner_text()
+        kept = page.locator(selector).input_value()
+        pinned = page.locator("#lab-pin-A").get_attribute("data-pinned")
+        assert linked == "Linked · 1 filter", linked
+        assert "selected" in classes, classes
+        assert trial in rail and pinned == trial, (rail, pinned)
+        assert kept == lo, (kept, lo)
+        # Review finding 3: the store lives above the page switch.
+        self.lab_round_trip()
+        self.lab_wait_rows(source)
+        back = {
+            "source": page.locator("#lab-source").input_value(),
+            "linked": page.locator("#lab-linked").inner_text(),
+            "pinned": page.locator("#lab-pin-A").get_attribute("data-pinned"),
+            "rail": page.locator("#lab-pins").inner_text(),
+            "card": page.locator("#lab-selected .rail-id").inner_text(timeout=10_000),
+            "lo": page.locator(selector).input_value(),
+        }
+        row_back = page.locator(f'#trial-table tr[data-trial="{trial}"]')
+        row_back.wait_for(timeout=30_000)
+        classes_back = (row_back.get_attribute("class") or "").split()
+        assert back["source"] == source, back
+        assert back["linked"] == "Linked · 1 filter" and back["lo"] == lo, back
+        assert back["pinned"] == trial and trial in back["rail"], back
+        assert "selected" in classes_back and back["card"] == trial, (classes_back, back)
+        # The table holds exactly one selected row, the clicked trial (ledger:105).
+        self.lab_wait(
+            "(() => { const s = [...document.querySelectorAll('#trial-table tr.selected')];"
+            f" return s.length === 1 && s[0].dataset.trial === {json.dumps(trial)}; }})()"
+        )
+        return (
+            f"{source[:16]}…: {path} from {lo} ({filtered:,} of {completed:,} trials, the table "
+            f"counted them before the row click), {trial.split('#')[-1]} selected and pinned A; "
+            f"'12' typed in the search pinned nothing (B, C empty); after Parameter Families → "
+            f"Run Monitor → Trial Lab: '{linked}', the row still selected, A = "
+            f"{pinned.split('#')[-1]}, the range input still {kept}; after Charts → Optimization "
+            f"Lab: the same source, '{back['linked']}', the row selected with its rail card, "
+            f"A = {back['pinned'].split('#')[-1]}, the range input {back['lo']}; one selected "
+            f"table row, the clicked trial"
+        )
+
     # -- Optimization Lab v2, Phase 1: the items --------------------------------------------------
     def run_lab(self, first: int):
-        """The Lab block on its own fixtures, items first … first + 7. It never restarts the worker
+        """The Lab block on its own fixtures, items first … first + 12. It never restarts the worker
         and never touches port 8102's process."""
         page = self.page
         self.lab_fixtures = {"name": f"lab-walk-{self.stamp}"}
+        self.lab_bench: dict = {}
+        self.lab_timings: dict = {}
+        self.lab_heap: dict = {}
         page.goto(self.base)
         page.wait_for_function(
             "document.getElementById('strategy-name')?.innerText.length > 1", timeout=30_000
@@ -4631,6 +4971,56 @@ class Acceptance:
             assert "optimization" in fixtures, "the fixture optimization did not start (103)"
             return fixtures["optimization"]
 
+        def bench_id() -> str:
+            """The 12,000-trial experiment, made by the first item that needs it; a failure is
+            kept, so every later item reports the same reason."""
+            if "bench" not in fixtures and "bench_error" not in fixtures:
+                try:
+                    self.lab_bench_fixture()
+                except Exception as exc:  # noqa: BLE001 - the items that need it report why
+                    fixtures["bench_error"] = f"{type(exc).__name__}: {exc}"
+            assert "bench" in fixtures, fixtures.get("bench_error")
+            return fixtures["bench"]
+
+        def bench_source() -> str:
+            """`exp:<bench>`, listed in the Lab's picker: the Lab fetches its experiment list as it
+            mounts, so an experiment made since is listed after a trip to Charts and back."""
+            source = f"exp:{bench_id()}"
+            listed = (
+                "t => [...document.querySelectorAll('#lab-source option')].some(o => o.value === t)"
+            )
+            if not page.evaluate(listed, source):
+                self.lab_round_trip()
+                page.wait_for_function(listed, arg=source, timeout=15_000)
+            return source
+
+        def bench_open() -> str:
+            """The bench experiment open on Trial Lab, its rows in the table."""
+            source = bench_source()
+            self.lab_view("trials")
+            if page.locator("#lab-source").input_value() != source:
+                self.lab_open(source)
+            else:
+                self.lab_wait_rows(source)
+            return source
+
+        def tab_placeholders(canvases: dict[str, str]) -> dict[str, list[str]]:
+            """Each centre tab's `.not-built` lines, the tab selected first; a tab named in
+            `canvases` waits for its canvas there."""
+            found: dict[str, list[str]] = {}
+            for tab in LAB_TABS:
+                page.locator(f"#lab-tab-{tab}").click()
+                page.wait_for_function(
+                    "t => document.getElementById('lab-tab-' + t)?.getAttribute('aria-selected')"
+                    " === 'true'",
+                    arg=tab,
+                )
+                if tab in canvases:
+                    page.wait_for_selector(f"#lab-panel {canvases[tab]}", timeout=30_000)
+                found[tab] = page.locator("#lab-panel .not-built").all_inner_texts()
+            page.locator("#lab-tab-heatmap").click()
+            return found
+
         def lab103():
             experiment_id()  # the experiment runs first: one job at a time on the worker
             # Leave the Lab maximized on another view, so Expand Lab has to land on Trial Lab,
@@ -4646,6 +5036,24 @@ class Acceptance:
             self.tab("Optimization")
             page.locator(".opt-tab .legend button.chip", has_text=re.compile(r"^LONG ·")).click()
             page.wait_for_selector("#expand-lab-long", timeout=30_000)
+            # The dock's overlays (Task 10) on the job's own metric: the mode chip, n badges, the
+            # untested squares hatched, and the grid's own height at the default results height.
+            chip = self.lab_dock_chip(job)
+            grid = "document.getElementById('dock-basis-long')?.closest('.dock-matrix')"
+            page.wait_for_function(
+                f"c => document.getElementById('dock-mode-long')?.innerText === c"
+                f" && ({grid}?.querySelectorAll('.heat-grid .cell-n').length ?? 0) >= 1",
+                arg=chip,
+                timeout=30_000,
+            )
+            dock = self.js(
+                f"(() => {{ const m = {grid}; const g = m?.querySelector('.heat-grid');"
+                " const empty = [...(m?.querySelectorAll('.heat-grid .cell.empty') ?? [])];"
+                " return { badges: m?.querySelectorAll('.heat-grid .cell-n').length ?? 0,"
+                " empty: empty.length, hatched: empty.filter(c => c.classList.contains('hatched'))"
+                ".length, height: g ? g.getBoundingClientRect().height : 0 }; })()"
+            )
+            assert dock["empty"] == dock["hatched"] and dock["height"] >= 85, dock
             picker = page.locator('.job-head select[aria-label="Heatmap metric"]')
             picker.select_option("mar")  # not the job's objective, so a kept metric shows
             dock_metric = picker.input_value()
@@ -4710,7 +5118,10 @@ class Acceptance:
             assert x and y, (x, y)
             return (
                 f"job {job['job_id'][:8]} ({job['cells_done']} cells, run from the Optimize "
-                f"popover) → Expand Lab from a Lab left maximized on Parameter Families: Trial "
+                f"popover; the dock reads '{chip}' with {dock['badges']} n badges, "
+                f"{dock['hatched']} of {dock['empty']} empty squares hatched, the grid "
+                f"{dock['height']:.0f} px tall) → Expand Lab from a Lab left maximized on "
+                f"Parameter Families: Trial "
                 f"Lab, restored; source {value[:12]}…, '{axes}', metric {metric} as the "
                 f"dock showed it; catalog X = {slow}, Y = {fast}; the dock's selected row "
                 f"'{dock_params}' is the Lab's selected trial {trial.split('#')[-1]} (table row "
@@ -4720,67 +5131,7 @@ class Acceptance:
         self.item(first, lab103)
 
         def lab104():
-            exp_id = experiment_id()
-            source = f"exp:{exp_id}"
-            self.lab_open(source)
-            path = "long_side.indicators.ema.length"
-            page.locator(f'.range-lo[data-path="{path}"]').fill("6")
-            row = page.locator("#trial-table tbody tr[data-trial]").first
-            trial = row.get_attribute("data-trial")
-            row.click()
-            page.locator("#lab-pin-A").click()
-            page.wait_for_function(
-                "t => document.getElementById('lab-pin-A')?.dataset.pinned === t",
-                arg=trial,
-                timeout=10_000,
-            )
-            # Review Focus 5: digits typed into a field are text, never the 1 / 2 / 3 pin keys
-            # (2 would move the pinned trial into B if the keys leaked).
-            page.locator("#lab-catalog-search").press_sequentially("12")
-            page.wait_for_timeout(200)
-            typed = page.locator("#lab-catalog-search").input_value()
-            pins = {s: page.locator(f"#lab-pin-{s}").get_attribute("data-pinned") for s in "ABC"}
-            assert typed == "12" and pins == {"A": trial, "B": "", "C": ""}, (typed, pins)
-            for view in ("families", "monitor", "trials"):
-                self.lab_view(view)
-            self.lab_wait_rows(source)
-            linked = page.locator("#lab-linked").inner_text()
-            again = page.locator(f'#trial-table tr[data-trial="{trial}"]')
-            again.wait_for(timeout=30_000)
-            classes = (again.get_attribute("class") or "").split()
-            rail = page.locator("#lab-pins").inner_text()
-            lo = page.locator(f'.range-lo[data-path="{path}"]').input_value()
-            pinned = page.locator("#lab-pin-A").get_attribute("data-pinned")
-            assert linked == "Linked · 1 filter", linked
-            assert "selected" in classes, classes
-            assert trial in rail and pinned == trial, (rail, pinned)
-            assert lo == "6", lo
-            # Review finding 3: the store lives above the page switch.
-            self.lab_round_trip()
-            self.lab_wait_rows(source)
-            back = {
-                "source": page.locator("#lab-source").input_value(),
-                "linked": page.locator("#lab-linked").inner_text(),
-                "pinned": page.locator("#lab-pin-A").get_attribute("data-pinned"),
-                "rail": page.locator("#lab-pins").inner_text(),
-                "card": page.locator("#lab-selected .rail-id").inner_text(timeout=10_000),
-                "lo": page.locator(f'.range-lo[data-path="{path}"]').input_value(),
-            }
-            row_back = page.locator(f'#trial-table tr[data-trial="{trial}"]')
-            row_back.wait_for(timeout=30_000)
-            classes_back = (row_back.get_attribute("class") or "").split()
-            assert back["source"] == source, back
-            assert back["linked"] == "Linked · 1 filter" and back["lo"] == "6", back
-            assert back["pinned"] == trial and trial in back["rail"], back
-            assert "selected" in classes_back and back["card"] == trial, (classes_back, back)
-            return (
-                f"{source[:16]}…: {path} from 6, {trial.split('#')[-1]} selected and pinned A; "
-                f"'12' typed in the search pinned nothing (B, C empty); after Parameter Families → "
-                f"Run Monitor → Trial Lab: '{linked}', the row still selected, A = "
-                f"{pinned.split('#')[-1]}, the range input still 6; after Charts → Optimization "
-                f"Lab: the same source, '{back['linked']}', the row selected with its rail card, "
-                f"A = {back['pinned'].split('#')[-1]}, the range input {back['lo']}"
-            )
+            return self.lab_keep_state(f"exp:{experiment_id()}", LAB_SURFACE[0][0], "6")
 
         self.item(first + 1, lab104)
 
@@ -4798,23 +5149,23 @@ class Acceptance:
             assert texts["events"] == "Event windows: feed unavailable", texts
             assert texts["partition"].startswith("Partition: none"), texts
             assert "Phase 8" in texts["ai"], texts
-            placeholders = []
-            for tab in LAB_TABS:
-                page.locator(f"#lab-tab-{tab}").click()
-                page.wait_for_function(
-                    "t => document.getElementById('lab-tab-' + t)?.getAttribute('aria-selected')"
-                    " === 'true'",
-                    arg=tab,
-                )
-                placeholders += page.locator("#lab-panel .not-built").all_inner_texts()
-            page.locator("#lab-tab-heatmap").click()
+            # An experiment: the heatmap and the parallel coordinates are canvases now (Phase 2);
+            # exactly three tabs are still placeholders, each naming Phase 3.
+            canvases = {"heatmap": "#lab-heatmap-canvas", "parallel": "#lab-parallel-canvas"}
+            exp_tabs = tab_placeholders(canvases)
+            held = {tab: lines for tab, lines in exp_tabs.items() if lines}
+            assert sorted(held) == ["interactions", "pareto", "robustness"], exp_tabs
+            unphased = [t for lines in held.values() for t in lines if "Phase 3" not in t]
+            assert all(len(lines) == 1 for lines in held.values()) and not unphased, held
+            views = []
             for view in LAB_PLACEHOLDER_VIEWS:
                 self.lab_view(view)
-                placeholders += page.locator("#optlab-page .not-built").all_inner_texts()
+                views += page.locator("#optlab-page .not-built").all_inner_texts()
             self.lab_view("trials")
             self.lab_wait_rows(source)
-            vague = [t for t in placeholders if not re.search(r"Phase \d", t)]
-            assert len(placeholders) >= 9 and not vague, (len(placeholders), vague)
+            vague = [t for t in views if not re.search(r"Phase \d", t)]
+            assert len(views) == len(LAB_PLACEHOLDER_VIEWS) and not vague, (views, vague)
+            placeholders = [t for lines in held.values() for t in lines] + views
             report = self.api(f"experiments/{exp_id}/report")
             page.wait_for_function(
                 "n => (document.querySelector('#lab-findings .rail-title')?.innerText ?? '')"
@@ -4833,30 +5184,46 @@ class Acceptance:
             self.lab_open(f"opt:{job_id()}")
             opt_title = refine.get_attribute("title") or ""
             assert refine.is_disabled() and opt_title, opt_title
+            # A grid job: its parallel coordinates are live too (ruling P12 amended at Task 11);
+            # its importance is a placeholder naming Phase 3.
+            opt_tabs = tab_placeholders({"parallel": "#lab-parallel-canvas"})
+            importance = opt_tabs["importance"]
+            assert importance and all("Phase 3" in t for t in importance), opt_tabs
+            assert not opt_tabs["parallel"], opt_tabs
             page.evaluate(
                 "() => { const o = document.createElement('option');"
                 " o.value = o.textContent = 'exp:does-not-exist'; o.id = 'lab-walk-bogus';"
                 " document.getElementById('lab-source').appendChild(o); }"
             )
             page.locator("#lab-source").select_option("exp:does-not-exist")
-            page.wait_for_selector("#lab-source-error", timeout=30_000)
-            error = page.locator("#lab-source-error").inner_text()
+            # The X state: the source's own error with Retry, the other panels still in place.
+            page.wait_for_selector("#lab-source-error.lab-error .lab-retry", timeout=30_000)
+            error = page.locator("#lab-source-error .lab-error-text").inner_text()
+            retry = page.locator("#lab-source-error .lab-retry").inner_text()
+            panels = ["#lab-subnav", "#lab-kpis", "#lab-catalog", "#lab-tabs", "#lab-rail"]
+            kept = page.evaluate("ids => ids.filter(s => !!document.querySelector(s))", panels)
             page.evaluate("() => document.getElementById('lab-walk-bogus')?.remove()")
-            assert "does-not-exist" in error, error
+            assert "does-not-exist" in error and retry == "Retry", (error, retry)
+            assert kept == panels, kept
             return (
                 f"{texts['gate']} · {texts['regime']} · {texts['events']} · {texts['partition']} · "
-                f"'{texts['ai']}'; {len(placeholders)} placeholders each naming its phase; refine "
+                f"'{texts['ai']}'; the experiment's heatmap and parallel tabs draw their canvases, "
+                f"its placeholders are {', '.join(sorted(held))} (Phase 3) and the "
+                f"{len(views)} views, {len(placeholders)} in all, each naming its phase; refine "
                 f"for report {report['report_id']} {refine_state}; for the grid job disabled: "
-                f"'{opt_title}'; the bogus source: '{error}'"
+                f"'{opt_title}', its parallel tab a canvas and importance '{importance[0]}'; the "
+                f"bogus source: '{error}' with {retry}, {', '.join(kept)} still in place"
             )
 
         self.item(first + 2, lab105)
 
         def lab106():
             exp_id, opt_id = experiment_id(), job_id()
+            bench = bench_source()  # the 12,000-trial experiment, made here when no item has yet
             small: list = []
             ratios: dict[str, list] = {selector: [] for selector in LAB_SECONDARY}
             seen: list[str] = []
+            scrolled: list[str] = []
 
             def sweep():
                 sizes = self.js(LAB_TEXT_SIZES)
@@ -4869,6 +5236,16 @@ class Acceptance:
                 controls = page.locator(LAB_PRIMARY).all()
                 bad = []
                 for control in controls:
+                    # The parameter catalog is a scroll list: an input below its fold is scrolled
+                    # into view inside the list before it is measured (the page itself never
+                    # scrolls: asserted below).
+                    if control.evaluate(
+                        "el => { const list = el.closest('.lab-catalog'); if (!list) return false;"
+                        " const r = el.getBoundingClientRect(), l = list.getBoundingClientRect();"
+                        " if (r.top >= l.top && r.bottom <= l.bottom) return false;"
+                        " el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); return true; }"
+                    ):
+                        scrolled.append(control.get_attribute("data-path") or "")
                     box = control.bounding_box()
                     name = control.get_attribute("id") or control.inner_text().strip()
                     on_top = control.evaluate(
@@ -4883,8 +5260,13 @@ class Acceptance:
                         and box["y"] + box["height"] <= h
                     )
                     if not (inside and on_top):
-                        bad.append((name, box, on_top))
+                        bad.append((name, control.get_attribute("data-path"), box, on_top))
+                page_scroll = self.js("[window.scrollX, window.scrollY]")
+                self.js(
+                    "document.querySelectorAll('.lab-catalog').forEach(l => { l.scrollTop = 0; })"
+                )
                 assert len(controls) >= 18 and not bad, (len(controls), bad)
+                assert page_scroll == [0, 0], f"the page itself scrolled: {page_scroll}"
                 wide = self.js("document.documentElement.scrollWidth")
                 assert wide <= w, f"the page scrolls sideways: {wide} > {w}"
                 return len(controls)
@@ -4899,11 +5281,25 @@ class Acceptance:
                 key=lambda e: (e.get("progress") or {}).get("cells_done", 0),
                 default=None,
             )
+            heat_drawn = (  # the heatmap's summary and canvas width, to see it redrawn at a size
+                "[document.getElementById('lab-heatmap-summary')?.innerText ?? null,"
+                " document.getElementById('lab-heatmap-canvas')?.getAttribute('width') ?? null]"
+            )
             lines = []
             try:
-                for w, h in LAB_SIZES:
+                for index, (w, h) in enumerate(LAB_SIZES):
+                    drawn = self.js(heat_drawn) if index else None
                     page.set_viewport_size({"width": w, "height": h})
                     page.wait_for_timeout(300)  # the layout and the table's ResizeObserver
+                    if drawn is not None:
+                        # The bench heatmap left on screen redrawn for this size before any
+                        # sweep: its summary changed or its canvas took the new width, so no
+                        # wait below can pass on the previous size's content (R2:133).
+                        assert drawn[1] is not None, drawn
+                        self.lab_wait(
+                            f"(([s, w]) => w !== null && (s !== {json.dumps(drawn[0])}"
+                            f" || w !== {json.dumps(drawn[1])}))({heat_drawn})"
+                        )
                     self.lab_view("trials")
                     self.lab_open(f"opt:{opt_id}")
                     page.wait_for_function(
@@ -4911,9 +5307,6 @@ class Acceptance:
                         " ?? '')",
                         timeout=60_000,
                     )
-                    shot = self.screenshot_path(f"lab-{w}x{h}")
-                    page.screenshot(path=str(shot))  # the viewport, not the full page
-                    seen.append(shot.name)
                     controls = unclipped(w, h)
                     texts = sweep()
                     self.lab_open(f"exp:{exp_id}")
@@ -4951,11 +5344,34 @@ class Acceptance:
                             f"; {big['id']} ({total} trials) renders {top[0]} rows at the top "
                             f"and {middle[0]} in the middle for {middle[1]} visible"
                         )
-                        self.lab_open(f"exp:{exp_id}")
+                    # The 12,000-trial experiment by the keyboard: aggregate mode, the cursor onto
+                    # the first square and Enter, so its panel (Pin, Send) is on screen with the
+                    # mode toggles, the stat and the catalog's ten fixed-value inputs.
+                    self.lab_open(bench)
+                    page.locator("#lab-tab-heatmap").click()
+                    page.locator("#lab-mode-aggregate").click()
+                    self.lab_wait(
+                        f"/n = \\d+/.test({LAB_HEAT_BASIS}) && {LAB_HEAT_READY}"
+                        " && !!document.getElementById('lab-heatmap-canvas')?.getAttribute('width')"
+                    )
+                    page.locator("#optlab-page").focus()
+                    page.keyboard.press("ArrowDown")
+                    page.keyboard.press("Enter")
+                    self.lab_wait(
+                        "!!document.querySelector('#lab-square-panel #lab-square-pin')"
+                        " && !!document.querySelector('#lab-square-trials table')"
+                    )
+                    square = page.locator("#lab-square-panel .rail-title").inner_text()
+                    shot = self.screenshot_path(f"lab-{w}x{h}")
+                    page.screenshot(path=str(shot))  # the viewport, not the full page
+                    seen.append(shot.name)
+                    bench_controls = unclipped(w, h)
+                    texts += sweep()
                     lines.append(
                         f"{w}×{h}: {controls} controls inside and on top, {texts} texts checked, "
                         f"the fixture renders {fixture_rows[0]} rows for {fixture_rows[1]} "
-                        f"visible{window}"
+                        f"visible{window}; the bench by the keyboard: square '{square}' open, "
+                        f"{bench_controls} controls inside and on top"
                     )
             finally:
                 page.set_viewport_size({"width": 1600, "height": 1000})
@@ -4972,8 +5388,11 @@ class Acceptance:
                 if x["disabled"] and x["ratio"] < 4.5:
                     exempt[x["text"]] = min(x["ratio"], exempt.get(x["text"], x["ratio"]))
             self.lab_fixtures["disabled_under_4_5"] = exempt
+            self.lab_fixtures["catalog_scrolled_into_view"] = len(scrolled)
             return (
                 "; ".join(lines)
+                + f"; {len(scrolled)} catalog inputs below the list's fold scrolled into view "
+                + "inside it before they were measured, the page never scrolled"
                 + "; every text ≥ 11 px; lowest contrast "
                 + ", ".join(f"{s} {r:.2f}" for s, r in lowest.items())
                 + "; below 4.5:1 only inside disabled controls, recorded and not asserted "
@@ -4984,7 +5403,7 @@ class Acceptance:
                     )
                     or "none"
                 )
-                + f"; screenshots {', '.join(seen)}"
+                + f"; screenshots {', '.join(seen)} (the bench experiment)"
             )
 
         self.item(first + 3, lab106)
@@ -5214,13 +5633,286 @@ class Acceptance:
 
         self.item(first + 6, lab_running)
 
+        # -- Phase 2 (Task 12): the real 12,000-trial experiment ----------------------------------
+        def lab107():
+            source = bench_open()
+            axis = (
+                "(n => document.querySelector(`input[name=lab-axis-${n}]:checked`)"
+                "?.dataset.path ?? null)"
+            )
+            self.lab_wait(f"!!{axis}('x') && !!{axis}('y')")
+            axes = [page.evaluate(f"{axis}('y')"), page.evaluate(f"{axis}('x')")]
+            summary = self.api(f"lab/{source}/summary")
+            counts = summary["counts"]
+            completed = counts["completed"]
+            assert completed == LAB_BENCH_TRIALS - counts["invalid"], counts
+            # §7.1's default slice with nothing selected: the spec's values off the two axes, a
+            # lattice point the seeded LHS sample never lands on.
+            spec = {p: v for p, v in summary["spec_values"].items() if p not in axes}
+            matched = self.lab_counts(source, {"values": spec})["filtered"]
+            assert matched == 0, (spec, matched)
+            page.locator("#lab-tab-heatmap").click()
+            page.locator("#lab-mode-exact").click()
+            heat_summary = "(document.getElementById('lab-heatmap-summary')?.innerText ?? '')"
+            toolbar = "(document.querySelector('.trial-toolbar')?.innerText ?? '')"
+            self.lab_wait(
+                f"{heat_summary}.startsWith('0 of') && {heat_summary}.includes('squares tested')"
+                f" && {LAB_HEAT_BASIS}.includes('Tested (exact)')"
+                f" && {LAB_HEAT_BASIS}.includes('empty = untested') && {LAB_HEAT_READY}"
+                f" && {toolbar}.includes({json.dumps(f'{completed:,} of {completed:,} trials')})"
+                f" && {LAB_LINKED} === 'Linked · 0 filters'"
+            )
+            shown = page.locator("#lab-heatmap-summary").inner_text()
+            basis = page.locator("#lab-heatmap-basis").inner_text()
+            page.locator("#optlab-page").focus()
+            page.keyboard.press("ArrowDown")  # the first press shows the cursor at (0, 0)
+            page.keyboard.press("Enter")
+            selected = "(document.getElementById('lab-selected')?.innerText ?? '')"
+            self.lab_wait(
+                "(document.getElementById('lab-square-panel')?.innerText ?? '')"
+                ".includes('untested: no trial has these values')"
+                " && !document.querySelector('#lab-selected .rail-id')"
+                f" && !{selected}.includes({json.dumps(source + '#')})"
+                " && document.querySelectorAll('#trial-table tr.selected').length === 0"
+            )
+            panel = page.locator("#lab-square-panel").inner_text()
+            page.locator("#lab-mode-aggregate").click()
+            self.lab_wait(f"{LAB_HEAT_N} > 0 && {LAB_HEAT_READY}")
+            return (
+                f"{source[:24]}… ({completed:,} trials, {counts['invalid']} invalid): the slice "
+                f"{json.dumps(spec)} off the axes {axes[0]} × {axes[1]} matches "
+                f"{matched} trials (counts view); exact: '{shown}', '{basis}', the toolbar "
+                f"{completed:,} of {completed:,} with 'Linked · 0 filters' (the slice is not a "
+                f"filter); ArrowDown + Enter: '{panel}', no trial selected; aggregate: "
+                f"n = {self.lab_heatmap_n():,}"
+            )
+
+        self.item(first + 7, lab107)
+
+        def lab108():
+            bench_open()
+            page.locator("#lab-tab-heatmap").click()
+            page.locator("#lab-mode-aggregate").click()
+            self.lab_wait(f"/n = \\d+/.test({LAB_HEAT_BASIS}) && {LAB_HEAT_READY}")
+            title = "(document.querySelector('#lab-square-panel .rail-title')?.innerText ?? '')"
+            before = page.evaluate(title)
+            page.locator("#optlab-page").focus()  # Enter on a focused toggle would press it
+            for key in ("ArrowDown", "ArrowDown", "ArrowRight", "Enter"):
+                page.keyboard.press(key)
+            line = (
+                "(() => { const m = /^n = (\\d+)/.exec(document.querySelector("
+                "'#lab-square-panel .lab-line')?.innerText ?? ''); return m ? Number(m[1]) : 0; })()"
+            )
+            self.lab_wait(f"{title} !== '' && {title} !== {json.dumps(before)} && {line} >= 1")
+            k = page.evaluate(line)
+            panel = "document.getElementById('lab-square-panel')"
+            unrunnable = "an aggregate is not a runnable strategy"
+            self.lab_wait(
+                f"(() => {{ const p = {panel}; if (!p) return false;"
+                " const text = p.innerText;"
+                " const bars = p.querySelectorAll('svg.square-hist rect').length;"
+                " const rows = p.querySelectorAll('#lab-square-trials tbody tr').length;"
+                " const off = (id) => { const b = document.getElementById(id);"
+                f" return !!b && b.disabled && b.title === {json.dumps(unrunnable)}; }};"
+                " return /IQR /.test(text) && bars >= 1 && bars <= 20"
+                f" && p.querySelector('.lab-basis')?.innerText === 'Aggregated from tested (n = {k})'"
+                " && rows >= 1 && rows <= 50 && off('lab-square-pin') && off('lab-square-send'); })()"
+            )
+            facts = page.evaluate(
+                f"(() => {{ const p = {panel}; return {{"
+                " iqr: [...p.querySelectorAll('.sub')].map(s => s.innerText).find(t =>"
+                " t.startsWith('IQR')) ?? '',"
+                " bars: p.querySelectorAll('svg.square-hist rect').length,"
+                " rows: p.querySelectorAll('#lab-square-trials tbody tr').length }; })()"
+            )
+            square = page.locator("#lab-square-panel .rail-title").inner_text()
+            page.keyboard.press("1")  # refused: a square is not a trial
+            page.wait_for_timeout(200)
+            self.lab_wait(
+                "!/(exp|opt):\\S+#\\d+/.test(document.getElementById('lab-pins')?.innerText ?? '')"
+                " && document.getElementById('lab-pin-A')?.dataset.pinned === ''"
+                " && document.querySelectorAll('#trial-table tr.selected').length === 0"
+            )
+            return (
+                f"aggregate square '{square}' by ArrowDown ×2, ArrowRight, Enter: n = {k}, "
+                f"'{facts['iqr']}', a {facts['bars']}-bar histogram, 'Aggregated from tested "
+                f"(n = {k})', {facts['rows']} square trials listed; Pin and Send disabled: "
+                f"'{unrunnable}'; the key 1 pinned nothing (pin A empty, no trial in the rail, "
+                f"no table row selected)"
+            )
+
+        self.item(first + 8, lab108)
+
+        def lab109():
+            source = bench_open()
+            page.locator("#lab-tab-heatmap").click()
+            page.locator("#lab-mode-aggregate").click()
+            completed = self.lab_counts(source, {})["completed"]
+            self.lab_wait(
+                f"{LAB_HEAT_N} === {completed} && {LAB_HEAT_READY}"
+                f" && {LAB_KPI_TRIALS}?.[0] === {completed}"
+                f" && {LAB_TOOLBAR_COUNTS}?.[1] === {completed}"
+                f" && {LAB_LINKED} === 'Linked · 0 filters'"
+            )
+            unfiltered = (self.lab_heatmap_n(), self.lab_kpi_trials()[0])
+            assert unfiltered == (completed, completed), (unfiltered, completed)
+            assert self.lab_toolbar_counts()[1] == completed, self.lab_toolbar_counts()
+            basis_before = page.locator("#lab-heatmap-basis").inner_text()
+            rows_before = list(self.lab_toolbar_counts())
+            p0 = lab_benchmark.BENCH_SURFACE[0]
+            second = p0.start + p0.step
+            text = str(int(second)) if float(second).is_integer() else str(second)
+            selector = f'.range-lo[data-path="{p0.path}"]'
+            heat = self.lab_timed(
+                "filter_heatmap",
+                lambda: page.locator(selector).fill(text),
+                f"{LAB_LINKED} === 'Linked · 1 filter'"
+                f" && {LAB_HEAT_BASIS} !== {json.dumps(basis_before)}"
+                f" && /n = \\d+/.test({LAB_HEAT_BASIS}) && {LAB_HEAT_READY}",
+                "filter_heatmap",
+            )
+            table = self.lab_timed(
+                "page",
+                None,  # the same fill: the table's own figure
+                f"(c => c !== null && (c[0] !== {rows_before[0]} || c[1] !== {rows_before[1]}))"
+                f"({LAB_TOOLBAR_COUNTS})",
+                "page",
+            )
+            wanted = self.lab_counts(source, self.lab_active_filter())["filtered"]
+            self.lab_wait(
+                f"{LAB_HEAT_N} === {wanted} && {LAB_HEAT_READY}"
+                f" && {LAB_TOOLBAR_COUNTS}?.[0] === {wanted}"
+                f" && {LAB_KPI_TRIALS}?.[1] === {wanted}"
+                f" && {LAB_KPI_TRIALS}?.[0] === {completed}"
+                f" && {LAB_TOOLBAR_COUNTS}?.[1] === {completed}"
+            )
+            filtered = (
+                self.lab_heatmap_n(),
+                self.lab_toolbar_counts()[0],
+                self.lab_kpi_trials()[1],
+            )
+            assert filtered == (wanted, wanted, wanted), (filtered, wanted)
+            kept = (self.lab_kpi_trials()[0], self.lab_toolbar_counts()[1])
+            assert kept == (completed, completed), (kept, completed)
+            page.locator(selector).fill("")
+            self.lab_wait(f"{LAB_LINKED} === 'Linked · 0 filters'")
+            words = {
+                "kpis": page.locator("#lab-kpis").inner_text(),
+                "toolbar": page.locator(".trial-toolbar").inner_text(),
+            }
+            named = [k for k, t in words.items() if "backtest" in t.lower()]
+            assert not named, (named, words)  # §6.4: trials, never backtests
+            heap = self.lab_heap_sample("after_109")
+            return (
+                f"unfiltered: heatmap n, Trials KPI, toolbar and counts view all {completed:,}; "
+                f"{p0.path} from {text}: 'Linked · 1 filter', heatmap n, toolbar and the KPI's "
+                f"sub line all {wanted:,} = the counts view, the KPI and the toolbar's total "
+                f"still {completed:,}; filter_heatmap {heat['ms']} ms of "
+                f"{heat['budget_ms']} ({heat['longtasks_over_50ms']} long tasks, longest "
+                f"{heat['longest_ms']} ms), page {table['ms']} ms of {table['budget_ms']} "
+                f"({table['longtasks_over_50ms']} long tasks, longest {table['longest_ms']} ms), "
+                f"both from the fill; the range blanked back to 'Linked · 0 filters'; no "
+                f"'backtest' in the KPIs or the toolbar; {heap}"
+            )
+
+        self.item(first + 9, lab109)
+
+        def lab110():
+            source = bench_open()
+            page.locator("#optlab-page").focus()
+            page.keyboard.press("Escape")  # ranges and values cleared, so the brush is the one
+            self.lab_wait(f"{LAB_LINKED} === 'Linked · 0 filters'")
+            completed = self.lab_counts(source, {})["completed"]
+            page.locator("#lab-tab-parallel").click()
+            active = len(self.api(f"lab/{source}/summary")["parameters"])  # Phase 2: all active
+            self.lab_wait(
+                f"document.querySelectorAll('#lab-parallel .parallel-axis').length === {active}"
+                f" && /^Aggregated: \\d+ of \\d+ bundles/.test({LAB_PARALLEL_BASIS})"
+                f" && {LAB_PARALLEL_READY}"
+            )
+            axis = page.locator("#lab-parallel .parallel-axis").first
+            x = float(axis.get_attribute("data-x"))
+            path = axis.get_attribute("data-path")
+            box = page.locator("#lab-parallel-canvas").bounding_box()
+            basis_before = page.locator("#lab-parallel-basis").inner_text()
+            summary_before = page.locator("#lab-parallel-summary").inner_text()
+
+            def drag():
+                page.mouse.move(box["x"] + x, box["y"] + 0.3 * box["height"])
+                page.mouse.down()
+                page.mouse.move(box["x"] + x, box["y"] + 0.6 * box["height"], steps=8)
+                page.mouse.up()
+
+            brush = self.lab_timed(
+                "brush",
+                drag,
+                f"{LAB_LINKED} === 'Linked · 1 filter'"
+                f" && {LAB_PARALLEL_BASIS} !== {json.dumps(basis_before)}"
+                f" && /^Aggregated: \\d+ of \\d+ bundles/.test({LAB_PARALLEL_BASIS})"
+                f" && {LAB_PARALLEL_READY}",
+                "parallel",
+            )
+            summary = "(document.getElementById('lab-parallel-summary')?.innerText ?? '')"
+            self.lab_wait(
+                f"/\\d+ of \\d+ bundles/.test({LAB_PARALLEL_BASIS})"
+                f" && {LAB_PARALLEL_BASIS}.includes('0 raw lines drawn')"
+                f" && {summary} !== '' && {summary} !== {json.dumps(summary_before)}"
+            )
+            basis = page.locator("#lab-parallel-basis").inner_text()
+            ranges = self.lab_active_filter()["ranges"]
+            assert list(ranges) == [path], (ranges, path)
+            page.locator("#lab-tab-heatmap").click()
+            page.locator("#lab-mode-aggregate").click()
+            wanted = self.lab_counts(source, self.lab_active_filter())["filtered"]
+            self.lab_wait(
+                f"{LAB_HEAT_N} === {wanted} && {LAB_HEAT_READY}"
+                f" && {LAB_TOOLBAR_COUNTS}?.[0] === {wanted}"
+            )
+            brushed = (self.lab_heatmap_n(), self.lab_toolbar_counts()[0])
+            assert brushed == (wanted, wanted) and wanted < completed, (brushed, wanted, completed)
+            page.locator("#optlab-page").focus()
+            page.keyboard.press("Escape")  # clears the brush
+            self.lab_wait(
+                f"{LAB_LINKED} === 'Linked · 0 filters' && {LAB_HEAT_N} === {completed}"
+                f" && {LAB_HEAT_READY} && {LAB_TOOLBAR_COUNTS}?.[0] === {completed}"
+            )
+            cleared = self.lab_counts(source, self.lab_active_filter())["filtered"]
+            assert cleared == completed, (cleared, completed)
+            no_reload = page.evaluate("() => window.__labWalkNoReload === true")
+            assert no_reload, "the page reloaded since (RF2/3)"
+            heap = self.lab_heap_sample("after_110")
+            return (
+                f"a drag on {path} (x {x:.0f}) from 0.3 to 0.6 of the canvas: '{basis}', the "
+                f"filter {json.dumps(ranges)}, the summary recomputed; brush {brush['ms']} ms of "
+                f"{brush['budget_ms']} ({brush['budget_key']}; {brush['longtasks_over_50ms']} "
+                f"long tasks, longest {brush['longest_ms']} ms); heatmap n and toolbar "
+                f"{wanted:,} = the counts view; Esc: all three back to {completed:,}; no reload "
+                f"since RF2/3; {heap}"
+            )
+
+        self.item(first + 10, lab110)
+
+        def lab104b():
+            p0 = lab_benchmark.BENCH_SURFACE[0]
+            assert p0.start + p0.step == 10, p0  # the literal below is its second value
+            return self.lab_keep_state(bench_source(), p0.path, "10")
+
+        self.item(first + 11, lab104b)
+
         def lab_governance():
             served = ""
             if self.pid_file is not None:  # a scratch worker: this checkout's code, the given store
                 live = page.request.get(health_url(self.base, self.port), timeout=10_000).json()
                 assert live.get("app_root") == str(ROOT / "app"), (live, str(ROOT / "app"))
                 assert live.get("data_root") == str(self.data_root), (live, str(self.data_root))
-                served = f"; the worker serves {live['app_root']} on {live['data_root']}"
+                # Both routes read aegis_data_root(): /lab/build names the same store.
+                build = page.request.get(self.base + "api/lab/build", timeout=10_000).json()
+                assert build.get("data_root") == live.get("data_root"), (build, live)
+                assert re.fullmatch(r"[0-9a-f]{64}", build.get("engine_build") or ""), build
+                served = (
+                    f"; the worker serves {live['app_root']} on {live['data_root']} (/lab/build "
+                    f"agrees, engine {build['engine_build'][:12]})"
+                )
             state = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
             assert state["mode"] == "human_directed" and state["exchange"] == "CLOSED", state
             schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
@@ -5229,16 +5921,16 @@ class Acceptance:
             committed = git("diff", "--name-only", LAB_BASE, "HEAD", "--", *paths).strip()
             pending = git("status", "--porcelain", "--", *paths).strip()
             assert committed == "" and pending == "", (committed, pending)
-            earlier = [r for r in self.results if first <= r["item"] < first + 7]
+            earlier = [r for r in self.results if first <= r["item"] < first + 12]
             failed = [r["item"] for r in earlier if r["status"] != "PASS"]
-            assert len(earlier) == 7 and not failed, failed
+            assert len(earlier) == 12 and not failed, failed
             return (
                 f"aegis {state['mode']} / {state['exchange']}; DailySchedule {schedule['id'][:8]} "
                 f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
-                f"{LAB_BASE}; Lab items {first}–{first + 6} PASS; fixtures {fixtures}{served}"
+                f"{LAB_BASE}; Lab items {first}–{first + 11} PASS; fixtures {fixtures}{served}"
             )
 
-        self.item(first + 7, lab_governance)
+        self.item(first + 12, lab_governance)
 
 
 def nested(condition: dict, depth: int) -> dict:
@@ -5253,6 +5945,18 @@ def health_url(base: str, port: int) -> str:
     """The worker's own /health/live, on the host of --base and the walk's port."""
     parts = urlsplit(base)
     return f"{parts.scheme}://{parts.hostname}:{port}/health/live"
+
+
+def tree_bytes(root: Path) -> int:
+    """The bytes of every file under `root` (a file gone meanwhile counts nothing)."""
+    total = 0
+    for path in root.rglob("*"):
+        try:
+            if path.is_file():
+                total += path.stat().st_size
+        except OSError:
+            continue
+    return total
 
 
 def worker_health(page: Page, base: str, port: int) -> dict:
@@ -5304,8 +6008,11 @@ def main(argv=None) -> int:
     (ROOT / "logs").mkdir(exist_ok=True)
     started = time.perf_counter()
     with sync_playwright() as playwright:
+        # --enable-precise-memory-info: without it Chromium's performance.memory is quantized and
+        # cached for minutes, so the Lab items' heap samples (lab_heap_mb) would not move.
         browser = playwright.chromium.launch(
-            headless=not args.headed, args=["--no-sandbox", "--disable-dev-shm-usage"]
+            headless=not args.headed,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--enable-precise-memory-info"],
         )
         # bypass_csp lets Playwright evaluate its probes; the worker's own CSP (no unsafe-eval)
         # is what the product ships with and the chart spike verified against it.
@@ -5318,6 +6025,7 @@ def main(argv=None) -> int:
         acceptance.run_lab(first)
         page.screenshot(path=str(acceptance.screenshot_path("final")), full_page=True)
         browser.close()
+    bench = getattr(acceptance, "lab_bench", None) or {}
     report = {
         "stamp": stamp,
         "base": args.base,
@@ -5335,6 +6043,25 @@ def main(argv=None) -> int:
         "lab_only": lab_only,
         "lab_first_item": first,
         "lab_fixtures": getattr(acceptance, "lab_fixtures", None),
+        "lab_bench_experiment": bench.get("experiment"),
+        "lab_bench_bars": bench.get("bars"),
+        "lab_bench_elapsed_s": bench.get("elapsed_s"),
+        "lab_bench_materialized": bench.get("materialized"),
+        # The scratch root's size after the run, for its deletion after the milestone (Q11);
+        # nothing is deleted here, and the product store is never measured.
+        "lab_scratch_size_bytes": tree_bytes(data_root)
+        if data_root.resolve() != PRODUCT_ROOT.resolve()
+        else None,
+        "lab_timings_ms": {
+            "trials": LAB_BENCH_TRIALS,
+            "path": "Playwright → browser → scratch worker",
+            **(getattr(acceptance, "lab_timings", None) or {}),
+        },
+        "lab_heap_mb": {
+            "trials": LAB_BENCH_TRIALS,
+            "limit": lab_benchmark.TRACK_A_LIMITS["browser_heap_mb"],
+            **(getattr(acceptance, "lab_heap", None) or {}),
+        },
         "data_root": str(data_root),
         "port": port,
         "pid_file": str(pid_file) if pid_file is not None else None,
