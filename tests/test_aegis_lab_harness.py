@@ -162,6 +162,11 @@ def test_scratch_launcher_never_names_the_product_port(tmp_path):
     for index, line in enumerate(lines):
         if "8101" in line or "8102" in line:
             assert index in (checks[0], checks[0] + 1), line
+    store_refusal = 'throw "refused: -DataRoot is the product store"'
+    (store_check,) = [i for i, line in enumerate(lines) if store_refusal in line]
+    (port_check,) = [i for i, line in enumerate(lines) if line == "Assert-ScratchPort"]
+    (listening,) = [i for i, line in enumerate(lines) if "Get-NetTCPConnection -LocalPort" in line]
+    assert store_check < port_check < listening  # the store refusal runs before the port checks
     pwsh = shutil.which("pwsh")
     if pwsh is None:
         return
@@ -178,6 +183,21 @@ def test_scratch_launcher_never_names_the_product_port(tmp_path):
     assert refused.returncode != 0, refused.stdout
     assert "refused: port 8102 is a product port" in refused.stdout + refused.stderr
     assert not refused_pid.exists()
+    # The product store is refused before the port checks: a scratch worker live on 8103 must
+    # not turn this into a port-in-use refusal.
+    store_pid = tmp_path / "refused-store.pid"
+    store = subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-File", str(SCRIPT), "-Port", "8103"]
+        + ["-DataRoot", "C:\\Triad\\data\\aegis", "-PidFile", str(store_pid)],
+        capture_output=True,
+        text=True,
+        cwd=CHECKOUT,
+        timeout=120,
+        check=False,
+    )
+    assert store.returncode != 0, store.stdout
+    assert "refused: -DataRoot is the product store" in store.stdout + store.stderr
+    assert not store_pid.exists()
     nothing = subprocess.run(
         [pwsh, "-NoProfile", "-NonInteractive", "-File", str(SCRIPT), "-Stop"]
         + ["-PidFile", str(tmp_path / "none.pid")],

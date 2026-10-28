@@ -1,7 +1,7 @@
 # Start or stop a scratch Aegis worker: this checkout's code on a scratch store (Optimization Lab
 # v2, Phase 2). Browser evidence and benchmarks come from it, never from the product worker or
-# the product store. The product ports and any port already listening are refused before
-# anything touches disk.
+# the product store. The product store as -DataRoot, the product ports and any port already
+# listening are refused before anything touches disk.
 #
 #   tools/start_aegis_scratch.ps1 -Port 8103 -DataRoot C:\Triad\data\temp\lab-scratch
 #   tools/start_aegis_scratch.ps1 -Stop [-PidFile logs\aegis-scratch.pid]
@@ -63,20 +63,24 @@ if ($Stop) {
     exit 0
 }
 
-# Refusals first: nothing below runs for a product port or a port someone already listens on.
+# Refusals first: nothing below runs without a data root, on the product store, on a product
+# port or on a port someone already listens on. The store check comes before the port checks.
+if (!$DataRoot) {
+    throw "refused: -DataRoot is required to start"
+}
+if (![IO.Path]::IsPathRooted($DataRoot)) { $DataRoot = Join-Path $Root $DataRoot }
+$DataRoot = Get-NormalPath $DataRoot
+if ($DataRoot -ieq (Get-NormalPath (Join-Path $EnvironmentRoot 'data\aegis'))) {
+    throw "refused: -DataRoot is the product store"
+}
 Assert-ScratchPort
 if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) {
     throw "refused: port $Port is already listening"
-}
-if (!$DataRoot) {
-    throw "refused: -DataRoot is required to start"
 }
 $Python = Join-Path $EnvironmentRoot '.venv-aegis\Scripts\python.exe'
 if (!(Test-Path -LiteralPath $Python)) {
     throw "Missing ${Python}: run tools/bootstrap.ps1 -Product aegis"
 }
-if (![IO.Path]::IsPathRooted($DataRoot)) { $DataRoot = Join-Path $Root $DataRoot }
-$DataRoot = Get-NormalPath $DataRoot
 
 # The raw archives: a checkout without them links the archive root's folder (gitignored under
 # data/raw/*). Pinned relative paths are identical on both roots, so pins stay portable.

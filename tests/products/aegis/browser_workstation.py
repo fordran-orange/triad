@@ -683,36 +683,51 @@ class Acceptance:
 
     def restart_worker(self) -> tuple[int | None, int]:
         """Restart the scratch worker through tools/start_aegis_scratch.ps1 (`-Stop -PidFile`,
-        then the same port, data root and pid file) and wait for the new listener to answer the
-        status route; returns (old, new) listener PIDs. Without --pid-file there is no fallback."""
+        then the same port, data root and pid file) and wait for the new listener's /health/live
+        to name this checkout's app and the given data root (never the status route, which needs
+        Core's settings); returns (old, new) listener PIDs. Without --pid-file there is no
+        fallback."""
         if self.pid_file is None:
             raise RuntimeError("restart needs --pid-file")
         old = self.worker_pid()
         script = str(ROOT / "tools" / "start_aegis_scratch.ps1")
         launcher = ["pwsh", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"]
+        # The launcher's output goes to a file, never a pipe: the worker it starts inherits these
+        # handles, and a pipe the worker holds open would keep subprocess.run waiting for EOF.
+        log = ROOT / "logs" / f"aegis-acceptance-{self.stamp}-restart.log"
         for arguments in (
             ["-Stop", "-PidFile", str(self.pid_file)],
             ["-Port", str(self.port), "-DataRoot", str(self.data_root)]
             + ["-PidFile", str(self.pid_file)],
         ):
-            done = subprocess.run(
-                [*launcher, "-File", script, *arguments],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            assert done.returncode == 0, (arguments[0], done.stdout, done.stderr)
+            with log.open("a", encoding="utf-8") as out:
+                done = subprocess.run(
+                    [*launcher, "-File", script, *arguments],
+                    stdin=subprocess.DEVNULL,
+                    stdout=out,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                )
+            assert done.returncode == 0, (arguments[0], log.read_text(encoding="utf-8")[-2000:])
+        app_root, data_root = (ROOT / "app").resolve(), self.data_root.resolve()
         deadline = time.monotonic() + 120
         new, last_error = None, "no new listener yet"
         while time.monotonic() < deadline:
             pid = self.worker_pid()
             if pid is not None and pid != old:
                 try:
-                    status = self.page.request.get(self.base + "api/status", timeout=3_000)
-                    if status.ok and status.json().get("kernel_available"):
+                    live = self.page.request.get(health_url(self.base, self.port), timeout=3_000)
+                    body = live.json() if live.ok else {}
+                    served = body.get("app_root"), body.get("data_root")
+                    if (
+                        body.get("status") == "ok"
+                        and all(served)
+                        and Path(served[0]).resolve() == app_root
+                        and Path(served[1]).resolve() == data_root
+                    ):
                         new = pid
                         break
-                    last_error = f"HTTP {status.status}"
+                    last_error = f"HTTP {live.status}: {body}"
                 except Exception as exc:  # noqa: BLE001 - the worker is still coming up
                     last_error = f"{type(exc).__name__}: {exc}"
             time.sleep(1)
