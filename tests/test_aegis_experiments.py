@@ -176,23 +176,38 @@ def test_restart_marks_an_unfinished_experiment_paused_not_lost(world):
 
 
 def test_leftover_tmp_and_missing_chunk_are_rerun_on_resume(world):
+    """Paused after two chunks (a paused run is never compacted, so its chunk files are the ones
+    the job wrote): a lost chunk and a torn `.tmp` rerun on resume; a `done` run is compacted at
+    finalize, which merges its chunks into part-1 and reclaims them."""
     repository, library, document = world
-    _runner, _job, _job_id, experiment_id = start(repository, library, document)
-    assert wait_for(lambda: document_of(repository, experiment_id).status == "done")
+    gate = {"paused": False}
+
+    def after_unit(done):
+        if done == 2 and not gate["paused"]:
+            gate["paused"] = True
+            runner.cancel(job_id)
+
+    runner = JobRunner(repository, after_unit=after_unit)
     store = exp.ExperimentStore(repository)
-    folder = store.cells_dir(experiment_id)
-    files = sorted(folder.glob("*.parquet"))
-    assert len(files) == 3
+    doc = exp.create(store, library, request(document), bars=len(ROWS), max_workers=2)
+    job = exp.ExperimentJob(doc, ROWS, PINNED_DATA, repository)
+    job.pause_requested = True  # what POST /pause sets before cancelling
+    job_id = runner.start(job)
+    assert wait_for(lambda: document_of(repository, doc.id).status == "paused")
+    folder = store.cells_dir(doc.id)
+    files = sorted(folder.glob("[0-9]*.parquet"))
+    assert len(files) == 2
     files[-1].unlink()  # a chunk that never landed
     (folder / "000009.parquet.tmp").write_bytes(b"torn")  # a write the worker died inside
-    doc = document_of(repository, experiment_id).model_copy(update={"status": "paused"})
-    repository.save_experiment(doc.model_dump(mode="json"))
-    resumed = exp.ExperimentJob(doc, ROWS, PINNED_DATA, repository)
-    assert resumed.total_units == 1 and sorted(resumed.pending_cells()) == [10, 11]
+    resumed = exp.ExperimentJob(document_of(repository, doc.id), ROWS, PINNED_DATA, repository)
+    assert resumed.total_units == 2 and sorted(resumed.pending_cells()) == list(range(5, 12))
     JobRunner(repository).start(resumed)
-    assert wait_for(lambda: document_of(repository, experiment_id).status == "done")
-    table = store.cells(experiment_id)
+    assert wait_for(lambda: document_of(repository, doc.id).status in ("done", "failed"))
+    assert document_of(repository, doc.id).status == "done"
+    table = store.cells(doc.id)
     assert sorted(table.column("cell").to_pylist()) == list(range(12))
+    assert sorted(path.name for path in folder.glob("*.parquet")) == ["part-1.parquet"]
+    assert (folder / "manifest.json").is_file()
 
 
 def test_cancel_keeps_finished_chunks(world):

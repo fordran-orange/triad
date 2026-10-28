@@ -41,7 +41,7 @@ from products.aegis.backtest import (
     prepared_request,
     run_prepared,
 )
-from products.aegis.lab import identity
+from products.aegis.lab import identity, policy
 from products.aegis.lab import store as lab_store
 from products.aegis.optimize import provenance
 from products.aegis.pool import (
@@ -458,6 +458,11 @@ class ExperimentStore:
         return lab_store.next_chunk_index(folder, lab_store.read_manifest(folder))
 
     def done_cells(self, experiment_id: str) -> set[int]:
+        if self.layout(experiment_id) == 2:  # the canonical trials, parts and chunks alike
+            with lab_store.LOCKS.read(experiment_id):
+                columns = ["trial_no", "cell", "status"]
+                trials = lab_store.read_latest(self.cells_dir(experiment_id), columns)
+                return set(trials.table.column("cell").to_pylist())
         done: set[int] = set()
         for path in _readable(self.cells_dir(experiment_id)):
             done.update(pq.read_table(path, columns=["cell"]).column("cell").to_pylist())
@@ -483,14 +488,24 @@ class ExperimentStore:
             _write_atomic(self.curves_dir(experiment_id) / name, _curves_table(curved))
 
     def cells(self, experiment_id: str) -> pa.Table | None:
-        """Every readable chunk in layout-1 columns, by cell; a layout-2 folder's chunks are
-        projected (`_legacy_projection`) over its document's surface paths."""
+        """Every trial in layout-1 columns, by cell. A layout-2 folder (a manifest, or chunks
+        carrying `trial_no`, a decompacted folder included) is read through the canonical reader
+        under the experiment's read lock and projected (`_legacy_projection`) over its document's
+        surface paths; a legacy folder reads its chunks as it always has."""
+        if self.layout(experiment_id) == 1:
+            return self._legacy_cells(experiment_id)
+        with lab_store.LOCKS.read(experiment_id):
+            paths = self.get(experiment_id).surface.paths()
+            table = lab_store.read_latest(self.cells_dir(experiment_id)).table
+            if not len(table):
+                return None
+            return _legacy_projection(table, paths).sort_by("cell")
+
+    def _legacy_cells(self, experiment_id: str) -> pa.Table | None:
         files = _readable(self.cells_dir(experiment_id))
         if not files:
             return None
         table = pa.concat_tables([pq.read_table(path) for path in files])
-        if TRIAL_NO in table.column_names:
-            table = _legacy_projection(table, self.get(experiment_id).surface.paths())
         return table.sort_by("cell")
 
     def trials(
@@ -499,13 +514,30 @@ class ExperimentStore:
         columns: Sequence[str] | None = None,
         *,
         snapshot: lab_store.Snapshot | None = None,
-    ) -> lab_store.TrialTable | None:
-        """The full layout-2 column set for the Lab routes; a given `snapshot` is read as is, so
-        a route reads the manifest once per request. The reader arrives in Task 5."""
-        raise NotImplementedError("ExperimentStore.trials needs the layout-2 reader (Task 5)")
+    ) -> lab_store.TrialTable:
+        """The canonical trials in the full layout-2 column set (or `columns` plus trial_no,
+        block and status) for the Lab routes, under the read lock for both layouts; a given
+        `snapshot` is read as is, so a route reads the manifest once per request. A legacy
+        folder's chunks are promoted through the grid of its document."""
+        legacy = None
+        if self.layout(experiment_id) == 1:
+            document = self.get(experiment_id)
+            grid = build_grid(document.spec, document.surface, document.plan.get("bars"))
+            legacy = lab_store.LegacyContext(grid, grid.paths)
+        cells_dir = self.cells_dir(experiment_id)
+        with lab_store.LOCKS.read(experiment_id):
+            if snapshot is None:
+                return lab_store.read_latest(cells_dir, columns, legacy=legacy)
+            return lab_store.read_trials(cells_dir, snapshot, columns, legacy=legacy)
 
     def row(self, experiment_id: str, cell: int) -> dict:
-        table = self.cells(experiment_id)
+        if self.layout(experiment_id) == 2:
+            with lab_store.LOCKS.read(experiment_id):  # `cells` takes it again, re-entrantly
+                return self._row_of(self.cells(experiment_id), cell)
+        return self._row_of(self.cells(experiment_id), cell)
+
+    @staticmethod
+    def _row_of(table: pa.Table | None, cell: int) -> dict:
         if table is not None:
             mask = pa.compute.equal(table.column("cell"), pa.scalar(cell, pa.int64()))
             found = table.filter(mask)
@@ -786,14 +818,14 @@ class ExperimentJob:
         self.ms_per_cell_bar = document.ms_per_cell_bar
 
     def _recount_counters(self) -> None:
-        """`attempted`, `completed`, `invalid` and `failed` from the trials on disk, the rows of
-        the readable chunks `done_cells` reads: those never rerun, and an unreadable chunk adds
-        nothing, so its trials rerun and are counted once. Every start and resume recounts, so a
-        lost or torn chunk, or a crash before the document's last save, never skews the counts."""
-        statuses: list[str] = []
-        for path in _readable(self.store.cells_dir(self.document.id)):
-            statuses += pq.read_table(path, columns=["status"]).column("status").to_pylist()
-        self.counters.recount(statuses)
+        """`attempted`, `completed`, `invalid` and `failed` from the trials on disk, the
+        canonical trials `done_cells` reads (parts and unmerged chunks alike): those never rerun,
+        and an unreadable chunk adds nothing, so its trials rerun and are counted once. Every
+        start and resume recounts, so a lost or torn chunk, or a crash before the document's last
+        save, never skews the counts."""
+        with lab_store.LOCKS.read(self.document.id):
+            trials = lab_store.read_latest(self.store.cells_dir(self.document.id), ["status"])
+        self.counters.recount(trials.table.column("status").to_pylist())
         self.document = self.document.model_copy(update={"counts": self.counters.as_dict()})
 
     # -- planning the units ---------------------------------------------------------------
@@ -918,7 +950,28 @@ class ExperimentJob:
             self.document.settings.model_dump(mode="json"),
         )
 
+    def _compact_if_due(self) -> None:
+        """Every `policy.COMPACT_EVERY` unmerged chunks (layout 2 only: a legacy experiment is
+        never compacted), merge them into a part and reclaim what retention allows, inside the
+        job's own unit and outside the runner's lock (§9.2)."""
+        if self.layout != 2:
+            return
+        cells_dir = self.store.cells_dir(self.document.id)
+        manifest, _ = lab_store.latest_snapshot(cells_dir)
+        if lab_store.unmerged_chunks(manifest, cells_dir) < policy.COMPACT_EVERY:
+            return
+        now = time.time()
+        self._take_unique(lab_store.compact(cells_dir, now=now))
+        lab_store.reclaim(cells_dir, now=now)
+
+    def _take_unique(self, manifest: lab_store.Manifest) -> None:
+        """`counts.unique` and `unique_generation` from the manifest a compaction wrote."""
+        self.counters.unique = manifest.unique
+        self.counters.unique_generation = manifest.unique_generation
+        self.document = self.document.model_copy(update={"counts": self.counters.as_dict()})
+
     def run_unit(self, index: int) -> dict:
+        self._compact_if_due()
         if self.pool is None:
             self._start_pool()
         self.status = "running"
@@ -1013,6 +1066,17 @@ class ExperimentJob:
             "progress": self._progress(),
             "updated_at": _now(),
         }
+        if self.layout == 2 and mapped in ("done", "cancelled"):
+            # The remainder into a part, then every merged chunk no snapshot holds reclaimed at
+            # once (`0 >= 0` with the same `now`). Never for `paused`: a resume reads the chunks
+            # the job wrote. A legacy experiment is never compacted.
+            cells_dir = self.store.cells_dir(self.document.id)
+            now = time.time()
+            self._take_unique(lab_store.compact(cells_dir, now=now))
+            held = lab_store.REGISTRY.held(self.document.id)
+            retain = policy.RETAIN_MERGED_SECONDS if held else 0
+            lab_store.reclaim(cells_dir, now=now, retain_seconds=retain)
+            update["counts"] = self.counters.as_dict()
         if mapped in ("done", "cancelled") and self.cells_done:
             report = self._write_report(1, self.document.objective, self.document.tolerance, mapped)
             entry = {
