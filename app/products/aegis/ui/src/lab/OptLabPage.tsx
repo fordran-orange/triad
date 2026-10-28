@@ -36,7 +36,9 @@ export function OptLabPage() {
   const [sort, setSort] = useState<TrialSort>(METRIC_ORDER);
   const memory = useRef({ key: '', top: 0 });
   const key = lab.source ? sourceText(lab.source) : null;
-  useEffect(() => setSort(METRIC_ORDER), [key]); // a new source starts in its metric's order, best first
+  // A new source, side scope or metric starts in the metric's order, best first: a sort on a column the new scope or
+  // metric hides would otherwise stick.
+  useEffect(() => setSort(METRIC_ORDER), [key, lab.filter.scope, lab.metric]);
 
   const { loaded, matrix } = data;
   const dims =

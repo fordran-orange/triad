@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Parameter, StrategySpec, Surface } from '../contracts';
-import { families, parameterCount, searchFamilies } from './catalog';
+import { families, parameterCount, parsePath, searchFamilies } from './catalog';
 
 function surfaceOf(...parameters: Array<[string, number, number, number]>): Surface {
   return { parameters: parameters.map(([path, start, stop, step]): Parameter => ({ path, start, stop, step })) };
@@ -219,5 +219,22 @@ describe('searchFamilies', () => {
 
   it('returns an empty list when nothing matches', () => {
     expect(searchFamilies(list, 'zzz')).toEqual([]);
+  });
+});
+
+describe('parameterCount and parsePath guards', () => {
+  it('counts no values for a range whose stop is below its start, as surface.py does', () => {
+    expect(parameterCount({ start: 10, stop: 5, step: 1 })).toBe(0);
+    expect(parameterCount({ start: 1, stop: 0.5, step: 0.1 })).toBe(0);
+  });
+
+  it("parsePath('long_side.indicators.ema.params.') is null: a params path needs a name", () => {
+    expect(parsePath('long_side.indicators.ema.params.')).toBeNull();
+  });
+
+  it('parsePath still reads a named params path, a length and a level field', () => {
+    expect(parsePath('long_side.indicators.bb.params.mult')).toEqual({ side: 'long', id: 'bb', field: 'params.mult' });
+    expect(parsePath('short_side.indicators.ema.length')).toEqual({ side: 'short', id: 'ema', field: 'length' });
+    expect(parsePath('long_side.stop_loss_pct')).toEqual({ side: 'long', id: 'levels', field: 'stop_loss_pct' });
   });
 });

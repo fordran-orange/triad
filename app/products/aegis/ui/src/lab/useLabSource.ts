@@ -32,7 +32,8 @@ export interface TrialRow {
 }
 
 export interface MatrixState {
-  /** `<job id>|<rows path>|<cols path>|<metric>` the matrix below answers. */
+  /** The `matrixKeyOf` this state answers (or is loading): the job, the pair and the metric. Null without a pair. A
+   *  state whose key is not the current one is stale (the pair or the metric just changed) and is never drawn. */
   key: string | null;
   matrix: AxisMatrix | null;
   loading: boolean;
@@ -41,7 +42,12 @@ export interface MatrixState {
   notice: string | null;
 }
 
-const NO_MATRIX: MatrixState = { key: null, matrix: null, loading: false, error: null, notice: null };
+export const NO_MATRIX: MatrixState = { key: null, matrix: null, loading: false, error: null, notice: null };
+
+/** The key of a job's matrix: `<job id>|<rows path>|<cols path>|<metric>`, or null without a pair or a metric. */
+export function matrixKeyOf(jobId: string, axes: [string, string] | null, metric: Metric | null): string | null {
+  return axes && metric ? `${jobId}|${axes[0]}|${axes[1]}|${metric}` : null;
+}
 
 export function isLive(status: string): boolean {
   return status === 'running' || status === 'queued';
@@ -157,16 +163,21 @@ export function useLabSource() {
   }, []);
   useEffect(reloadList, [reloadList]);
 
-  // A deep link from the dock's Expand Lab: open what it names, with its axes and metric, then consume it. Its
-  // selected configuration waits in the session until the job has loaded (the post-load effect below selects it).
+  // A deep link from the dock's Expand Lab: open what it names, with its axes and metric, on Trial Lab with the
+  // panel restored (the store outlives the page, so it would otherwise land on whatever view the Lab was left on),
+  // then consume it. Its selected configuration waits in the session until the job has loaded (the post-load
+  // effect below selects it).
   useEffect(() => {
     const handed = focus?.lab;
     if (!handed) return;
     session.current.adopted = true;
     const source = parseSource(handed.source);
     session.current.handed = source && handed.selected ? { source: sourceText(source), params: handed.selected } : null;
-    if (source) dispatch({ type: 'OPEN_SOURCE', source, axes: handed.axes, metric: handed.metric });
-    else dispatch({ type: 'SOURCE_FAILED', message: `${handed.source}: not a Lab source (exp:<id> or opt:<id>)` });
+    if (source) {
+      dispatch({ type: 'OPEN_SOURCE', source, axes: handed.axes, metric: handed.metric });
+      dispatch({ type: 'SET_VIEW', view: 'trials' });
+      dispatch({ type: 'SET_MAXIMIZED', maximized: false });
+    } else dispatch({ type: 'SOURCE_FAILED', message: `${handed.source}: not a Lab source (exp:<id> or opt:<id>)` });
     workspaceDispatch({ type: 'CLEAR_FOCUS' });
   }, [focus, dispatch, workspaceDispatch, session]);
 
@@ -258,7 +269,7 @@ export function useLabSource() {
   const job = loaded?.kind === 'opt' ? loaded.job : null;
   const axes = job ? effectiveOptAxes(job, lab.axes) : null;
   const metric = job ? optMetric(job, lab.metric) : null;
-  const matrixKey = job && axes && metric ? `${job.job_id}|${axes[0]}|${axes[1]}|${metric}` : null;
+  const matrixKey = job ? matrixKeyOf(job.job_id, axes, metric) : null;
   const progressMark = job ? `${job.cells_done ?? job.progress.done}|${job.status}` : null;
   useEffect(() => {
     if (job === null) return;
@@ -272,7 +283,8 @@ export function useLabSource() {
       return;
     }
     let cancelled = false;
-    setMatrix((m) => ({ ...m, loading: true, error: null, notice: null }));
+    // A refresh of the same matrix keeps it on screen while it updates; another pair or metric drops the old one.
+    setMatrix((m) => (m.key === matrixKey ? { ...m, loading: true, error: null, notice: null } : { ...NO_MATRIX, key: matrixKey, loading: true }));
     api
       .optimizeMatrix(job.job_id, axes[0], axes[1], metric)
       .then((found) => !cancelled && setMatrix({ key: matrixKey, matrix: found, loading: false, error: null, notice: null }))

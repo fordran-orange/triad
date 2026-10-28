@@ -163,6 +163,8 @@ export function labReducer(state: LabState, action: LabAction): LabState {
       return { ...state, pins };
     }
     case 'MOVE_CURSOR': {
+      // An empty grid has no square to stand on: the key press changes nothing.
+      if (action.rows <= 0 || action.cols <= 0) return state;
       // The first key press only makes the cursor appear at (0, 0); later presses move it.
       if (state.cursor === null) return { ...state, cursor: { r: 0, c: 0 } };
       return { ...state, cursor: { r: clamp(state.cursor.r + action.dr, action.rows), c: clamp(state.cursor.c + action.dc, action.cols) } };

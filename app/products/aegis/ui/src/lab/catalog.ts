@@ -30,22 +30,23 @@ export interface Family {
 
 const LEVEL_FIELDS = new Set(['stop_loss_pct', 'take_profit_pct']);
 
-/** How many values a range holds, both ends included: the Python `Parameter.values()` count. The 1e-9 absorbs the
- *  representation error of a decimal step (0.1 to 0.7 in steps of 0.1 divides to 5.999999999999999). */
+/** How many values a range holds, both ends included: the Python `Parameter.values()` count, 0 for a stop below the
+ *  start (its `max(count, 0)`). The 1e-9 absorbs the representation error of a decimal step (0.1 to 0.7 in steps of
+ *  0.1 divides to 5.999999999999999). */
 export function parameterCount(p: { start: number; stop: number; step: number }): number {
-  return Math.floor((p.stop - p.start) / p.step + 1e-9) + 1;
+  return Math.max(0, Math.floor((p.stop - p.start) / p.step + 1e-9) + 1);
 }
 
 /** Splits a parameter path into its side, indicator id ('levels' for the level fields) and field, or null when the
- *  path does not follow the convention. */
-function parsePath(path: string): { side: 'long' | 'short'; id: string; field: string } | null {
+ *  path does not follow the convention (a `params.` field needs a name). */
+export function parsePath(path: string): { side: 'long' | 'short'; id: string; field: string } | null {
   const parts = path.split('.');
   const side = parts[0] === 'long_side' ? 'long' : parts[0] === 'short_side' ? 'short' : null;
   if (side === null) return null;
   if (parts.length === 2 && LEVEL_FIELDS.has(parts[1])) return { side, id: 'levels', field: parts[1] };
   if (parts.length >= 4 && parts[1] === 'indicators' && parts[2] !== '') {
     const field = parts.slice(3).join('.');
-    if (field === 'length' || (parts[3] === 'params' && parts.length >= 5)) return { side, id: parts[2], field };
+    if (field === 'length' || (parts[3] === 'params' && parts.length >= 5 && parts[4] !== '')) return { side, id: parts[2], field };
   }
   return null;
 }

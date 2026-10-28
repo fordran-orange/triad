@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OVERSCAN, PAGE_LIMIT, ROW_HEIGHT, pageFor, windowRows } from './trialWindow';
+import { MAX_RENDERED_ROWS, OVERSCAN, PAGE_LIMIT, ROW_HEIGHT, pageFor, windowRows, type RowWindow } from './trialWindow';
 
 describe('constants', () => {
   it('uses 22 px rows, 10 rows of overscan and pages of at most 500', () => {
@@ -141,5 +141,72 @@ describe('pageFor', () => {
         expect(limit).toBeGreaterThanOrEqual(1);
       }
     }
+  });
+});
+
+describe('windowRows input guards', () => {
+  // A window the table can always render: four finite numbers, never an end before the start.
+  const expectSane = (w: RowWindow, label: string) => {
+    expect([w.start, w.end, w.padTop, w.padBottom].every(Number.isFinite), label).toBe(true);
+    expect(w.end, label).toBeGreaterThanOrEqual(w.start);
+  };
+  const base = { total: 1_000, scrollTop: 500 * ROW_HEIGHT, viewportHeight: 440 };
+
+  it('treats a negative overscan as none', () => {
+    const w = windowRows({ ...base, overscan: -50 });
+    expectSane(w, 'overscan -50');
+    expect(w).toEqual(windowRows({ ...base, overscan: 0 }));
+    expect(w).toEqual({ start: 500, end: 520, padTop: 500 * ROW_HEIGHT, padBottom: 480 * ROW_HEIGHT });
+  });
+
+  it('takes the default row height for a zero, negative or NaN one', () => {
+    for (const rowHeight of [0, -22, NaN]) {
+      const w = windowRows({ ...base, rowHeight });
+      expectSane(w, `rowHeight ${rowHeight}`);
+      expect(w, `rowHeight ${rowHeight}`).toEqual(windowRows(base));
+    }
+  });
+
+  it('reads a NaN scrollTop as the top of the list', () => {
+    const w = windowRows({ ...base, scrollTop: NaN });
+    expectSane(w, 'scrollTop NaN');
+    expect(w).toEqual(windowRows({ ...base, scrollTop: 0 }));
+  });
+
+  it('gives a finite window for every NaN input, alone or together', () => {
+    const inputs = [
+      { ...base, viewportHeight: NaN },
+      { ...base, overscan: NaN },
+      { ...base, total: NaN },
+      { total: NaN, scrollTop: NaN, viewportHeight: NaN, rowHeight: NaN, overscan: NaN },
+    ];
+    for (const input of inputs) expectSane(windowRows(input), JSON.stringify(input));
+    expect(windowRows({ ...base, overscan: NaN })).toEqual(windowRows(base)); // the default overscan
+    expect(windowRows({ ...base, total: NaN })).toEqual({ start: 0, end: 0, padTop: 0, padBottom: 0 });
+  });
+});
+
+describe('MAX_RENDERED_ROWS', () => {
+  it('is 1,500 rows', () => {
+    expect(MAX_RENDERED_ROWS).toBe(1_500);
+  });
+
+  it('caps a 10⁶ px viewport over 10⁶ trials at 1,500 rendered rows, the spacers still summing to the list height', () => {
+    const total = 1_000_000;
+    for (const scrollTop of [0, 500_000 * ROW_HEIGHT, total * ROW_HEIGHT]) {
+      const w = windowRows({ total, scrollTop, viewportHeight: 1_000_000, overscan: 10 });
+      const label = JSON.stringify({ scrollTop, w });
+      expect(w.end - w.start, label).toBeLessThanOrEqual(MAX_RENDERED_ROWS);
+      expect(w.end - w.start, label).toBeGreaterThanOrEqual(1);
+      expect(w.padTop + (w.end - w.start) * ROW_HEIGHT + w.padBottom, label).toBe(total * ROW_HEIGHT);
+    }
+  });
+
+  it('keeps the first visible row inside a capped window, however large the overscan', () => {
+    const first = 500_000;
+    const w = windowRows({ total: 1_000_000, scrollTop: first * ROW_HEIGHT, viewportHeight: 440, overscan: 5_000 });
+    expect(w.end - w.start).toBeLessThanOrEqual(MAX_RENDERED_ROWS);
+    expect(w.start).toBeLessThanOrEqual(first);
+    expect(w.end).toBeGreaterThan(first + 19); // the 20 visible rows are all rendered
   });
 });

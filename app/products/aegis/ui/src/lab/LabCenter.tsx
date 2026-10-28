@@ -6,7 +6,7 @@ import { METRIC_LABELS, type AxisMatrix, type Metric } from '../results';
 import { useLab, useLabDispatch } from './labState';
 import { NotBuilt } from './NotBuilt';
 import { TrialTable, type ScrollMemory, type TrialSort } from './TrialTable';
-import type { LabData, TrialRow } from './useLabSource';
+import { matrixKeyOf, NO_MATRIX, type LabData, type TrialRow } from './useLabSource';
 
 export type LabTab = 'heatmap' | 'interactions' | 'parallel' | 'pareto' | 'importance' | 'robustness';
 
@@ -48,7 +48,10 @@ function JobMatrix({ data }: { data: LabData }) {
   const dispatch = useLabDispatch();
   const job = data.loaded?.kind === 'opt' ? data.loaded.job : null;
   if (job === null) return null;
-  const { matrix: state } = data;
+  // Only the matrix of the job, pair and metric in view: one built for another (the pair or the metric just changed,
+  // its request still on the way) is never drawn under this one's labels.
+  const currentKey = matrixKeyOf(job.job_id, data.optAxes, data.optMetric);
+  const state = data.matrix.key === currentKey ? data.matrix : NO_MATRIX;
   const metric = data.optMetric ?? job.objective;
   const m = state.matrix;
   const n = m ? m.counts.flat().reduce((a, b) => a + b, 0) : null;

@@ -4545,6 +4545,15 @@ class Acceptance:
 
         def lab103():
             experiment_id()  # the experiment runs first: one job at a time on the worker
+            # Leave the Lab maximized on another view, so Expand Lab has to land on Trial Lab,
+            # restored: Maximize lives in Trial Lab's centre, so it is pressed before leaving it.
+            page.locator("#nav-optlab").click()
+            page.wait_for_selector("#optlab-page", state="visible", timeout=30_000)
+            page.locator("#lab-maximize").click()
+            page.wait_for_selector(".lab-body.maximized", timeout=10_000)
+            self.lab_view("families")
+            page.locator("#nav-charts").click()
+            page.wait_for_selector("#chart-mount", timeout=30_000)
             job = self.lab_dock_job()
             self.tab("Optimization")
             page.locator(".opt-tab .legend button.chip", has_text=re.compile(r"^LONG ·")).click()
@@ -4566,6 +4575,16 @@ class Acceptance:
             self.lab_fixtures["dock_screenshot"] = dock_shot.name
             page.locator("#expand-lab-long").click()
             page.wait_for_selector("#optlab-page", state="visible", timeout=30_000)
+            page.wait_for_function(
+                "document.getElementById('lab-view-trials')?.getAttribute('aria-current')"
+                " === 'page'",
+                timeout=10_000,
+            )
+            landed = self.js(
+                "[document.getElementById('lab-view-trials')?.getAttribute('aria-current'),"
+                " document.querySelectorAll('.lab-body.maximized').length]"
+            )
+            assert landed == ["page", 0], landed  # Trial Lab, restored
             source = f"opt:{job['job_id']}"
             self.lab_wait_rows(source)
             page.wait_for_selector("#trial-table tr.selected[data-trial]", timeout=30_000)
@@ -4603,7 +4622,8 @@ class Acceptance:
             assert x and y, (x, y)
             return (
                 f"job {job['job_id'][:8]} ({job['cells_done']} cells, run from the Optimize "
-                f"popover) → Expand Lab: source {value[:12]}…, '{axes}', metric {metric} as the "
+                f"popover) → Expand Lab from a Lab left maximized on Parameter Families: Trial "
+                f"Lab, restored; source {value[:12]}…, '{axes}', metric {metric} as the "
                 f"dock showed it; catalog X = {slow}, Y = {fast}; the dock's selected row "
                 f"'{dock_params}' is the Lab's selected trial {trial.split('#')[-1]} (table row "
                 f"and rail card); dock screenshot {dock_shot.name}"

@@ -312,9 +312,19 @@ describe('labReducer MOVE_CURSOR', () => {
     expect(next.cursor).toEqual({ r: 0, c: 0 });
   });
 
-  it('clamps to (0, 0) when there are no rows or columns', () => {
-    const next = labReducer(state({ cursor: { r: 2, c: 2 } }), { type: 'MOVE_CURSOR', dr: 1, dc: 1, rows: 0, cols: 0 });
-    expect(next.cursor).toEqual({ r: 0, c: 0 });
+  it('is a no-op (same state object) when there are no rows or columns', () => {
+    const before = state({ cursor: { r: 2, c: 2 } });
+    expect(labReducer(before, { type: 'MOVE_CURSOR', dr: 1, dc: 1, rows: 0, cols: 0 })).toBe(before);
+    expect(labReducer(before, { type: 'MOVE_CURSOR', dr: 1, dc: 1, rows: 0, cols: 4 })).toBe(before);
+    expect(labReducer(before, { type: 'MOVE_CURSOR', dr: 1, dc: 1, rows: 4, cols: 0 })).toBe(before);
+  });
+
+  it('MOVE_CURSOR with rows 0 leaves cursor null', () => {
+    // An empty table has no (0, 0) to land on: the first key press there places nothing.
+    const rows0 = labReducer(initialLabState, { type: 'MOVE_CURSOR', dr: 1, dc: 0, rows: 0, cols: 5 });
+    expect(rows0.cursor).toBeNull();
+    expect(rows0).toBe(initialLabState);
+    expect(labReducer(initialLabState, { type: 'MOVE_CURSOR', dr: 0, dc: 1, rows: 5, cols: 0 }).cursor).toBeNull();
   });
 });
 
@@ -470,5 +480,21 @@ describe('cellIndex (the dock selection handed to Expand Lab)', () => {
 
   it('never matches a null parameter', () => {
     expect(cellIndex([{ params: { a: null, b: 20 } }], { a: 0, b: 20 })).toBe(-1);
+  });
+});
+
+describe('filterHash golden', () => {
+  // The literal was taken once from the independent FNV-1a above ('filterHash is FNV-1a 32-bit over the canonical
+  // text') and pinned: a change to the canonical text's key order, the seed, the prime or the hex form fails here.
+  it('pins the canonical text and the hash of the initial filter', () => {
+    expect(canonicalFilter(initialLabState.filter)).toBe('{"pass":[],"ranges":{},"scope":"combined","status":[],"values":{}}');
+    expect(filterHash(initialLabState.filter)).toBe('65ba1407');
+  });
+
+  // Two-digit against one-digit bounds: a lexicographic sort ('10' < '9') would keep [10, 9].
+  it('reversed pair [10, 9] is stored [9, 10]', () => {
+    const next = labReducer(initialLabState, { type: 'SET_RANGE', path: 'a', range: [10, 9] });
+    expect(next.filter.ranges.a).toEqual([9, 10]);
+    expect(canonicalFilter(filter({ ranges: { a: [10, 9] } }))).toBe('{"pass":[],"ranges":{"a":[9,10]},"scope":"combined","status":[],"values":{}}');
   });
 });
