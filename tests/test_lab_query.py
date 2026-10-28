@@ -1219,3 +1219,72 @@ def test_cache_lru_by_bytes(monkeypatch):
     monkeypatch.delenv("AEGIS_LAB_CACHE_MB")
     assert cache_bytes_from_env() == policy.LAB_CACHE_BYTES == 400 * 1024 * 1024
     assert LabCache().stats() == {"bytes": 0, "entries": 0, "hits": 0, "misses": 0}
+
+
+# --- the optimizer's reference crossover (Task 8) ---------------------------------------------
+
+
+def test_reference_crossover_grid_matches_optimizer():
+    """The optimizer's 3 x 3 EMA / SMA grid as an `opt:` frame gives `axis_matrix`'s own values
+    and counts (one cell per square, nothing skipped), and an experiment frame of the same cells
+    and metrics gives the same values and the same best trial."""
+    from products.aegis.lab.sources import opt_frame
+    from products.aegis.optimize import axis_matrix, expand_grid, grid_values
+    from test_aegis_optimize import small_strategy
+
+    strategy = small_strategy()
+    plan = expand_grid(strategy.long_side)
+    assert len(plan.cells) == 9 and not plan.skipped
+    cells = [
+        {
+            "params": params,
+            "fast": params.get(plan.fast_path),
+            "slow": params.get(plan.slow_path),
+            "metrics": {
+                **dict.fromkeys(METRICS, 1.0),
+                "net_pnl": float((7 * i) % 9 - 4),
+                "trade_count": float(i),
+            },
+        }
+        for i, params in enumerate(plan.cells)
+    ]
+    status = {
+        "job_id": "reference",
+        "side": "long",
+        "status": "done",
+        "objective": "net_pnl",
+        "strategy": strategy.model_dump(mode="json"),
+        "strategy_hash": "not-read-here",
+        "engine": "kernel",
+        "data": {"symbol": "QQQ"},
+        "cells": cells,
+        "total_cells": len(plan.cells),
+        "skipped_cells": len(plan.skipped),
+    }
+    frame = opt_frame(status)
+    assert [p.path for p in frame.parameters] == [X, Y]
+    long = LabFilter(scope="long")
+    reference = axis_matrix(
+        cells, plan.fast_path, plan.slow_path, grid_values(strategy.long_side), metrics=("net_pnl",)
+    )
+    out = matrix_view(frame, long, rows=X, cols=Y, metric="net_pnl", mode="exact")
+    assert out["values"] == reference["metrics"]["net_pnl"]["values"]
+    assert out["counts"] == reference["counts"]
+    assert (out["rows"], out["cols"]) == (reference["rows"], reference["cols"])
+    scope = scope_counts(frame, long)
+    assert (scope["completed"], scope["unique"], scope["block"]) == (9, 9, 0)
+    assert scope["space"] == scope["budget_total"] == scope["scheduled"] == 9
+    rows = [
+        {
+            "params": {f"long_side.{path}": value for path, value in cell["params"].items()},
+            "metrics": metrics(net_pnl=cell["metrics"]["net_pnl"]),
+        }
+        for cell in cells
+    ]
+    experiment = frame_of(rows, (X, Y))
+    same = matrix_view(experiment, LabFilter(), rows=X, cols=Y, metric="net_pnl", mode="exact")
+    assert same["values"] == out["values"] and same["counts"] == out["counts"]
+    (best_opt,) = top_view(frame, long, metric="net_pnl", k=1)["rows"]
+    (best_exp,) = top_view(experiment, LabFilter(), metric="net_pnl", k=1)["rows"]
+    assert best_opt["params"] == best_exp["params"] and best_opt["trial_no"] == 5
+    assert best_opt["trial_id"] == "opt:reference#5" and best_opt["values"]["long.net_pnl"] == 4.0

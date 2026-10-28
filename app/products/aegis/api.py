@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import logging
 import math
+import shutil
 import threading
 import time
+from contextlib import contextmanager
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -20,7 +22,7 @@ from typing import Literal
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from products.aegis import display, phrases
 from products.aegis import experiments as experiments_module
@@ -50,6 +52,11 @@ from products.aegis.indicators import IndicatorCache, compute
 from products.aegis.jobs import JobBusy, JobRunner, estimate_seconds
 from products.aegis.kinds import kind_info
 from products.aegis.lab import identity
+from products.aegis.lab import sources as lab_sources
+from products.aegis.lab import store as lab_store
+from products.aegis.lab.cache import LabCache, cache_bytes_from_env
+from products.aegis.lab.policy import LOW_DISK_GB, PAGE_LIMIT, TOP_LIMIT
+from products.aegis.lab.query import LabFilter, TrialFrame
 from products.aegis.learned import LearnedPhrases
 from products.aegis.library import FOLDERS as LIBRARY_FOLDERS
 from products.aegis.library import KINDS as LIBRARY_KINDS
@@ -1284,6 +1291,230 @@ def delete_experiment(
     return {"deleted": experiment_id}
 
 
+# --- the Optimization Lab (Lab v2 spec §6.4, §7, §9.2, §9.3) --------------------------------
+#
+# Every Lab route is a sync `def`: the experiment's read lock is re-entrant per thread, so on the
+# event loop's one thread every request would count as re-entrant and a wait would block the
+# loop. An `exp:` route reads the document and the files under that lock and never the runner;
+# an `opt:` route reads `runner.status` and holds no Lab lock.
+
+
+@lru_cache(maxsize=1)
+def get_lab_cache() -> LabCache:
+    """The Lab's column cache, one per worker (§9.2): `AEGIS_LAB_CACHE_MB` megabytes, else
+    `LAB_CACHE_BYTES`."""
+    return LabCache(cache_bytes_from_env())
+
+
+LAB_CACHE = Depends(get_lab_cache)
+
+
+def _non_finite_named(value):
+    """`value` with every NaN or infinite float replaced by its JSON literal's name."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return "NaN" if math.isnan(value) else "Infinity" if value > 0 else "-Infinity"
+    if isinstance(value, dict):
+        return {key: _non_finite_named(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_non_finite_named(item) for item in value]
+    return value
+
+
+class QueryRequest(BaseModel):
+    """One view of one filter. Only `filter` and `view` are required; a view checks its own
+    arguments (a matrix needs rows, cols and metric; a square's trials its two values)."""
+
+    model_config = ConfigDict(extra="forbid")
+    filter: LabFilter
+    view: Literal["counts", "matrix", "page", "top", "marginals", "parallel", "square_trials"]
+    filter_hash: str | None = None
+    rows: str | None = None
+    cols: str | None = None
+    metric: str | None = None
+    mode: Literal["exact", "aggregate"] = "exact"
+    stat: Literal["best", "median", "mean", "worst"] = "best"
+    fixed: dict[str, float] | None = None
+    sort: str | None = None
+    descending: bool = False
+    offset: int = Field(0, ge=0)
+    limit: int = Field(PAGE_LIMIT, ge=1, le=PAGE_LIMIT)
+    k: int = Field(200, ge=1, le=TOP_LIMIT)
+    paths: list[str] | None = None
+    axes: list[str] | None = None
+    row_value: float | None = None
+    col_value: float | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def non_finite_named(cls, value):
+        """Starlette's JSON parser accepts the NaN and Infinity literals, and FastAPI's 422 echoes
+        the input, which the response encoder refuses (a 500): each arrives as its literal's
+        name, so a filter bound still refuses it (`finite_number`) and the refusal renders."""
+        return _non_finite_named(value)
+
+
+def _lab_source(src: str) -> lab_sources.SourceRef:
+    try:
+        return lab_sources.parse_source(src)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+def _lab_refused(exc: Exception) -> HTTPException:
+    """A view's or a column list's refusal as a 422 naming it (a KeyError's message, not its
+    repr)."""
+    return HTTPException(422, str(exc.args[0]) if exc.args else str(exc))
+
+
+@contextmanager
+def _lab_experiment(
+    experiment_id: str,
+    experiments: experiments_module.ExperimentStore,
+    cache: LabCache,
+    columns_of,
+):
+    """One `exp:` request's document, metadata and frame: the document and the files read under
+    the experiment's read lock, the latest snapshot registered for the request's life and
+    released once its answer is built. A snapshot whose files are gone is a 409, never a 500."""
+    try:
+        with lab_store.LOCKS.read(experiment_id):
+            document = _experiment(experiments, experiment_id)
+            meta = lab_sources.cached_meta(document, cache)
+            try:
+                columns = columns_of(meta)
+            except (KeyError, ValueError) as exc:
+                raise _lab_refused(exc) from exc
+            frame, handle = lab_sources.open_experiment(document, experiments, cache, columns)
+    except lab_store.SnapshotExpired as exc:
+        raise HTTPException(409, "snapshot expired") from exc
+    try:
+        yield document, meta, frame
+    finally:
+        lab_store.REGISTRY.release(handle)
+
+
+def _lab_optimization(
+    runner: JobRunner, job_id: str, view: str, request
+) -> tuple[dict, TrialFrame]:
+    """An `opt:` request's job status (one `runner.status` call) and its frame in the view's
+    columns. An optimization has one side: a query of another scope is refused."""
+    status = _optimization(runner, job_id)
+    if request is not None and request.filter.scope != status.get("side"):
+        raise HTTPException(422, "an optimizer source has one side")
+    frame = lab_sources.opt_frame(status)
+    try:
+        columns = lab_sources.COLUMNS_FOR(
+            view, request, frame.parameters, frame.objective, side=status["side"]
+        )
+    except (KeyError, ValueError) as exc:
+        raise _lab_refused(exc) from exc
+    return status, lab_sources.project(frame, columns)
+
+
+def _lab_answer(frame: TrialFrame, request: QueryRequest, unique: int | None) -> dict:
+    try:
+        return lab_sources.run_query(frame, request, unique=unique)
+    except (KeyError, ValueError) as exc:
+        raise _lab_refused(exc) from exc
+
+
+@router.get("/lab/build")
+def lab_build(cache: LabCache = LAB_CACHE):
+    """The worker's engine build and versions, its code and data roots, the Lab cache and the
+    free space on the data root's disk (§9.8: a warning below LOW_DISK_GB)."""
+    root = aegis_data_root()
+    probe = root
+    while not probe.exists() and probe.parent != probe:  # a store not yet created: its disk
+        probe = probe.parent
+    free_gb = round(shutil.disk_usage(probe).free / 1024**3, 3)
+    return {
+        "engine_build": identity.engine_build(),
+        "versions": identity.versions(""),
+        "app_root": str(Path(__file__).resolve().parents[2]),
+        "data_root": str(root),
+        "cache": cache.stats(),
+        "disk": {"free_gb": free_gb, "low": free_gb < LOW_DISK_GB, "root": str(root)},
+    }
+
+
+@router.get("/lab/{src}/summary")
+def lab_summary(
+    src: str,
+    runner: JobRunner = RUNNER,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+    cache: LabCache = LAB_CACHE,
+):
+    ref = _lab_source(src)
+    if ref.kind == "opt":
+        status, frame = _lab_optimization(runner, ref.id, "summary", None)
+        return lab_sources.summary(frame, None, status, None)
+    with _lab_experiment(
+        ref.id,
+        experiments,
+        cache,
+        lambda meta: lab_sources.COLUMNS_FOR("summary", None, meta.parameters, meta.objective),
+    ) as (document, meta, frame):
+        unique = lab_sources.experiment_unique(cache, frame, ref.id)
+        return lab_sources.summary(frame, document, None, meta.spec_values, unique=unique)
+
+
+@router.post("/lab/{src}/query")
+def lab_query(
+    src: str,
+    request: QueryRequest,
+    runner: JobRunner = RUNNER,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+    cache: LabCache = LAB_CACHE,
+):
+    ref = _lab_source(src)
+    if ref.kind == "opt":
+        _, frame = _lab_optimization(runner, ref.id, request.view, request)
+        return _lab_answer(frame, request, None)
+    with _lab_experiment(
+        ref.id,
+        experiments,
+        cache,
+        lambda meta: lab_sources.COLUMNS_FOR(
+            request.view, request, meta.parameters, meta.objective
+        ),
+    ) as (_, _, frame):
+        return _lab_answer(frame, request, lab_sources.experiment_unique(cache, frame, ref.id))
+
+
+@router.get("/lab/{src}/trials/{trial}")
+def lab_trial(
+    src: str,
+    trial: str,
+    runner: JobRunner = RUNNER,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+    cache: LabCache = LAB_CACHE,
+):
+    """One trial by its id (`<src>#<trial_no>`, the `#` percent-encoded in the path)."""
+    ref = _lab_source(src)
+    try:
+        trial_no = lab_sources.trial_number(ref, trial)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if ref.kind == "opt":
+        status, frame = _lab_optimization(runner, ref.id, "trial", None)
+        detail = lab_sources.trial_detail(
+            frame, trial_no, lab_sources.optimization_identity(status)
+        )
+    else:
+        with _lab_experiment(
+            ref.id,
+            experiments,
+            cache,
+            lambda meta: lab_sources.COLUMNS_FOR("trial", None, meta.parameters, meta.objective),
+        ) as (document, _, frame):
+            detail = lab_sources.trial_detail(
+                frame, trial_no, lab_sources.experiment_identity(document)
+            )
+    if detail is None:
+        raise HTTPException(404, f"{ref} has no trial {trial_no}")
+    return detail
+
+
 # --- studies (Mission 8 spec §6) -------------------------------------------------------------
 
 
@@ -1694,6 +1925,7 @@ def empty_library_trash(request: EmptyRequest, library: Library = LIBRARY_INDEX)
 __all__ = [
     "DataReference",
     "get_cache",
+    "get_lab_cache",
     "get_repository",
     "get_runner",
     "get_store",

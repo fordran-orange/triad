@@ -1,0 +1,668 @@
+"""The Lab's sources (Optimization Lab v2 spec §6.4, §7, §9.2, §9.3): what one `/aegis/api/lab`
+request reads, and the answers built from it.
+
+An `exp:<id>` source is an experiment's trial store. A request reads the document and the files
+under the experiment's read lock (`LOCKS.read`), takes the latest snapshot once, holds it in the
+registry for its own life and loads only the columns its view needs (`COLUMNS_FOR`) through the
+Lab cache, keyed by that snapshot. It never takes the runner's lock. An `opt:<job_id>` source is
+a grid optimization's cells, from one `runner.status` call (the runner's lock, briefly, and no Lab
+lock), laid out in the same columns: one side, block 0, each cell a grid trial numbered by its
+place in the job's cells. The views themselves are `query.py`'s.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
+from typing import Any, Literal
+
+import numpy as np
+import pyarrow as pa
+import pyarrow.compute as pc
+
+from products.aegis.experiments import (
+    UNFINISHED,
+    ExperimentDocument,
+    ExperimentStore,
+    _cells_schema_v2,
+)
+from products.aegis.lab import identity
+from products.aegis.lab.cache import LabCache
+from products.aegis.lab.policy import SHARPE_MIN_TRADES
+from products.aegis.lab.query import (
+    BASIS_EXACT,
+    METRIC_NAMES,
+    LabFilter,
+    ParameterInfo,
+    TrialFrame,
+    aggregated_basis,
+    counts_view,
+    envelope,
+    filter_mask,
+    marginals_view,
+    matrix_view,
+    metric_column,
+    page_view,
+    parallel_view,
+    scope_counts,
+    square_trials_view,
+    top_view,
+    undefined_mask,
+)
+from products.aegis.lab.store import LOCKS, REGISTRY, Counters, file_set, latest_snapshot
+from products.aegis.optimize import SIDE_KEY, grid_values
+from products.aegis.pool import METRICS, SCOPES
+from products.aegis.runs import _check_id
+from products.aegis.strategy import StrategySpec
+from products.aegis.surface import _whole_number, resolve_path
+
+# Every view reads these: the trial, its block and status (completed = ok in block 0) and its
+# configuration (`unique` counts distinct keys).
+BASE = ("trial_no", "block", "status", "param_key")
+VIEWS = ("counts", "matrix", "page", "top", "marginals", "parallel", "square_trials")
+# A page row's `values` beside the objective (the page's metric columns, §9.3).
+PAGE_VALUES = ("net_pnl", "max_drawdown", "trade_count", "exposure", "sharpe_trade")
+_REQUIRED = {
+    "matrix": ("rows", "cols", "metric"),
+    "square_trials": ("rows", "cols", "row_value", "col_value"),
+}
+OPT_FINAL = ("done", "cancelled", "failed", "lost")  # an optimization no longer changing
+META_BYTES = 4096  # the nominal size of an `exp-meta` entry (Task 7's cache rule)
+UNIQUE_BYTES = 64  # and of an `exp-unique` count
+_TRIAL_NUMBER = re.compile(r"[0-9]{1,18}")  # below 2**63: a trial_no is an int64
+
+
+@dataclass(frozen=True)
+class SourceRef:
+    kind: Literal["exp", "opt"]
+    id: str
+
+    def __str__(self) -> str:
+        return f"{self.kind}:{self.id}"
+
+
+def parse_source(text: str) -> SourceRef:
+    """`exp:<experiment id>` or `opt:<optimization job id>`, the id checked as the repository
+    checks it; ValueError otherwise."""
+    kind, colon, identifier = text.partition(":")
+    if not colon or kind not in ("exp", "opt"):
+        raise ValueError(f"unknown source {text!r}: a Lab source is exp:<id> or opt:<job_id>")
+    _check_id(identifier)
+    return SourceRef(kind, identifier)
+
+
+def trial_number(source: SourceRef, trial: str) -> int:
+    """The trial number of `<source>#<n>`; ValueError for an id of another source or a
+    malformed one."""
+    prefix = f"{source}#"
+    if not trial.startswith(prefix):
+        raise ValueError(f"trial {trial!r} is not a trial of {source}")
+    number = trial[len(prefix) :]
+    if not _TRIAL_NUMBER.fullmatch(number):
+        raise ValueError(f"trial {trial!r}: {number!r} is not a trial number")
+    return int(number)
+
+
+# --- parameters and an experiment's metadata --------------------------------------------------
+
+
+def _parameter(
+    spec: StrategySpec, path: str, start: float, stop: float, step: float, values: Sequence
+) -> ParameterInfo:
+    """A surface (or grid) parameter: its side, its family (`<side>:<indicator id>`, or
+    `<side>:levels` for a stop or target percentage) and whether its values are whole numbers,
+    as `identity.search_space` names them."""
+    side = path.split("_side", 1)[0]
+    try:
+        side_key, identifier, field = resolve_path(spec, path)
+        whole = _whole_number(spec, side_key, identifier, field)
+    except (KeyError, ValueError):  # a path the spec no longer resolves still names its family
+        parts = path.split(".")
+        identifier = parts[2] if len(parts) > 3 and parts[1] == "indicators" else ""
+        whole = path.endswith(".length")
+    return ParameterInfo(
+        path=path,
+        side=side,
+        family=f"{side}:{identifier or 'levels'}",
+        type="int" if whole else "float",
+        start=float(start),
+        stop=float(stop),
+        step=float(step),
+        values=[float(value) for value in values],
+    )
+
+
+@dataclass(frozen=True)
+class ExperimentMeta:
+    """What every frame of an experiment shares while its document is unchanged (the `exp-meta`
+    cache entry): its parameters, its objective, the pinned spec's values on those parameters
+    (§7.1's default slice) and the plan's counts. Known before any column list is."""
+
+    parameters: list[ParameterInfo]
+    objective: str
+    spec_values: dict[str, float]
+    space: int
+    valid: int
+    budget_total: int
+
+
+def experiment_meta(document: ExperimentDocument) -> ExperimentMeta:
+    spec = document.spec
+    parameters = [
+        _parameter(spec, p.path, p.start, p.stop, p.step, p.values())
+        for p in document.surface.parameters
+    ]
+    effective = identity.full_effective_params(spec)
+    plan = document.plan
+    return ExperimentMeta(
+        parameters=parameters,
+        objective=document.objective,
+        spec_values={p.path: effective[p.path] for p in parameters if p.path in effective},
+        space=int(plan["grid_cells"]),
+        valid=int(plan["valid_cells"]),
+        budget_total=int(plan["planned_runs"]),
+    )
+
+
+def cached_meta(document: ExperimentDocument, cache: LabCache) -> ExperimentMeta:
+    return cache.get(
+        (("exp-meta", document.id), document.updated_at),
+        lambda: experiment_meta(document),
+        size=lambda _: META_BYTES,
+    )
+
+
+# --- the columns a request loads ---------------------------------------------------------------
+
+
+def _require(view: str, request: Any) -> None:
+    missing = [name for name in _REQUIRED.get(view, ()) if getattr(request, name) is None]
+    if missing:
+        raise ValueError(f"the {view} view needs {', '.join(missing)}")
+
+
+def _sort_column(sort: str, paths: set[str]) -> str:
+    scope, _, metric = sort.partition(".")
+    if sort == "trial_no" or sort in paths or (scope in SCOPES and metric in METRIC_NAMES):
+        return sort
+    raise KeyError(f"unknown sort column {sort!r}")
+
+
+def COLUMNS_FOR(
+    view: str,
+    request: Any,
+    parameters: Sequence[ParameterInfo],
+    objective: str,
+    side: str | None = None,
+) -> tuple[str, ...]:
+    """The columns one request loads (§9.2: projected, never the whole row set): `BASE`, every
+    path the filter names (and `pass` / `design` when it names a pass), then the view's own.
+    `request` is a `QueryRequest` for the seven query views and None for `summary` and `trial`
+    (the trial route's one row: every metric of every scope). `side` is an optimizer source's
+    side, whose metric columns its summary reads. A path that is not a parameter, a metric that
+    does not exist or a missing view argument is a ValueError; an unknown sort a KeyError."""
+    paths = [p.path for p in parameters]
+    known = set(paths)
+
+    def parameter(path: str | None) -> str:
+        if path not in known:
+            raise ValueError(f"unknown path {path!r}: not a parameter of this source")
+        return path
+
+    columns = list(BASE)
+    if view == "summary":  # tested_per_value, and the headline over the objective
+        columns += [*paths, metric_column(side or "combined", objective)]
+        return tuple(dict.fromkeys(columns))
+    if view == "trial":
+        columns += ["cell", "attempt", "pass", "design"]
+        columns += [f"pos.{k}" for k in range(len(paths))] + paths
+        columns += [f"{scope}.{name}" for scope in SCOPES for name in METRIC_NAMES]
+        columns += ["elapsed_ms", "engine", "chunk", "finished_at"]
+        return tuple(dict.fromkeys(columns))
+    if view not in VIEWS:
+        raise ValueError(f"unknown view {view!r}")
+    flt = request.filter
+    scope = flt.scope
+    columns += [parameter(path) for path in (*flt.ranges, *flt.values)]
+    if flt.pass_:
+        columns += ["pass", "design"]
+    _require(view, request)
+    metric = request.metric if view == "counts" else (request.metric or objective)
+    if view == "counts":
+        if metric is not None:  # so `undefined` agrees with the other views
+            columns.append(metric_column(scope, metric))
+    elif view == "matrix":
+        columns += [parameter(request.rows), parameter(request.cols)]
+        columns.append(metric_column(scope, metric))
+        columns += [parameter(path) for path in request.fixed or {}]
+        if request.mode == "aggregate":  # the TVD over the other parameters
+            columns += paths
+    elif view in ("page", "square_trials"):
+        if view == "square_trials":
+            parameter(request.rows)
+            parameter(request.cols)
+        # `cell` stays beside trial_no, so materialize by cell is reachable from a row
+        columns += ["cell", "pass", "design", "valid", *paths, metric_column(scope, metric)]
+        if view == "page" and request.sort is not None:
+            columns.append(_sort_column(request.sort, known))
+        columns += [metric_column(scope, name) for name in (objective, *PAGE_VALUES)]
+    elif view == "top":
+        columns += [metric_column(scope, metric), *paths]
+    elif view == "marginals":
+        chosen = paths if request.paths is None else request.paths
+        columns += [parameter(path) for path in chosen]
+        columns.append(metric_column(scope, metric))
+    else:  # parallel
+        chosen = paths if request.axes is None else request.axes
+        columns += [parameter(path) for path in chosen]
+        columns.append(metric_column(scope, metric))
+    return tuple(dict.fromkeys(columns))
+
+
+def project(frame: TrialFrame, columns: Sequence[str]) -> TrialFrame:
+    """The frame with only `columns` (an optimizer's frame is built whole from its cells)."""
+    return replace(frame, table=frame.table.select(list(columns)))
+
+
+# --- exp: an experiment's trial store ---------------------------------------------------------
+
+
+def open_experiment(
+    document: ExperimentDocument,
+    store: ExperimentStore,
+    cache: LabCache,
+    columns: Sequence[str],
+) -> tuple[TrialFrame, int]:
+    """The frame of one request and its registry handle, which the caller releases when its
+    answer is built. Under the experiment's read lock: the latest snapshot, read once; its file
+    set registered; its trials in `columns` from the cache or read at that same snapshot, so the
+    key, the handle and the rows name one file set even while the job writes its next chunk
+    (`write_chunk` takes no write lock). A legacy (layout 1) folder is promoted by `store.trials`
+    and keyed by its synthesized snapshot."""
+    experiment_id = document.id
+    columns = tuple(columns)
+    meta = cached_meta(document, cache)
+    cells_dir = store.cells_dir(experiment_id)
+    with LOCKS.read(experiment_id):
+        manifest, snapshot = latest_snapshot(cells_dir)
+        handle = REGISTRY.open(experiment_id, snapshot, file_set(cells_dir, manifest, snapshot))
+        try:
+            trials = cache.get(
+                (("exp", experiment_id), snapshot.generation, snapshot.chunk_watermark, columns),
+                lambda: store.trials(experiment_id, list(columns), snapshot=snapshot),
+                size=lambda held: held.table.nbytes,
+            )
+        except BaseException:
+            REGISTRY.release(handle)
+            raise
+    frame = TrialFrame(
+        source=f"exp:{experiment_id}",
+        table=trials.table,
+        parameters=meta.parameters,
+        space=meta.space,
+        valid=meta.valid,
+        budget_total=meta.budget_total,
+        scheduled=Counters.from_document(document).scheduled,
+        reserved=0,  # no reservations and no reuse by value in Phase 2 (decision 18)
+        reused=0,
+        duplicates=trials.duplicates,
+        snapshot=trials.snapshot,
+        provisional=document.status in UNFINISHED,
+        layout=trials.layout,
+        objective=meta.objective,
+    )
+    return frame, handle
+
+
+def experiment_unique(cache: LabCache, frame: TrialFrame, experiment_id: str) -> int:
+    """`unique` (the distinct configurations completed) depends on the snapshot alone, so it is
+    counted once per snapshot and shared by every request and every projection on it."""
+    snapshot = frame.snapshot
+    return cache.get(
+        (("exp-unique", experiment_id), snapshot.generation, snapshot.chunk_watermark),
+        lambda: scope_counts(frame, LabFilter())["unique"],
+        size=lambda _: UNIQUE_BYTES,
+    )
+
+
+def experiment_identity(document: ExperimentDocument) -> dict:
+    """A trial's identity block: the computation's `inputs_key` (None when the document never
+    recorded its engine build, as a legacy one), the pinned spec's hash and the data its trials
+    ran on: the pinned source, or the data reference of a document that pinned none."""
+    build = (document.versions or {}).get("engine_build")
+    if document.data_pinned is not None:
+        name, data = "data_pinned", dict(document.data_pinned)
+    else:
+        name, data = "data", document.data.model_dump(mode="json")
+    settings = document.settings.model_dump(mode="json")
+    key = (
+        None
+        if build is None
+        else identity.inputs_key(document.strategy_hash, data, settings, build)
+    )
+    return {"inputs_key": key, "strategy_hash": document.strategy_hash, name: data}
+
+
+# --- opt: a grid optimization's cells ---------------------------------------------------------
+
+
+def _number(value) -> float | None:
+    """A float, None where undefined: an undefined metric is never sent as a number."""
+    if value is None:
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def opt_frame(status: dict) -> TrialFrame:
+    """An optimization's evaluated cells as a frame (`status` is one `runner.status` result):
+    cell k is trial k of block 0, attempt 0, pass `grid` (design `uniform`); its parameters under
+    their side-prefixed paths, its grid positions from `grid_values`, its `param_key` over the
+    full effective set, its metrics in `<side>.<metric>` only (the other scopes and the trade
+    Sharpe null). A cell the pool refused (one carrying `skip_reason`) is `invalid`, else `ok`.
+    The space is the whole grid, skipped cells included; the schedule is its kept cells."""
+    cells = list(status.get("cells") or [])  # one frozen copy: a running job appends meanwhile
+    side = status["side"]
+    side_key = SIDE_KEY[side]
+    spec = StrategySpec.model_validate(status["strategy"])
+    enabled = [p for p in getattr(spec, side_key).optimization if p.enabled]
+    lattices = grid_values(getattr(spec, side_key))
+    steps = {f"{side_key}.{p.path}": p.step for p in enabled}
+    by_path = {p.path: p for p in enabled}
+    parameters = [
+        _parameter(
+            spec,
+            f"{side_key}.{path}",
+            by_path[path].start,
+            by_path[path].stop,
+            by_path[path].step,
+            values,
+        )
+        for path, values in lattices.items()
+    ]
+    n = len(cells)
+    params = [
+        {f"{side_key}.{path}": float(value) for path, value in (cell.get("params") or {}).items()}
+        for cell in cells
+    ]
+    statuses = ["invalid" if cell.get("skip_reason") else "ok" for cell in cells]
+    data: dict[str, Any] = {
+        "trial_no": np.arange(n, dtype=np.int64),
+        "cell": np.arange(n, dtype=np.int64),
+    }
+    for k, (path, values) in enumerate(lattices.items()):
+        at = {float(value): i for i, value in enumerate(values)}
+        full = f"{side_key}.{path}"
+        data[f"pos.{k}"] = [at.get(row.get(full)) for row in params]
+        data[full] = [row.get(full) for row in params]
+    data["param_key"] = [identity.param_key(spec, row, steps) for row in params]
+    data["pass"] = ["grid"] * n
+    data["design"] = ["uniform"] * n
+    data["block"] = np.zeros(n, dtype=np.uint8)
+    data["attempt"] = np.zeros(n, dtype=np.uint8)
+    data["status"] = statuses
+    data["valid"] = [label == "ok" for label in statuses]
+    data["skip_reason"] = [cell.get("skip_reason") for cell in cells]
+    for metric in METRICS:
+        data[f"{side}.{metric}"] = [
+            _number((cell.get("metrics") or {}).get(metric)) for cell in cells
+        ]
+    data["engine"] = [status.get("engine")] * n
+    schema = _cells_schema_v2([f"{side_key}.{path}" for path in lattices])
+    table = pa.Table.from_arrays(
+        [
+            pa.array(data[field.name], field.type)
+            if field.name in data
+            else pa.nulls(n, field.type)
+            for field in schema
+        ],
+        schema=schema,
+    )
+    total = int(status["total_cells"])
+    return TrialFrame(
+        source=f"opt:{status['job_id']}",
+        table=table,
+        parameters=parameters,
+        space=total + int(status["skipped_cells"]),
+        valid=total,
+        budget_total=total,
+        scheduled=total,
+        reserved=0,
+        reused=0,
+        duplicates=0,
+        snapshot=None,
+        provisional=status.get("status") not in OPT_FINAL,
+        layout=0,  # not a cells folder; the summary reports `layout: null`
+        objective=status.get("objective") or "net_pnl",
+    )
+
+
+def optimization_identity(status: dict) -> dict:
+    """An optimization records no engine build, so its trials carry no `inputs_key`."""
+    return {
+        "inputs_key": None,
+        "strategy_hash": status.get("strategy_hash"),
+        "data_pinned": status.get("data"),
+    }
+
+
+# --- the answers ------------------------------------------------------------------------------
+
+
+def summary(
+    frame: TrialFrame,
+    document: ExperimentDocument | None,
+    status: dict | None,
+    spec_values: dict[str, float] | None,
+    *,
+    unique: int | None = None,
+) -> dict:
+    """GET /lab/{src}/summary: the source's unfiltered scope, its parameters (each value's or
+    bucket's tested trials), the headline over the objective (an experiment's combined scope, an
+    optimization's own side), the latest snapshot of a layout-2 store and the identity fields.
+    `document` for an `exp:` source, `status` for an `opt:` one."""
+    side = None if document is not None else status["side"]
+    scope_name = side or "combined"
+    unfiltered = LabFilter()
+    mask = filter_mask(frame, unfiltered)
+    counts = scope_counts(frame, unfiltered, unique=unique, mask=mask)
+    headline = LabFilter(scope=scope_name)
+    column = metric_column(scope_name, frame.objective)
+    best = top_view(frame, headline, metric=frame.objective, k=1)["rows"]
+    undefined = int(undefined_mask(frame.table.column(column))[mask].sum())
+    marginals = marginals_view(frame, headline, metric=frame.objective)["marginals"]
+    parameters = []
+    for parameter in frame.parameters:
+        entry = marginals[parameter.path]
+        bucketed = "buckets" in entry
+        parameters.append(
+            {
+                "path": parameter.path,
+                "side": parameter.side,
+                "family": parameter.family,
+                "type": parameter.type,
+                "start": parameter.start,
+                "stop": parameter.stop,
+                "step": parameter.step,
+                "n_values": len(parameter.values),
+                "values": None if bucketed else entry["values"],
+                "tested_per_value": entry["n"],
+                "bucketed": bucketed,
+            }
+        )
+    latest = None
+    if document is not None and frame.layout == 2 and frame.snapshot is not None:
+        latest = {
+            "generation": frame.snapshot.generation,
+            "chunk_watermark": frame.snapshot.chunk_watermark,
+        }
+    exp = document is not None
+    return {
+        "source": frame.source,
+        "kind": "exp" if exp else "opt",
+        "layout": frame.layout if exp else None,
+        "status": document.status if exp else status.get("status"),
+        "counts": counts,
+        "parameters": parameters,
+        "headline": {
+            "objective": frame.objective,
+            "best": None
+            if not best
+            else {
+                "trial_id": best[0]["trial_id"],
+                "value": best[0]["values"][column],
+                "params": best[0]["params"],
+            },
+            "completed": counts["completed"],
+            "undefined": undefined,
+        },
+        "snapshots": {"latest": latest},
+        "provisional": frame.provisional,
+        "versions": document.versions if exp else None,
+        "data_pinned": document.data_pinned if exp else status.get("data"),
+        "engine": document.engine if exp else status.get("engine"),
+        "spec_values": spec_values,
+        "filter_hash": None,
+    }
+
+
+def run_query(frame: TrialFrame, request: Any, *, unique: int | None = None) -> dict:
+    """POST /lab/{src}/query: one view of one filter in the envelope. The filter's mask is
+    computed once for the scope; each view states its basis, and `shown` is what it sends (the
+    squares holding trials, the rows, the bundles; 0 for counts and marginals). Without a
+    `metric`, a view reads the objective (counts then counts no `undefined`). A view's refusal
+    is its ValueError or KeyError."""
+    flt = request.filter
+    view = request.view
+    metric = request.metric if view == "counts" else (request.metric or frame.objective)
+    mask = filter_mask(frame, flt)
+    aggregated = aggregated_basis(int(mask.sum()))
+
+    def scope(shown: int, basis: str = BASIS_EXACT) -> dict:
+        return scope_counts(frame, flt, shown, metric=metric, basis=basis, unique=unique, mask=mask)
+
+    if view == "counts":
+        payload: dict = {}
+        counted = counts_view(frame, flt, metric=metric, unique=unique, mask=mask)
+    elif view == "matrix":
+        payload = matrix_view(
+            frame,
+            flt,
+            rows=request.rows,
+            cols=request.cols,
+            metric=metric,
+            mode=request.mode,
+            stat=request.stat,
+            fixed=request.fixed,
+        )
+        squares = sum(1 for row in payload["counts"] for count in row if count)
+        counted = scope(squares, payload["basis"])
+    elif view == "page":
+        payload = page_view(
+            frame,
+            flt,
+            sort=request.sort,
+            descending=request.descending,
+            offset=request.offset,
+            limit=request.limit,
+            metric=metric,
+        )
+        counted = scope(len(payload["rows"]))
+    elif view == "top":
+        payload = top_view(frame, flt, metric=metric, k=request.k)
+        counted = scope(len(payload["rows"]))
+    elif view == "marginals":
+        payload = marginals_view(frame, flt, metric=metric, paths=request.paths)
+        counted = scope(0, aggregated)
+    elif view == "parallel":
+        axes = request.axes if request.axes is not None else [p.path for p in frame.parameters]
+        payload = parallel_view(frame, flt, axes=axes, metric=metric)
+        counted = scope(payload["shown_bundles"], aggregated)
+    elif view == "square_trials":
+        payload = square_trials_view(
+            frame,
+            flt,
+            rows=request.rows,
+            cols=request.cols,
+            row_value=request.row_value,
+            col_value=request.col_value,
+            offset=request.offset,
+            limit=request.limit,
+        )
+        counted = scope(len(payload["rows"]))
+    else:
+        raise ValueError(f"unknown view {view!r}")
+    return envelope(
+        view,
+        payload,
+        counted,
+        filter_hash=request.filter_hash,
+        snapshot=frame.snapshot,
+        provisional=frame.provisional,
+    )
+
+
+def trial_detail(frame: TrialFrame, trial_no: int, trial_identity: dict) -> dict | None:
+    """GET /lab/{src}/trials/{trial}: the canonical block-0 row of one trial number (None when the
+    table has none), every scope's metrics with the trade Sharpe and its `low_n` flag (fewer than
+    SHARPE_MIN_TRADES trades, or none known)."""
+    table = frame.table
+    hit = pc.and_(
+        pc.equal(table.column("trial_no"), pa.scalar(trial_no, pa.int64())),
+        pc.equal(table.column("block"), 0),
+    )
+    found = table.filter(hit)
+    if not len(found):
+        return None
+    row = found.slice(0, 1).to_pylist()[0]
+    paths = [p.path for p in frame.parameters]
+    metrics = {}
+    for scope in SCOPES:
+        values: dict = {name: _number(row.get(f"{scope}.{name}")) for name in METRICS}
+        trades = values["trade_count"]
+        values["sharpe_trade"] = _number(row.get(f"{scope}.sharpe_trade"))
+        values["low_n"] = trades is None or trades < SHARPE_MIN_TRADES
+        metrics[scope] = values
+    key, finished = row.get("param_key"), row.get("finished_at")
+    return {
+        "trial_id": f"{frame.source}#{trial_no}",
+        "trial_no": trial_no,
+        "cell": row.get("cell"),
+        "params": {path: row.get(path) for path in paths},
+        "pos": [row.get(f"pos.{k}") for k in range(len(paths))],
+        "param_key": None if key is None else key.hex(),
+        "status": row.get("status"),
+        "attempt": row.get("attempt"),
+        "block": row.get("block"),
+        "pass": row.get("pass"),
+        "design": row.get("design"),
+        "metrics": metrics,
+        "elapsed_ms": _number(row.get("elapsed_ms")),
+        "engine": row.get("engine"),
+        "chunk": row.get("chunk"),
+        "finished_at": None if finished is None else finished.isoformat(),
+        "identity": trial_identity,
+    }
+
+
+__all__ = [
+    "BASE",
+    "COLUMNS_FOR",
+    "ExperimentMeta",
+    "SourceRef",
+    "cached_meta",
+    "experiment_identity",
+    "experiment_meta",
+    "experiment_unique",
+    "open_experiment",
+    "opt_frame",
+    "optimization_identity",
+    "parse_source",
+    "project",
+    "run_query",
+    "summary",
+    "trial_detail",
+    "trial_number",
+]

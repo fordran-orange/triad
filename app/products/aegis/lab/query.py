@@ -230,21 +230,28 @@ def scope_counts(
     *,
     metric: str | None = None,
     basis: str = BASIS_EXACT,
+    unique: int | None = None,
+    mask: np.ndarray | None = None,
 ) -> dict:
     """The §6.4 counts of one filter. `snapshot` and `provisional` are the envelope's, never the
     scope's. `unique` counts the distinct `param_key` of the completed trials; a row without a
-    key (a promoted layout-1 trial, whose cell is its configuration) counts as its own."""
+    key (a promoted layout-1 trial, whose cell is its configuration) counts as its own. A caller
+    that already holds them passes `unique` (a function of the frame alone, so one count serves
+    every request on a snapshot) and the filter's `mask` (`filter_mask(frame, flt)`)."""
     table = frame.table
     codes = _status_codes(table)
     base = _block0(table)
     completed = base & (codes == 0)
     attempted = int(base.sum())
-    mask = filter_mask(frame, flt)
+    if mask is None:
+        mask = filter_mask(frame, flt)
     undefined = 0
     if metric is not None:
         column = _numbers(table, metric_column(flt.scope, metric))
         undefined = int(undefined_mask(column[mask]).sum())
-    unique = _distinct_keys(table.column("param_key").filter(pa.array(completed, pa.bool_())))
+    if unique is None:
+        keys = table.column("param_key").filter(pa.array(completed, pa.bool_()))
+        unique = _distinct_keys(keys)
     return {
         "space": frame.space if frame.space <= _INT64_MAX else str(frame.space),
         "valid": frame.valid,
@@ -271,11 +278,18 @@ def scope_counts(
     }
 
 
-def counts_view(frame: TrialFrame, flt: LabFilter, *, metric: str | None = None) -> dict:
+def counts_view(
+    frame: TrialFrame,
+    flt: LabFilter,
+    *,
+    metric: str | None = None,
+    unique: int | None = None,
+    mask: np.ndarray | None = None,
+) -> dict:
     """The counts view: the scope itself (`shown` 0, `Tested (exact)`), which the route sends as
     the envelope's `scope` beside an empty payload. With a metric, `undefined` is counted over
     its column, as the other views count it."""
-    return scope_counts(frame, flt, 0, metric=metric)
+    return scope_counts(frame, flt, 0, metric=metric, unique=unique, mask=mask)
 
 
 # --- grouped statistics, without a loop over trials ------------------------------------------
