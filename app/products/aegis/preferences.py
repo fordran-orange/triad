@@ -14,8 +14,7 @@ import os
 import threading
 from pathlib import Path
 
-from products.aegis.data import DATA_ROOT
-from products.aegis.runs import _retry
+from products.aegis.runs import _retry, aegis_data_root
 
 SAVE_MODES = ("every", "kept")
 READER_PROVIDERS = ("CLAUDE", "CODEX", "GROK")  # offered only while Core can route to them
@@ -24,9 +23,7 @@ DEFAULTS = {"save_runs": "every", "reader_provider": "CLAUDE"}
 
 class Preferences:
     def __init__(self, root: Path | None = None):
-        self.path = (
-            Path(root) if root is not None else DATA_ROOT / "data" / "aegis"
-        ) / "preferences.json"
+        self.path = (Path(root) if root is not None else aegis_data_root()) / "preferences.json"
 
     def get(self) -> dict:
         # Windows refuses a read while a write swaps the file in: retry, never fall back to the

@@ -2,12 +2,12 @@
 items, the 11 Mission 5 items, the 13 Mission 6 items, the 9 Mission 8 items, the 7 Mission 9
 items, the 5 limits items, the 5 Mission 10 items, the 2 Mission 11 items, the 2 Mission 12 items and the 7 Mission 13 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
 (indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
-Items 51 and 63 restart the worker detached through WMI (tools/start_product.ps1), as the DoD asks.
+Items 51 and 63 restart the scratch worker through tools/start_aegis_scratch.ps1 -Stop and require --pid-file.
 The 8 Optimization Lab items (LAB_ITEMS) follow, numbered after whatever precedes them; they make
 their own fixtures, so `--only lab` runs them alone and never restarts the worker.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
-      [--only lab]
+      [--only lab] [--port N] [--data-root PATH] [--pid-file PATH]
 Exit code 0 only when every item run PASSES with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
@@ -18,14 +18,31 @@ import argparse
 import itertools
 import json
 import re
+import subprocess
 import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from playwright.sync_api import Page, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def git(*args) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
+    ).stdout
+
+
+# The main checkout's store even when the walk runs from a worktree, whose own data/aegis is
+# another folder (`C:/Triad/.git`'s parent is `C:/Triad`).
+PRODUCT_ROOT = (
+    Path(git("rev-parse", "--path-format=absolute", "--git-common-dir").strip()).parent
+    / "data"
+    / "aegis"
+)
 DASH = "—"
 ITEMS = [
     "select QQQ",
@@ -328,11 +345,43 @@ WF_ROWS = "document.querySelectorAll('#walkforward-windows-long tbody tr')"
 PROGRESS = "document.querySelector('.results .chip.active').innerText.match(/(\\d+)\\/(\\d+)/)"
 
 
+def destructive_items_allowed(
+    data_root: Path,
+    product_root: Path,
+    *,
+    port: int,
+    pid_file: Path | None,
+    worker_data_root: Path | None,
+) -> bool:
+    """The restart and trash items run only against a scratch worker the walk can restart (a pid
+    file, never the product port) whose store is the given scratch root, never the product's."""
+    return (
+        pid_file is not None
+        and port != 8102
+        and data_root.resolve() != product_root.resolve()
+        and worker_data_root is not None
+        and worker_data_root.resolve() == data_root.resolve()
+    )
+
+
 class Acceptance:
-    def __init__(self, page: Page, base: str, stamp: str):
+    def __init__(
+        self,
+        page: Page,
+        base: str,
+        stamp: str,
+        data_root: Path,
+        pid_file: Path | None,
+        port: int,
+        worker_data_root: Path | None,
+    ):
         self.page = page
         self.base = base.rstrip("/") + "/"
         self.stamp = stamp
+        self.data_root = data_root
+        self.pid_file = pid_file
+        self.port = port
+        self.worker_data_root = worker_data_root
         self.results: list[dict] = []
         self.timings: dict = {}
         self.hashes: list[str] = []
@@ -594,8 +643,6 @@ class Acceptance:
         return self.js("document.getElementById('experiment-progress')?.innerText ?? ''")
 
     def worker_pid(self) -> int | None:
-        import subprocess
-
         out = subprocess.run(
             [
                 "powershell",
@@ -603,8 +650,8 @@ class Acceptance:
                 "-NonInteractive",
                 "-Command",
                 (
-                    "(Get-NetTCPConnection -LocalPort 8102 -State Listen -ErrorAction SilentlyContinue"
-                    " | Select-Object -First 1).OwningProcess"
+                    f"(Get-NetTCPConnection -LocalPort {self.port} -State Listen"
+                    " -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess"
                 ),
             ],
             capture_output=True,
@@ -613,24 +660,48 @@ class Acceptance:
         ).stdout.strip()
         return int(out) if out.isdigit() else None
 
-    def restart_worker(self) -> tuple[int | None, int]:
-        """Relaunch the worker detached through WMI (as Missions 3–5 did by hand) and wait for
-        the new listener to answer the status route; returns (old, new) listener PIDs."""
-        import subprocess
+    def require_scratch_root(self) -> None:
+        """Refuse a restart or trash item unless the walk drives a scratch worker on a scratch
+        root (the item wrapper reports the refusal as that item's FAIL)."""
+        if destructive_items_allowed(
+            self.data_root,
+            PRODUCT_ROOT,
+            port=self.port,
+            pid_file=self.pid_file,
+            worker_data_root=self.worker_data_root,
+        ):
+            return
+        if self.data_root.resolve() == PRODUCT_ROOT.resolve():
+            raise RuntimeError(
+                "refused: --data-root is the product root; pass --data-root <scratch>"
+            )
+        if self.port == 8102:
+            raise RuntimeError("refused: the worker on port 8102 is the product worker")
+        if self.pid_file is None:
+            raise RuntimeError("refused: no --pid-file names the scratch worker to restart")
+        raise RuntimeError("refused: the worker's data_root differs from --data-root")
 
+    def restart_worker(self) -> tuple[int | None, int]:
+        """Restart the scratch worker through tools/start_aegis_scratch.ps1 (`-Stop -PidFile`,
+        then the same port, data root and pid file) and wait for the new listener to answer the
+        status route; returns (old, new) listener PIDs. Without --pid-file there is no fallback."""
+        if self.pid_file is None:
+            raise RuntimeError("restart needs --pid-file")
         old = self.worker_pid()
-        script = str(ROOT / "tools" / "start_product.ps1")
-        command = (
-            "Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine="
-            f"'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass"
-            f" -File {script} -Product aegis'; CurrentDirectory='{ROOT}'}} | Out-Null"
-        )
-        subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        script = str(ROOT / "tools" / "start_aegis_scratch.ps1")
+        launcher = ["pwsh", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"]
+        for arguments in (
+            ["-Stop", "-PidFile", str(self.pid_file)],
+            ["-Port", str(self.port), "-DataRoot", str(self.data_root)]
+            + ["-PidFile", str(self.pid_file)],
+        ):
+            done = subprocess.run(
+                [*launcher, "-File", script, *arguments],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert done.returncode == 0, (arguments[0], done.stdout, done.stderr)
         deadline = time.monotonic() + 120
         new, last_error = None, "no new listener yet"
         while time.monotonic() < deadline:
@@ -1680,6 +1751,7 @@ class Acceptance:
         self.item(50, item50)
 
         def item51():
+            self.require_scratch_root()
             assert self.wait_until(
                 lambda: self.experiment(self.exp_id)["status"] == "paused", 180
             ), self.experiment(self.exp_id)["status"]
@@ -2272,6 +2344,7 @@ class Acceptance:
         self.item(62, item62)
 
         def item63():
+            self.require_scratch_root()
             paused = self.post(f"studies/{self.study_id}/pause", {})
             assert paused.status == 200, paused.text()
             doc = self.wait_study(self.study_id, ("paused",), 900)
@@ -3486,10 +3559,8 @@ class Acceptance:
     # -- Mission 10 plumbing: no limit -------------------------------------------------------------
     def worker_memory(self) -> dict:
         """The worker's working set now and at its peak, from the OS (PowerShell Get-Process)."""
-        import subprocess
-
         script = (
-            "$c = Get-NetTCPConnection -LocalPort 8102 -State Listen | Select-Object -First 1; "
+            f"$c = Get-NetTCPConnection -LocalPort {self.port} -State Listen | Select-Object -First 1; "
             "Get-Process -Id $c.OwningProcess | Select-Object Id, WorkingSet64, PeakWorkingSet64 "
             "| ConvertTo-Json -Compress"
         )
@@ -3508,8 +3579,9 @@ class Acceptance:
         }
 
     def document_file(self, folder: str, identifier: str) -> Path:
-        """A saved document in either form: `<id>.json.gz` (Mission 11), else a plain `<id>.json`."""
-        base = ROOT / "data" / "aegis" / folder
+        """A saved document in either form: `<id>.json.gz` (Mission 11), else a plain `<id>.json`,
+        under the walk's --data-root (the store the worker under test writes)."""
+        base = self.data_root / folder
         compressed = base / f"{identifier}.json.gz"
         return compressed if compressed.is_file() else base / f"{identifier}.json"
 
@@ -3895,6 +3967,7 @@ class Acceptance:
             shown = self.library_equity()
             assert "long (" in shown, shown
             # a fresh compressed run of item 22's request: delete and restore through the page
+            self.require_scratch_root()
             body = {
                 "strategy": a["strategy"],
                 "settings": a["settings"],
@@ -3929,7 +4002,7 @@ class Acceptance:
             finally:
                 page.remove_listener("dialog", accept)
             assert deleted.value.ok and asked, asked
-            trashed = ROOT / "data" / "aegis" / "trash" / "runs" / rid / f"{rid}.json.gz"
+            trashed = self.data_root / "trash" / "runs" / rid / f"{rid}.json.gz"
             assert trashed.is_file(), trashed
             page.wait_for_selector(f'[id="lib-backtest-{rid}"]', state="detached", timeout=30_000)
             self.library_change(lambda: page.locator("#library-deleted").check())
@@ -5126,13 +5199,12 @@ class Acceptance:
         self.item(first + 6, lab_running)
 
         def lab_governance():
-            import subprocess
-
-            def git(*args) -> str:
-                return subprocess.run(
-                    ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
-                ).stdout
-
+            served = ""
+            if self.pid_file is not None:  # a scratch worker: this checkout's code, the given store
+                live = page.request.get(health_url(self.base, self.port), timeout=10_000).json()
+                assert live.get("app_root") == str(ROOT / "app"), (live, str(ROOT / "app"))
+                assert live.get("data_root") == str(self.data_root), (live, str(self.data_root))
+                served = f"; the worker serves {live['app_root']} on {live['data_root']}"
             state = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
             assert state["mode"] == "human_directed" and state["exchange"] == "CLOSED", state
             schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
@@ -5147,7 +5219,7 @@ class Acceptance:
             return (
                 f"aegis {state['mode']} / {state['exchange']}; DailySchedule {schedule['id'][:8]} "
                 f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
-                f"{LAB_BASE}; Lab items {first}–{first + 6} PASS; fixtures {fixtures}"
+                f"{LAB_BASE}; Lab items {first}–{first + 6} PASS; fixtures {fixtures}{served}"
             )
 
         self.item(first + 7, lab_governance)
@@ -5161,6 +5233,22 @@ def nested(condition: dict, depth: int) -> dict:
     return group
 
 
+def health_url(base: str, port: int) -> str:
+    """The worker's own /health/live, on the host of --base and the walk's port."""
+    parts = urlsplit(base)
+    return f"{parts.scheme}://{parts.hostname}:{port}/health/live"
+
+
+def worker_health(page: Page, base: str, port: int) -> dict:
+    """/health/live once, before the items: the worker's app_root and data_root, or {} when it
+    does not answer (the items then report why)."""
+    try:
+        answer = page.request.get(health_url(base, port), timeout=10_000)
+        return answer.json() if answer.ok else {}
+    except Exception:  # noqa: BLE001 - an absent worker fails the items, never the report
+        return {}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="http://127.0.0.1:8102/aegis/")
@@ -5171,7 +5259,27 @@ def main(argv=None) -> int:
         default=None,
         help="run only the Optimization Lab block, on the fixtures it makes for itself",
     )
+    parser.add_argument(
+        "--port", type=int, default=None, help="the worker's port (default: the port in --base)"
+    )
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=ROOT / "data" / "aegis",
+        help="the store the worker under test writes; the file assertions read it",
+    )
+    parser.add_argument(
+        "--pid-file",
+        type=Path,
+        default=None,
+        help="the scratch launcher's pid file; items 51 and 63 restart only through it",
+    )
     args = parser.parse_args(argv)
+    port = args.port if args.port is not None else urlsplit(args.base).port or 80
+    data_root = args.data_root.resolve()
+    pid_file = args.pid_file
+    if pid_file is not None and not pid_file.is_absolute():
+        pid_file = ROOT / pid_file  # the launcher resolves it against the same checkout
     lab_only = args.only == "lab"
     first = ITEMS.index(LAB_ITEMS[0]) + 1
     expected = len(LAB_ITEMS) if lab_only else len(ITEMS)
@@ -5186,7 +5294,9 @@ def main(argv=None) -> int:
         # bypass_csp lets Playwright evaluate its probes; the worker's own CSP (no unsafe-eval)
         # is what the product ships with and the chart spike verified against it.
         page = browser.new_page(viewport={"width": 1600, "height": 1000}, bypass_csp=True)
-        acceptance = Acceptance(page, args.base, stamp)
+        health = worker_health(page, args.base, port)
+        worker_data_root = Path(health["data_root"]) if health.get("data_root") else None
+        acceptance = Acceptance(page, args.base, stamp, data_root, pid_file, port, worker_data_root)
         if not lab_only:
             acceptance.run()
         acceptance.run_lab(first)
@@ -5209,6 +5319,11 @@ def main(argv=None) -> int:
         "lab_only": lab_only,
         "lab_first_item": first,
         "lab_fixtures": getattr(acceptance, "lab_fixtures", None),
+        "data_root": str(data_root),
+        "port": port,
+        "pid_file": str(pid_file) if pid_file is not None else None,
+        "app_root": health.get("app_root"),
+        "worker_data_root": health.get("data_root"),
         "page_errors": acceptance.errors,
     }
     out = ROOT / "logs" / f"aegis-acceptance-{stamp}.json"

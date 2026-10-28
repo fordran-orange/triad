@@ -39,7 +39,6 @@ from products.aegis.backtest import (
 from products.aegis.compare import compare as compare_runs
 from products.aegis.core_client import CoreReasoning
 from products.aegis.data import (
-    DATA_ROOT,
     TIMEFRAMES,
     ArchiveStore,
     BarsTooLarge,
@@ -65,7 +64,7 @@ from products.aegis.optimize import (
 from products.aegis.pool import fitted_workers
 from products.aegis.preferences import Preferences
 from products.aegis.results import envelope
-from products.aegis.runs import JsonRunRepository, RunRepository
+from products.aegis.runs import JsonRunRepository, RunRepository, aegis_data_root
 from products.aegis.strategies import (
     BuiltinRefused,
     StrategyLibrary,
@@ -128,7 +127,7 @@ PREFERENCES = Depends(get_preferences)
 def get_learned(repository: RunRepository = REPOSITORY) -> LearnedPhrases:
     """Mission 14: learned phrases and accepted examples, beside the saved runs."""
     root = getattr(repository, "root", None)
-    return LearnedPhrases(Path(root) if root is not None else DATA_ROOT / "data" / "aegis")
+    return LearnedPhrases(Path(root) if root is not None else aegis_data_root())
 
 
 def get_core_reasoning() -> CoreReasoning:

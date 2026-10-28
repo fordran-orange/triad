@@ -32,7 +32,9 @@ $CorePython = $Interpreters['core']
 $Lint = @('app/products/aegis', 'tests/products/aegis', 'tools/aegis_contracts.py',
     'tests/conftest.py', 'tests/test_pytest_scope.py', 'tests/test_environments.py',
     'tests/test_architecture.py', 'tests/test_day8_workflow_qa.py',
-    'tools/run_daily_product_cycle.py', 'tools/accept_environments.py') +
+    'tools/run_daily_product_cycle.py', 'tools/accept_environments.py',
+    'tests/test_lab_store.py', 'tests/test_lab_query.py', 'tests/test_lab_sharpe.py',
+    'tests/test_lab_identity.py', 'tools/aegis_decompact.py') +
     @(Get-ChildItem tests/test_aegis_*.py | ForEach-Object { $_.FullName })
 & $CorePython -m ruff check @Lint
 Assert-Exit 'Lint'

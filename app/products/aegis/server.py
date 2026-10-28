@@ -11,7 +11,9 @@ from trading_core.api import local_headers
 from trading_core.process_power import opt_out_of_power_throttling
 from trading_core.store import Store
 
+import products.aegis
 from products.aegis import api, kernel
+from products.aegis.runs import aegis_data_root
 from products.aegis.strategy import default_strategy
 
 log = logging.getLogger("aegis")
@@ -55,7 +57,14 @@ def shell():
 
 @app.get("/health/live")
 def live():
-    return {"status": "ok", "product": "aegis"}
+    # The supervisor reads status and product; the scratch launcher and the walk check that the
+    # worker serves this checkout's code (app_root) on the store they were given (data_root).
+    return {
+        "status": "ok",
+        "product": "aegis",
+        "app_root": str(Path(products.aegis.__file__).resolve().parents[2]),
+        "data_root": str(aegis_data_root()),
+    }
 
 
 @app.get("/aegis/api/status")

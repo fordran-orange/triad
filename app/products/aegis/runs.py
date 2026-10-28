@@ -10,6 +10,7 @@ from __future__ import annotations
 import gzip
 import json
 import logging
+import os
 import re
 import shutil
 import threading
@@ -236,12 +237,20 @@ def _retry(action, attempts: int = 50, delay: float = 0.01):
     return None  # unreachable; keeps type checkers calm
 
 
+def aegis_data_root() -> Path:
+    """Where the worker keeps its saved documents: `AEGIS_DATA_ROOT` when it is set and not empty
+    (a scratch worker's store, Optimization Lab v2 Phase 2), else `data/aegis` in this checkout.
+    It moves the run store only; the raw archives stay under `DATA_ROOT`."""
+    configured = os.environ.get("AEGIS_DATA_ROOT")
+    return Path(configured) if configured else DATA_ROOT / "data" / "aegis"
+
+
 class JsonRunRepository:
     """One document per run (`runs/<run_id>.json.gz`, plain `.json` before Mission 11) and per
     optimization (`optimizations/`), each with a plain summary sidecar."""
 
     def __init__(self, root: Path | None = None):
-        self.root = Path(root) if root is not None else DATA_ROOT / "data" / "aegis"
+        self.root = Path(root) if root is not None else aegis_data_root()
 
     def _folder(self, kind: str) -> Path:
         folder = self.root / kind
