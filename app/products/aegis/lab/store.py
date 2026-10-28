@@ -546,18 +546,35 @@ def _promote(
     )
 
 
-def _read(path: Path, wanted: list[str] | None, legacy: LegacyContext | None) -> pa.Table:
+def _read(
+    path: Path,
+    wanted: list[str] | None,
+    legacy: LegacyContext | None,
+    trial_no: int | None = None,
+) -> pa.Table:
+    """One file's rows in `wanted`; with `trial_no`, only that trial's rows, read through a
+    Parquet predicate so row groups whose statistics exclude it are never materialised (a part
+    is sorted by trial_no; a legacy chunk's trial number is its cell)."""
     try:
         with pq.ParquetFile(path) as parquet:  # closed at once: an open handle blocks reclaim
             names = parquet.schema_arrow.names
             if TRIAL_NO in names:
-                table = parquet.read(columns=wanted)
+                if trial_no is None:
+                    table = parquet.read(columns=wanted)
+                else:
+                    table = pq.read_table(
+                        path, columns=wanted, filters=[(TRIAL_NO, "==", trial_no)]
+                    )
                 return table if wanted is None else table.select(wanted)
             if legacy is None:
                 raise ValueError(
                     f"{path.name} is a layout-1 chunk: it is read with its legacy context"
                 )
-            raw = parquet.read(columns=_legacy_columns(names, wanted))  # projected, never all
+            columns = _legacy_columns(names, wanted)  # projected, never all
+            if trial_no is None:
+                raw = parquet.read(columns=columns)
+            else:
+                raw = pq.read_table(path, columns=columns, filters=[("cell", "==", trial_no)])
     except FileNotFoundError as exc:
         raise SnapshotExpired(f"{path.name} went missing while its snapshot was read") from exc
     return _promote(raw, chunk_index_of(path), legacy, names, wanted)
@@ -583,16 +600,18 @@ def read_trials(
     columns: Sequence[str] | None = None,
     *,
     legacy: LegacyContext | None = None,
+    trial_no: int | None = None,
 ) -> TrialTable:
     """The canonical trials of `snapshot`: its file set read (layout-1 chunks promoted through
     `legacy`), copies collapsed and counted, the highest attempt per (trial_no, block) kept,
     sorted by trial_no then block. With `columns`, those plus trial_no, block and status; with
-    None the full layout-2 set, so a projection never widens a table."""
+    None the full layout-2 set, so a projection never widens a table. With `trial_no`, each file
+    contributes only that trial's rows (an empty table when no file holds it)."""
     chunks = readable_chunks(cells_dir)
     manifest = _manifest_of(cells_dir, chunks)
     files = _file_set(cells_dir, manifest, snapshot, chunks)
     wanted = None if columns is None else list(dict.fromkeys([*columns, *_EVALUATION, "status"]))
-    tables = [_read(path, wanted, legacy) for path in files]
+    tables = [_read(path, wanted, legacy, trial_no) for path in files]
     table = pa.concat_tables(tables) if tables else _empty(wanted, legacy)
     table, duplicates = _canonical(table)
     if columns is not None:
@@ -606,11 +625,12 @@ def read_latest(
     columns: Sequence[str] | None = None,
     *,
     legacy: LegacyContext | None = None,
+    trial_no: int | None = None,
 ) -> TrialTable:
     """The latest snapshot's canonical trials. `read_trials` is this module's global looked up
     at call time, so a test that patches it is seen by every reader that comes through here."""
     _, snapshot = latest_snapshot(cells_dir)
-    return read_trials(cells_dir, snapshot, columns, legacy=legacy)
+    return read_trials(cells_dir, snapshot, columns, legacy=legacy, trial_no=trial_no)
 
 
 def unmerged_chunks(manifest: Manifest, cells_dir: Path) -> int:

@@ -1,8 +1,9 @@
 """The Lab's column cache (Optimization Lab v2 spec §9.2): a byte-bounded LRU of loaded trial
 tables and experiment metadata, shared by the Lab routes of one worker.
 
-A key is a tuple whose first element is the source tuple itself, `(("exp", id), generation,
-chunk_watermark, columns)` for a trial table and `(("exp-meta", id), updated_at)` for an
+A key is a tuple whose first element is the source tuple itself, `(("exp", id), created_at,
+generation, chunk_watermark, columns)` for a trial table (the document's `created_at`, so a
+re-created id never meets its predecessor's tables) and `(("exp-meta", id), updated_at)` for an
 experiment's metadata, so `evict((("exp", id),))` drops every table of one experiment and nothing
 else. Each value is sized by the caller's `size` callable; the total never exceeds `max_bytes`
 (`LAB_CACHE_BYTES`, or `AEGIS_LAB_CACHE_MB` where the cache is built)."""

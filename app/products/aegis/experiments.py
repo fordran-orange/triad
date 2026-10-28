@@ -514,11 +514,13 @@ class ExperimentStore:
         columns: Sequence[str] | None = None,
         *,
         snapshot: lab_store.Snapshot | None = None,
+        trial_no: int | None = None,
     ) -> lab_store.TrialTable:
         """The canonical trials in the full layout-2 column set (or `columns` plus trial_no,
         block and status) for the Lab routes, under the read lock for both layouts; a given
-        `snapshot` is read as is, so a route reads the manifest once per request. A legacy
-        folder's chunks are promoted through the grid of its document."""
+        `snapshot` is read as is, so a route reads the manifest once per request; a given
+        `trial_no` reads that trial's rows only. A legacy folder's chunks are promoted through
+        the grid of its document."""
         legacy = None
         if self.layout(experiment_id) == 1:
             document = self.get(experiment_id)
@@ -527,8 +529,10 @@ class ExperimentStore:
         cells_dir = self.cells_dir(experiment_id)
         with lab_store.LOCKS.read(experiment_id):
             if snapshot is None:
-                return lab_store.read_latest(cells_dir, columns, legacy=legacy)
-            return lab_store.read_trials(cells_dir, snapshot, columns, legacy=legacy)
+                return lab_store.read_latest(cells_dir, columns, legacy=legacy, trial_no=trial_no)
+            return lab_store.read_trials(
+                cells_dir, snapshot, columns, legacy=legacy, trial_no=trial_no
+            )
 
     def row(self, experiment_id: str, cell: int) -> dict:
         if self.layout(experiment_id) == 2:

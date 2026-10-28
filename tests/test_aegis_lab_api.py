@@ -201,11 +201,14 @@ def test_query_loads_projected_columns_only(client, lab_cache, monkeypatch):
     c, _, repository = client
     experiment_id = _finished_experiment(c, monkeypatch)
     recorded: list[tuple | None] = []
+    one_trial: list[tuple[int | None, int]] = []  # each read's trial_no and the rows it returned
     original = experiments_module.ExperimentStore.trials
 
-    def recording(self, experiment_id, columns=None, *, snapshot=None):
+    def recording(self, experiment_id, columns=None, *, snapshot=None, trial_no=None):
         recorded.append(None if columns is None else tuple(columns))
-        return original(self, experiment_id, columns, snapshot=snapshot)
+        trials = original(self, experiment_id, columns, snapshot=snapshot, trial_no=trial_no)
+        one_trial.append((trial_no, trials.table.num_rows))
+        return trials
 
     monkeypatch.setattr(experiments_module.ExperimentStore, "trials", recording)
     document = experiments_module.ExperimentStore(repository).get(experiment_id)
@@ -251,6 +254,31 @@ def test_query_loads_projected_columns_only(client, lab_cache, monkeypatch):
     hits = lab_cache.stats()["hits"]
     assert c.post(url, json=page).status_code == 200  # the same snapshot and columns: a hit
     assert len(recorded) == 11 and lab_cache.stats()["hits"] > hits
+    assert all(trial_no is None for trial_no, _ in one_trial)
+    # The trial route reads one trial through the store's predicate, never through the cache.
+    cached = lab_cache.stats()["entries"]
+    trial = c.get(f"{LAB}/exp:{experiment_id}/trials/exp%3A{experiment_id}%232")
+    assert trial.status_code == 200 and trial.json()["trial_no"] == 2
+    assert len(recorded) == 12 and lab_cache.stats()["entries"] == cached
+    assert one_trial[-1][0] == 2 and one_trial[-1][1] <= 2  # its canonical row(s) only
+    trial_columns = sources.COLUMNS_FOR("trial", None, meta.parameters, meta.objective)
+    assert set(recorded[-1]) <= set(trial_columns)
+    # Every cached table and unique count names this instance of the experiment: its document's
+    # creation stamp follows the source tuple in the key.
+    keys = [
+        key
+        for key in lab_cache._entries
+        if key[0] in (("exp", experiment_id), ("exp-unique", experiment_id))
+    ]
+    assert {key[0][0] for key in keys} == {"exp", "exp-unique"}
+    assert all(key[1] == document.created_at for key in keys)
+    # The same id created again (a later created_at) never meets the earlier tables.
+    store = experiments_module.ExperimentStore(repository)
+    store.save(
+        store.get(experiment_id).model_copy(update={"created_at": "2099-01-01T00:00:00+00:00"})
+    )
+    assert c.post(url, json=page).status_code == 200
+    assert len(recorded) == 13 and one_trial[-1] == (None, 4)
 
 
 def test_trial_no_round_trips_with_a_warmup_skip(client, monkeypatch):

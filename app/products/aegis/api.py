@@ -1372,10 +1372,12 @@ def _lab_experiment(
     experiments: experiments_module.ExperimentStore,
     cache: LabCache,
     columns_of,
+    trial_no: int | None = None,
 ):
     """One `exp:` request's document, metadata and frame: the document and the files read under
     the experiment's read lock, the latest snapshot registered for the request's life and
-    released once its answer is built. A snapshot whose files are gone is a 409, never a 500."""
+    released once its answer is built. With `trial_no`, the frame holds that trial's rows only.
+    A snapshot whose files are gone is a 409, never a 500."""
     try:
         with lab_store.LOCKS.read(experiment_id):
             document = _experiment(experiments, experiment_id)
@@ -1384,7 +1386,9 @@ def _lab_experiment(
                 columns = columns_of(meta)
             except (KeyError, ValueError) as exc:
                 raise _lab_refused(exc) from exc
-            frame, handle = lab_sources.open_experiment(document, experiments, cache, columns)
+            frame, handle = lab_sources.open_experiment(
+                document, experiments, cache, columns, trial_no=trial_no
+            )
     except lab_store.SnapshotExpired as exc:
         raise HTTPException(409, "snapshot expired") from exc
     try:
@@ -1454,7 +1458,7 @@ def lab_summary(
         cache,
         lambda meta: lab_sources.COLUMNS_FOR("summary", None, meta.parameters, meta.objective),
     ) as (document, meta, frame):
-        unique = lab_sources.experiment_unique(cache, frame, ref.id)
+        unique = lab_sources.experiment_unique(cache, frame, document)
         return lab_sources.summary(frame, document, None, meta.spec_values, unique=unique)
 
 
@@ -1477,8 +1481,8 @@ def lab_query(
         lambda meta: lab_sources.COLUMNS_FOR(
             request.view, request, meta.parameters, meta.objective
         ),
-    ) as (_, _, frame):
-        return _lab_answer(frame, request, lab_sources.experiment_unique(cache, frame, ref.id))
+    ) as (document, _, frame):
+        return _lab_answer(frame, request, lab_sources.experiment_unique(cache, frame, document))
 
 
 @router.get("/lab/{src}/trials/{trial}")
@@ -1506,6 +1510,7 @@ def lab_trial(
             experiments,
             cache,
             lambda meta: lab_sources.COLUMNS_FOR("trial", None, meta.parameters, meta.objective),
+            trial_no=trial_no,  # that trial's rows only, through the store's predicate
         ) as (document, _, frame):
             detail = lab_sources.trial_detail(
                 frame, trial_no, lab_sources.experiment_identity(document)

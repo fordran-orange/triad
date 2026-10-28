@@ -274,13 +274,18 @@ def open_experiment(
     store: ExperimentStore,
     cache: LabCache,
     columns: Sequence[str],
+    *,
+    trial_no: int | None = None,
 ) -> tuple[TrialFrame, int]:
     """The frame of one request and its registry handle, which the caller releases when its
     answer is built. Under the experiment's read lock: the latest snapshot, read once; its file
     set registered; its trials in `columns` from the cache or read at that same snapshot, so the
     key, the handle and the rows name one file set even while the job writes its next chunk
-    (`write_chunk` takes no write lock). A legacy (layout 1) folder is promoted by `store.trials`
-    and keyed by its synthesized snapshot."""
+    (`write_chunk` takes no write lock). The key carries the document's `created_at`, so an
+    experiment deleted and created again under the same id never meets its predecessor's
+    tables. With `trial_no`, that trial's rows only, read through the store's predicate and
+    never cached (one row is not worth an entry). A legacy (layout 1) folder is promoted by
+    `store.trials` and keyed by its synthesized snapshot."""
     experiment_id = document.id
     columns = tuple(columns)
     meta = cached_meta(document, cache)
@@ -289,11 +294,17 @@ def open_experiment(
         manifest, snapshot = latest_snapshot(cells_dir)
         handle = REGISTRY.open(experiment_id, snapshot, file_set(cells_dir, manifest, snapshot))
         try:
-            trials = cache.get(
-                (("exp", experiment_id), snapshot.generation, snapshot.chunk_watermark, columns),
-                lambda: store.trials(experiment_id, list(columns), snapshot=snapshot),
-                size=lambda held: held.table.nbytes,
-            )
+            if trial_no is not None:
+                trials = store.trials(
+                    experiment_id, list(columns), snapshot=snapshot, trial_no=trial_no
+                )
+            else:
+                key = (snapshot.generation, snapshot.chunk_watermark, columns)
+                trials = cache.get(
+                    (("exp", experiment_id), document.created_at, *key),
+                    lambda: store.trials(experiment_id, list(columns), snapshot=snapshot),
+                    size=lambda held: held.table.nbytes,
+                )
         except BaseException:
             REGISTRY.release(handle)
             raise
@@ -316,12 +327,18 @@ def open_experiment(
     return frame, handle
 
 
-def experiment_unique(cache: LabCache, frame: TrialFrame, experiment_id: str) -> int:
+def experiment_unique(cache: LabCache, frame: TrialFrame, document: ExperimentDocument) -> int:
     """`unique` (the distinct configurations completed) depends on the snapshot alone, so it is
-    counted once per snapshot and shared by every request and every projection on it."""
+    counted once per snapshot of this instance of the experiment (its `created_at`) and shared by
+    every request and every projection on it."""
     snapshot = frame.snapshot
     return cache.get(
-        (("exp-unique", experiment_id), snapshot.generation, snapshot.chunk_watermark),
+        (
+            ("exp-unique", document.id),
+            document.created_at,
+            snapshot.generation,
+            snapshot.chunk_watermark,
+        ),
         lambda: scope_counts(frame, LabFilter())["unique"],
         size=lambda _: UNIQUE_BYTES,
     )

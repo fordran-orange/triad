@@ -1174,6 +1174,75 @@ def test_legacy_promotion_reads_projected_columns_only(tmp_path, monkeypatch):
     }
 
 
+def test_read_trials_filters_one_trial(tmp_path, monkeypatch):
+    """The trial route's read (Task 8 review): with `trial_no`, each file contributes that
+    trial's rows only, through a Parquet predicate whose row groups the statistics prune (a part
+    is sorted by trial_no; a legacy chunk's trial number is its cell), and the canonical collapse
+    runs on those rows as on the whole set. Without it, nothing changes."""
+    monkeypatch.setattr(policy, "PART_ROW_GROUP", 3)  # a part of four row groups
+    cells_dir = layout2_dir(tmp_path / "layout2", [rows_of(range(6)), rows_of(range(6, 12))])
+    manifest = lab_store.compact(cells_dir, now=NOW)
+    assert pq.read_metadata(cells_dir / "part-1.parquet").num_row_groups == 4
+    retried = {scope: {**values, "net_pnl": 999.0} for scope, values in metrics_of(4).items()}
+    unmerged = [trial_row(4, attempt=1, metrics=retried), trial_row(2)]  # a retry; a copy
+    write_trials(cells_dir, lab_store.next_chunk_index(cells_dir, manifest), unmerged)
+    columns = ["trial_no", "cell", "long.net_pnl"]
+    full = lab_store.read_latest(cells_dir, columns)
+    assert full.duplicates == 1 and len(full.table) == 12
+    reads: list[tuple[str, list | None]] = []
+    read_table = pq.read_table
+
+    def recording(path, *args, **kwargs):
+        reads.append((Path(path).name, kwargs.get("filters")))
+        return read_table(path, *args, **kwargs)
+
+    monkeypatch.setattr(pq, "read_table", recording)
+    for n in (0, 2, 4, 7, 11):
+        reads.clear()
+        one = lab_store.read_latest(cells_dir, columns, trial_no=n)
+        expected = [row for row in full.table.to_pylist() if row["trial_no"] == n]
+        assert len(expected) == 1 and one.table.to_pylist() == expected
+        assert one.table.schema.equals(full.table.schema) and one.snapshot == full.snapshot
+        assert sorted(reads) == [
+            ("000002.parquet", [("trial_no", "==", n)]),
+            ("part-1.parquet", [("trial_no", "==", n)]),
+        ]
+    assert lab_store.read_latest(cells_dir, columns, trial_no=2).duplicates == 1
+    four = lab_store.read_latest(cells_dir, ["trial_no", "attempt", "long.net_pnl"], trial_no=4)
+    assert four.table.to_pylist() == [
+        {"trial_no": 4, "attempt": 1, "long.net_pnl": 999.0, "block": 0, "status": "ok"}
+    ]
+    absent = lab_store.read_latest(cells_dir, columns, trial_no=99)
+    assert absent.table.num_rows == 0 and absent.duplicates == 0
+    assert absent.table.column_names == ["trial_no", "cell", "long.net_pnl", "block", "status"]
+    reads.clear()
+    assert lab_store.read_latest(cells_dir, columns).table.equals(full.table)
+    assert reads == []  # an unfiltered read is the reader it always was
+
+    folder = JsonRunRepository(tmp_path / "legacy" / "aegis").experiment_dir("legacy-one", "cells")
+    folder.mkdir(parents=True)
+    for index, rows in enumerate([rows_of(range(6)), rows_of(range(6, 12), **{"pass": "refine"})]):
+        pq.write_table(exp._cells_table(rows, PATHS), folder / f"{index:06d}.parquet")
+    legacy = lab_store.LegacyContext(GRID, PATHS)
+    wanted = ["trial_no", "cell", "pos.0", "design", "long.net_pnl"]
+    whole = lab_store.read_latest(folder, wanted, legacy=legacy).table.to_pylist()
+    for cell in (3, 8):
+        reads.clear()
+        promoted = lab_store.read_latest(folder, wanted, legacy=legacy, trial_no=cell)
+        assert promoted.layout == 1 and len(promoted.table) == 1
+        assert promoted.table.to_pylist() == [row for row in whole if row["cell"] == cell]
+        assert sorted(reads) == [
+            ("000000.parquet", [("cell", "==", cell)]),
+            ("000001.parquet", [("cell", "==", cell)]),
+        ]
+    nowhere = lab_store.read_latest(folder, wanted, legacy=legacy, trial_no=99)
+    assert nowhere.table.num_rows == 0 and nowhere.table.column_names == [
+        *wanted,
+        "block",
+        "status",
+    ]
+
+
 def test_legacy_report_reproduced_identically(world):  # noqa: F811
     repository, _library, document = world
     store = exp.ExperimentStore(repository)
