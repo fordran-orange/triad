@@ -999,6 +999,30 @@ def test_experiment_runs_pauses_resumes_cancels_and_materializes(client, monkeyp
     assert c.delete(f"/aegis/api/experiments/{experiment_id}").status_code == 404
 
 
+def test_create_experiment_pins_data_and_engine_build(client, monkeypatch):
+    """Optimization Lab v2: a new experiment records the archive it was pinned to and the
+    worker's engine build at creation, and its listing entry carries them."""
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    from products.aegis.lab import identity
+
+    c, _, repository = client
+    _runner(repository)
+    created = c.post("/aegis/api/experiments", json=_experiment_body(c, name="pinned"))
+    assert created.status_code == 202, created.text
+    experiment_id = created.json()["experiment_id"]
+    body = c.get(f"/aegis/api/experiments/{experiment_id}").json()
+    assert body["cells_layout"] == 2
+    assert len(body["data_pinned"]["sha256"]) == 64 and body["data_pinned"]["symbol"] == "QQQ"
+    assert len(body["versions"]["engine_build"]) == 64
+    assert body["versions"]["engine_build"] == identity.engine_build()
+    listed = next(s for s in c.get("/aegis/api/experiments").json() if s["id"] == experiment_id)
+    assert listed["cells_layout"] == 2 and listed["data_pinned"] == body["data_pinned"]
+    assert listed["versions"] == body["versions"]
+    done = _wait_experiment(c, experiment_id, ("done", "failed"))
+    assert done["status"] == "done", done.get("error")
+    assert done["data_pinned"] == body["data_pinned"] and done["versions"] == body["versions"]
+
+
 def test_experiment_created_queued_while_another_job_runs(client, monkeypatch):
     monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
     c, _, repository = client

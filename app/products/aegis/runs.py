@@ -72,6 +72,10 @@ EXPERIMENT_SUMMARY_KEYS = (
     "tolerance",
     "ms_per_cell_bar",
     "error",
+    # Optimization Lab v2: provenance in the listing; a sidecar written before simply lacks them
+    "cells_layout",
+    "data_pinned",
+    "versions",
 )
 STUDY_SUMMARY_KEYS = (
     "id",

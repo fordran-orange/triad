@@ -67,6 +67,13 @@ def test_indicator_kinds_constant_matches_python():
         }, name
 
 
+def test_sharpe_min_trades_constant_matches_python():
+    from products.aegis.lab import policy
+
+    text = load_generator().render()
+    assert f"export const SHARPE_MIN_TRADES = {policy.SHARPE_MIN_TRADES};\n" in text
+
+
 def test_parameter_maps_are_typed_as_number_records():
     text = load_generator().render()
     assert "params?: Record<string, number>" in text

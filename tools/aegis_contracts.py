@@ -157,7 +157,17 @@ def render() -> str:
         + json.dumps(indicator_kinds(), indent=2)
         + ";\n"
     )
+    chunks.append("\n")
+    chunks.append(lab_constants())
     return "".join(chunks).rstrip("\n") + "\n"
+
+
+def lab_constants() -> str:
+    """The Lab's policy constants the UI reads (the trade Sharpe's `low n` flag), from
+    products.aegis.lab.policy, never a literal in the browser."""
+    from products.aegis.lab import policy
+
+    return f"export const SHARPE_MIN_TRADES = {policy.SHARPE_MIN_TRADES};\n"
 
 
 def main(argv: list[str]) -> int:

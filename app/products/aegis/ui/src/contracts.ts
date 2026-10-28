@@ -273,6 +273,14 @@ export interface ExperimentDocument {
   refinement_cells?: number[] | null;
   workers?: number;
   chunk_cells?: number;
+  cells_layout?: number;
+  search_space?: Record<string, unknown> | null;
+  sampler?: Record<string, unknown> | null;
+  versions?: Record<string, unknown> | null;
+  data_pinned?: Record<string, unknown> | null;
+  execution?: Record<string, unknown> | null;
+  counts?: Record<string, unknown> | null;
+  lineage?: Record<string, unknown> | null;
 }
 
 export interface Plan {
@@ -489,3 +497,5 @@ export const INDICATOR_KINDS: Record<string, IndicatorKind> = {
     "warmup_offset": -1
   }
 };
+
+export const SHARPE_MIN_TRADES = 20;

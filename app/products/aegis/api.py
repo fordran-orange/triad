@@ -49,6 +49,7 @@ from products.aegis.data import (
 from products.aegis.indicators import IndicatorCache, compute
 from products.aegis.jobs import JobBusy, JobRunner, estimate_seconds
 from products.aegis.kinds import kind_info
+from products.aegis.lab import identity
 from products.aegis.learned import LearnedPhrases
 from products.aegis.library import FOLDERS as LIBRARY_FOLDERS
 from products.aegis.library import KINDS as LIBRARY_KINDS
@@ -957,7 +958,7 @@ def create_experiment(
     library: StrategyLibrary = LIBRARY,
     experiments: experiments_module.ExperimentStore = EXPERIMENTS,
 ):
-    frame, _ = _experiment_bars(request.data, store)
+    frame, pinned = _experiment_bars(request.data, store)
     _document(library, request.strategy_id)
     try:
         document = experiments_module.create(
@@ -967,6 +968,8 @@ def create_experiment(
             len(frame),
             fitted_workers(len(frame)),
             request.data.timeframe,
+            pinned=pinned,
+            engine_build=identity.engine_build(),
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -1200,10 +1203,15 @@ def refine_experiment(
     experiments: experiments_module.ExperimentStore = EXPERIMENTS,
 ):
     document = _experiment(experiments, experiment_id)
-    frame, _ = _experiment_bars(document.data, store)
+    frame, pinned = _experiment_bars(document.data, store)
     try:
         child = experiments_module.refine(
-            experiments, document, len(frame), fitted_workers(len(frame)), document.data.timeframe
+            experiments,
+            document,
+            len(frame),
+            fitted_workers(len(frame)),
+            document.data.timeframe,
+            pinned=pinned,
         )
     except (ValueError, KeyError) as exc:
         raise HTTPException(422, str(exc)) from exc
