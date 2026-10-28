@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from products.aegis import api, server
 from products.aegis.data import DATA_ROOT, ArchiveStore
+from products.aegis.lab import identity
 from products.aegis.preferences import Preferences
 from products.aegis.runs import JsonRunRepository, aegis_data_root
 
@@ -207,3 +208,28 @@ def test_scratch_launcher_never_names_the_product_port(tmp_path):
     assert not store_pid.exists()
     code, output = launch("nothing", "-Stop", "-PidFile", str(tmp_path / "none.pid"))
     assert code == 0 and "nothing to stop" in output, output
+
+
+@pytest.fixture
+def scratch_lifespan(tmp_path, monkeypatch):
+    """The real lifespan on a scratch root: every folder it creates lands under `tmp_path`, no
+    archive warm-up outlives the test, and the three cached providers are never left pinned to
+    the scratch root for the rest of the session."""
+    root = tmp_path / "aegis"
+    monkeypatch.setenv("AEGIS_DATA_ROOT", str(root))
+    monkeypatch.setattr(server, "Store", lambda **_: SimpleNamespace(list_work=list))
+    monkeypatch.setattr(api, "warm_in_background", lambda store: None)
+    providers = (api.get_repository, api.get_runner, api.get_store)
+    for provider in providers:
+        provider.cache_clear()
+    yield root
+    for provider in providers:
+        provider.cache_clear()
+
+
+def test_engine_build_computed_at_startup(scratch_lifespan):
+    identity.engine_build.cache_clear()
+    with TestClient(server.app):
+        pass
+    assert identity.engine_build.cache_info().currsize == 1  # the lifespan computed it
+    assert (scratch_lifespan / "optimizations").is_dir()  # the startup scan ran on the scratch root

@@ -13,6 +13,7 @@ from trading_core.store import Store
 
 import products.aegis
 from products.aegis import api, kernel
+from products.aegis.lab import identity
 from products.aegis.runs import aegis_data_root
 from products.aegis.strategy import default_strategy
 
@@ -22,6 +23,7 @@ log = logging.getLogger("aegis")
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     opt_out_of_power_throttling()
+    identity.engine_build()  # Lab spec §6.2: the engine's source hash, once, at worker start
     # Optimizations still queued/running in the repository belong to a dead worker.
     lost = api.get_runner().mark_lost_on_startup()
     if lost:
