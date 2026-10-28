@@ -109,6 +109,14 @@ export function panelLabel(envelope: { provisional: boolean; snapshot: LabSnapsh
   return ` · ${snapshotLabel(envelope.snapshot, envelope.receivedAt)}`;
 }
 
+/** What a panel's basis and summary describe: the answer for the view in hand, else the last answer this source
+ *  gave (kept until the next one lands), else nothing. A data line never carries a loading literal: a pending query
+ *  shows as the panel's `data-loading` and its own loading element, so a changed basis means a new answer arrived. */
+export function answered<T extends { source: string }>(current: T | null, last: T | null, source: string | null): T | null {
+  if (current !== null) return current;
+  return last !== null && source !== null && last.source === source ? last : null;
+}
+
 /** What `#lab-dataset` says about the pinned data: a legacy (layout 1) experiment never recorded it (spec:576);
  *  otherwise the archive's sha256 prefix and vintage (a source without a file hash, such as the synthetic
  *  benchmark data, by its vintage alone). Empty while the summary loads. */

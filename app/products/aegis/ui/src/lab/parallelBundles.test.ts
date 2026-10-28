@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LabParallel } from '../results';
 import { linearScale } from './charts/canvas';
+import { answered } from './labQuery';
 import { initialLabState, labReducer } from './labStore';
 import { axisLabel, axisPositions, binEdges, brushToFilter, bundleKey, exactLine, nearestAxis, opacityFor, parallelBasis, parallelSummary, polyline } from './parallelBundles';
 
@@ -104,6 +105,19 @@ describe('parallelBundles', () => {
     expect(parallelBasis(basis, null)).toBe(basis);
     expect(parallelBasis(basis, 2)).toBe('Aggregated: 12 of 40 bundles (≥ 3 trials each) · 2 pinned trials drawn exactly');
     expect(parallelBasis(basis, 1)).toBe('Aggregated: 12 of 40 bundles (≥ 3 trials each) · 1 pinned trial drawn exactly');
+  });
+
+  it('the basis line carries only answered text: the answer verbatim, else the last answer of this source, never a loading literal', () => {
+    const view = (basis: string): LabParallel => ({ axes: ['a'], bins: [], bundles: [], total_bundles: 0, shown_bundles: 0, basis });
+    const first = { source: 'exp:e1', envelope: view('Aggregated: 12 of 40 bundles (≥ 3 trials each) · 0 raw lines drawn') };
+    const next = { source: 'exp:e1', envelope: view('Aggregated: 9 of 21 bundles (≥ 1 trials each) · 0 raw lines drawn') };
+    const line = (shown: typeof first | null) => (shown === null ? '' : parallelBasis(shown.envelope.basis, null));
+    expect(line(answered(next, first, 'exp:e1'))).toBe(next.envelope.basis);
+    // While a brush's answer is asked the line keeps the last one: it changes only when the new answer lands.
+    expect(line(answered(null, first, 'exp:e1'))).toBe(first.envelope.basis);
+    expect(line(answered(null, first, 'opt:j1'))).toBe('');
+    expect(line(answered<typeof first>(null, null, 'exp:e1'))).toBe('');
+    expect([line(answered(null, first, 'exp:e1')), line(null)].some((t) => /loading|updating/i.test(t))).toBe(false);
   });
 
   it('the summary names the bundles, the axes, the largest bundle and the best median', () => {

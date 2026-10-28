@@ -213,27 +213,55 @@ export function observeResize(el: HTMLElement, cb: (w: number, h: number) => voi
 
 // --- drawing helpers -------------------------------------------------------------------------------------------
 
-/** A rectangle filled with `fill` and striped with `stripe` (the hatch of an untested square: never filled with a
- *  value). */
-export function hatchRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, fill: string, stripe: string): void {
-  if (w <= 0 || h <= 0) return;
-  ctx.save();
-  ctx.fillStyle = fill;
-  ctx.fillRect(x, y, w, h);
-  if (w >= 3 && h >= 3) {
-    ctx.beginPath();
-    ctx.rect(x, y, w, h);
-    ctx.clip();
-    ctx.strokeStyle = stripe;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    for (let d = -h; d < w; d += 6) {
-      ctx.moveTo(x + d, y + h);
-      ctx.lineTo(x + d + h, y);
-    }
-    ctx.stroke();
+/** The hatch of an untested square (never filled with a value) as one repeating pattern: `fill` striped with
+ *  `stripe` at 135° every 6 px, the dock's `.cell.empty.hatched`. A square, or a run of touching squares, then paints
+ *  with one fillRect — no clip, no save and restore per square. Falls back to the plain fill without a pattern. */
+export function hatchPattern(ctx: CanvasRenderingContext2D, fill: string, stripe: string): CanvasPattern | string {
+  const tile = document.createElement('canvas');
+  tile.width = 6;
+  tile.height = 6;
+  const t = tile.getContext('2d');
+  if (t === null) return fill;
+  t.fillStyle = fill;
+  t.fillRect(0, 0, 6, 6);
+  t.strokeStyle = stripe;
+  t.lineWidth = 1.5;
+  t.beginPath();
+  for (const [x0, y0, x1, y1] of [
+    [-1, 7, 7, -1],
+    [-1, 1, 1, -1],
+    [5, 7, 7, 5],
+  ]) {
+    t.moveTo(x0, y0);
+    t.lineTo(x1, y1);
   }
-  ctx.restore();
+  t.stroke();
+  return ctx.createPattern(tile, 'repeat') ?? fill;
+}
+
+/** One device pixel as a line width: Skia strokes it on its hairline path, which draws 2,000 parallel-coordinate
+ *  bundles in tens of milliseconds where a 1.5 px line takes hundreds. */
+export function hairline(): number {
+  return 1 / pixelRatio();
+}
+
+/** Runs `chunks` one per animation frame, the first at once, so a large layer is painted over several frames and
+ *  never in one long task (the canvas rasterizes what a frame recorded when that frame is produced). Returns the
+ *  cancel, which a newer paint of the same layer calls first. */
+export function paintInFrames(chunks: ReadonlyArray<() => void>): () => void {
+  let next = 0;
+  let handle = 0;
+  let stopped = false;
+  const step = () => {
+    if (stopped || next >= chunks.length) return;
+    chunks[next++]();
+    if (next < chunks.length) handle = requestAnimationFrame(step);
+  };
+  step();
+  return () => {
+    stopped = true;
+    cancelAnimationFrame(handle);
+  };
 }
 
 /** An outline just inside a rectangle (the cursor, the selected square). */

@@ -2,26 +2,31 @@
 // the active parameters, one polyline per bundle through its bins' centres (opacity by count, colour by the bundle's
 // median through the dock's `Heatmap.cells()` tones, so a losing median is red), the pinned trials as exact lines
 // over them, and a brush per axis that writes the shared filter. Every decision is `parallelBundles.ts`'s; this
-// asks for the view, draws it and turns a drag into the filter.
+// asks for the view, draws it and turns a drag into the filter. Two stacked canvases: the axes and the bundles are
+// painted once per answer or size, as hairlines over a few frames; the brushes and the pinned lines live on an
+// overlay that a drag repaints alone, with no React state per mouse move.
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { errorMessage } from '../api/client';
 import { cells, profitKind } from '../components/Heatmap';
 import type { LabEnvelope, LabParallel } from '../results';
-import { AXIS_COLOUR, Brush1D, CHART_FONT, LABEL_COLOUR, linearScale, observeResize, setupCanvas, strokeLine } from './charts/canvas';
+import type { CatalogEntry } from './catalog';
+import { AXIS_COLOUR, Brush1D, CHART_FONT, hairline, LABEL_COLOUR, linearScale, observeResize, paintInFrames, setupCanvas, strokeLine, type Scale } from './charts/canvas';
 import { valueText, type Tone } from './labHeatmapModel';
 import { objectiveText } from './LabKpiStrip';
-import { panelLabel } from './labQuery';
+import { answered, panelLabel } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
 import { filterHash, type PinSlot } from './labStore';
 import { LabError } from './NotBuilt';
 import { axisLabel, axisPositions, brushToFilter, exactLine, nearestAxis, opacityFor, PARALLEL_MAX_AXES, parallelBasis, parallelSummary, polyline } from './parallelBundles';
 import type { LabQueryData, Stamped } from './useLabQuery';
-import { sourceFamilies } from './useLabSource';
+import { sourceFamilies, type TrialRow } from './useLabSource';
 
 const PAD = 48; // the first and the last axis stand this far in from the canvas's edges
 const TOP = 36; // room above the axes for the `.parallel-axis` names and each axis's top value
 const BOTTOM = 20; // and below them for its bottom value
 const HIT = 14; // a press this close to an axis brushes it
+/** The bundles one frame strokes: 2,000 hairline bundles paint over 8 frames, never in one long task. */
+const FRAME_BUNDLES = 250;
 /** A bundle's stroke by the tone of its median: green only for a winning value, red for a losing one. */
 const LINE: Record<Tone, string> = { hot: '#39d98a', gain: '#2f9e6a', mid: '#7690a3', cool: '#dd98a0', loss: '#ff5c67', empty: '#4f6b80' };
 const PIN_COLOUR: Record<PinSlot, string> = { A: '#f5bd51', B: '#2da7ff', C: '#b784ff' };
@@ -29,25 +34,123 @@ const PIN_SLOTS: PinSlot[] = ['A', 'B', 'C'];
 const BRUSH_FILL = 'rgba(45, 167, 255, 0.18)';
 const BRUSH_EDGE = '#2da7ff';
 
+/** An answered view and what it was asked for: the basis and the summary describe it until the next one lands. */
+type Answer = { key: string; source: string; metric: string; envelope: Stamped<LabEnvelope<LabParallel>> };
+type Live = { axis: number; range: [number, number] | null };
+type Pinned = { slot: PinSlot; row: TrialRow };
+
+/** Where each axis stands and its scale over the parameter's catalog range (so a brush keeps its meaning while the
+ *  quantile bins move with the filter). */
+function geometry(active: CatalogEntry[], w: number, h: number): { xs: number[]; scales: Scale[] } {
+  return {
+    xs: axisPositions(active.length, w, PAD),
+    scales: active.map((e) => linearScale([Math.min(e.start, e.stop), Math.max(e.start, e.stop)], [h - BOTTOM, TOP])),
+  };
+}
+
+/** Paints the base layer: the axes with their end values at once, then the bundles as hairlines, the smallest first
+ *  so the largest lie on top, a frame's worth at a time. Returns the cancel. */
+function paintBundles(canvas: HTMLCanvasElement, w: number, h: number, active: CatalogEntry[], view: LabParallel | null, metric: string): () => void {
+  const ctx = setupCanvas(canvas, w, h);
+  if (w <= 0 || h <= TOP + BOTTOM) return () => undefined;
+  const { xs, scales } = geometry(active, w, h);
+  const room = active.length > 1 ? xs[1] - xs[0] - 6 : w - 2 * PAD;
+  const chunks: Array<() => void> = [
+    () => {
+      ctx.font = CHART_FONT;
+      ctx.textAlign = 'center';
+      active.forEach((entry, i) => {
+        const x = Math.round(xs[i]) + 0.5;
+        ctx.strokeStyle = AXIS_COLOUR;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, TOP);
+        ctx.lineTo(x, h - BOTTOM);
+        ctx.stroke();
+        ctx.fillStyle = LABEL_COLOUR;
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(valueText(Math.max(entry.start, entry.stop)), xs[i], TOP - 3, room);
+        ctx.textBaseline = 'top';
+        ctx.fillText(valueText(Math.min(entry.start, entry.stop)), xs[i], h - BOTTOM + 3, room);
+      });
+    },
+  ];
+  if (view !== null && view.bundles.length > 0) {
+    const { bundles } = view;
+    const most = Math.max(...bundles.map((b) => b.count));
+    // The bundles' tones are the dock's: one row of medians through `cells()`, a null median never coloured.
+    const tones = cells([0], bundles.map((_, k) => k), [bundles.map((b) => b.median)], metric === 'max_drawdown', profitKind(metric))[0] ?? [];
+    const centres = view.bins.map((b) => b.centres);
+    const width = hairline();
+    for (let end = bundles.length; end > 0; end -= FRAME_BUNDLES) {
+      const start = Math.max(0, end - FRAME_BUNDLES);
+      chunks.push(() => {
+        ctx.lineWidth = width;
+        for (let k = end - 1; k >= start; k--) {
+          ctx.globalAlpha = opacityFor(bundles[k].count, most);
+          ctx.strokeStyle = LINE[tones[k]?.tone ?? 'empty'];
+          strokeLine(ctx, polyline(bundles[k], scales, centres, xs));
+        }
+        ctx.globalAlpha = 1;
+      });
+    }
+  }
+  return paintInFrames(chunks);
+}
+
+/** Paints the overlay: each axis's committed range (the live one on the axis being dragged) and the pinned trials'
+ *  exact lines with their slot letters. A handful of shapes, so a drag repaints it on every move. */
+function paintOverlay(canvas: HTMLCanvasElement | null, w: number, h: number, active: CatalogEntry[], ranges: Record<string, [number, number]>, pinned: Pinned[], live: Live | null): void {
+  if (canvas === null) return;
+  const ctx = setupCanvas(canvas, w, h);
+  if (w <= 0 || h <= TOP + BOTTOM) return;
+  const { xs, scales } = geometry(active, w, h);
+  active.forEach((entry, i) => {
+    const range = live !== null && live.axis === i && live.range !== null ? live.range : (ranges[entry.path] ?? null);
+    if (range === null) return;
+    const top = Math.min(scales[i](range[1]), scales[i](range[0]));
+    const height = Math.max(Math.abs(scales[i](range[0]) - scales[i](range[1])), 2);
+    ctx.fillStyle = BRUSH_FILL;
+    ctx.fillRect(xs[i] - 8, top, 16, height);
+    ctx.strokeStyle = BRUSH_EDGE;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(xs[i] - 8, top, 16, height);
+  });
+  ctx.lineWidth = 2.5;
+  ctx.font = CHART_FONT;
+  for (const { slot, row } of pinned) {
+    const line = exactLine(row.params, active.map((e) => e.path), scales, xs);
+    ctx.strokeStyle = PIN_COLOUR[slot];
+    strokeLine(ctx, line);
+    const end = [...line].reverse().find((p) => p !== null);
+    if (end) {
+      ctx.fillStyle = PIN_COLOUR[slot];
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(slot, end[0] + 6, end[1]);
+    }
+  }
+}
+
 export function ParallelCoords({ data }: { data: LabQueryData }) {
   const lab = useLab();
   const dispatch = useLabDispatch();
   const { loaded, query, knownRows, tick } = data;
   // The active parameters in catalog order (Phase 2: every parameter is active), at most PARALLEL_MAX_AXES.
   const entries = useMemo(() => (loaded ? sourceFamilies(loaded).flatMap((f) => f.entries) : []), [loaded]);
-  const shown = entries.slice(0, PARALLEL_MAX_AXES);
-  const axes = shown.map((e) => e.path);
+  const active = entries.slice(0, PARALLEL_MAX_AXES);
+  const axes = active.map((e) => e.path);
+  const axesKey = active.map((e) => `${e.path}:${e.start}:${e.stop}`).join(',');
   const source = loaded ? `${loaded.kind}:${loaded.id}` : null;
   const metric = lab.metric;
-  const lowerIsBetter = metric === 'max_drawdown';
-  // The view in hand answers this key; a refresh of the same key keeps it on screen while it updates, another
-  // filter, metric or parameter set drops it.
+  // The view in hand answers this key; a refresh of the same key keeps it drawn while it updates, another filter,
+  // metric or parameter set waits for its own answer.
   const viewKey = source === null || axes.length === 0 ? null : [source, axes.join(','), metric, filterHash(lab.filter)].join('|');
 
   const [retry, setRetry] = useState(0);
-  const [answer, setAnswer] = useState<{ key: string; envelope: Stamped<LabEnvelope<LabParallel>> } | null>(null);
+  const [answer, setAnswer] = useState<Answer | null>(null);
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
-  const [pending, setPending] = useState(false);
+  const [asking, setAsking] = useState(false);
   const seq = useRef(0);
   const asked = useRef<string | null>(null);
   useEffect(() => {
@@ -55,48 +158,70 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
     if (mark !== null && asked.current === mark) return; // React's development double-run of the same ask
     asked.current = mark;
     const mine = ++seq.current;
-    if (viewKey === null) return;
-    setPending(true);
+    if (viewKey === null || source === null) return;
+    setAsking(true);
     query<LabParallel>('parallel', { axes, metric })
       .then((envelope) => {
         if (mine !== seq.current) return; // a newer ask owns the view
-        setPending(false);
+        setAsking(false);
         if (envelope === null) return; // the filter or the source moved on: its own ask follows
-        setAnswer({ key: viewKey, envelope });
+        setAnswer({ key: viewKey, source, metric, envelope });
         setFailure(null);
       })
       .catch((e: unknown) => {
         if (mine !== seq.current) return;
-        setPending(false);
+        setAsking(false);
         setFailure({ key: viewKey, message: errorMessage(e) });
       });
     // The key stands for the source, the parameter set, the metric and the filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewKey, tick, retry]);
-  const envelope = answer !== null && answer.key === viewKey ? answer.envelope : null;
+  // Drawn: the answer for the view in hand. Described by the basis and the summary: that answer, else the last one
+  // this source gave, until the next lands (a pending query shows as `data-loading` and `#lab-parallel-loading`).
+  const current = answer !== null && answer.key === viewKey ? answer : null;
+  const shown = answered(current, answer, source);
   const error = failure !== null && failure.key === viewKey ? failure.message : null;
 
   const wrap = useRef<HTMLDivElement>(null);
-  const canvas = useRef<HTMLCanvasElement>(null);
+  const base = useRef<HTMLCanvasElement>(null);
+  const overlay = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   useEffect(() => {
     const el = wrap.current;
     if (el === null) return;
     return observeResize(el, (w, h) => setSize((s) => (s.w === w && s.h === h ? s : { w, h })));
   }, []);
-  const xs = axisPositions(axes.length, size.w, PAD);
-  const scales = shown.map((e) => linearScale([Math.min(e.start, e.stop), Math.max(e.start, e.stop)], [size.h - BOTTOM, TOP]));
+  const { xs, scales } = geometry(active, size.w, size.h);
 
   // The pinned trials of this source whose rows are known: drawn exactly, over the bundles.
-  const pinned = PIN_SLOTS.flatMap((slot) => {
+  const pinned: Pinned[] = PIN_SLOTS.flatMap((slot) => {
     const id = lab.pins[slot];
     const row = id !== undefined && source !== null && id.startsWith(`${source}#`) ? knownRows[id] : undefined;
     return row ? [{ slot, row }] : [];
   });
   const pinsActive = PIN_SLOTS.some((slot) => lab.pins[slot] !== undefined);
+  const pinsKey = pinned.map((p) => `${p.slot}:${p.row.id}`).join(',');
+  const rangesKey = JSON.stringify(lab.filter.ranges);
 
-  // A drag along an axis: the live range while it goes on, the filter written on release.
-  const [drag, setDrag] = useState<{ axis: number; range: [number, number] | null } | null>(null);
+  // The base layer: painted only when a new answer, the size or the parameter set arrives.
+  useEffect(() => {
+    const el = base.current;
+    if (el === null) return;
+    return paintBundles(el, size.w, size.h, active, current?.envelope ?? null, current?.metric ?? metric);
+    // The answer, the size and the axes key stand for what the layer shows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current, size.w, size.h, axesKey]);
+
+  // The overlay: the committed ranges and the pinned lines, and the live brush while a drag goes on.
+  const live = useRef<Live | null>(null);
+  useEffect(() => {
+    paintOverlay(overlay.current, size.w, size.h, active, lab.filter.ranges, pinned, live.current);
+    // The keys stand for the ranges, the pins and the axes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [size.w, size.h, axesKey, rangesKey, pinsKey]);
+
+  // A drag along an axis paints its live range on the overlay from the gesture itself and writes the filter once,
+  // on release.
   const endDrag = useRef<(() => void) | null>(null);
   useEffect(() => () => endDrag.current?.(), []);
   const onMouseDown = (e: ReactMouseEvent<HTMLCanvasElement>) => {
@@ -107,120 +232,59 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
     e.preventDefault();
     const path = axes[i];
     const brush = new Brush1D(scales[i], (range) => dispatch(brushToFilter(path, range)));
+    const { w, h } = size;
+    const ranges = lab.filter.ranges;
+    const paint = () => paintOverlay(overlay.current, w, h, active, ranges, pinned, live.current);
     brush.down(e.clientY - box.top);
-    setDrag({ axis: i, range: null });
+    live.current = { axis: i, range: null };
     const move = (ev: MouseEvent) => {
       brush.move(ev.clientY - box.top);
-      setDrag({ axis: i, range: brush.range });
+      live.current = { axis: i, range: brush.range };
+      paint();
     };
     const stop = () => {
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
       endDrag.current = null;
+      live.current = null;
     };
     const up = () => {
       stop();
       brush.up();
-      setDrag(null);
+      paint();
     };
     endDrag.current = stop;
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   };
 
-  useEffect(() => {
-    const el = canvas.current;
-    if (el === null) return;
-    const ctx = setupCanvas(el, size.w, size.h);
-    if (size.w <= 0 || size.h <= TOP + BOTTOM) return;
-    const room = axes.length > 1 ? xs[1] - xs[0] - 6 : size.w - 2 * PAD;
-    ctx.font = CHART_FONT;
-    ctx.textAlign = 'center';
-    shown.forEach((entry, i) => {
-      const x = Math.round(xs[i]) + 0.5;
-      ctx.strokeStyle = AXIS_COLOUR;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x, TOP);
-      ctx.lineTo(x, size.h - BOTTOM);
-      ctx.stroke();
-      ctx.fillStyle = LABEL_COLOUR;
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(valueText(Math.max(entry.start, entry.stop)), xs[i], TOP - 3, room);
-      ctx.textBaseline = 'top';
-      ctx.fillText(valueText(Math.min(entry.start, entry.stop)), xs[i], size.h - BOTTOM + 3, room);
-    });
-    if (envelope !== null && envelope.bundles.length > 0) {
-      const most = Math.max(...envelope.bundles.map((b) => b.count));
-      // The bundles' tones are the dock's: one row of medians through `cells()`, a null median never coloured.
-      const tones = cells([0], envelope.bundles.map((_, k) => k), [envelope.bundles.map((b) => b.median)], lowerIsBetter, profitKind(metric))[0] ?? [];
-      const centres = envelope.bins.map((b) => b.centres);
-      ctx.lineWidth = 1.5;
-      for (let k = envelope.bundles.length - 1; k >= 0; k--) {
-        const bundle = envelope.bundles[k]; // the smallest first, so the largest lie on top
-        ctx.globalAlpha = opacityFor(bundle.count, most);
-        ctx.strokeStyle = LINE[tones[k]?.tone ?? 'empty'];
-        strokeLine(ctx, polyline(bundle, scales, centres, xs));
-      }
-      ctx.globalAlpha = 1;
-    }
-    shown.forEach((entry, i) => {
-      const range = drag !== null && drag.axis === i && drag.range !== null ? drag.range : (lab.filter.ranges[entry.path] ?? null);
-      if (range === null) return;
-      const top = scales[i](range[1]);
-      const bottom = scales[i](range[0]);
-      ctx.fillStyle = BRUSH_FILL;
-      ctx.fillRect(xs[i] - 8, Math.min(top, bottom), 16, Math.max(Math.abs(bottom - top), 2));
-      ctx.strokeStyle = BRUSH_EDGE;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(xs[i] - 8, Math.min(top, bottom), 16, Math.max(Math.abs(bottom - top), 2));
-    });
-    ctx.lineWidth = 2.5;
-    for (const { slot, row } of pinned) {
-      const line = exactLine(row.params, axes, scales, xs);
-      ctx.strokeStyle = PIN_COLOUR[slot];
-      strokeLine(ctx, line);
-      const last = [...line].reverse().find((p) => p !== null);
-      if (last) {
-        ctx.fillStyle = PIN_COLOUR[slot];
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(slot, last[0] + 6, last[1]);
-      }
-    }
-  });
-
-  const basis =
-    envelope !== null
-      ? `${parallelBasis(envelope.basis, pinsActive ? pinned.length : null)}${panelLabel(envelope)}`
-      : loaded === null
-        ? data.loading
-          ? 'loading the source…'
-          : 'no source open'
-        : axes.length === 0
-          ? 'no parameters to draw: this source varies none'
-          : error !== null
-            ? 'no bundles: the query failed'
-            : 'loading the bundles…';
-  const summary = envelope !== null ? parallelSummary(envelope, metric, lowerIsBetter, (v) => objectiveText(metric, v)) : basis;
+  const pending = loaded === null ? data.loading : viewKey !== null && error === null && (current === null || asking);
+  const basis = shown !== null ? `${parallelBasis(shown.envelope.basis, pinsActive ? pinned.length : null)}${panelLabel(shown.envelope)}` : '';
+  const summary = shown !== null ? parallelSummary(shown.envelope, shown.metric, shown.metric === 'max_drawdown', (v) => objectiveText(shown.metric, v)) : '';
   const labelWidth = axes.length > 1 ? Math.max(xs[1] - xs[0] - 6, 24) : Math.max(size.w - 2 * PAD, 24);
 
   return (
-    <div className="lab-parallel-panel">
+    <div className="lab-parallel-panel" data-loading={pending ? 'true' : 'false'}>
       <div className="parallel-toolbar">
         <span className="lab-basis" id="lab-parallel-basis">
           {basis}
         </span>
+        {pending && (
+          <span className="sub lab-loading" id="lab-parallel-loading">
+            {loaded === null ? 'loading the source…' : 'loading the bundles…'}
+          </span>
+        )}
       </div>
       <div className="sub">
         Each line is a bundle of trials sharing a quantile bin on every axis; drag along an axis to brush it into the shared filter, click an axis to clear its brush, Esc clears every brush.
         {entries.length > PARALLEL_MAX_AXES ? ` The first ${PARALLEL_MAX_AXES} of ${entries.length} parameters, in catalog order.` : ''}
-        {pending ? ' · updating…' : ''}
       </div>
+      {loaded !== null && axes.length === 0 && <div className="lab-empty">no parameters to draw: this source varies none</div>}
       {error !== null && <LabError message={`Parallel coordinates unavailable: ${error}`} onRetry={() => setRetry((n) => n + 1)} />}
-      {envelope?.empty ? <div className="lab-empty">{envelope.empty}</div> : null}
-      <div className="lab-parallel" id="lab-parallel" ref={wrap}>
-        <canvas id="lab-parallel-canvas" ref={canvas} role="img" aria-label={summary} onMouseDown={onMouseDown} />
+      {current?.envelope.empty ? <div className="lab-empty">{current.envelope.empty}</div> : null}
+      <div className="lab-parallel" id="lab-parallel" ref={wrap} data-loading={pending ? 'true' : 'false'}>
+        <canvas id="lab-parallel-canvas" ref={base} role="img" aria-label={summary} onMouseDown={onMouseDown} />
+        <canvas className="parallel-overlay" ref={overlay} aria-hidden="true" />
         {size.w > 0 &&
           axes.map((path, i) => (
             <span key={path} className="parallel-axis" data-path={path} data-x={xs[i]} title={path} style={{ left: `${xs[i]}px`, maxWidth: `${labelWidth}px` }}>

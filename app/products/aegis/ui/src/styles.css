@@ -456,6 +456,8 @@ tr.muted td{color:#4f6b80}
 .heat-body{display:flex;gap:10px;flex:1;min-height:180px}
 .heat-canvas-wrap{position:relative;flex:1;min-width:0;min-height:0}
 .heat-canvas-wrap canvas,.lab-parallel canvas{position:absolute;top:0;left:0;display:block}
+.heat-overlay,.parallel-overlay{pointer-events:none}
+.lab-loading{margin-top:0}
 .heat-canvas-wrap canvas:focus-visible{outline:1px solid var(--blue);outline-offset:-1px}
 .square-panel{flex:none;width:250px;min-height:0;overflow:auto;border:1px solid var(--line);border-radius:5px;background:var(--panel);padding:8px;display:flex;flex-direction:column;gap:4px}
 .square-panel > *{flex:none}

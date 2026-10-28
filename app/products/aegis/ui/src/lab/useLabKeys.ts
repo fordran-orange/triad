@@ -36,9 +36,8 @@ export function useLabKeys(matrix: CursorDims | null) {
     }
     if (e.key === 'Enter') {
       if (shown === null || lab.cursor === null) return;
-      // Other buttons and the rows keep their own Enter; on a heatmap square, and on the heatmap's own mode toggles
-      // (pressed with a click or Space), it selects the cursor's square instead.
-      if (target?.closest('button, a, [role=button], tr[data-trial]') && !target.closest('.heat-grid, .heat-toolbar')) return;
+      // Other buttons and the rows keep their own Enter; on a heatmap square it selects the cursor's square instead.
+      if (target?.closest('button, a, [role=button], tr[data-trial]') && !target.closest('.heat-grid')) return;
       e.preventDefault();
       dispatch(selectSquareAction(shown, lab.cursor.r, lab.cursor.c));
       return;

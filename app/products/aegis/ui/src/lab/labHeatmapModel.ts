@@ -4,8 +4,8 @@
 // selection resolves to, and the grid's geometry on the canvas. LabHeatmap only draws what this returns.
 import { cells, profitKind } from '../components/Heatmap';
 import { compactMoney } from '../layout';
-import { OBJECTIVE_LABELS, PERCENT_OBJECTIVES, type LabMatrix, type LabSquareStats, type Objective } from '../results';
-import { SHARPE, SHARPE_LABEL } from './labQuery';
+import { OBJECTIVE_LABELS, PERCENT_OBJECTIVES, type LabMatrix, type LabSnapshot, type LabSquareStats, type Objective } from '../results';
+import { panelLabel, SHARPE, SHARPE_LABEL } from './labQuery';
 import type { LabAction, LabMode, SquareSelection } from './labStore';
 
 export type Tone = ReturnType<typeof cells>[number][number]['tone'];
@@ -84,6 +84,12 @@ export function heatModel(
     summary = `${size}, best at ${matrix.rows_path} = ${valueText(matrix.rows[found.r])} / ${matrix.cols_path} = ${valueText(matrix.cols[found.c])}`;
   }
   return { squares, basis: matrix.basis, legend: matrix.legend, empty, summary };
+}
+
+/** `#lab-heatmap-basis` for an answered matrix: the server's basis and legend verbatim, and its own snapshot while
+ *  provisional. */
+export function heatBasis(answer: Pick<LabMatrix, 'basis' | 'legend'> & { provisional: boolean; snapshot: LabSnapshot | null; receivedAt: string }): string {
+  return `${answer.basis} · ${answer.legend}${panelLabel(answer)}`;
 }
 
 /** Where the keyboard cursor may stand on a matrix: its row and column values and its two axis paths ([rows,

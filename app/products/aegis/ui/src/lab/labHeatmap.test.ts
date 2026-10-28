@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { cells, profitKind } from '../components/Heatmap';
-import type { AxisMatrix, LabMatrix, LabSquareStats } from '../results';
-import { cursorDims, heatLayout, heatModel, locateSquare, selectSquareAction, squareAt, squareView, trialSquare } from './labHeatmapModel';
+import type { AxisMatrix, LabMatrix, LabSnapshot, LabSquareStats } from '../results';
+import { cursorDims, heatBasis, heatLayout, heatModel, locateSquare, selectSquareAction, squareAt, squareView, trialSquare } from './labHeatmapModel';
+import { answered } from './labQuery';
 
 const ROWS = 'long_side.indicators.ema.length';
 const COLS = 'long_side.indicators.sma.length';
@@ -191,6 +192,25 @@ describe('labHeatmap', () => {
     expect(trialSquare(m, 'exp:e1#3')).toEqual({ r: 1, c: 1 });
     expect(trialSquare(m, 'exp:e1#99')).toBeNull();
     expect(trialSquare(agg, 'exp:e1#0')).toBeNull();
+  });
+
+  it('the basis line carries only answered text: the answer verbatim, else the last answer of this source, never a loading literal', () => {
+    type Shown = { source: string; envelope: LabMatrix & { provisional: boolean; snapshot: LabSnapshot | null; receivedAt: string } };
+    const settled = { ...exact([5], [20], [[1]]), provisional: false, snapshot: null, receivedAt: '2026-10-28T12:00:00Z' };
+    const first: Shown = { source: 'exp:e1', envelope: settled };
+    expect(heatBasis(settled)).toBe('Tested (exact) · empty = untested');
+    const running = { ...aggregate([5], [20], [[3]], [[stats(9)]]), provisional: true, snapshot: { generation: 3, chunk_watermark: 7 }, receivedAt: '2026-10-28T12:00:05Z' };
+    expect(heatBasis(running)).toBe('Aggregated from tested (n = 40) · Aggregated n ≥ 8 / n < 8 low · PROVISIONAL · snapshot 12:00:05 · gen 3');
+    // While the next answer is asked there is no current one: the line keeps the last answer this source gave.
+    expect(answered(null, first, 'exp:e1')).toBe(first);
+    const next: Shown = { source: 'exp:e1', envelope: running };
+    expect(answered(next, first, 'exp:e1')).toBe(next);
+    // Another source's last answer is never shown; before any answer the line is empty.
+    expect(answered(null, first, 'exp:e2')).toBeNull();
+    expect(answered<Shown>(null, null, 'exp:e1')).toBeNull();
+    for (const shown of [answered(null, first, 'exp:e1'), answered<Shown>(null, null, 'exp:e1')]) {
+      expect(shown === null ? '' : heatBasis(shown.envelope)).not.toMatch(/loading|updating/i);
+    }
   });
 
   it('heatLayout keeps the grid inside the canvas, caps a square, and an empty grid has no NaN', () => {
