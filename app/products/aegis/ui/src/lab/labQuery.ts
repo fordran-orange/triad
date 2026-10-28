@@ -223,13 +223,31 @@ export function optBody(body: LabQueryBody, side: 'long' | 'short'): LabQueryBod
   return out;
 }
 
-/** A job's trial from the `/lab` page as the Phase 1 row (`optRow`): the job's own paths, the side's metrics by
- *  name. Used when the status no longer holds the cell. */
+/** A job's trial from the `/lab` page as the rail card and the selection read it: its own trial id, the job's own
+ *  paths and the side's metrics by name. Never `optRow(job, trial_no)`: above CELLS_SENT the status lists the
+ *  job's best cells re-ordered, so its index is not a trial number. */
 export function optRowFromLab(row: LabRow, side: 'long' | 'short'): TrialRow {
   const prefix = `${side}_side.`;
   const params = Object.fromEntries(Object.entries(row.params).map(([path, v]) => [path.startsWith(prefix) ? path.slice(prefix.length) : path, v]));
   const values = Object.fromEntries(Object.entries(row.values).map(([column, v]) => [column.startsWith(`${side}.`) ? column.slice(side.length + 1) : column, v]));
   return { id: row.trial_id, label: `#${row.trial_no}`, params, values, valid: null };
+}
+
+/** The `/lab` trial of a grid job with exactly `params` (the job's own paths, as the dock's selection names them):
+ *  the same keys and the same numbers, whatever order the rows came in; null when none has them. The dock's list
+ *  is the job's best cells by its objective, the `/lab` frame every evaluated cell in order, so the dock's index
+ *  is never a trial number. */
+export function matchTrialByParams(rows: readonly LabRow[], params: Record<string, number>, side: 'long' | 'short'): LabRow | null {
+  const keys = Object.keys(params);
+  const found = rows.find((row) => Object.keys(row.params).length === keys.length && keys.every((key) => row.params[optPath(key, side)] === params[key]));
+  return found ?? null;
+}
+
+/** The page body that finds the dock's selected configuration among a job's `/lab` trials: the job's side, its
+ *  parameters fixed (the job's paths prefixed), lowest trial number first. */
+export function handOverBody(params: Record<string, number>, side: 'long' | 'short'): LabQueryBody {
+  const filter: LabFilter = { ranges: {}, values: { ...params }, scope: 'combined', pass: [], status: [] };
+  return optBody({ filter, view: 'page', filter_hash: null, sort: 'trial_no', limit: 10 }, side);
 }
 
 /** An experiment's trial from the `/lab` page as the table and the rail card read it. */

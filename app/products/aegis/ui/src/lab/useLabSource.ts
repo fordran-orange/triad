@@ -6,11 +6,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import type { ExperimentDocument } from '../contracts';
 import { axisChoices, axisLength, tooManySquares } from '../optimizer';
-import { METRICS, OBJECTIVES, type AxisMatrix, type ExperimentReport, type ExperimentSummary, type JobStatus, type Metric } from '../results';
+import { METRICS, OBJECTIVES, type AxisMatrix, type ExperimentReport, type ExperimentSummary, type JobStatus, type LabPage, type Metric } from '../results';
 import { useDispatch, useWorkspace } from '../state/workspace';
 import { families, parameterCount, type CatalogEntry, type Family } from './catalog';
+import { handOverBody, matchTrialByParams, optRowFromLab } from './labQuery';
 import { useLab, useLabDispatch, useLabMemory } from './labState';
-import { cellIndex, parseSource, sourceText, type LabSource } from './labStore';
+import { parseSource, sourceText, type LabSource } from './labStore';
 
 /** A job status as the worker sends it: the TS type leaves out a few fields the provenance block shows. */
 export type OptJob = JobStatus & { strategy_hash?: string; engine?: string };
@@ -239,7 +240,8 @@ export function useLabSource() {
   }, [live, key, dispatch]);
 
   // Once a source has loaded, make the store's axes and metric ones it has (a picked source keeps what it can), and
-  // select the trial the dock handed over: the job's cell with exactly its parameters (none matching: no selection).
+  // select the trial the dock handed over: the job's `/lab` trial with exactly its parameters (none matching: no
+  // selection). The dock lists the job's best cells, so its index is not a trial number: the worker is asked.
   const loadedKey = loaded ? `${loaded.kind}:${loaded.id}` : null;
   useEffect(() => {
     if (loaded === null) return;
@@ -249,11 +251,20 @@ export function useLabSource() {
       const axes = effectiveOptAxes(loaded.job, lab.axes);
       if (axes && (lab.axes === null || axes[0] !== lab.axes[0] || axes[1] !== lab.axes[1])) dispatch({ type: 'SET_AXES', axes });
       if (!(METRICS as string[]).includes(lab.metric)) dispatch({ type: 'SET_METRIC', metric: loaded.job.objective });
-      const index = handed !== null && handed.source === loadedKey ? cellIndex(loaded.job.cells, handed.params) : -1;
-      if (index >= 0) {
-        const row = optRow(loaded.job, index);
-        rememberRow(row); // as a row click does: the selection card reads it
-        dispatch({ type: 'SELECT_TRIALS', ids: [row.id] });
+      if (handed !== null && handed.source === loadedKey) {
+        const { side } = loaded.job;
+        api
+          .labQuery<LabPage>(handed.source, handOverBody(handed.params, side))
+          .then((envelope) => {
+            const now = loadedRef.current;
+            if (now === null || `${now.kind}:${now.id}` !== handed.source) return; // another source since
+            const row = matchTrialByParams(envelope.rows, handed.params, side);
+            if (row === null) return;
+            const trial = optRowFromLab(row, side);
+            rememberRow(trial); // as a row click does: the selection card reads it
+            dispatch({ type: 'SELECT_TRIALS', ids: [trial.id] });
+          })
+          .catch(() => undefined); // the worker could not say which trial it is: no selection, as with no match
       }
     } else {
       const paths = loaded.document.surface.parameters.map((p) => p.path);

@@ -91,6 +91,17 @@ export function badge(counts: ReadonlyArray<ReadonlyArray<number>> | null | unde
   return { n, text: n > 0 ? countText(n) : null, hatched: tone === 'empty' && n === 0 };
 }
 
+/** Which squares of a job's own grid were tested, as `counts` for the badges and the hatch: 1 where the trade
+ *  count is defined (every evaluated cell has one, zero trades included; a refused or pending cell has none), 0
+ *  elsewhere. The status's matrices cover every evaluated cell, while its cell list holds only the best CELLS_SENT,
+ *  and a metric can be undefined over a tested square (MAR below a year), so neither of those can say. Null when
+ *  the status carries no trade-count matrix for the side: then no badge and no hatch, never a guess. */
+export function testedCounts(matrices: Partial<Record<string, Partial<Record<string, ReadonlyArray<ReadonlyArray<number | null>>>>>> | null | undefined, side: string): number[][] | null {
+  const grid = matrices?.trade_count?.[side];
+  if (!grid) return null;
+  return grid.map((row) => row.map((value) => (value !== null && Number.isFinite(value) ? 1 : 0)));
+}
+
 /** The legend the dock's basis line carries (spec §5.1): what a square's look means. The robust plateau overlay
  *  arrives with Phase 3's robustness estimators. */
 export function HeatLegend() {

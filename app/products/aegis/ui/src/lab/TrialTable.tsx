@@ -10,7 +10,7 @@ import { LinkedChip } from './LinkedChip';
 import { LabError } from './NotBuilt';
 import { pageFor, ROW_HEIGHT, windowRows } from './trialWindow';
 import type { LabQueryData, Stamped } from './useLabQuery';
-import { jobPaths, optMetric, optRow, type TrialRow } from './useLabSource';
+import { jobPaths, optMetric, type TrialRow } from './useLabSource';
 
 /** The table's order: a column and a direction, or `column: null` for the metric in view, best first. */
 export interface TrialSort {
@@ -103,17 +103,14 @@ export function TrialTable({
   ];
 
   const progress = loaded?.kind === 'exp' ? (loaded.document.progress as { cells_done?: unknown }) : null;
-  const estimate = Math.max(1, job ? job.cells.length : (numberOrNull(progress?.cells_done) ?? 1)); // probes once; the response gives the total
+  const estimate = Math.max(1, job ? (job.cells_done ?? job.progress.done) : (numberOrNull(progress?.cells_done) ?? 1)); // probes once; the response gives the total
   const current = page !== null && page.key === queryKey ? page : null;
   const total = page ? page.total : estimate;
   const rendered = windowRows({ total, scrollTop: view.top, viewportHeight: view.height });
   const rowAt = (i: number): LabRow | null => (current && i >= current.offset && i < current.offset + current.rows.length ? current.rows[i - current.offset] : null);
-  /** The row as the selection card reads it: a grid job's own cell when its status still holds it (all four
-   *  optimizer metrics), else the page row. */
-  const trialRow = (row: LabRow): TrialRow => {
-    if (!job) return expRowFromLab(row);
-    return job.cells[row.trial_no] !== undefined ? optRow(job, row.trial_no) : optRowFromLab(row, job.side);
-  };
+  /** The row as the selection card reads it: the page row itself, its own trial id, params and values (a grid
+   *  job's status lists its best cells re-ordered, so `job.cells[trial_no]` would be another cell). */
+  const trialRow = (row: LabRow): TrialRow => (job ? optRowFromLab(row, job.side) : expRowFromLab(row));
   const select = (row: LabRow) => onSelect(trialRow(row));
 
   const measure = () => {
@@ -220,8 +217,6 @@ export function TrialTable({
   const single = selectedIds.length === 1 ? selectedIds[0] : null;
   const square = lab.selected !== null && 'square' in lab.selected;
   const scopeCounts = current?.envelope.scope ?? null;
-  const shown = job ? (job.cells_shown ?? job.cells.length) : 0;
-  const done = job ? (job.cells_done ?? job.progress.done) : 0;
 
   const body: ReactElement[] = [];
   for (let i = rendered.start; i < rendered.end; i++) {
@@ -292,11 +287,6 @@ export function TrialTable({
           · Tested (exact)
           {panelLabel(current?.envelope ?? null)}
         </span>
-        {job && shown < done && (
-          <span className="muted" title="the job's status holds its best cells; the Lab lists those">
-            the best {shown.toLocaleString('en-US')} of {done.toLocaleString('en-US')} cells the job sent
-          </span>
-        )}
         <LinkedChip />
         <span className="trial-pins">
           {PINS.map((slot) => {

@@ -63,13 +63,13 @@ function barsOf(loaded: LoadedSource | null): number | null {
 }
 
 function TrialCard({ row, scope, bars }: { row: TrialRow; scope: string; bars: number | null }) {
-  // An experiment's trial: its every metric from the trial route (a table page carries the columns it shows).
+  // Every metric of the trial from the trial route (a table page carries only the columns it shows), for an
+  // experiment's trial and a grid job's alike.
   const exp = row.id.startsWith('exp:');
   const [detail, setDetail] = useState<{ id: string; trial: LabTrial } | null>(null);
   const [failed, setFailed] = useState<{ id: string; message: string } | null>(null);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
-    if (!exp) return;
     let cancelled = false;
     const src = row.id.slice(0, row.id.lastIndexOf('#'));
     api
@@ -83,7 +83,7 @@ function TrialCard({ row, scope, bars }: { row: TrialRow; scope: string; bars: n
     return () => {
       cancelled = true;
     };
-  }, [exp, row.id, retry]);
+  }, [row.id, retry]);
   const metrics = detail !== null && detail.id === row.id ? (detail.trial.metrics[scope as 'combined' | 'long' | 'short'] ?? null) : null;
   const valueOf = (m: CardMetric): number | null => {
     const v: unknown = metrics !== null ? metrics[m] : row.values[exp ? `${scope}.${m}` : m];

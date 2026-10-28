@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { badge, cells, profitKind } from './Heatmap';
+import { badge, cells, profitKind, testedCounts } from './Heatmap';
 
 describe('heatmap mapping', () => {
   it('matrix maps to cells with fast rows and slow columns', () => {
@@ -95,5 +95,37 @@ describe('the dock overlays (Task 10): n badges and hatched untested squares', (
     expect(badge(counts, 0, 1, 'empty')).toEqual({ n: 3, text: '3', hatched: false });
     // A square outside the counts is untested.
     expect(badge(counts, 5, 5, 'empty')).toEqual({ n: 0, text: null, hatched: true });
+  });
+});
+
+describe('the dock counts tested squares from trade_count (defined for every evaluated cell)', () => {
+  // A grid above CELLS_SENT: the status lists only the best 1,000 cells, but its matrices cover every evaluated
+  // cell. MAR is undefined below a year (Review Focus 3): a tested square without a MAR value is tested, not untested.
+  const matrices = {
+    net_pnl: { long: [[-5, 3], [null, 12]] },
+    mar: { long: [[null, null], [null, null]] },
+    max_drawdown: { long: [[0.1, 0.2], [null, 0.3]] },
+    trade_count: { long: [[0, 14], [null, 40]] },
+  };
+
+  it('testedCounts is 1 where trade_count is defined (zero trades included) and 0 where no trial ran', () => {
+    expect(testedCounts(matrices, 'long')).toEqual([
+      [1, 1],
+      [0, 1],
+    ]);
+  });
+
+  it('a null-valued metric over an evaluated square: n 1, not hatched; an untested square: n 0, hatched', () => {
+    const counts = testedCounts(matrices, 'long');
+    const grid = cells([5, 6], [20, 25], matrices.mar.long, false, 'sign');
+    expect(grid[0][0].tone).toBe('empty'); // MAR undefined: no colour
+    expect(badge(counts, 0, 0, grid[0][0].tone)).toEqual({ n: 1, text: '1', hatched: false });
+    expect(badge(counts, 1, 0, grid[1][0].tone)).toEqual({ n: 0, text: null, hatched: true });
+  });
+
+  it('is null when the status carries no trade_count matrix for the side (no badges, no hatch: never a guess)', () => {
+    expect(testedCounts({}, 'long')).toBeNull();
+    expect(testedCounts(matrices, 'short')).toBeNull();
+    expect(testedCounts(undefined, 'long')).toBeNull();
   });
 });

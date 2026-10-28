@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SHARPE_MIN_TRADES } from '../contracts';
 import { METRICS, OBJECTIVES, type LabRow, type LabSummary } from '../results';
-import { filterHash, initialLabState, type LabFilter, type LabScope, type LabState } from './labStore';
+import { cellIndex, filterHash, initialLabState, type LabFilter, type LabScope, type LabState } from './labStore';
 import {
   datasetLabel,
   defaultSort,
@@ -10,9 +10,11 @@ import {
   exactFixed,
   expMatrixKey,
   failedSource,
+  handOverBody,
   isCurrentHash,
   kpiTrialsText,
   lowN,
+  matchTrialByParams,
   metricList,
   optBody,
   optRowFromLab,
@@ -320,5 +322,59 @@ describe('failedSource (the X state of a source that would not open)', () => {
     expect(failedSource('opt:j1: 500: boom')).toBe('opt:j1');
     expect(failedSource('bogus: not a Lab source (exp:<id> or opt:<id>)')).toBeNull();
     expect(failedSource(null)).toBeNull();
+  });
+});
+
+describe('a grid job above CELLS_SENT: the dock list is the best cells re-ordered, the /lab frame is every cell', () => {
+  // The /lab frame numbers a job's trials by evaluation order; the dock's (and GET /optimize's) list is its best
+  // cells by the objective. The two orders differ, so an index into one is never a trial number of the other.
+  const frame: LabRow[] = [
+    row(0, -5, { trial_id: 'opt:j1#0', params: { 'long_side.indicators.ema.length': 5, 'long_side.indicators.sma.length': 20 } }),
+    row(1, 7, { trial_id: 'opt:j1#1', params: { 'long_side.indicators.ema.length': 6, 'long_side.indicators.sma.length': 20 } }),
+    row(2, 9, { trial_id: 'opt:j1#2', params: { 'long_side.indicators.ema.length': 6, 'long_side.indicators.sma.length': 25 } }),
+  ];
+  const bestList = [
+    { params: { 'indicators.ema.length': 6, 'indicators.sma.length': 25 } },
+    { params: { 'indicators.ema.length': 6, 'indicators.sma.length': 20 } },
+    { params: { 'indicators.ema.length': 5, 'indicators.sma.length': 20 } },
+  ];
+
+  it("matchTrialByParams resolves the dock's selected best-list entry to its /lab trial by params, not by index", () => {
+    const selected = bestList[0].params; // the dock's first row: the best cell
+    expect(cellIndex(bestList, selected)).toBe(0); // its place in the dock's list...
+    const found = matchTrialByParams(frame, selected, 'long');
+    expect(found?.trial_id).toBe('opt:j1#2'); // ...is trial 2 in the frame
+    expect(matchTrialByParams([...frame].reverse(), bestList[2].params, 'long')?.trial_id).toBe('opt:j1#0'); // whatever order the rows came in
+  });
+
+  it('matches the same keys and the same numbers only', () => {
+    expect(matchTrialByParams(frame, { 'indicators.ema.length': 7, 'indicators.sma.length': 20 }, 'long')).toBeNull();
+    expect(matchTrialByParams(frame, { 'indicators.ema.length': 6 }, 'long')).toBeNull(); // a key missing
+    expect(matchTrialByParams(frame, { ...bestList[0].params, 'indicators.rsi.length': 14 }, 'long')).toBeNull(); // a key extra
+    expect(matchTrialByParams(frame, bestList[0].params, 'short')).toBeNull(); // the other side's paths
+    expect(matchTrialByParams([], bestList[0].params, 'long')).toBeNull();
+  });
+
+  it('handOverBody asks the job side for that configuration, its paths prefixed', () => {
+    const body = handOverBody(bestList[0].params, 'long');
+    expect(body.view).toBe('page');
+    expect(body.filter).toEqual({
+      ranges: {},
+      values: { 'long_side.indicators.ema.length': 6, 'long_side.indicators.sma.length': 25 },
+      scope: 'long',
+      pass: [],
+      status: [],
+    });
+    expect(body.sort).toBe('trial_no');
+  });
+
+  it('a /lab row becomes the rail card row with its own trial id, params and values', () => {
+    expect(optRowFromLab(frame[2], 'long')).toEqual({
+      id: 'opt:j1#2',
+      label: '#2',
+      params: { 'indicators.ema.length': 6, 'indicators.sma.length': 25 },
+      values: { 'combined.net_pnl': 9 },
+      valid: null,
+    });
   });
 });
