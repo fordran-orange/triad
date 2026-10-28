@@ -18,6 +18,7 @@ from itertools import repeat
 
 import pandas as pd
 from pydantic import ValidationError
+from trading_core.process_power import opt_out_of_power_throttling
 
 SCOPES = ("combined", "long", "short")
 METRICS = (
@@ -126,7 +127,12 @@ def resample_curve(points: list[float], n: int = CURVE_POINTS) -> list[float]:
 
 
 def _init_worker(bars: list[dict] | pd.DataFrame, symbol: str, spec: dict, settings: dict) -> None:
+    """Each pool process's start. It first opts out of Windows power throttling: a process does
+    not inherit its windowless parent worker's opt-out (Lab Phase 2 Task 9 measured the children
+    "system managed", at about 4x §9.1b's per-trial cost). Then it holds the frame, the spec, the
+    settings and its indicator cache."""
     global _FRAME, _DATA_KEY, _SPEC, _SETTINGS, _CACHE, _WINDOW
+    opt_out_of_power_throttling()
     from products.aegis.backtest import BacktestSettings, _data_key
     from products.aegis.indicators import IndicatorCache
     from products.aegis.strategy import StrategySpec
