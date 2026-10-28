@@ -482,58 +482,85 @@ def _canonical(table: pa.Table) -> tuple[pa.Table, int]:
     return table.take(pa.array(keep)), int(copies.sum())
 
 
-def _promote(raw: pa.Table, index: int, legacy: LegacyContext) -> pa.Table:
-    """A layout-1 chunk in the layout-2 columns: trial_no = cell, block 0, attempt 0, the design
+# What every promotion reads from a layout-1 chunk: trial_no is its cell, the status comes from
+# valid / skip_reason and the design from its pass.
+_PROMOTION_INPUTS = ("cell", "pass", "valid", "skip_reason")
+
+
+def _legacy_columns(names: list[str], wanted: list[str] | None) -> list[str] | None:
+    """The layout-1 columns a promotion to `wanted` reads, in the file's order: its inputs plus
+    the wanted columns the chunk holds; every column for the full set (`wanted` None)."""
+    if wanted is None:
+        return None
+    return [name for name in names if name in _PROMOTION_INPUTS or name in wanted]
+
+
+def _promote(
+    raw: pa.Table, index: int, legacy: LegacyContext, names: list[str], wanted: list[str] | None
+) -> pa.Table:
+    """A layout-1 chunk in the layout-2 columns `wanted` (all of them with None), built as Arrow
+    arrays over the columns read, never per row: trial_no = cell, block 0, attempt 0, the design
     of its pass, the status from valid / skip_reason, the chunk's index, pos.<k> from the grid;
     param_key, reused_from, error, the trade Sharpe and finished_at are null (a layout-1 chunk
-    holds none of them)."""
+    holds none of them). `names` is the chunk file's own column list."""
     paths = list(legacy.paths)
-    missing = [path for path in paths if path not in raw.column_names]
+    missing = [path for path in paths if path not in names]
     if missing:
         raise ValueError(f"chunk {index:06d} has no column for {', '.join(missing)}")
     schema = _layout2_schema(paths)
+    out = schema.names if wanted is None else wanted
     n = len(raw)
-    cells = raw.column("cell").to_pylist()
-    passes = raw.column("pass").to_pylist()
-    valid = raw.column("valid").to_pylist()
-    reasons = raw.column("skip_reason").to_pylist()
-    positions = [legacy.grid.positions(int(cell)) for cell in cells]
-    promoted: dict[str, list] = {
-        TRIAL_NO: cells,
-        **{f"pos.{k}": [p[k] for p in positions] for k in range(len(paths))},
-        "design": [identity.design_of(label) for label in passes],
-        "block": [0] * n,
-        "status": [
-            "invalid" if reason is not None or not ok else "ok"
-            for ok, reason in zip(valid, reasons, strict=True)
-        ],
-        "attempt": [0] * n,
-        "chunk": [index] * n,
-    }
-    columns = {}
-    for name in schema.names:
-        if name in promoted:
-            columns[name] = promoted[name]
-        elif name in raw.column_names:
-            columns[name] = raw.column(name).to_pylist()
-        else:
-            columns[name] = [None] * n
-    return pa.table(columns, schema=schema)
+    cell = raw.column("cell").combine_chunks()
+    cells = cell.to_numpy(zero_copy_only=False)
+    grid = legacy.grid
+    if n and (cells.min() < 0 or cells.max() >= grid.size):
+        raise IndexError(f"chunk {index:06d} holds a cell outside its grid of {grid.size}")
+
+    def build(name: str) -> pa.Array | pa.ChunkedArray:
+        kind = schema.field(name).type
+        if name == TRIAL_NO:
+            return cell
+        if name.startswith("pos.") and name[4:].isdigit():
+            k = int(name[4:])
+            return pa.array((cells // grid.strides[k]) % grid.shape[k], kind)
+        if name == "design":
+            encoded = raw.column("pass").combine_chunks().dictionary_encode()
+            labels = encoded.dictionary.to_pylist()
+            designs = pa.array([identity.design_of(label) for label in labels], pa.string())
+            return designs.take(encoded.indices).cast(kind)
+        if name == "status":
+            ok = pc.and_(
+                pc.is_null(raw.column("skip_reason")), pc.fill_null(raw.column("valid"), False)
+            )
+            return pc.if_else(ok, "ok", "invalid").cast(kind)
+        if name in ("block", "attempt"):
+            return pa.array(np.zeros(n, dtype=np.uint8), kind)
+        if name == "chunk":
+            return pa.array(np.full(n, index, dtype=np.int32), kind)
+        if name in raw.column_names:
+            return raw.column(name).cast(kind)
+        return pa.nulls(n, kind)
+
+    return pa.Table.from_arrays(
+        [build(name) for name in out], schema=pa.schema([schema.field(name) for name in out])
+    )
 
 
 def _read(path: Path, wanted: list[str] | None, legacy: LegacyContext | None) -> pa.Table:
     try:
         with pq.ParquetFile(path) as parquet:  # closed at once: an open handle blocks reclaim
-            if TRIAL_NO in parquet.schema_arrow.names:
+            names = parquet.schema_arrow.names
+            if TRIAL_NO in names:
                 table = parquet.read(columns=wanted)
                 return table if wanted is None else table.select(wanted)
-            raw = parquet.read()
+            if legacy is None:
+                raise ValueError(
+                    f"{path.name} is a layout-1 chunk: it is read with its legacy context"
+                )
+            raw = parquet.read(columns=_legacy_columns(names, wanted))  # projected, never all
     except FileNotFoundError as exc:
         raise SnapshotExpired(f"{path.name} went missing while its snapshot was read") from exc
-    if legacy is None:
-        raise ValueError(f"{path.name} is a layout-1 chunk: it is read with its legacy context")
-    promoted = _promote(raw, chunk_index_of(path), legacy)
-    return promoted if wanted is None else promoted.select(wanted)
+    return _promote(raw, chunk_index_of(path), legacy, names, wanted)
 
 
 def _empty(wanted: list[str] | None, legacy: LegacyContext | None) -> pa.Table:

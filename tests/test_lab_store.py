@@ -1133,6 +1133,45 @@ def test_legacy_read_equals_cells(tmp_path):
         lab_store.read_latest(folder)  # a layout-1 chunk is promoted only with its context
 
 
+def test_legacy_promotion_reads_projected_columns_only(tmp_path, monkeypatch):
+    """A projected read of a legacy folder loads the promotion's inputs and the wanted columns
+    only, never the other metric columns (Global Constraints: projected columns only)."""
+    folder = JsonRunRepository(tmp_path / "aegis").experiment_dir("legacy-projected", "cells")
+    folder.mkdir(parents=True)
+    skipped = trial_row(5, valid=False, skip_reason="insufficient bars", metrics=None)
+    chunks = [rows_of(range(5)), [skipped, *rows_of(range(6, 12), **{"pass": "refine"})]]
+    for index, rows in enumerate(chunks):
+        pq.write_table(exp._cells_table(rows, PATHS), folder / f"{index:06d}.parquet")
+    legacy = lab_store.LegacyContext(GRID, PATHS)
+    full = lab_store.read_latest(folder, legacy=legacy).table
+
+    recorded: list[list[str] | None] = []
+    read = pq.ParquetFile.read
+
+    def recording(self, columns=None, *args, **kwargs):
+        recorded.append(None if columns is None else list(columns))
+        return read(self, columns, *args, **kwargs)
+
+    monkeypatch.setattr(pq.ParquetFile, "read", recording)
+    trials = lab_store.read_latest(folder, ["trial_no", "cell", "long.net_pnl"], legacy=legacy)
+    needed = ["cell", "pass", "valid", "skip_reason", "long.net_pnl"]
+    assert len(recorded) == 2  # one read per chunk, each projected
+    assert all(sorted(columns) == sorted(needed) for columns in recorded)
+    table = trials.table
+    assert table.column_names == ["trial_no", "cell", "long.net_pnl", "block", "status"]
+    assert table.to_pylist() == full.select(table.column_names).to_pylist()
+    assert table.column("trial_no").to_pylist() == list(range(12))
+    assert table.column("status").to_pylist() == ["invalid" if c == 5 else "ok" for c in range(12)]
+    assert full.schema.equals(exp._cells_schema_v2(PATHS))  # None still yields the full set
+    rows = full.to_pylist()
+    for row in rows:
+        assert [row[f"pos.{k}"] for k in range(len(PATHS))] == list(GRID.positions(row["cell"]))
+    assert {(row["pass"], row["design"]) for row in rows} == {
+        ("grid", "uniform"),
+        ("refine", "adaptive"),
+    }
+
+
 def test_legacy_report_reproduced_identically(world):  # noqa: F811
     repository, _library, document = world
     store = exp.ExperimentStore(repository)

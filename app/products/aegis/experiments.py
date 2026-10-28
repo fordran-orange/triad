@@ -1068,14 +1068,13 @@ class ExperimentJob:
         }
         if self.layout == 2 and mapped in ("done", "cancelled"):
             # The remainder into a part, then every merged chunk no snapshot holds reclaimed at
-            # once (`0 >= 0` with the same `now`). Never for `paused`: a resume reads the chunks
-            # the job wrote. A legacy experiment is never compacted.
+            # once (`0 >= 0` with the same `now`); `reclaim` itself skips a held chunk, which
+            # stays listed for a later pass. Never for `paused`: a resume reads the chunks the
+            # job wrote. A legacy experiment is never compacted.
             cells_dir = self.store.cells_dir(self.document.id)
             now = time.time()
             self._take_unique(lab_store.compact(cells_dir, now=now))
-            held = lab_store.REGISTRY.held(self.document.id)
-            retain = policy.RETAIN_MERGED_SECONDS if held else 0
-            lab_store.reclaim(cells_dir, now=now, retain_seconds=retain)
+            lab_store.reclaim(cells_dir, now=now, retain_seconds=0)
             update["counts"] = self.counters.as_dict()
         if mapped in ("done", "cancelled") and self.cells_done:
             report = self._write_report(1, self.document.objective, self.document.tolerance, mapped)
