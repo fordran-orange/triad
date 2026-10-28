@@ -167,6 +167,7 @@ def _run_cell(
         "skip_reason": None,
         "params": dict(params),
         "metrics": None,
+        "lab_metrics": None,  # the trade Sharpe per scope, beside the metrics (Lab Phase 2b)
         "elapsed_ms": 0.0,
         "curve": None,
         "first_time": None,
@@ -186,7 +187,7 @@ def _run_cell(
     request = prepared_request(strategy, _SETTINGS)
     try:
         frame, data_key = _window_frame(window)
-        result = run_metrics(request, frame, data_key, _CACHE, want_curve)
+        result = run_metrics(request, frame, data_key, _CACHE, want_curve, want_lab=True)
     except ValueError as exc:  # the engine's own refusal (a warm-up longer than the data)
         message = str(exc)
         reason = "insufficient bars" if message.startswith("insufficient bars") else message
@@ -195,6 +196,7 @@ def _run_cell(
         return row
     row.update(
         metrics={scope: result[scope] for scope in SCOPES},
+        lab_metrics=result["lab_metrics"],
         curve=resample_curve(result["curve"]) if want_curve else None,
         first_time=result["first_time"],
         last_time=result["last_time"],

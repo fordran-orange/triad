@@ -25,6 +25,7 @@ from pydantic import (
 from products.aegis import kernel
 from products.aegis.indicators import IndicatorCache, named, references
 from products.aegis.kinds import warmup
+from products.aegis.lab.sharpe import sharpe_scopes
 from products.aegis.strategy import (
     BAND_OPERATORS,
     PRICE_OPERANDS,
@@ -865,12 +866,14 @@ def _side_metrics(
     settings: BacktestSettings,
     cache: IndicatorCache,
     data_key: str,
-) -> tuple[list[dict], dict, list[bool]]:
-    """(lite trades, metrics, exposure flags) of one side from the kernel; no series, no
-    per-bar dicts, no tags. Carried positions are not supported here (experiments never carry)."""
+) -> tuple[list[dict], dict, list[bool], np.ndarray]:
+    """(lite trades, metrics, exposure flags, trade returns) of one side from the kernel; no
+    series, no per-bar dicts, no tags. The returns are a copy of the kernel's per-trade `ret`
+    column (net / capital at entry), the Lab's trade Sharpe input (Optimization Lab v2 Phase 2b).
+    Carried positions are not supported here (experiments never carry)."""
     spec = strategy.long_side if side == "LONG" else strategy.short_side
     if not spec.enabled:
-        return [], _metrics([], [], settings.initial_capital), []
+        return [], _metrics([], [], settings.initial_capital), [], np.empty(0)
     data = _side_frame(frame, spec, cache, data_key)
     n = len(data)
     trades_array, n_trades, equity, drawdown, in_flags, n_points, _scalars, _ = (
@@ -909,7 +912,7 @@ def _side_metrics(
         settings.initial_capital,
         _fraction(flags),
     )
-    return trades, metrics, flags
+    return trades, metrics, flags, np.array(trades_array[:n_trades, 9], dtype=np.float64)
 
 
 def run_metrics(
@@ -918,17 +921,19 @@ def run_metrics(
     data_key: str,
     cache: IndicatorCache,
     want_curve: bool = False,
+    want_lab: bool = False,
 ) -> dict:
     """Metrics only, for the experiment pool (Mission 6): equal to `run_backtest`'s metrics for
     the same request, at a fraction of the cost. Falls back to the full reference path when the
-    kernel is unavailable."""
+    kernel is unavailable. With `want_lab` the result also carries `lab_metrics`, the trade
+    Sharpe per scope (Optimization Lab v2 Phase 2b), computed beside the metrics, never in them."""
     validate(request.strategy.temporal)
     _check_initial_position(request)
     _check_warmup(frame, request.strategy)
     if not kernel.AVAILABLE:
         full = run_prepared(request, frame, data_key, cache)
         curve = [float(p["equity"]) for p in full["combined"]["equity"]] if want_curve else None
-        return {
+        result = {
             "long": full["long"]["metrics"],
             "short": full["short"]["metrics"],
             "combined": full["combined"]["metrics"],
@@ -937,10 +942,16 @@ def run_metrics(
             "first_time": frame["timestamp"].iloc[0].isoformat(),
             "last_time": frame["timestamp"].iloc[-1].isoformat(),
         }
-    long_trades, long_metrics, long_flags = _side_metrics(
+        if want_lab:
+            result["lab_metrics"] = sharpe_scopes(
+                np.array([t["return"] for t in full["long"]["trades"]], dtype=np.float64),
+                np.array([t["return"] for t in full["short"]["trades"]], dtype=np.float64),
+            )
+        return result
+    long_trades, long_metrics, long_flags, long_ret = _side_metrics(
         frame, request.strategy, "LONG", request.settings, cache, data_key
     )
-    short_trades, short_metrics, short_flags = _side_metrics(
+    short_trades, short_metrics, short_flags, short_ret = _side_metrics(
         frame, request.strategy, "SHORT", request.settings, cache, data_key
     )
     combined = _combine(
@@ -953,7 +964,7 @@ def run_metrics(
         for i in range(length)
     ]
     combined["metrics"]["exposure"] = _fraction(union)
-    return {
+    result = {
         "long": long_metrics,
         "short": short_metrics,
         "combined": combined["metrics"],
@@ -962,6 +973,9 @@ def run_metrics(
         "first_time": frame["timestamp"].iloc[0].isoformat(),
         "last_time": frame["timestamp"].iloc[-1].isoformat(),
     }
+    if want_lab:
+        result["lab_metrics"] = sharpe_scopes(long_ret, short_ret)
+    return result
 
 
 def _levels(side: StrategySide) -> tuple[float, float]:

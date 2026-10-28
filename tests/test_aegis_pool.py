@@ -1,6 +1,8 @@
 """The process pool (Mission 6 spec §4.3): cells run on worker processes that hold the bars,
 their own indicator cache and the compiled kernel, and return rows, never envelopes."""
 
+import math
+
 import pytest
 from products.aegis.backtest import BacktestRequest, run_backtest
 from products.aegis.pool import METRICS, SCOPES, Pool, resample_curve
@@ -154,3 +156,37 @@ def test_pool_window_slice_equals_a_backtest_on_those_bars(pool):
     full = run_backtest(BacktestRequest(strategy=apply_params(spec, cells(1)[0][1]), bars=ROWS))
     assert whole["metrics"]["combined"] == full["combined"]["metrics"]  # no window: as before
     assert pool.mean_ms_per_cell_bar > 0
+
+
+def test_run_cell_carries_lab_metrics_beside_metrics():
+    """Phase 2b: the row carries the trade Sharpe per scope in `lab_metrics`, a top-level key
+    beside `metrics`; the hash-bearing metrics never grow a `sharpe_trade`."""
+    from products.aegis import pool as worker
+
+    worker._init_worker(
+        [dict(r) for r in ROWS],
+        "QQQ",
+        pinned().model_dump(mode="json"),
+        {"initial_capital": 100_000, "allocation_fraction": 1},
+    )
+    index, params = cells(1)[0]
+    row = worker._run_cell(index, params, False)
+    full = run_backtest(BacktestRequest(strategy=apply_params(pinned(), params), bars=ROWS))
+    for side in ("long", "short", "combined"):
+        returns = [float(t["return"]) for t in full[side]["trades"]]
+        assert len(returns) >= 2, side
+        mean = math.fsum(returns) / len(returns)
+        std = math.sqrt(math.fsum((r - mean) ** 2 for r in returns) / (len(returns) - 1))
+        assert abs(row["lab_metrics"][side]["sharpe_trade"] - mean / std) < 1e-12, side
+        assert row["lab_metrics"][side]["trade_count"] == len(returns), side
+    assert "sharpe_trade" not in METRICS
+    assert len(METRICS) == 10
+    for scope in SCOPES:
+        assert "sharpe_trade" not in row["metrics"][scope]
+        assert "sharpe_trade" in row["lab_metrics"][scope]
+    invalid = worker._run_cell(
+        7,
+        {"long_side.indicators.donchian.length": 1000.0, "long_side.indicators.rsi.length": 14.0},
+        False,
+    )
+    assert invalid["valid"] is False and invalid["lab_metrics"] is None
