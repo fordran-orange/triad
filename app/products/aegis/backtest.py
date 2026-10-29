@@ -942,6 +942,10 @@ def run_metrics(
     With `evaluate_from` the frame's earlier bars only warm up: the result equals `run_backtest`
     with `settings.evaluate_from` set, and `first_time` is the first evaluated bar's (a Lab
     screening block, Phase 3 §7.3a). Without it the result is exactly as before."""
+    if evaluate_from is not None and (
+        evaluate_from.tzinfo is None or evaluate_from.utcoffset() is None
+    ):
+        raise ValueError("evaluate_from must be timezone-aware")  # BacktestSettings.aware's rule
     validate(request.strategy.temporal)
     _check_initial_position(request)
     _check_warmup(frame, request.strategy)

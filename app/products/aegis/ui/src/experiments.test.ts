@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StrategySpec } from './contracts';
-import { applyCellToStrategy, bestPoint, cellsView, leverLabel, priceLabel, recommendationText, surfaceLine } from './experiments';
+import { applyCellToStrategy, bestPoint, cellsView, evaluationsLine, leverLabel, priceLabel, recommendationText, surfaceLine } from './experiments';
 
 function strategy(): StrategySpec {
   const side = (direction: 'long' | 'short') => ({
@@ -116,5 +116,14 @@ describe('priceLabel', () => {
   it('says whether the plan was priced from a measurement or the starting guess', () => {
     expect(priceLabel({ price_source: 'measured' })).toBe('measured on this host');
     expect(priceLabel({ price_source: 'starting_guess' })).toBe('starting guess; no experiment has finished on this host yet');
+  });
+});
+
+describe('evaluationsLine', () => {
+  it('counts every screening block of a configuration beside the configurations', () => {
+    expect(evaluationsLine({ planned_runs: 2000, blocks: 4 })).toBe('evaluations: 2,000 × 5');
+    expect(evaluationsLine({ planned_runs: 12, blocks: 8 })).toBe('evaluations: 12 × 9');
+    expect(evaluationsLine({ planned_runs: 12, blocks: 0 })).toBe('');
+    expect(evaluationsLine({ planned_runs: 12 })).toBe('');
   });
 });

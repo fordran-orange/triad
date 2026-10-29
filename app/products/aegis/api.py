@@ -941,6 +941,7 @@ def experiment_plan(
             fitted_workers(len(frame)),
             request.data.timeframe,
             price_source="measured" if measured else "starting_guess",
+            blocks=request.blocks,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc

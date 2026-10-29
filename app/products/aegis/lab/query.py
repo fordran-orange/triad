@@ -111,7 +111,10 @@ class ParameterInfo:
 @dataclass
 class TrialFrame:
     """What one request reads: the canonical block-0 trials of one snapshot (`read_trials`'
-    table, projected to the columns the view needs) and the source's counts."""
+    table, projected to the columns the view needs) and the source's counts. `blocks` is the
+    source's screening-block count K (Lab Phase 3). A table filtered to block 0 before it was
+    cached carries the snapshot's `evaluations_done` (§6.4: every block's ok evaluations, counted
+    before the filter); None when the table holds every row it counts from."""
 
     source: str
     table: pa.Table
@@ -127,6 +130,8 @@ class TrialFrame:
     provisional: bool
     layout: int
     objective: str
+    blocks: int = 0
+    evaluations_done: int | None = None
 
 
 # --- columns and masks ------------------------------------------------------------------------
@@ -193,6 +198,15 @@ def _status_tallies(table: pa.Table) -> tuple[np.ndarray, dict[str, int]]:
         "invalid": int((base & (codes == 1)).sum()),
         "failed": int((base & (codes == 2)).sum()),
     }
+
+
+def frame_tallies(frame: TrialFrame) -> tuple[np.ndarray, dict[str, int]]:
+    """`_status_tallies` of the frame's table, its `evaluations_done` the snapshot's when the
+    frame carries it (a table filtered to block 0 counts every block's evaluations no more)."""
+    completed, tallies = _status_tallies(frame.table)
+    if frame.evaluations_done is not None:
+        tallies["evaluations_done"] = frame.evaluations_done
+    return completed, tallies
 
 
 def _completed(frame: TrialFrame, index: FrameIndex | None) -> np.ndarray:
@@ -274,7 +288,7 @@ def scope_counts(
     snapshot's `index` holds the status tallies."""
     table = frame.table
     if index is None:
-        completed, tallies = _status_tallies(table)
+        completed, tallies = frame_tallies(frame)
     else:
         completed = _completed(frame, index)
         tallies = index.tallies
@@ -294,7 +308,7 @@ def scope_counts(
         "budget_total": frame.budget_total,
         "reserved": frame.reserved,
         "scheduled": frame.scheduled,
-        "evaluations": frame.scheduled,  # scheduled x (K + 1), K = 0 without screening blocks
+        "evaluations": frame.scheduled * (frame.blocks + 1),  # K = 0 without screening blocks
         "remaining": max(0, frame.budget_total - frame.reserved - frame.scheduled),
         "reused": frame.reused,
         "attempted": attempted,

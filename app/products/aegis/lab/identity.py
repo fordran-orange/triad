@@ -113,20 +113,24 @@ def param_key_hex(
     return param_key(spec, params, steps).hex()
 
 
-def inputs_key(strategy_hash: str, data: Mapping, settings: Mapping, engine_build: str) -> str:
+def inputs_key(
+    strategy_hash: str, data: Mapping, settings: Mapping, engine_build: str, *, blocks: int = 0
+) -> str:
     """32 hex characters naming the computation: two evaluations are the same iff `inputs_key`,
     `param_key` and `block` agree. `data` is the pinned source, or the `DataReference` when none
     was pinned; its identity is six keys, `symbol`, `sha256`, `data_hash`, `timeframe`, `start`
     and `end`, each `None` when the mapping lacks it, so a pinned source contributes all six and
     a reference its own fields (two symbols on one timeframe and range never share a key).
-    `settings` is the settings' JSON dump, never the model."""
+    `settings` is the settings' JSON dump, never the model. `blocks` is the experiment's
+    screening-block count K (Lab Phase 3): block b of K partitions the range differently for
+    another K, so it is another computation."""
     payload = {
         "strategy_hash": strategy_hash,
         "data": {name: data.get(name) for name in _DATA_IDENTITY},
         "settings": dict(settings),
         "engine_build": engine_build,
         "partition": None,
-        "blocks": 0,
+        "blocks": blocks,
     }
     return hashlib.blake2b(canonical_json(payload).encode(), digest_size=16).hexdigest()
 
@@ -168,14 +172,15 @@ def search_space(spec: StrategySpec, surface: Surface) -> dict:
 
 def sampler(plan: dict, seed: int) -> dict:
     """The `sampler` of a new experiment from its plan's dump: the whole grid, or a Latin
-    hypercube first pass then refinement. No budget shares and no blocks in Phase 2."""
+    hypercube first pass then refinement, with the plan's screening blocks (Lab Phase 3; a plan
+    dumped before Phase 3 has none). No budget shares yet."""
     return {
         "method": "grid" if plan["mode"] == "exhaustive" else "lhs+refine",
         "seed": seed,
         "budget": {"total": plan["planned_runs"], "shares": None},
         "first_pass": plan["first_pass"],
         "refinement": plan["refinement"],
-        "blocks": 0,
+        "blocks": plan.get("blocks", 0),
         "revision": 1,
     }
 

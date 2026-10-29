@@ -32,7 +32,7 @@ from products.aegis.lab.query import (
     _numbers,
     _ordered,
     _positions,
-    _status_tallies,
+    frame_tallies,
 )
 
 CHECKED_ROWS = PART_ROW_GROUP  # a stored `pos.<k>` is trusted once it equals `_positions` here
@@ -164,10 +164,11 @@ def _lattice_codes(frame: TrialFrame, path: str) -> np.ndarray:
 
 
 def build_index(frame: TrialFrame) -> FrameIndex:
-    """The index of `frame`'s rows: the completed mask and the status tallies, and the codes of
-    every parameter whose values the frame loaded (the others when a later frame brings them)."""
+    """The index of `frame`'s rows: the completed mask and the status tallies (the snapshot's
+    `evaluations_done` when the frame carries it), and the codes of every parameter whose values
+    the frame loaded (the others when a later frame brings them)."""
     table = frame.table
-    completed, tallies = _status_tallies(table)
+    completed, tallies = frame_tallies(frame)
     index = FrameIndex(completed=_frozen(completed), tallies=tallies, codes={})
     names = set(table.column_names)
     for parameter in frame.parameters:

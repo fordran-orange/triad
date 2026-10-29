@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, errorMessage, type ExperimentBody } from '../api/client';
 import { INDICATOR_KINDS, type Plan, type StrategyDocument } from '../contracts';
-import { leverLabel, priceLabel, surfaceLine } from '../experiments';
+import { evaluationsLine, leverLabel, priceLabel, surfaceLine } from '../experiments';
 import { num } from '../format';
 import { effectiveParams } from '../rules';
 import { OBJECTIVE_LABELS, OBJECTIVES, type ExperimentLever, type Objective } from '../results';
@@ -14,6 +14,9 @@ interface Param {
   stop: number;
   step: number;
 }
+
+/** The screening blocks the checkbox asks for (Lab Phase 3, §7.3a: SCREEN_BLOCKS). */
+const SCREEN_BLOCKS = 4;
 
 interface Props {
   document: StrategyDocument;
@@ -64,6 +67,7 @@ export function ExperimentPlanner({ document, onCreated, onClose }: Props) {
   const [budgetRuns, setBudgetRuns] = useState<string>('2000');
   const [budgetSeconds, setBudgetSeconds] = useState<string>('');
   const [tolerance, setTolerance] = useState(0.15);
+  const [screened, setScreened] = useState(false);
   const [data, setData] = useState<Selection>(selection);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,8 +87,9 @@ export function ExperimentPlanner({ document, onCreated, onClose }: Props) {
       budget: { runs, seconds },
       tolerance,
       seed: 1,
+      blocks: screened ? SCREEN_BLOCKS : 0,
     };
-  }, [name, document.id, data, settings, objective, params, budgetRuns, budgetSeconds, tolerance]);
+  }, [name, document.id, data, settings, objective, params, budgetRuns, budgetSeconds, tolerance, screened]);
 
   useEffect(() => {
     if (!body) {
@@ -202,11 +207,17 @@ export function ExperimentPlanner({ document, onCreated, onClose }: Props) {
         <label htmlFor="experiment-tolerance">Tolerance</label>
         <input id="experiment-tolerance" type="number" min={0.01} max={1} step={0.01} value={tolerance} onChange={(e) => setTolerance(Number(e.target.value))} />
       </div>
+      <div className="row">
+        <label className="muted small">
+          <input id="experiment-blocks" type="checkbox" checked={screened} onChange={(e) => setScreened(e.target.checked)} /> Screen across periods ({SCREEN_BLOCKS} blocks)
+        </label>
+      </div>
       <div className="plan" id="experiment-plan">
         {params.length === 0
           ? 'Add at least one parameter.'
           : plan
             ? `${surfaceLine({ parameters: params }, plan)} · ≈ ${formatSeconds(plan.estimate_seconds)} on ${plan.workers} workers at ${num(plan.ms_per_cell_bar * plan.bars, 1)} ms per cell (${priceLabel(plan)})` +
+              (plan.blocks ? ` · ${evaluationsLine(plan)}` : '') +
               (plan.skipped ? ` · ${plan.skipped.toLocaleString()} skipped (${Object.keys(plan.skip_reasons).join('; ')})` : '')
             : error
               ? ''

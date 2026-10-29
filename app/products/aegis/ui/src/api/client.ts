@@ -248,6 +248,7 @@ export interface ExperimentBody {
   budget: { runs?: number | null; seconds?: number | null };
   tolerance: number;
   seed: number;
+  blocks?: number; // screening blocks per configuration (Lab Phase 3); 0 or absent: none
 }
 
 export interface ExperimentStarted {

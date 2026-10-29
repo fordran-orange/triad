@@ -575,3 +575,58 @@ def test_an_experiment_over_the_stop_runs_and_cells_differ(world):
     table = exp.ExperimentStore(repository).cells(experiment_id)
     assert sorted(table.column("short_side.stop_loss_pct").to_pylist()) == [1.0, 2.0, 3.0]
     assert len(set(table.column("combined.net_pnl").to_pylist())) >= 2
+
+
+# --- Optimization Lab v2 Phase 3 Task 2: screening blocks -------------------------------------
+
+
+def test_legacy_readers_see_block_zero_only(world):
+    """An experiment screened on four blocks reads, through every Mission 6 reader (the report,
+    `cells()`, `row()` and GET /experiments/{id}/cells), exactly as the same experiment without
+    blocks does: block 0 only. Only `blocks` and the evaluation counts differ."""
+    from fastapi.testclient import TestClient
+    from products.aegis import api, server
+
+    repository = world[0]
+    store = exp.ExperimentStore(repository)
+    docs = {blocks: finished(world, name=f"blocks {blocks}", blocks=blocks)[1] for blocks in (0, 4)}
+    plain, blocked = docs[0], docs[4]
+    assert (plain.blocks, blocked.blocks) == (0, 4)
+    assert len(store.trials(blocked.id).table) == 5 * len(store.trials(plain.id).table) == 60
+
+    def timeless(rows: list[dict]) -> list[dict]:
+        return [{k: v for k, v in row.items() if k != "elapsed_ms"} for row in rows]
+
+    assert len(store.cells(blocked.id)) == len(store.cells(plain.id)) == 12
+    assert timeless(store.cells(blocked.id).to_pylist()) == timeless(
+        store.cells(plain.id).to_pylist()
+    )
+    assert timeless([store.row(blocked.id, 5)]) == timeless([store.row(plain.id, 5)])
+
+    def report(doc) -> dict:
+        body = store.read_report(doc.id, 1)
+        body.pop("generated_at")
+        return body
+
+    assert report(blocked) == report(plain)
+    assert blocked.progress == plain.progress
+    differs = {"evaluations", "evaluations_done"}
+    assert {k: v for k, v in blocked.counts.items() if k not in differs} == {
+        k: v for k, v in plain.counts.items() if k not in differs
+    }
+    assert (plain.counts["evaluations"], plain.counts["evaluations_done"]) == (12, 12)
+    assert (blocked.counts["evaluations"], blocked.counts["evaluations_done"]) == (60, 60)
+
+    server.app.dependency_overrides[api.get_repository] = lambda: repository
+    try:
+        client = TestClient(server.app, raise_server_exceptions=False)
+        pages = {}
+        for blocks, doc in docs.items():
+            response = client.get(f"/aegis/api/experiments/{doc.id}/cells", params={"limit": 5000})
+            assert response.status_code == 200, response.text
+            pages[blocks] = response.json()
+    finally:
+        server.app.dependency_overrides.clear()
+    assert pages[4]["total"] == pages[0]["total"] == 12
+    assert pages[4]["columns"] == pages[0]["columns"]
+    assert timeless(pages[4]["rows"]) == timeless(pages[0]["rows"])

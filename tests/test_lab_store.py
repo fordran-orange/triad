@@ -582,7 +582,9 @@ def test_data_pinned_written_at_creation(world):  # noqa: F811
         "budget_total": 12,
         "unique": None,
         "unique_generation": None,
+        "evaluations_done": 0,
         "pending": 12,
+        "evaluations": 12,  # scheduled x (K + 1), K = 0 without screening blocks (Phase 3)
     }
     manifest = lab_store.read_manifest(store.cells_dir(pinned.id))
     assert (manifest.layout, manifest.generation, manifest.chunk_watermark) == (2, 0, -1)

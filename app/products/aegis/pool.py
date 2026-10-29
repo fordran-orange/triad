@@ -6,6 +6,10 @@ envelopes. The pool measures the workers' own cost per cell-bar, which is compar
 single-threaded optimizer's rate (plan ruling P2). Mission 10: a worker receives the prepared
 frame (numpy columns, never a dict per bar) and slices windows from it, and a pool runs only
 as many workers as free memory holds.
+
+Lab Phase 3 (spec §7.3a): with screening blocks, each cell is evaluated on the whole bars (block
+0) and on each block, scored from the block's start on the bars up to its end; a worker keeps
+one prepared prefix frame per block end.
 """
 
 from __future__ import annotations
@@ -14,11 +18,12 @@ import ctypes
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor
-from itertools import repeat
 
 import pandas as pd
 from pydantic import ValidationError
 from trading_core.process_power import opt_out_of_power_throttling
+
+from products.aegis.lab.policy import MAX_BLOCKS
 
 SCOPES = ("combined", "long", "short")
 METRICS = (
@@ -49,6 +54,8 @@ _SPEC = None
 _SETTINGS = None
 _CACHE = None
 _WINDOW = None  # (bounds, frame, data key) of the window slice the worker last ran
+# A screening block's prefix frame by its end: (bars [0, end), data key); at most MAX_BLOCKS + 1.
+_BLOCK_FRAMES: dict[int, tuple[pd.DataFrame, str]] = {}
 
 
 def default_workers() -> int:
@@ -138,6 +145,7 @@ def _init_worker(bars: list[dict] | pd.DataFrame, symbol: str, spec: dict, setti
     from products.aegis.strategy import StrategySpec
 
     _WINDOW = None
+    _BLOCK_FRAMES.clear()
     _FRAME = pool_frame(bars, symbol)
     _DATA_KEY = _data_key(_FRAME)
     _SPEC = StrategySpec.model_validate(spec)
@@ -160,15 +168,48 @@ def _window_frame(window: tuple[int, int] | None):
     return _WINDOW[1], _WINDOW[2]
 
 
+def _block_frame(end: int) -> tuple[pd.DataFrame, str]:
+    """The prepared prefix frame of a screening block ending at `end` and its data key: the
+    whole bars themselves for the last block, else bars [0, end) prepared once and kept (at most
+    MAX_BLOCKS + 1 ends, the oldest dropped first). The indicator cache is sized by every frame
+    held. A prefix shorter than the engine's minimum is the engine's `insufficient bars`."""
+    held = _BLOCK_FRAMES.get(end)
+    if held is not None:
+        return held
+    if end == len(_FRAME):
+        held = (_FRAME, _DATA_KEY)
+    else:
+        from products.aegis.backtest import _data_key, frame_slice
+
+        try:
+            frame = frame_slice(_FRAME, 0, end)
+        except ValueError as exc:
+            raise ValueError(f"insufficient bars: a block of {end} bars: {exc}") from exc
+        held = (frame, _data_key(frame))
+    while len(_BLOCK_FRAMES) >= MAX_BLOCKS + 1:
+        _BLOCK_FRAMES.pop(next(iter(_BLOCK_FRAMES)))
+    _BLOCK_FRAMES[end] = held
+    prefixes = sum(len(frame) for frame, _ in _BLOCK_FRAMES.values() if frame is not _FRAME)
+    _CACHE.max_bytes = POOL_CACHE_BYTES_PER_BAR * (len(_FRAME) + prefixes)
+    return held
+
+
 def _run_cell(
-    index: int, params: dict[str, float], want_curve: bool, window: tuple[int, int] | None = None
+    index: int,
+    params: dict[str, float],
+    want_curve: bool,
+    window: tuple[int, int] | None = None,
+    block: tuple[int, int, int] | None = None,
 ) -> dict:
+    """One evaluation of one cell: on the whole bars (or `window`'s slice), or with `block` =
+    (block_no, start, end) on the bars up to `end`, scored from `start` (Lab Phase 3)."""
     from products.aegis.backtest import prepared_request, run_metrics
     from products.aegis.surface import apply_params, skip_reason_of
 
     started = time.perf_counter()
     row = {
         "cell": index,
+        "block": 0 if block is None else int(block[0]),
         "valid": True,
         "skip_reason": None,
         "params": dict(params),
@@ -192,8 +233,15 @@ def _run_cell(
         return row
     request = prepared_request(strategy, _SETTINGS)
     try:
-        frame, data_key = _window_frame(window)
-        result = run_metrics(request, frame, data_key, _CACHE, want_curve, want_lab=True)
+        if block is None:
+            frame, data_key = _window_frame(window)
+            evaluate_from = None
+        else:
+            frame, data_key = _block_frame(int(block[2]))
+            evaluate_from = frame["timestamp"].iloc[int(block[1])]  # the frame's own UTC stamp
+        result = run_metrics(
+            request, frame, data_key, _CACHE, want_curve, want_lab=True, evaluate_from=evaluate_from
+        )
     except ValueError as exc:  # the engine's own refusal (a warm-up longer than the data)
         message = str(exc)
         reason = "insufficient bars" if message.startswith("insufficient bars") else message
@@ -245,28 +293,37 @@ class Pool:
         cells: list[tuple[int, dict[str, float]]],
         want_curve: bool,
         window: tuple[int, int] | None = None,
+        blocks: list[tuple[int, int]] | None = None,
     ) -> list[dict]:
-        """Run cells on the whole bars, or with `window` = (start, end) on that slice only."""
+        """Run cells on the whole bars, or with `window` = (start, end) on that slice only. With
+        `blocks` (Lab Phase 3), each cell gives 1 + len(blocks) rows in order, block 0 (the
+        whole bars, the only one with a curve) first, then block b scored from its start on the
+        bars up to its end. The measured cost counts each evaluation's own bars."""
         if self._executor is None:
             raise RuntimeError("pool not started")
+        if window is not None and blocks:
+            raise ValueError("a chunk runs on a window or on screening blocks, never both")
         bars = self._bars if window is None else window[1] - window[0]
-        indices = [index for index, _ in cells]
-        params = [values for _, values in cells]
-        chunksize = max(1, len(cells) // (self.max_workers * 4))
+        evaluations: list[tuple[int, int, int] | None] = [None]
+        evaluations += [(b, start, end) for b, (start, end) in enumerate(blocks or [], start=1)]
+        bars_of = [bars] + [end for _, _, end in evaluations[1:]]  # by block number
+        tasks = [(index, values, block) for index, values in cells for block in evaluations]
+        chunksize = max(1, len(tasks) // (self.max_workers * 4))
         rows = list(
             self._executor.map(
                 _run_cell,
-                indices,
-                params,
-                repeat(want_curve),
-                repeat(window),
+                [index for index, _, _ in tasks],
+                [values for _, values, _ in tasks],
+                [want_curve and block is None for _, _, block in tasks],
+                [window] * len(tasks),
+                [block for _, _, block in tasks],
                 chunksize=chunksize,
             )
         )
         for row in rows:
             if row["valid"]:
                 self._cell_ms_total += row["elapsed_ms"]
-                self._cell_bars_total += bars
+                self._cell_bars_total += bars_of[row["block"]]
         return rows
 
     def shutdown(self) -> None:

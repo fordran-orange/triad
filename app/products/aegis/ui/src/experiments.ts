@@ -33,6 +33,13 @@ export function priceLabel(plan: { price_source?: 'measured' | 'starting_guess' 
   return plan.price_source === 'measured' ? 'measured on this host' : 'starting guess; no experiment has finished on this host yet';
 }
 
+/** "evaluations: 252 × 5" when each configuration is also screened on blocks (Lab Phase 3:
+ *  K blocks are K + 1 evaluations a configuration), else ''. */
+export function evaluationsLine(plan: { planned_runs: number; blocks?: number | null }): string {
+  const blocks = plan.blocks ?? 0;
+  return blocks > 0 ? `evaluations: ${n(plan.planned_runs)} × ${blocks + 1}` : '';
+}
+
 /** "4 parameters · 252 cells · exhaustive" or "… · sampled 1.3% (2,000 runs)". */
 export function surfaceLine(surface: SurfaceLike, plan: PlanLike | null): string {
   const count = surface.parameters.length;

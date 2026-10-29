@@ -376,6 +376,32 @@ def test_plan_skips_lengths_whose_warm_up_exceeds_the_bars():
     assert build_grid(pinned(), surface).skipped_count == 0
 
 
+def test_plan_prices_every_evaluation():
+    """Lab Phase 3 (decision 1): a configuration screened on K blocks costs its whole-range
+    evaluation plus one per block on the bars up to the block's end, ≈ 3.5 × at K = 4; the plan
+    counts configurations and reports the evaluations beside them."""
+    from products.aegis.experiments import block_bounds
+
+    plain = plan(pinned(), item2_surface(), Budget(runs=2000), BARS, KERNEL_MS_PER_BAR, WORKERS)
+    blocked = plan(
+        pinned(), item2_surface(), Budget(runs=2000), BARS, KERNEL_MS_PER_BAR, WORKERS, blocks=4
+    )
+    per_configuration = BARS + sum(end for _, end in block_bounds(BARS, 4))
+    assert per_configuration / BARS == pytest.approx(3.5, rel=1e-3)
+    assert blocked.planned_runs == plain.planned_runs == 252 and blocked.mode == "exhaustive"
+    per_run = plain.estimate_seconds / plain.planned_runs
+    assert blocked.estimate_seconds / blocked.planned_runs == pytest.approx(
+        per_run * per_configuration / BARS, rel=1e-12
+    )
+    assert (plain.blocks, plain.evaluations) == (0, 252)
+    assert (blocked.blocks, blocked.evaluations) == (4, 252 * 5)
+    # A time budget buys configurations at their whole price.
+    seconds = Budget(seconds=60)
+    timed = plan(pinned(), step_one_surface(), seconds, BARS, 0.01, WORKERS, blocks=4)
+    assert timed.planned_runs == int(60 * 8 * 1000.0 / (per_configuration * 0.01))
+    assert timed.evaluations == timed.planned_runs * 5
+
+
 def test_plan_names_its_price_source():
     """Review finding 5: the plan line must say whether the price was measured or guessed."""
     guessed = plan(pinned(), item2_surface(), Budget(runs=2000), BARS, KERNEL_MS_PER_BAR, WORKERS)

@@ -68,9 +68,10 @@ class Manifest:
 
 @dataclass
 class Counters:
-    """The §6.4 counts the experiment job owns; `reserved`, `remaining`, `reused`,
-    `evaluations`, `evaluations_done`, `duplicates`, `filtered`, `shown` and `undefined` are
-    derived by the summary route. `unique` is set by compaction (Task 5)."""
+    """The §6.4 counts the experiment job owns, with `pending` and `evaluations` (scheduled ×
+    (K + 1), Lab Phase 3) derived beside them; `reserved`, `remaining`, `reused`, `duplicates`,
+    `filtered`, `shown` and `undefined` are derived by the summary route. `unique` is set by
+    compaction (Task 5). `blocks` is the document's K, never written into `counts`."""
 
     attempted: int = 0
     completed: int = 0
@@ -80,40 +81,57 @@ class Counters:
     budget_total: int = 0
     unique: int | None = None
     unique_generation: int | None = None
+    evaluations_done: int = 0
+    blocks: int = 0
 
     def as_dict(self) -> dict:
-        return {**asdict(self), "pending": self.scheduled - self.attempted}
+        counts = asdict(self)
+        del counts["blocks"]
+        return {
+            **counts,
+            "pending": self.scheduled - self.attempted,
+            "evaluations": self.scheduled * (self.blocks + 1),
+        }
 
-    def tally(self, statuses: Iterable[str]) -> None:
-        """Count one more attempt per status (`ok`, `invalid` or `failed`)."""
-        for status in statuses:
+    def tally(self, evaluations: Iterable[tuple[int, str]]) -> None:
+        """Count one more evaluation per (block, status), the status `ok`, `invalid` or
+        `failed`: every `ok` one in `evaluations_done`, and the configuration's attempt and
+        outcome from its block-0 evaluation only (§6.4)."""
+        for block, status in evaluations:
+            if status not in ("ok", "invalid", "failed"):
+                raise ValueError(f"unknown trial status {status!r}")
+            if status == "ok":
+                self.evaluations_done += 1
+            if block:  # a screening block's evaluation never counts its configuration again
+                continue
             if status == "ok":
                 self.completed += 1
             elif status == "invalid":
                 self.invalid += 1
-            elif status == "failed":
-                self.failed += 1
             else:
-                raise ValueError(f"unknown trial status {status!r}")
+                self.failed += 1
             self.attempted += 1
 
-    def recount(self, statuses: Iterable[str]) -> None:
-        """The four outcome counts from the trials on disk, replacing what a document carried;
-        `scheduled`, `budget_total`, `unique` and `unique_generation` are kept."""
+    def recount(self, evaluations: Iterable[tuple[int, str]]) -> None:
+        """The outcome counts from the evaluations on disk, replacing what a document carried;
+        `scheduled`, `budget_total`, `unique`, `unique_generation` and `blocks` are kept."""
         self.attempted = self.completed = self.invalid = self.failed = 0
-        self.tally(statuses)
+        self.evaluations_done = 0
+        self.tally(evaluations)
 
     @classmethod
     def from_document(cls, document) -> Counters:
-        """The document's `counts`; a legacy document has none, so its counts start at zero over
-        its planned schedule (`Plan.first_pass` equals `valid_cells` for an exhaustive plan,
-        surface.py:512, so one expression serves both modes)."""
+        """The document's `counts` and its `blocks`; a legacy document has no counts, so its
+        counts start at zero over its planned schedule (`Plan.first_pass` equals `valid_cells`
+        for an exhaustive plan, surface.py:512, so one expression serves both modes)."""
         if document.counts is not None:
-            names = {field.name for field in fields(cls)}
-            return cls(**{key: value for key, value in document.counts.items() if key in names})
+            names = {field.name for field in fields(cls)} - {"blocks"}
+            held = {key: value for key, value in document.counts.items() if key in names}
+            return cls(**held, blocks=document.blocks)
         return cls(
             scheduled=document.plan["first_pass"] + len(document.refinement_cells or []),
             budget_total=document.plan["planned_runs"],
+            blocks=document.blocks,
         )
 
 

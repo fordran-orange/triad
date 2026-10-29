@@ -241,6 +241,7 @@ export interface ExperimentRequest {
   budget: Budget;
   tolerance?: number;
   seed?: number;
+  blocks?: number;
 }
 
 export interface ExperimentDocument {
@@ -281,6 +282,7 @@ export interface ExperimentDocument {
   execution?: Record<string, unknown> | null;
   counts?: Record<string, unknown> | null;
   lineage?: Record<string, unknown> | null;
+  blocks?: number;
 }
 
 export interface Plan {
@@ -297,6 +299,8 @@ export interface Plan {
   ms_per_cell_bar: number;
   workers: number;
   bars: number;
+  blocks?: number;
+  evaluations: number;
   levers?: Lever[];
   price_source?: 'measured' | 'starting_guess';
 }

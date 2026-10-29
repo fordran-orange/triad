@@ -19,6 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from products.aegis.backtest import MIN_BARS
 from products.aegis.kinds import kind_info, warmup
 from products.aegis.optimize import step_decimals
 from products.aegis.strategy import (
@@ -494,18 +495,55 @@ class Plan(BaseModel):
     ms_per_cell_bar: float
     workers: int
     bars: int
+    blocks: int = 0  # screening blocks per configuration (Lab Phase 3, §7.3a); 0 without
+    evaluations: int  # engine evaluations: planned_runs × (blocks + 1) (§6.4)
     levers: list[Lever] = Field(default_factory=list)
     price_source: Literal["measured", "starting_guess"] = "starting_guess"
 
 
-def _core(grid: Grid, budget: Budget, bars: int, ms_per_cell_bar: float, max_workers: int) -> dict:
+def block_bounds(n_bars: int, k: int) -> list[tuple[int, int]]:
+    """The `k` screening blocks of `n_bars` bars (Lab Phase 3, spec §7.3a): contiguous
+    `[start, end)` ranges of `n_bars // k` bars, the last taking the remainder; none for k = 0.
+    Block b is scored from its start on the bars up to its end, the earlier ones its warm-up."""
+    if k <= 0:
+        return []
+    size = n_bars // k
+    return [(b * size, n_bars if b == k - 1 else (b + 1) * size) for b in range(k)]
+
+
+def configuration_bars(bars: int, blocks: int) -> int:
+    """The bars one configuration's evaluations run on: the whole range (block 0) plus, for
+    each screening block, the bars up to its end (decision 1: ≈ 3.5 × bars at K = 4)."""
+    return bars + sum(end for _, end in block_bounds(bars, blocks))
+
+
+def _check_blocks(bars: int, blocks: int) -> None:
+    """A screening block shorter than the engine's minimum could never be scored: refused."""
+    if blocks and bars // blocks < MIN_BARS:
+        raise ValueError(
+            f"blocks: {blocks} blocks of {bars} bars leave {bars // blocks} per block, "
+            f"under the {MIN_BARS}-bar minimum"
+        )
+
+
+def _core(
+    grid: Grid,
+    budget: Budget,
+    bars: int,
+    ms_per_cell_bar: float,
+    max_workers: int,
+    blocks: int = 0,
+) -> dict:
+    """The plan's counts and price. A configuration costs every one of its evaluations' bars
+    (`configuration_bars`), so a time budget buys configurations at their whole price."""
     workers = effective_workers(max_workers)
-    per_run = bars * ms_per_cell_bar / 1000.0 / workers
+    per_configuration = configuration_bars(bars, blocks)
+    per_run = per_configuration * ms_per_cell_bar / 1000.0 / workers
     caps = []
     if budget.runs is not None:
         caps.append(budget.runs)
     if budget.seconds is not None:
-        caps.append(int(budget.seconds * workers * 1000.0 / (bars * ms_per_cell_bar)))
+        caps.append(int(budget.seconds * workers * 1000.0 / (per_configuration * ms_per_cell_bar)))
     cap = min(caps)
     d = len(grid.paths)
     if grid.valid_count <= cap:
@@ -531,6 +569,8 @@ def _core(grid: Grid, budget: Budget, bars: int, ms_per_cell_bar: float, max_wor
         "ms_per_cell_bar": ms_per_cell_bar,
         "workers": max_workers,
         "bars": bars,
+        "blocks": blocks,
+        "evaluations": planned * (blocks + 1),
     }
 
 
@@ -549,21 +589,29 @@ def _levers(
     ms_per_cell_bar: float,
     max_workers: int,
     timeframe: str | None,
+    blocks: int = 0,
 ) -> list[Lever]:
     levers: list[Lever] = []
+    per_configuration = configuration_bars(bars, blocks)
 
     def priced(
         kind, parameter, label, *, new_surface=None, new_budget=None, new_bars=None, hint=None
     ):
         g = build_grid(spec, new_surface, bars) if new_surface is not None else grid
         try:
-            core = _core(g, new_budget or budget, new_bars or bars, ms_per_cell_bar, max_workers)
+            core = _core(
+                g, new_budget or budget, new_bars or bars, ms_per_cell_bar, max_workers, blocks
+            )
             fits = core["mode"] == "exhaustive"
             estimate = core["estimate_seconds"]
         except ValueError:  # the lever leaves the grid over a budget too small to sample
             fits, estimate = (
                 False,
-                g.valid_count * bars * ms_per_cell_bar / 1000.0 / effective_workers(max_workers),
+                g.valid_count
+                * per_configuration
+                * ms_per_cell_bar
+                / 1000.0
+                / effective_workers(max_workers),
             )
         levers.append(
             Lever(
@@ -647,16 +695,22 @@ def plan(
     max_workers: int,
     timeframe: str | None = None,
     price_source: Literal["measured", "starting_guess"] = "starting_guess",
+    blocks: int = 0,
 ) -> Plan:
     """Exhaustive when every valid cell fits the budget, sampled otherwise, with the levers that
     bring an over-budget grid back into scope (spec §5.3–5.5). `price_source` says whether
-    `ms_per_cell_bar` was measured on this host or is the starting guess."""
+    `ms_per_cell_bar` was measured on this host or is the starting guess. With `blocks` = K, each
+    configuration is priced on all its K + 1 evaluations (Lab Phase 3), and a block shorter than
+    the engine's minimum is refused."""
+    _check_blocks(bars, blocks)
     grid = build_grid(spec, surface, bars)
-    core = _core(grid, budget, bars, ms_per_cell_bar, max_workers)
+    core = _core(grid, budget, bars, ms_per_cell_bar, max_workers, blocks)
     levers = (
         []
         if core["mode"] == "exhaustive"
-        else _levers(spec, surface, grid, budget, bars, ms_per_cell_bar, max_workers, timeframe)
+        else _levers(
+            spec, surface, grid, budget, bars, ms_per_cell_bar, max_workers, timeframe, blocks
+        )
     )
     return Plan(**core, levers=levers, price_source=price_source)
 
@@ -671,7 +725,9 @@ __all__ = [
     "Plan",
     "Surface",
     "apply_params",
+    "block_bounds",
     "build_grid",
+    "configuration_bars",
     "current_value",
     "effective_workers",
     "latin_hypercube",

@@ -325,6 +325,7 @@ def _document(
         ms_per_cell_bar=0.0,
         workers=1,
         bars=case.bars_nominal,
+        evaluations=trials,  # no screening blocks
     )
     # The trial numbers live in the parts: no first-pass or refinement cells are listed, and
     # counts.scheduled = trials is what the Lab reads.

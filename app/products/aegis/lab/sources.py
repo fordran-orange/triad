@@ -32,6 +32,7 @@ from products.aegis.experiments import (
     UNFINISHED,
     ExperimentDocument,
     ExperimentStore,
+    _block0,
     _cells_schema_v2,
 )
 from products.aegis.lab import identity
@@ -44,6 +45,7 @@ from products.aegis.lab.query import (
     LabFilter,
     ParameterInfo,
     TrialFrame,
+    _status_tallies,
     aggregated_basis,
     counts_view,
     envelope,
@@ -65,6 +67,7 @@ from products.aegis.lab.store import (
     REGISTRY,
     Counters,
     Snapshot,
+    TrialTable,
     file_set,
     latest_snapshot,
 )
@@ -92,8 +95,11 @@ SUMMARY_BYTES = 65_536  # and of an `exp-summary` part (counts per value and the
 # A cached aggregate matrix's size per square, its four stats' values, stats and histogram
 # included (1.3 to 1.9 KB measured, from 200 x 200 to 12 x 12 squares, every square tested).
 SQUARE_BYTES = 2048
-# The row selection in a table's and an index's key (Ruling P1): ordinary views read block 0.
+# The row selection in a table's and an index's key (Ruling P1): ordinary views read block 0,
+# filtered before caching; the importance task reads every screening block, under its own key.
 BLOCK0 = "block0"
+ALL_BLOCKS = "all"
+Selection = Literal["block0", "all"]
 _TRIAL_NUMBER = re.compile(r"[0-9]{1,18}")  # below 2**63: a trial_no is an int64
 
 
@@ -292,6 +298,30 @@ def project(frame: TrialFrame, columns: Sequence[str]) -> TrialFrame:
 # --- exp: an experiment's trial store ---------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _Selected:
+    """A snapshot's trials in one row selection, and the snapshot's `evaluations_done` when the
+    selection dropped rows it counts (None: the table holds every row)."""
+
+    trials: TrialTable
+    evaluations_done: int | None
+
+
+def _select_rows(trials: TrialTable, selection: Selection) -> _Selected:
+    """Block 0 for `BLOCK0`, its `evaluations_done` counted over every block first (§6.4,
+    Ruling P5); every row for `ALL_BLOCKS`. A table without a screening block's row is kept as
+    read, never copied."""
+    if selection == ALL_BLOCKS:
+        return _Selected(trials, None)
+    if selection != BLOCK0:
+        raise ValueError(f"unknown row selection {selection!r}")
+    kept = _block0(trials.table)
+    if kept is trials.table:
+        return _Selected(trials, None)
+    done = _status_tallies(trials.table)[1]["evaluations_done"]
+    return _Selected(replace(trials, table=kept), done)
+
+
 def open_experiment(
     document: ExperimentDocument,
     store: ExperimentStore,
@@ -299,6 +329,7 @@ def open_experiment(
     columns: Sequence[str],
     *,
     trial_no: int | None = None,
+    selection: Selection = BLOCK0,
 ) -> tuple[TrialFrame, int]:
     """The frame of one request and its registry handle, which the caller releases when its
     answer is built. Under the experiment's read lock: the latest snapshot, read once; its file
@@ -307,8 +338,12 @@ def open_experiment(
     (`write_chunk` takes no write lock). The key carries the document's `created_at`, so an
     experiment deleted and created again under the same id never meets its predecessor's
     tables. With `trial_no`, that trial's rows only, read through the store's predicate and
-    never cached (one row is not worth an entry). A legacy (layout 1) folder is promoted by
-    `store.trials` and keyed by its synthesized snapshot."""
+    never cached (one row is not worth an entry; its counts are that trial's, never the
+    snapshot's). A legacy (layout 1) folder is promoted by `store.trials` and keyed by its
+    synthesized snapshot. `selection` picks the rows (Ruling P1): block 0 for every ordinary
+    view, filtered before caching, so a screened experiment costs the cache no more than an
+    unscreened one; `ALL_BLOCKS` for the importance task, cached under its own key, never the
+    block-0 table's."""
     experiment_id = document.id
     columns = tuple(columns)
     meta = cached_meta(document, cache)
@@ -318,21 +353,32 @@ def open_experiment(
         handle = REGISTRY.open(experiment_id, snapshot, file_set(cells_dir, manifest, snapshot))
         try:
             if trial_no is not None:
-                trials = store.trials(
-                    experiment_id, list(columns), snapshot=snapshot, trial_no=trial_no
+                selected = _select_rows(
+                    store.trials(
+                        experiment_id, list(columns), snapshot=snapshot, trial_no=trial_no
+                    ),
+                    selection,
                 )
             else:
                 # The column set, never its order: one entry serves every view that loads it.
-                key = (snapshot.generation, snapshot.chunk_watermark, BLOCK0, column_set(columns))
-                trials = cache.get(
+                key = (
+                    snapshot.generation,
+                    snapshot.chunk_watermark,
+                    selection,
+                    column_set(columns),
+                )
+                selected = cache.get(
                     (("exp", experiment_id), document.created_at, *key),
-                    lambda: store.trials(experiment_id, list(columns), snapshot=snapshot),
-                    size=lambda held: held.table.nbytes,
+                    lambda: _select_rows(
+                        store.trials(experiment_id, list(columns), snapshot=snapshot), selection
+                    ),
+                    size=lambda held: held.trials.table.nbytes,
                     release=True,
                 )
         except BaseException:
             REGISTRY.release(handle)
             raise
+    trials = selected.trials
     # The request's own order, as `read_trials` gives it (a zero-copy select).
     table = trials.table.select(list(dict.fromkeys([*columns, *_KEPT])))
     frame = TrialFrame(
@@ -350,6 +396,8 @@ def open_experiment(
         provisional=document.status in UNFINISHED,
         layout=trials.layout,
         objective=meta.objective,
+        blocks=document.blocks,
+        evaluations_done=selected.evaluations_done,
     )
     return frame, handle
 
@@ -364,7 +412,8 @@ def experiment_index(
 ) -> FrameIndex:
     """The snapshot's index (index.py), built from the first request's frame on that snapshot of
     this instance of the experiment and shared by every later one, whatever columns it loads:
-    their rows are the same block-0 rows in the same order."""
+    their rows are the same block-0 rows in the same order. Only a `BLOCK0` frame is indexed (an
+    `ALL_BLOCKS` frame of a screened experiment has other rows, which the index refuses)."""
     snapshot = frame.snapshot
     return cache.get(
         (
@@ -445,8 +494,9 @@ def experiment_unique(cache: LabCache, frame: TrialFrame, document: ExperimentDo
 
 def experiment_identity(document: ExperimentDocument) -> dict:
     """A trial's identity block: the computation's `inputs_key` (None when the document never
-    recorded its engine build, as a legacy one), the pinned spec's hash and the data its trials
-    ran on: the pinned source, or the data reference of a document that pinned none."""
+    recorded its engine build, as a legacy one; over its screening blocks), the pinned spec's
+    hash and the data its trials ran on: the pinned source, or the data reference of a document
+    that pinned none."""
     build = (document.versions or {}).get("engine_build")
     if document.data_pinned is not None:
         name, data = "data_pinned", dict(document.data_pinned)
@@ -456,7 +506,9 @@ def experiment_identity(document: ExperimentDocument) -> dict:
     key = (
         None
         if build is None
-        else identity.inputs_key(document.strategy_hash, data, settings, build)
+        else identity.inputs_key(
+            document.strategy_hash, data, settings, build, blocks=document.blocks
+        )
     )
     return {"inputs_key": key, "strategy_hash": document.strategy_hash, name: data}
 
@@ -853,6 +905,7 @@ def trial_detail(frame: TrialFrame, trial_no: int, trial_identity: dict) -> dict
 
 
 __all__ = [
+    "ALL_BLOCKS",
     "BASE",
     "BLOCK0",
     "COLUMNS_FOR",

@@ -12,6 +12,11 @@ number, grid positions, `param_key`, design, status and attempt beside the layou
 whose document records its search space, sampler, versions, pinned data and counts. A document
 saved before stays layout 1 and is read and run as it always was; every layout-1 reader of a
 layout-2 folder sees the layout-1 columns only (`_legacy_projection`).
+
+Lab Phase 3 (spec §7.3a): an experiment with `blocks = K` scores each configuration on the whole
+range (block 0) and on K contiguous blocks (`block_bounds`), all K + 1 rows in the configuration's
+chunk; every Mission 6 reader (`cells`, `row`, `done_cells`, the reports, materialize) reads
+block 0, and the progress counts configurations.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -64,7 +70,9 @@ from products.aegis.surface import (
     Plan,
     Surface,
     apply_params,
+    block_bounds,
     build_grid,
+    configuration_bars,
     effective_workers,
 )
 from products.aegis.surface import plan as plan_surface
@@ -93,6 +101,13 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _screening_blocks(value: int) -> int:
+    """`blocks` is 0 (none) or 2 to MAX_BLOCKS screening blocks (Lab Phase 3, §7.3a)."""
+    if value != 0 and not 2 <= value <= policy.MAX_BLOCKS:
+        raise ValueError(f"blocks must be 0 (no screening blocks) or 2 to {policy.MAX_BLOCKS}")
+    return value
+
+
 class ExperimentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
@@ -104,6 +119,12 @@ class ExperimentRequest(BaseModel):
     budget: Budget
     tolerance: float = Field(default=0.15, gt=0, le=1)
     seed: int = 1
+    blocks: int = 0  # screening blocks: each configuration also scored on K periods (§7.3a)
+
+    @field_validator("blocks")
+    @classmethod
+    def screening_blocks(cls, value: int) -> int:
+        return _screening_blocks(value)
 
     @field_validator("settings")
     @classmethod
@@ -161,6 +182,13 @@ class ExperimentDocument(BaseModel):
     execution: dict | None = None
     counts: dict | None = None
     lineage: dict | None = None
+    # Lab Phase 3: screening blocks per configuration; every document saved before has none.
+    blocks: int = 0
+
+    @field_validator("blocks")
+    @classmethod
+    def screening_blocks(cls, value: int) -> int:
+        return _screening_blocks(value)
 
 
 # --- storage ---------------------------------------------------------------------------------
@@ -269,8 +297,9 @@ def _cells_table_v2(
 ) -> pa.Table:
     """One layout-2 chunk. Trial numbers come from `schedule`, or, with None (fixtures and
     synthetic documents, which have no schedule to number from), from each row's `trial_no`.
+    `block` (Lab Phase 3: a screening block's evaluation of its cell, 0 for the whole range),
     `attempt` and `error` are read from the row when it carries them (the job's rows carry
-    neither in Phase 2)."""
+    neither of the last two in Phase 2)."""
     paths = grid.paths
     statuses = [_status_of(r) for r in rows]
     passes = [r.get("pass", "grid") for r in rows]
@@ -288,7 +317,7 @@ def _cells_table_v2(
     columns["param_key"] = [identity.param_key(spec, r["params"], steps) for r in rows]
     columns["pass"] = passes
     columns["design"] = [identity.design_of(label) for label in passes]
-    columns["block"] = [0] * len(rows)  # no screening blocks in Phase 2
+    columns["block"] = [r.get("block", 0) for r in rows]
     columns["reused_from"] = [None] * len(rows)  # no reuse by value in Phase 2
     columns["status"] = statuses
     columns["valid"] = [status == "ok" for status in statuses]
@@ -312,13 +341,23 @@ def _cells_table_v2(
     return pa.table(columns, schema=_cells_schema_v2(paths))
 
 
+def _block0(table: pa.Table) -> pa.Table:
+    """The whole-range evaluations of a layout-2 table (§7.3a: every ordinary reader reads block
+    0); the table itself when it holds no screening block's row."""
+    blocks = table.column("block")
+    if not len(table) or not pc.any(pc.not_equal(blocks, 0)).as_py():
+        return table
+    return table.filter(pc.equal(blocks, 0))
+
+
 def _legacy_projection(table: pa.Table, paths: list[str]) -> pa.Table:
-    """A layout-2 table as layout-1 code reads it: the `_cells_schema` columns only, with plain
+    """A layout-2 table as layout-1 code reads it: its block-0 rows (one per cell, a screening
+    block's evaluations never among them) in the `_cells_schema` columns only, with plain
     strings for `pass` and `engine`. `analysis._paths_of` takes every column outside its
     reserved set for a parameter, and GET /experiments/{id}/cells would hand a `param_key`'s
     bytes to the JSON encoder, so neither ever sees a layout-2 column."""
     schema = _cells_schema(paths)
-    return table.select(schema.names).cast(schema)
+    return _block0(table).select(schema.names).cast(schema)
 
 
 def _curves_table(rows: list[dict]) -> pa.Table:
@@ -459,11 +498,13 @@ class ExperimentStore:
         return lab_store.next_chunk_index(folder, lab_store.read_manifest(folder))
 
     def done_cells(self, experiment_id: str) -> set[int]:
+        """The cells already run: a layout-2 configuration by its block-0 row (the job writes all
+        its blocks' rows in one chunk, so a crash leaves a whole configuration or none)."""
         if self.layout(experiment_id) == 2:  # the canonical trials, parts and chunks alike
             with lab_store.LOCKS.read(experiment_id):
                 columns = ["trial_no", "cell", "status"]
                 trials = lab_store.read_latest(self.cells_dir(experiment_id), columns)
-                return set(trials.table.column("cell").to_pylist())
+                return set(_block0(trials.table).column("cell").to_pylist())
         done: set[int] = set()
         for path in _readable(self.cells_dir(experiment_id)):
             done.update(pq.read_table(path, columns=["cell"]).column("cell").to_pylist())
@@ -491,8 +532,8 @@ class ExperimentStore:
     def cells(self, experiment_id: str) -> pa.Table | None:
         """Every trial in layout-1 columns, by cell. A layout-2 folder (a manifest, or chunks
         carrying `trial_no`, a decompacted folder included) is read through the canonical reader
-        under the experiment's read lock and projected (`_legacy_projection`) over its document's
-        surface paths; a legacy folder reads its chunks as it always has."""
+        under the experiment's read lock and projected (`_legacy_projection`: block 0 only) over
+        its document's surface paths; a legacy folder reads its chunks as it always has."""
         if self.layout(experiment_id) == 1:
             return self._legacy_cells(experiment_id)
         with lab_store.LOCKS.read(experiment_id):
@@ -536,6 +577,7 @@ class ExperimentStore:
             )
 
     def row(self, experiment_id: str, cell: int) -> dict:
+        """The cell's row as `cells()` holds it: its block-0 (whole-range) evaluation."""
         if self.layout(experiment_id) == 2:
             with lab_store.LOCKS.read(experiment_id):  # `cells` takes it again, re-entrantly
                 return self._row_of(self.cells(experiment_id), cell)
@@ -543,8 +585,11 @@ class ExperimentStore:
 
     @staticmethod
     def _row_of(table: pa.Table | None, cell: int) -> dict:
+        """The cell's row; a table that still carries `block` is read at block 0."""
         if table is not None:
-            mask = pa.compute.equal(table.column("cell"), pa.scalar(cell, pa.int64()))
+            mask = pc.equal(table.column("cell"), pa.scalar(cell, pa.int64()))
+            if "block" in table.column_names:
+                mask = pc.and_(mask, pc.equal(table.column("block"), 0))
             found = table.filter(mask)
             if len(found):
                 return found.to_pylist()[0]
@@ -631,7 +676,9 @@ def _layout2_fields(
     if engine_build is not None:  # the worker's, computed at its start
         versions["engine_build"] = engine_build
     scheduled = planned.valid_cells if planned.mode == "exhaustive" else planned.first_pass
-    counts = lab_store.Counters(scheduled=scheduled, budget_total=planned.planned_runs)
+    counts = lab_store.Counters(
+        scheduled=scheduled, budget_total=planned.planned_runs, blocks=planned.blocks
+    )
     return {
         "cells_layout": 2,
         "search_space": identity.search_space(spec, surface),
@@ -673,6 +720,7 @@ def create(
         max_workers,
         timeframe,
         price_source="measured" if measured else "starting_guess",
+        blocks=request.blocks,
     )
     now = _now()
     chunk = CHUNK_CELLS
@@ -714,6 +762,7 @@ def create(
             engine_build,
         ),
         lineage={"parent": None, "root": experiment_id},
+        blocks=request.blocks,
     )
     store.init_layout2(experiment.id)
     store.save(experiment)
@@ -797,6 +846,10 @@ class ExperimentJob:
         self.repository = repository
         self.store = ExperimentStore(repository)
         self.bars = len(self.frame)
+        # Lab Phase 3: each configuration's screening blocks (none without), computed once, and
+        # the bars all its evaluations run on.
+        self.blocks = block_bounds(self.bars, document.blocks)
+        self.configuration_bars = configuration_bars(self.bars, document.blocks)
         self.grid = build_grid(document.spec, document.surface, self.bars)
         self.workers = fitted_workers(
             self.bars, max_workers or document.workers or default_workers()
@@ -823,14 +876,16 @@ class ExperimentJob:
         self.ms_per_cell_bar = document.ms_per_cell_bar
 
     def _recount_counters(self) -> None:
-        """`attempted`, `completed`, `invalid` and `failed` from the trials on disk, the
-        canonical trials `done_cells` reads (parts and unmerged chunks alike): those never rerun,
-        and an unreadable chunk adds nothing, so its trials rerun and are counted once. Every
-        start and resume recounts, so a lost or torn chunk, or a crash before the document's last
-        save, never skews the counts."""
+        """`attempted`, `completed`, `invalid`, `failed` (block 0) and `evaluations_done` (every
+        block) from the trials on disk, the canonical trials `done_cells` reads (parts and
+        unmerged chunks alike): those never rerun, and an unreadable chunk adds nothing, so its
+        trials rerun and are counted once. Every start and resume recounts, so a lost or torn
+        chunk, or a crash before the document's last save, never skews the counts."""
         with lab_store.LOCKS.read(self.document.id):
             trials = lab_store.read_latest(self.store.cells_dir(self.document.id), ["status"])
-        self.counters.recount(trials.table.column("status").to_pylist())
+        table = trials.table
+        blocks, statuses = table.column("block").to_pylist(), table.column("status").to_pylist()
+        self.counters.recount(zip(blocks, statuses, strict=True))
         self.document = self.document.model_copy(update={"counts": self.counters.as_dict()})
 
     # -- planning the units ---------------------------------------------------------------
@@ -990,7 +1045,9 @@ class ExperimentJob:
             label = "sample" if index < self.first_pass_units else "refine"
         rows = (
             self.pool.run_chunk(
-                [(i, self.grid.cell_values(i)) for i in cells], want_curve=self.keep_curves
+                [(i, self.grid.cell_values(i)) for i in cells],
+                want_curve=self.keep_curves,
+                blocks=self.blocks or None,
             )
             if cells
             else []
@@ -1000,6 +1057,9 @@ class ExperimentJob:
         return {"rows": rows}
 
     def commit(self, index: int, result: dict) -> None:
+        """One chunk file holding every row of the unit's cells, each configuration's block rows
+        beside its block-0 row, so a crash leaves a whole configuration or none. `cells_done` and
+        the progress count configurations (block-0 rows)."""
         rows = result["rows"]
         if rows:
             # F16: named one past the highest index used, so no file on disk is overwritten
@@ -1016,7 +1076,7 @@ class ExperimentJob:
                     datetime.now(UTC),
                 )
             self.store.write_chunk(self.document.id, chunk, rows, self.grid.paths, table=table)
-            self.cells_done += len(rows)
+            self.cells_done += sum(1 for row in rows if row.get("block", 0) == 0)
             if self.layout == 2:
                 self._count(rows)
         self.chunks_done += 1
@@ -1036,7 +1096,7 @@ class ExperimentJob:
         self.document = self.document.model_copy(update=update)
 
     def _count(self, rows: list[dict]) -> None:
-        self.counters.tally(_status_of(row) for row in rows)
+        self.counters.tally((row.get("block", 0), _status_of(row)) for row in rows)
 
     def _progress(self) -> dict:
         return {
@@ -1049,7 +1109,8 @@ class ExperimentJob:
     def snapshot(self) -> dict:
         remaining = max(self.document.plan["planned_runs"] - self.cells_done, 0)
         price = self.ms_per_cell_bar or self.document.plan["ms_per_cell_bar"]
-        estimate = remaining * self.bars * price / 1000.0 / effective_workers(self.workers)
+        bars = self.configuration_bars  # every evaluation of a configuration (Lab Phase 3)
+        estimate = remaining * bars * price / 1000.0 / effective_workers(self.workers)
         document = self.document.model_dump(mode="json")
         document.pop("job_id", None)  # the runner's
         document.pop("error", None)
@@ -1385,6 +1446,7 @@ __all__ = [
     "ExperimentRequest",
     "ExperimentStore",
     "Schedule",
+    "block_bounds",  # surface.py's, beside the planner that prices and refuses blocks
     "cancel_idle",
     "create",
     "decide",
