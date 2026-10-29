@@ -19,7 +19,8 @@ Task 13 was run on Opus 5.5 after a `/model` switch; the mandatory independent Q
 
 ## Verdict
 
-**Phase 2 is complete and its checks are green; the R3 pass is Randall's.** At the hand-off commit:
+**R3 passed** by Randall on 2026-10-29 ("Pass R3"), with the benchmark misses below recorded as findings for
+Phase 3. Phase 2 is complete and its checks are green. At the hand-off commit:
 
 - **Checks:** the whole Aegis scope **690 passed, 1 skipped**. The core-scope architecture and ownership tests
   pass, as do vitest (372), the build and the contracts check. Lint is ok, both identity scripts read
@@ -355,6 +356,9 @@ From the plan's Self-review; each held through Phase 2.
 
 ## Open questions for Randall
 
+Question 3 is answered: R3 passes with the misses as Phase 3 findings (2026-10-29). Questions 1, 2 and 4
+stay open.
+
 1. **R2's question 1:** the shell keeps the workstation's top bar rather than the design's stage
    stepper. Randall said he answers it at R3.
 2. **The DSR worked example** stays the pinned formula check unless the paper's Appendix literals
@@ -363,6 +367,11 @@ From the plan's Self-review; each held through Phase 2.
 4. **QA observations O1 and O2:** fix now, or with Phase 3?
 
 ## R3 checkpoint
+
+**Passed** by Randall on 2026-10-29 ("Pass R3"): the checks and the QA's verdict accepted, the benchmark
+misses carried into Phase 3 as findings. Still open: R2's question 1 and QA observations O1 and O2.
+
+What Randall was asked:
 
 Randall is asked to:
 
