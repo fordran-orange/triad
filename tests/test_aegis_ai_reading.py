@@ -300,3 +300,59 @@ def test_read_with_ai_checks_the_rewrite_with_the_reader():
     fake = FakeCore()
     reading = read_with_ai(UNREADABLE, default_strategy(), "CLAUDE", fake, [])
     assert reading.read_by == "ai" and reading.provenance["run_id"] == "run-1"
+
+
+# -- the milestone review and QA (2026-10-28) ---------------------------------------------------
+def test_the_instructions_stay_within_cores_bound():
+    """Twenty long examples would outgrow Core's 20,000 characters and lock AI reading out for
+    good; the newest examples that fit are kept, the oldest dropped first."""
+    examples = [{"text": f"{n:03d} " + "x" * 496, "rewrite": "y" * 500} for n in range(20)]
+    text = instructions(default_strategy(), examples)
+    assert len(text) <= 20_000
+    assert '"019 ' in text and '"000 ' not in text
+    assert text.index('"018 ') < text.index('"019 ')  # still oldest to newest
+
+
+def test_a_core_request_out_of_bounds_is_explained(core):
+    c, fake = core
+    fake.error = CoreReadingError(
+        422, "out_of_bounds", "request out of bounds (instructions: string_too_long)"
+    )
+    answer = c.post("/aegis/api/strategies/read", json=body(UNREADABLE))
+    assert answer.status_code == 422
+    ai = answer.json()["detail"]["ai"]
+    assert ai["reason"] == "out_of_bounds" and "out of bounds" in ai["message"]
+
+
+def test_the_client_explains_a_core_422_and_a_non_json_answer(monkeypatch):
+    import io
+    import json
+    import urllib.error
+
+    from products.aegis import core_client
+
+    detail = [{"loc": ["body", "instructions"], "type": "string_too_long"}]
+
+    def refuse(request, timeout):
+        raise urllib.error.HTTPError(
+            request.full_url,
+            422,
+            "Unprocessable Entity",
+            {},
+            io.BytesIO(json.dumps({"detail": detail}).encode()),
+        )
+
+    monkeypatch.setattr(core_client.urllib.request, "urlopen", refuse)
+    with pytest.raises(CoreReadingError) as caught:
+        core_client.CoreReasoning(base="http://core", key="k" * 48).reason("CLAUDE", "i", "t", {})
+    assert (caught.value.reason, str(caught.value)) == (
+        "out_of_bounds",
+        "request out of bounds (instructions: string_too_long)",
+    )
+
+    monkeypatch.setattr(
+        core_client.urllib.request, "urlopen", lambda request, timeout: io.BytesIO(b"<html>")
+    )
+    with pytest.raises(CoreReadingError) as caught:
+        core_client.CoreReasoning(base="http://core", key="k" * 48).providers()
+    assert caught.value.reason == "malformed_answer"

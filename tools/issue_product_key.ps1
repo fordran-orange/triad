@@ -11,7 +11,7 @@ $EnvFile = Join-Path $Root '.env'
 $Name = ($Product.ToUpperInvariant()) + '_PRODUCT_KEY'
 
 $lines = @()
-if (Test-Path -LiteralPath $EnvFile) { $lines = @(Get-Content -LiteralPath $EnvFile) }
+if (Test-Path -LiteralPath $EnvFile) { $lines = @(Get-Content -LiteralPath $EnvFile -Encoding UTF8) }
 $pattern = '^\s*' + [regex]::Escape($Name) + '\s*='
 $existing = @($lines | Where-Object { $_ -match $pattern })
 $hasKey = $existing | Where-Object { ($_ -replace $pattern, '').Trim().Length -ge 32 }

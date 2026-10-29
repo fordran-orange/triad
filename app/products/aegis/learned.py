@@ -29,6 +29,7 @@ from products.aegis.phrases import (
     KNOWN_WORDS,
     OUTPUT_WORDS,
     PRICE_WORDS,
+    TOKEN,
     Unread,
     apply_learned,
     read,
@@ -50,15 +51,39 @@ def _operands(text: str) -> set[str]:
     return {w for w in _words(text) if w in OPERANDS or NUMBER.fullmatch(w)}
 
 
+def _tokens(text: str) -> list[tuple[str, str]]:
+    """The reader's tokens of a phrase as (kind, text): "num", "word", "sym", or "other" for a
+    character the reader cannot read."""
+    return [(match.lastgroup or "other", match.group().lower()) for match in TOKEN.finditer(text)]
+
+
+def _readable(text: str) -> bool:
+    """Every token is a word the reader knows, a number or a symbol it reads."""
+    return all(
+        kind in ("num", "sym") or (kind == "word" and word in KNOWN_WORDS)
+        for kind, word in _tokens(text)
+    )
+
+
+def _brings_new(text: str) -> bool:
+    """At least one word the reader does not know, or a character it cannot read. A number or a
+    symbol is a word the reader knows (review and QA, 2026-10-28: "200 sma" or ">" brought
+    nothing new, yet were learned and then changed sentences the reader had read)."""
+    return any(
+        kind == "other" or (kind == "word" and word not in KNOWN_WORDS)
+        for kind, word in _tokens(text)
+    )
+
+
 def _context_free(text: str, frm: str, to: str) -> bool:
     if not frm or not to:
         return False
     pattern = r"(?<![a-z0-9])" + r"\s+".join(map(re.escape, frm.split())) + r"(?![a-z0-9])"
     if not re.search(pattern, text.lower()):
         return False  # rule 1: not in the text
-    if not all(w in KNOWN_WORDS or NUMBER.fullmatch(w) for w in _words(to)):
+    if not _readable(to):
         return False  # rule 1: the reader would not read it
-    if all(w in KNOWN_WORDS for w in _words(frm)):
+    if not _brings_new(frm):
         return False  # rule 2: nothing new
     return _operands(to) <= _operands(frm)  # rule 3
 
@@ -88,11 +113,18 @@ class LearnedPhrases:
         return [(e["from"], e["to"]) for e in self.list()]
 
     def examples(self, limit: int = EXAMPLES_IN_PROMPT) -> list[dict]:
-        try:
-            lines = self.examples_path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            return []
-        return [json.loads(line) for line in lines[-limit:] if line.strip()]
+        with _LOCK:  # never read a line while learn() is still appending it
+            try:
+                lines = _retry(lambda: self.examples_path.read_text(encoding="utf-8")).splitlines()
+            except OSError:
+                return []
+        kept = []
+        for line in lines:
+            try:
+                kept.append(json.loads(line))
+            except ValueError:
+                continue  # a torn line (a crash mid-append) is skipped, as learned.json would be
+        return kept[-limit:]
 
     def learn(
         self,
@@ -111,6 +143,10 @@ class LearnedPhrases:
             for s in substitutions
         ]
         listed = [(frm, to) for frm, to in listed if frm and to and frm != to.lower()]
+        first: dict[str, str] = {}
+        for frm, to in listed:
+            first.setdefault(frm, to)  # the same from twice: the first meaning, which rule 4 checks
+        listed = list(first.items())
         target = _sides(rewrite, strategy)
         explained = target is not None and _sides(text, strategy, learned=listed) == target
         now = datetime.now(UTC).isoformat()

@@ -137,7 +137,7 @@ ITEMS = [
     "a sentence the reader refuses is read by Claude through Core: the thinking state, the rewrite and read-by lines, Apply, and the sides it describes",
     'what Claude substituted for "crosses up" is listed as learned, and the same phrasing is then read by the phrase reader with no provider',
     "Remove forgets it: the same sentence goes to the provider again, and Cancel stops the wait with the text kept",
-    "the provider chosen is remembered across a reload, then set back to Claude; the save mode untouched",
+    "the provider chosen is remembered across a reload, then set back as found; the save mode untouched",
     "governance: Core changed since the Mission 14 plan only in its own files and the two fixes merged from main, nothing under the platform host or Triad, the key only in the ignored .env; exchange CLOSED, schedule disabled, items 1–101 pass",
 ]
 RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
@@ -188,6 +188,7 @@ MISSION14_CORE_FILES = [  # spec §6 and §9: the product reasoning route, its m
     "app/trading_core/intelligence/routing.py",
     "app/trading_core/product_reasoning.py",
     "app/trading_core/product_reasoning_api.py",
+    "app/trading_core/security.py",  # the key in Core's redaction set (the milestone review)
     "app/trading_core/settings.py",
 ]
 MAIN_CORE_FILES = [  # Core work governed and merged on main meanwhile, then merged into the branch
@@ -589,6 +590,7 @@ class Acceptance:
         # The walk's precondition (items 70-76 list the runs of items 22, 39 and 54; item 85 ends
         # in "every"): a worker found in "kept" mode is switched first, and the switch is reported.
         found = self.api("preferences")["save_runs"]
+        self.timings["save_mode_found"] = found  # the evidence says whether the walk switched it
         if found != "every":
             how = self.restore_save_mode()
             print(f"save mode was {found!r}; set to 'every' through the {how} before item 1")
@@ -4478,15 +4480,18 @@ class Acceptance:
                 lambda: page.locator("#reader-provider").input_value() == "CODEX", 10
             )
             assert shown, page.locator("#reader-provider").input_value()
-            page.locator("#reader-provider").select_option("CLAUDE")
+            # Back to what the operator had (item 98 chose Claude for its reading; the walk
+            # leaves the remembered provider as it found it).
+            page.locator("#reader-provider").select_option(before["reader_provider"])
             back = self.wait_until(
-                lambda: self.api("preferences")["reader_provider"] == "CLAUDE", 10
+                lambda: self.api("preferences")["reader_provider"] == before["reader_provider"],
+                10,
             )
             after = self.api("preferences")
             assert back and after["save_runs"] == before["save_runs"], (before, after)
             return (
-                f"Codex saved and shown after the reload; back to Claude; save mode "
-                f"{after['save_runs']!r} as found"
+                f"Codex saved and shown after the reload; back to {before['reader_provider']} "
+                f"as found; save mode {after['save_runs']!r} as found"
             )
 
         self.item(101, item101)

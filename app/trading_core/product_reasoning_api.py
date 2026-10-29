@@ -23,6 +23,12 @@ def _key(settings, field: str) -> str:
     return value.get_secret_value() if value is not None else ""
 
 
+def _same(presented: str, key: str) -> bool:
+    """Constant-time equality on bytes: a header byte outside ASCII is a wrong key, not an error
+    (hmac.compare_digest refuses non-ASCII str)."""
+    return hmac.compare_digest(presented.encode("utf-8"), key.encode("utf-8"))
+
+
 def require_product_key(
     product: str, authorization: str = Header(default=""), engine=ENGINE_DEPENDENCY
 ) -> str:
@@ -35,11 +41,11 @@ def require_product_key(
     own = _key(settings, PRODUCT_KEYS[product])
     if len(own) < MIN_KEY:
         raise HTTPException(503, {"reason": "not_issued", "message": "no product key issued"})
-    if hmac.compare_digest(presented, own):
+    if _same(presented, own):
         return product
     for other, field in PRODUCT_KEYS.items():
         key = _key(settings, field)
-        if other != product and len(key) >= MIN_KEY and hmac.compare_digest(presented, key):
+        if other != product and len(key) >= MIN_KEY and _same(presented, key):
             raise HTTPException(403, "that key belongs to another product")
     raise HTTPException(401, "product key required")
 

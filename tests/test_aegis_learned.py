@@ -165,3 +165,70 @@ def test_learned_phrases_make_the_reader_read_the_sentence(phrases):
     )
     reading = read("buy when 9 ema crosses up 30 sma", default_strategy(), learned=phrases.pairs())
     assert reading.reading.startswith("Long entry: EMA 9 crosses above SMA 30.")
+
+
+# -- the milestone review and QA (2026-10-28): rule 2 counts numbers and symbols as known ----------
+@pytest.mark.parametrize(
+    ("text", "rewrite", "substitution", "already_read"),
+    [
+        (
+            "buy when 9 ema crosses 200 sma",
+            "buy when 9 ema crosses sma",
+            sub("200 sma", "sma"),
+            "buy when 9 ema crosses 200 sma",
+        ),
+        (
+            "buy when close > 30",
+            "buy when close below 30",
+            sub(">", "below"),
+            "buy when close > 30",
+        ),
+        (
+            "buy when 9 ema 30 sma",
+            "buy when 9 ema crosses above 30 sma",
+            sub("9 ema", "9 ema crosses above"),
+            "sell when 9 ema crosses below 30 sma",
+        ),
+    ],
+)
+def test_a_phrase_of_numbers_symbols_and_known_words_is_never_learned(
+    phrases, text, rewrite, substitution, already_read
+):
+    """A learned phrase never changes a sentence the reader already read (spec §4.3 rule 2): a
+    number or a symbol is a word the reader knows, so it brings nothing new."""
+    before = read(already_read, default_strategy()).reading
+    assert learn(phrases, text, rewrite, [substitution]) == [] and phrases.list() == []
+    assert read(already_read, default_strategy(), learned=phrases.pairs()).reading == before
+
+
+def test_an_unreadable_character_counts_as_new(phrases):
+    kept = learn(
+        phrases,
+        "buy when 9 ema → 30 sma",
+        "buy when 9 ema crosses above 30 sma",
+        [sub("→", "crosses above")],
+    )
+    assert [(e["from"], e["to"]) for e in kept] == [("→", "crosses above")]
+
+
+def test_the_same_from_listed_twice_keeps_the_meaning_that_explained_the_rewrite(phrases):
+    kept = learn(
+        phrases,
+        "buy when 9 ema crosses up 30 sma",
+        "buy when 9 ema crosses above 30 sma",
+        [sub("crosses up", "crosses above"), sub("crosses up", "crosses below")],
+    )
+    assert [(e["from"], e["to"]) for e in kept] == [("crosses up", "crosses above")]
+
+
+def test_a_torn_examples_line_is_skipped(phrases):
+    learn(
+        phrases,
+        "buy when 9 ema crosses up 30 sma",
+        "buy when 9 ema crosses above 30 sma",
+        [sub("crosses up", "crosses above")],
+    )
+    with phrases.examples_path.open("a", encoding="utf-8") as stream:
+        stream.write('{"text": "cut')
+    examples = phrases.examples()
+    assert [e["text"] for e in examples] == ["buy when 9 ema crosses up 30 sma"]

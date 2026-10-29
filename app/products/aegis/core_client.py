@@ -58,7 +58,7 @@ class CoreReasoning:
         )
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                return json.load(response)
+                raw = response.read()
         except urllib.error.HTTPError as exc:
             try:
                 detail = json.loads(exc.read() or b"{}").get("detail")
@@ -68,10 +68,29 @@ class CoreReasoning:
                 raise CoreReadingError(
                     exc.code, str(detail.get("reason", "failed")), str(detail.get("message", ""))
                 ) from exc
+            if exc.code == 422:  # Core's validation: the places, with no message by design
+                places = (
+                    ", ".join(
+                        ".".join(str(p) for p in item.get("loc", [])[1:])
+                        + ": "
+                        + str(item.get("type", "?"))
+                        for item in detail
+                        if isinstance(item, dict)
+                    )
+                    if isinstance(detail, list)
+                    else str(detail or exc.reason)
+                )
+                raise CoreReadingError(
+                    422, "out_of_bounds", f"request out of bounds ({places})"
+                ) from exc
             reason = {401: "refused", 403: "refused", 404: "refused"}.get(exc.code, "failed")
             raise CoreReadingError(exc.code, reason, str(detail or exc.reason)) from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise CoreReadingError(503, "core_unavailable", "Core is not answering") from exc
+        try:
+            return json.loads(raw)
+        except ValueError as exc:
+            raise CoreReadingError(502, "malformed_answer", "Core's answer was not JSON") from exc
 
 
 __all__ = ["CORE_URL", "CoreReadingError", "CoreReasoning"]

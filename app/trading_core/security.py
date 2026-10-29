@@ -16,7 +16,9 @@ def secrets():
     return list(redaction_values()) + [
         v
         for k, v in values.items()
-        if v and len(v) >= 8 and any(s in k.upper() for s in ("API_KEY", "PASSWORD", "TOKEN"))
+        if v
+        and len(v) >= 8
+        and any(s in k.upper() for s in ("API_KEY", "PASSWORD", "TOKEN", "PRODUCT_KEY"))
     ]
 
 

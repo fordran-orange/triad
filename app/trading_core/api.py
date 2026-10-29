@@ -78,7 +78,11 @@ def require_operator(
     origin = request.headers.get("origin")
     if origin and origin not in {"http://127.0.0.1:8000", "http://localhost:8000"}:
         raise HTTPException(403, "Untrusted origin")
-    if len(expected) < 32 or not hmac.compare_digest(authorization, "Bearer " + expected):
+    # On bytes: a header byte outside ASCII is a refusal, not an error (compare_digest refuses
+    # non-ASCII str; Mission 14 review).
+    if len(expected) < 32 or not hmac.compare_digest(
+        authorization.encode("utf-8"), ("Bearer " + expected).encode("utf-8")
+    ):
         raise HTTPException(401, "Operator authorization required")
 
 

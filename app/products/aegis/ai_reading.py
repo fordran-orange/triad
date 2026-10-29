@@ -41,6 +41,9 @@ class AIUnread(Exception):
         return detail
 
 
+INSTRUCTIONS_LIMIT = 20_000  # Core's bound on a reading's instructions (spec §4.1)
+
+
 def instructions(strategy: StrategySpec, examples: list[dict]) -> str:
     """What the model is asked: the reader's grammar, the strategy's indicators, the rules and the
     newest accepted examples."""
@@ -68,12 +71,23 @@ def instructions(strategy: StrategySpec, examples: list[dict]) -> str:
             '"to": "..."}], "unsupported": "..."}.'
         ),
     ]
-    if examples:
-        parts.append(
-            "Accepted readings so far (sentence -> rewrite):\n"
-            + "\n".join(f'"{e["text"]}" -> "{e["rewrite"]}"' for e in examples)
-        )
-    return "\n\n".join(parts)
+    base = "\n\n".join(parts)
+    if not examples:
+        return base
+    # Core bounds the instructions at 20,000 characters (spec §4.1): the newest examples that fit
+    # are kept, the oldest dropped first, so a run of long sentences never locks AI reading out.
+    header = "\n\nAccepted readings so far (sentence -> rewrite):"
+    lines = [f'"{e["text"]}" -> "{e["rewrite"]}"' for e in examples]
+    kept: list[str] = []
+    size = len(base) + len(header)
+    for line in reversed(lines):
+        if size + 1 + len(line) > INSTRUCTIONS_LIMIT:
+            break
+        kept.append(line)
+        size += 1 + len(line)
+    if not kept:
+        return base
+    return base + header + "\n" + "\n".join(reversed(kept))
 
 
 def _explain(exc: CoreReadingError, name: str) -> tuple[str, str]:
@@ -90,6 +104,10 @@ def _explain(exc: CoreReadingError, name: str) -> tuple[str, str]:
         return "timed_out", f"{name} took too long (over 120 s); try again"
     if exc.reason == "malformed_answer":
         return "malformed_answer", f"{name}'s answer could not be used: {detail}"
+    if exc.reason == "out_of_bounds":
+        return "out_of_bounds", f"the request to Core was out of bounds: {detail}"
+    if exc.reason == "core_failed":
+        return "core_failed", f"Core could not run the reading: {detail}"
     return exc.reason, f"{name} could not read this: {detail}"
 
 

@@ -16,6 +16,7 @@ pytestmark = pytest.mark.core
 
 KEY = "k" * 48
 OTHER = "t" * 48
+OPERATOR = "o" * 48  # the operator routes compare against this, never the product key
 PATH = "/api/core/products/aegis/reasoning"
 BODY = {
     "provider": "CLAUDE",
@@ -49,7 +50,7 @@ def client():
     settings = NS(
         aegis_product_key=SecretStr(KEY),
         triad_product_key=SecretStr(OTHER),
-        triad_operator_token=SecretStr(""),
+        triad_operator_token=SecretStr(OPERATOR),
     )
     engine = NS(store=NS(settings=settings, scope=None))
     reasoner = FakeReasoner()
@@ -158,3 +159,26 @@ def test_the_providers_are_what_core_would_route_now(client):
         ]
     }
     assert reasoner.calls == [("aegis", "providers")]
+
+
+# -- the milestone review (2026-10-28) ------------------------------------------------------------
+@pytest.mark.parametrize("value", [b"Bearer \xe9" + b"k" * 47, b"Bearer " + b"k" * 47 + b"\xff"])
+def test_a_non_ascii_key_header_is_401(client, value):
+    """A header byte outside ASCII is a wrong key, not an unhandled error: the compare runs on
+    bytes. The same holds for the operator routes."""
+    c, _, reasoner = client
+    answer = c.post(PATH, json=BODY, headers={b"authorization": value})
+    assert answer.status_code == 401 and reasoner.calls == []
+    assert c.get("/api/core/conversations", headers={b"authorization": value}).status_code == 401
+
+
+def test_the_product_key_is_redacted_like_other_secrets(monkeypatch):
+    """Core redacts every .env credential it knows from prompts, results and logs; the product
+    key joins the operator token and the API keys in that set."""
+    import json
+
+    from trading_core.security import redact
+
+    monkeypatch.setenv("AEGIS_PRODUCT_KEY", "p" * 48)
+    shown = json.dumps(redact({"value": "p" * 48, "header": "Bearer " + "p" * 48}))
+    assert "p" * 48 not in shown

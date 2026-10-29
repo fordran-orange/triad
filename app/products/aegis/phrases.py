@@ -632,9 +632,9 @@ def grammar_text() -> str:
 
 
 def apply_learned(text: str, learned: list[tuple[str, str]]) -> tuple[str, list[int], list[int]]:
-    """The text with learned phrases replaced (whole words, any case, longest first, never
-    overlapping), and for every character of the result the start and end of the original
-    characters it came from."""
+    """The text with learned phrases replaced (whole words, any case, the leftmost match first and
+    among phrases starting there the longest, never overlapping), and for every character of the
+    result the start and end of the original characters it came from."""
     pairs = sorted(
         ((" ".join(frm.lower().split()), to) for frm, to in learned if frm.split()),
         key=lambda pair: -len(pair[0]),
