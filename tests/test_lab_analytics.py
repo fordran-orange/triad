@@ -31,7 +31,6 @@ from products.aegis.lab.analytics import (
     MAINS,
     MEASURED,
     FineTerms,
-    _blocks,
     aliased,
     block_mains,
     cohort,
@@ -53,6 +52,7 @@ from products.aegis.lab.policy import (
     THETA_MIN,
 )
 from products.aegis.lab.query import BLOCK0, LabFilter, matrix_view
+from products.aegis.lab.shares import design_of, parameter_blocks
 from products.aegis.lab.tasks import Cancelled
 
 pytestmark = pytest.mark.aegis
@@ -137,50 +137,25 @@ def test_aliased_inputs_share_credit():
     assert aliased(cramers_v(c.X_uniform, c.B)) == [(0, 1)]
 
 
-def uneven_frame():
-    """Case 5: P(x₁ = v) ∝ v and x₃ follows x₁; Y = 3·x₂ + x₁·(x₂ - ½) + ε (centred, review B4:
-    x₁ has no main effect)."""
-    return stat_frame(
+def test_uneven_sampling_flags_confounded_squares():
+    """Case 5 (§20's generator, Ruling P7): P(x₁ = v) ∝ v and x₃ follows x₁;
+    Y = 3·x₂ + x₁·x₂ + ε. The (x₁, x₂) aggregate matrix flags its squares `confounded` (by x₃),
+    and what x₁ adds beyond x₂ has an upper bound above θ_min."""
+    frame = stat_frame(
         d=D,
         values=VALUES,
         seed=SEED,
-        y=lambda u: 3.0 * u[:, 1] + u[:, 0] * (u[:, 1] - 0.5),
+        y=lambda u: 3.0 * u[:, 1] + u[:, 0] * u[:, 1],
         draw=uneven_rows,
     )
-
-
-def assert_confounded_squares(frame) -> None:
-    """The (x₁, x₂) aggregate matrix flags its squares `confounded`, by x₃."""
     paths = [p.path for p in frame.parameters]
     matrix = matrix_view(
         frame, LabFilter(), rows=paths[0], cols=paths[1], metric=METRIC, mode="aggregate"
     )
     flagged = [s["confounded"] for row in matrix["stats"] for s in row if s and s["confounded"]]
     assert flagged and all(paths[2] in names for names in flagged)
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "R3.5 finding (task-4-report.md): on inputs normalised to [0, 1] the centred generator's "
-        "population Δ_1|2 = Var(x₁)·Var(x₂) / Var(Y) is 0.0050 at 8 values and σ = 0.5 (0.0059 "
-        "as σ → 0; only 2 values pass θ_min), so its upper bound (0.0054 at seed 1) cannot "
-        "exceed θ_min = 0.01; the uncentred §20 generator gives 0.0165"
-    ),
-)
-def test_uneven_sampling_flags_confounded_squares():
-    """Case 5: the (x₁, x₂) aggregate matrix flags its squares `confounded` (by x₃), and what
-    x₁ adds beyond x₂ has an upper bound above θ_min."""
-    frame = uneven_frame()
-    assert_confounded_squares(frame)
     fine = Fine(cohort_of(frame))
-    print(f"\ncase 5: Δ_1|2 = {fine.D[0, 1]:.5f}, upper {fine.hi_D[0, 1]:.5f}")
     assert fine.hi_D[0, 1] > THETA_MIN
-
-
-def test_uneven_sampling_confounds_the_squares():
-    """Case 5's first half on its own, so it stays guarded while the second is a finding."""
-    assert_confounded_squares(uneven_frame())
 
 
 def test_sparse_values_are_insufficient_coverage():
@@ -244,7 +219,7 @@ def test_refinement_rows_excluded():
         assert np.array_equal(ours, theirs)
 
 
-def test_interval_coverage_known_variance(capsys):
+def test_interval_coverage_known_variance():
     """For Y = a·x₁ + ε the true share is a²·Var(x₁) / (a²·Var(x₁) + σ²), Var(x₁) the variance
     of the uniform lattice in [0, 1]; the 90 % interval covers it in at least 85 of 100 seeds.
     a = 1 puts the true share at 0.30, away from both 0 (clamping) and 1."""
@@ -257,9 +232,7 @@ def test_interval_coverage_known_variance(capsys):
         fn = FineTerms(c.B, pairs=False)
         lo, hi = intervals(fn, c.X, c.Y, b=BOOTSTRAP_B, seed=seed, checkpoint=no_checkpoint)
         covered += bool(lo[0] <= true <= hi[0])
-    with capsys.disabled():
-        print(f"\ninterval coverage: {covered} of 100 seeds cover S₁ = {true:.4f}")
-    assert covered >= 85
+    assert covered >= 85, covered
 
 
 def test_permutation_floor_scales_with_bins():
@@ -334,21 +307,32 @@ def test_cohort_subsamples_to_the_cap():
 # --- the definitions behind them --------------------------------------------------------------
 
 
-def test_fine_shares_match_the_definition():
+@pytest.mark.parametrize(
+    ("values", "blocks", "scatters"),
+    [
+        # [x₁ x₂ x₃], [x₄], [x₅]: inner pairs, and a 70-value parameter alone and sparse.
+        ([3, 4, 5, 7, 70], [[0, 1, 2], [3], [4]], 6),
+        # Two blocks of three: cross pairs between multi-member blocks (the 8-value shape).
+        ([4] * 6, [[0, 1, 2], [3, 4, 5]], 3),
+        # A 64-cell block beside 300 values exceeds JOINT_CELLS: its cross pairs one by one.
+        ([4, 4, 4, 300], [[0, 1, 2], [3]], 5),
+    ],
+)
+def test_fine_shares_match_the_definition(values, blocks, scatters):
     """The adjusted count-weighted η² by brute force: a main over its observed values, a pair over
     its cells holding rows (B_i·B_j when all are tested); and a weighted call equals the same rows
-    repeated (a bootstrap resample). The value counts make three blocks, [x₁ x₂ x₃], [x₄] and
-    [x₅] (70 values, alone and sparse), so inner pairs and every block pair are computed."""
-    d = 5
+    repeated (a bootstrap resample). Each value list makes another block shape."""
+    d = len(values)
     frame = stat_frame(
         d=d,
-        values=[3, 4, 5, 7, 70],
-        n=600,
+        values=values,
+        n=1_000,
         seed=SEED,
-        y=lambda u: u[:, 0] * u[:, 1] + np.sin(6.0 * u[:, 4]) + u[:, 3] * u[:, 2],
+        y=lambda u: u[:, 0] * u[:, 1] + np.sin(6.0 * u[:, -1]) + u[:, -2] * u[:, 2],
     )
     c = cohort_of(frame)
-    assert _blocks(c.B) == [[0, 1, 2], [3], [4]]
+    assert parameter_blocks(c.B) == blocks
+    assert len(design_of(c.X, c.B).scatters) == scatters
     X, Y = c.X.astype(int), c.Y
 
     def adjusted(groups) -> float:
@@ -405,6 +389,10 @@ def test_cohort_counts_missing_over_every_block():
     edited = replace(frame, table=table.filter(pa.array(keep)))
     c = cohort_of(edited)
     assert c.missing == {"invalid": 2, "failed": 2, "undefined": 1}
+    with pytest.raises(TypeError):
+        c.missing["invalid"] = 0
+    with pytest.raises(TypeError):
+        c.blocks[1] = c.Y
     assert c.n == 35 and c.n_uniform_total == 40 and len(c.X_uniform) == 40
     assert sorted(c.blocks) == [1, 2] and all(len(y) == 35 for y in c.blocks.values())
     assert c.invalid_share == 0.0 and c.metric == METRIC and c.scope == SCOPE
@@ -444,6 +432,30 @@ def test_resamples_call_the_checkpoint():
     assert calls.count("c") == 3
 
 
+def test_intervals_are_recentred_on_the_point_estimate_exactly():
+    """`lo = θ̂ + q₀.₀₅* - mean*` and `hi = θ̂ + q₀.₉₅* - mean*` over the very draws `intervals`
+    made: its first call is the point estimate (no weights), each later one a resample of the n
+    rows as multiplicities."""
+    c = cohort_of(stat_frame(d=3, values=VALUES, n=500, seed=SEED, y=lambda u: u[:, 0]))
+    fn = FineTerms(c.B)
+    seen = []
+
+    def recorded(X, Y, w=None):
+        seen.append((w, fn(X, Y, w)))
+        return seen[-1][1]
+
+    lo, hi = intervals(recorded, c.X, c.Y, b=50, seed=SEED, checkpoint=no_checkpoint)
+    (first, theta), *rest = seen
+    assert first is None and len(rest) == 50
+    assert all(w.sum() == len(c.Y) and (w == np.round(w)).all() for w, _ in rest)
+    draws = np.stack([value for _, value in rest])
+    q05, q95 = np.quantile(draws, [0.05, 0.95], axis=0)
+    mean = draws.mean(axis=0)
+    assert np.array_equal(lo, q05 + (theta - mean)) and np.array_equal(hi, q95 + (theta - mean))
+    assert np.allclose(lo, theta + q05 - mean, rtol=0, atol=1e-15)
+    assert np.allclose(hi, theta + q95 - mean, rtol=0, atol=1e-15)
+
+
 def test_family_floor_is_max_t_over_its_members():
     """`family` = mean + t·sd over the permutations, t the 95th percentile of each permutation's
     largest standardized share in the family; the families never overlap."""
@@ -479,27 +491,36 @@ def test_family_floor_is_max_t_over_its_members():
         )
 
 
-def test_aliasing_reads_every_uniform_configuration(capsys):
-    """Case 16's design half: `profit_factor` undefined exactly when x₁ is high and x₂ low drops a
-    quarter of the cohort, which makes its x₁ and x₂ dependent; Cramér's V over every uniform
-    configuration shows no aliasing. With `net_pnl` nothing is missing."""
-    frame = stat_frame(
+def test_aliasing_reads_every_uniform_configuration():
+    """Cramér's V reads every uniform configuration, never the cohort, so outcome-dependent
+    missingness never shows as aliasing (case 16).
+
+    - Case 16's pattern, `profit_factor` undefined exactly when x₁ is high and x₂ low, drops a
+      quarter of the cohort; with `net_pnl` nothing is missing.
+    - A band pattern, undefined unless x₁ and x₂ are within one value, leaves a cohort whose x₁ and
+      x₂ are aliased (V ≈ 0.53), while the uniform configurations show no aliasing."""
+    quadrant = stat_frame(
         d=D,
         values=VALUES,
         seed=SEED,
         y=lambda u: 3.0 * u[:, 0],
         undefined=lambda u: high(u[:, 0]) & ~high(u[:, 1]),
     )
-    c = cohort_of(frame, metric="profit_factor")
-    with capsys.disabled():
-        print(
-            f"\ncase 16 at seed {SEED}: {c.missing['undefined']:,} of {c.n_uniform_total:,} undefined"
-        )
+    c = cohort_of(quadrant, metric="profit_factor")
     assert c.missing["invalid"] == c.missing["failed"] == 0
     assert c.n + c.missing["undefined"] == c.n_uniform_total == 5_000
-    design, kept = cramers_v(c.X_uniform, c.B), cramers_v(c.X, c.B)
-    assert aliased(design) == [] and kept[0, 1] > 2 * design[0, 1]
-    assert cohort_of(frame).missing == {"invalid": 0, "failed": 0, "undefined": 0}
+    assert aliased(cramers_v(c.X_uniform, c.B)) == []
+    assert cohort_of(quadrant).missing == {"invalid": 0, "failed": 0, "undefined": 0}
+    band = stat_frame(
+        d=D,
+        values=VALUES,
+        seed=SEED,
+        y=lambda u: 3.0 * u[:, 0],
+        undefined=lambda u: np.abs(u[:, 0] - u[:, 1]) > 0.2,
+    )
+    c = cohort_of(band, metric="profit_factor")
+    assert (0, 1) in aliased(cramers_v(c.X, c.B))
+    assert aliased(cramers_v(c.X_uniform, c.B)) == []
 
 
 def test_pair_quality_reads_cells_and_balance():
