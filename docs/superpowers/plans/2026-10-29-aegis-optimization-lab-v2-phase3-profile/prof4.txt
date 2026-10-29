@@ -1,0 +1,56 @@
+read 15 cols: 192 ms (profiled), table 111.6 MB, pool max 250 MB, ws +292 MB
+         3198 function calls in 0.192 seconds
+   Ordered by: internal time
+   List reduced from 251 to 12 due to restriction <12>
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       10    0.080    0.008    0.080    0.008 C:\Triad\.venv-aegis\Lib\site-packages\pyarrow\parquet\core.py:596(read)
+        4    0.062    0.015    0.062    0.015 C:\Triad\.venv-aegis\Lib\site-packages\pyarrow\compute.py:467(take)
+        1    0.023    0.023    0.023    0.023 C:\Triad\.venv-aegis\Lib\site-packages\pyarrow\compute.py:256(wrapper)
+       10    0.007    0.001    0.010    0.001 C:\Triad\.venv-aegis\Lib\site-packages\pyarrow\parquet\core.py:311(__init__)
+        1    0.005    0.005    0.095    0.095 C:\Triad\.claude\worktrees\zen-thompson-50e9bb\app\products\aegis\lab\store.py:466(_canonical)
+        2    0.002    0.001    0.002    0.001 {built-in method _io.open_code}
+       10    0.002    0.000    0.002    0.000 C:\Triad\.venv-aegis\Lib\site-packages\pyarrow\fs.py:130(_resolve_filesystem_and_path)
+        1    0.002    0.002    0.191    0.191 C:\Triad\.claude\worktrees\zen-thompson-50e9bb\app\products\aegis\lab\store.py:597(read_trials)
+       10    0.002    0.000    0.002    0.000 C:\Triad\.venv-aegis\Lib\site-packages\pyarrow\parquet\core.py:382(schema_arrow)
+       21    0.001    0.000    0.001    0.000 {built-in method nt.stat}
+       10    0.001    0.000    0.001    0.000 C:\Triad\.venv-aegis\Lib\site-packages\pyarrow\parquet\core.py:349(_build_nested_paths)
+       10    0.001    0.000    0.093    0.009 C:\Triad\.claude\worktrees\zen-thompson-50e9bb\app\products\aegis\lab\store.py:549(_read)
+  trial_no                                      int64                                  7.6 MB chunks=1
+  block                                         uint8                                  1.0 MB chunks=1
+  status                                        dictionary<values=string, indices=int32, ordered=0>    3.8 MB chunks=1
+  param_key                                     fixed_size_binary[16]                 15.3 MB chunks=1
+  long_side.indicators.ema.length               double                                 7.6 MB chunks=1
+  long_side.indicators.sma.length               double                                 7.6 MB chunks=1
+  long_side.indicators.rsi.length               double                                 7.6 MB chunks=1
+  long_side.indicators.macd.params.slow         double                                 7.6 MB chunks=1
+  long_side.stop_loss_pct                       double                                 7.6 MB chunks=1
+  short_side.indicators.ema.length              double                                 7.6 MB chunks=1
+  short_side.indicators.sma.length              double                                 7.6 MB chunks=1
+  short_side.indicators.rsi.length              double                                 7.6 MB chunks=1
+  short_side.indicators.macd.params.slow        double                                 7.6 MB chunks=1
+  short_side.stop_loss_pct                      double                                 7.6 MB chunks=1
+  combined.net_pnl                              double                                 7.6 MB chunks=1
+trial_no sorted: True rows 1000000
+raw read+concat (no _canonical): 79 ms
+_canonical alone: 97 ms
+  sort_indices: 25 ms; identity: True
+
+#### page warm
+         7939 function calls (7919 primitive calls) in 0.284 seconds
+   Ordered by: internal time
+   List reduced from 231 to 14 due to restriction <14>
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    0.149    0.050    0.149    0.050 {method 'argsort' of 'numpy.ndarray' objects}
+        3    0.056    0.019    0.056    0.019 C:\Triad\.venv-aegis\Lib\site-packages\pyarrow\compute.py:256(wrapper)
+        1    0.032    0.032    0.181    0.181 C:\Triad\.claude\worktrees\zen-thompson-50e9bb\app\products\aegis\lab\query.py:650(_ordered)
+        1    0.008    0.008    0.010    0.010 C:\Triad\.claude\worktrees\zen-thompson-50e9bb\app\products\aegis\lab\query.py:663(_rows)
+        1    0.006    0.006    0.034    0.034 C:\Triad\.claude\worktrees\zen-thompson-50e9bb\app\products\aegis\lab\query.py:226(scope_counts)
+       10    0.005    0.001    0.005    0.001 {built-in method numpy.asarray}
+        8    0.005    0.001    0.005    0.001 {method 'reduce' of 'numpy.ufunc' objects}
+        5    0.003    0.001    0.003    0.001 C:\Triad\.venv-aegis\Lib\site-packages\pyarrow\compute.py:348(cast)
+        2    0.003    0.001    0.049    0.025 C:\Triad\.claude\worktrees\zen-thompson-50e9bb\app\products\aegis\lab\query.py:177(filter_mask)
+        1    0.002    0.002    0.218    0.218 C:\Triad\.claude\worktrees\zen-thompson-50e9bb\app\products\aegis\lab\query.py:691(page_view)
+        3    0.002    0.001    0.005    0.002 C:\Triad\.claude\worktrees\zen-thompson-50e9bb\app\products\aegis\lab\query.py:173(_block0)
+        1    0.002    0.002    0.002    0.002 {method 'nonzero' of 'numpy.ndarray' objects}
+        3    0.001    0.000    0.001    0.000 C:\Triad\.venv-aegis\Lib\site-packages\pyarrow\compute.py:511(fill_null)
+        1    0.001    0.001    0.001    0.001 C:\Triad\.claude\worktrees\zen-thompson-50e9bb\app\products\aegis\lab\query.py:139(undefined_mask)

@@ -1,0 +1,136 @@
+
+######## matrix/aggregate/best: warm 718 ms (no profiler)
+         3700 function calls (3678 primitive calls) in 0.682 seconds
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        2    0.144    0.072    0.144    0.072 {method 'argsort' of 'numpy.ndarray' objects}
+       10    0.140    0.014    0.183    0.018 products\aegis\lab\query.py:457(_positions)
+        1    0.110    0.110    0.277    0.277 products\aegis\lab\query.py:473(_confounded)
+        3    0.058    0.019    0.058    0.019 site:pyarrow\compute.py:256(wrapper)
+        1    0.050    0.050    0.052    0.052 products\aegis\lab\query.py:401(histograms)
+        1    0.036    0.036    0.194    0.194 products\aegis\lab\query.py:336(__init__)
+        1    0.028    0.028    0.613    0.613 products\aegis\lab\query.py:515(matrix_view)
+       16    0.023    0.001    0.023    0.001 {method 'astype' of 'numpy.ndarray' objects}
+       10    0.021    0.002    0.021    0.002 site:numpy\_core\_methods.py:96(_clip)
+        8    0.015    0.002    0.016    0.002 products\aegis\lab\query.py:310(_tally)
+        1    0.012    0.012    0.149    0.149 products\aegis\lab\query.py:298(_by_value)
+       21    0.006    0.000    0.006    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+        1    0.005    0.005    0.036    0.036 products\aegis\lab\query.py:226(scope_counts)
+       39    0.005    0.000    0.005    0.000 {built-in method numpy.asarray}
+       21    0.004    0.000    0.004    0.000 {method 'nonzero' of 'numpy.ndarray' objects}
+        1    0.004    0.004    0.679    0.679 products\aegis\lab\sources.py:548(run_query)
+        2    0.003    0.002    0.048    0.024 products\aegis\lab\query.py:177(filter_mask)
+       15    0.003    0.000    0.003    0.000 site:pyarrow\compute.py:348(cast)
+        3    0.002    0.001    0.004    0.001 products\aegis\lab\query.py:173(_block0)
+        3    0.001    0.000    0.001    0.000 site:pyarrow\compute.py:511(fill_null)
+       15    0.001    0.000    0.004    0.000 products\aegis\lab\query.py:153(_numbers)
+        1    0.001    0.001    0.001    0.001 products\aegis\lab\query.py:139(undefined_mask)
+         3700 function calls (3678 primitive calls) in 0.682 seconds
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.682    0.682 C:\Users\fordr\AppData\Local\Temp\claude\C--Users-fordr--claude-spares-spare-gT16ir\db1f95db-295b-472a-8e46-a9388c75ffa0\scratchpad\profile\common.py:50(call)
+        1    0.000    0.000    0.682    0.682 products\aegis\api.py:1465(lab_query)
+        1    0.000    0.000    0.679    0.679 products\aegis\api.py:1418(_lab_answer)
+        1    0.004    0.004    0.679    0.679 products\aegis\lab\sources.py:548(run_query)
+        1    0.028    0.028    0.613    0.613 products\aegis\lab\query.py:515(matrix_view)
+        1    0.110    0.110    0.277    0.277 products\aegis\lab\query.py:473(_confounded)
+        1    0.036    0.036    0.194    0.194 products\aegis\lab\query.py:336(__init__)
+       10    0.140    0.014    0.183    0.018 products\aegis\lab\query.py:457(_positions)
+       37    0.000    0.000    0.170    0.005 site:numpy\_core\fromnumeric.py:48(_wrapfunc)
+        1    0.012    0.012    0.149    0.149 products\aegis\lab\query.py:298(_by_value)
+        2    0.000    0.000    0.144    0.072 site:numpy\_core\fromnumeric.py:1115(argsort)
+        2    0.144    0.072    0.144    0.072 {method 'argsort' of 'numpy.ndarray' objects}
+        3    0.000    0.000    0.065    0.022 products\aegis\lab\query.py:167(_status_codes)
+        3    0.058    0.019    0.058    0.019 site:pyarrow\compute.py:256(wrapper)
+        1    0.050    0.050    0.052    0.052 products\aegis\lab\query.py:401(histograms)
+        2    0.003    0.002    0.048    0.024 products\aegis\lab\query.py:177(filter_mask)
+        1    0.001    0.001    0.037    0.037 products\aegis\lab\sources.py:560(scope)
+        1    0.005    0.005    0.036    0.036 products\aegis\lab\query.py:226(scope_counts)
+       16    0.023    0.001    0.023    0.001 {method 'astype' of 'numpy.ndarray' objects}
+       10    0.000    0.000    0.021    0.002 site:numpy\_core\fromnumeric.py:2245(clip)
+       10    0.000    0.000    0.021    0.002 {method 'clip' of 'numpy.ndarray' objects}
+       10    0.021    0.002    0.021    0.002 site:numpy\_core\_methods.py:96(_clip)
+        8    0.015    0.002    0.016    0.002 products\aegis\lab\query.py:310(_tally)
+       21    0.006    0.000    0.006    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       11    0.000    0.000    0.006    0.001 {method 'sum' of 'numpy.ndarray' objects}
+       11    0.000    0.000    0.006    0.001 site:numpy\_core\_methods.py:47(_sum)
+       39    0.005    0.000    0.005    0.000 {built-in method numpy.asarray}
+       21    0.000    0.000    0.005    0.000 site:numpy\_core\numeric.py:675(flatnonzero)
+       21    0.000    0.000    0.004    0.000 site:numpy\_core\fromnumeric.py:2031(nonzero)
+       21    0.004    0.000    0.004    0.000 {method 'nonzero' of 'numpy.ndarray' objects}
+        3    0.002    0.001    0.004    0.001 products\aegis\lab\query.py:173(_block0)
+       15    0.001    0.000    0.004    0.000 products\aegis\lab\query.py:153(_numbers)
+      6/2    0.000    0.000    0.003    0.002 {built-in method builtins.next}
+        2    0.000    0.000    0.003    0.002 products\aegis\api.py:1369(_lab_experiment)
+      3/1    0.000    0.000    0.003    0.003 C:\Users\fordr\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:132(__enter__)
+       15    0.003    0.000    0.003    0.000 site:pyarrow\compute.py:348(cast)
+        1    0.000    0.000    0.002    0.002 products\aegis\lab\sources.py:272(open_experiment)
+        1    0.000    0.000    0.001    0.001 products\aegis\api.py:906(_experiment)
+        1    0.000    0.000    0.001    0.001 products\aegis\experiments.py:376(get)
+        3    0.001    0.000    0.001    0.000 site:pyarrow\compute.py:511(fill_null)
+
+######## matrix/aggregate/median: warm 693 ms (no profiler)
+         3710 function calls (3687 primitive calls) in 0.701 seconds
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       10    0.144    0.014    0.188    0.019 products\aegis\lab\query.py:457(_positions)
+        2    0.141    0.071    0.141    0.071 {method 'argsort' of 'numpy.ndarray' objects}
+        1    0.118    0.118    0.289    0.289 products\aegis\lab\query.py:473(_confounded)
+        1    0.058    0.058    0.060    0.060 products\aegis\lab\query.py:401(histograms)
+        3    0.054    0.018    0.054    0.018 site:pyarrow\compute.py:256(wrapper)
+        1    0.036    0.036    0.193    0.193 products\aegis\lab\query.py:336(__init__)
+        1    0.029    0.029    0.634    0.634 products\aegis\lab\query.py:515(matrix_view)
+       16    0.024    0.001    0.024    0.001 {method 'astype' of 'numpy.ndarray' objects}
+       10    0.022    0.002    0.022    0.002 site:numpy\_core\_methods.py:96(_clip)
+        8    0.017    0.002    0.017    0.002 products\aegis\lab\query.py:310(_tally)
+        1    0.013    0.013    0.148    0.148 products\aegis\lab\query.py:298(_by_value)
+       21    0.006    0.000    0.006    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+        1    0.006    0.006    0.034    0.034 products\aegis\lab\query.py:226(scope_counts)
+       40    0.005    0.000    0.005    0.000 {built-in method numpy.asarray}
+       21    0.004    0.000    0.004    0.000 {method 'nonzero' of 'numpy.ndarray' objects}
+        2    0.004    0.002    0.047    0.024 products\aegis\lab\query.py:177(filter_mask)
+       15    0.003    0.000    0.003    0.000 site:pyarrow\compute.py:348(cast)
+        1    0.003    0.003    0.698    0.698 products\aegis\lab\sources.py:548(run_query)
+        3    0.002    0.001    0.004    0.001 products\aegis\lab\query.py:173(_block0)
+        3    0.001    0.000    0.001    0.000 site:pyarrow\compute.py:511(fill_null)
+       15    0.001    0.000    0.004    0.000 products\aegis\lab\query.py:153(_numbers)
+        1    0.001    0.001    0.035    0.035 products\aegis\lab\sources.py:560(scope)
+         3710 function calls (3687 primitive calls) in 0.701 seconds
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.701    0.701 C:\Users\fordr\AppData\Local\Temp\claude\C--Users-fordr--claude-spares-spare-gT16ir\db1f95db-295b-472a-8e46-a9388c75ffa0\scratchpad\profile\common.py:50(call)
+        1    0.000    0.000    0.701    0.701 products\aegis\api.py:1465(lab_query)
+        1    0.000    0.000    0.698    0.698 products\aegis\api.py:1418(_lab_answer)
+        1    0.003    0.003    0.698    0.698 products\aegis\lab\sources.py:548(run_query)
+        1    0.029    0.029    0.634    0.634 products\aegis\lab\query.py:515(matrix_view)
+        1    0.118    0.118    0.289    0.289 products\aegis\lab\query.py:473(_confounded)
+        1    0.036    0.036    0.193    0.193 products\aegis\lab\query.py:336(__init__)
+       10    0.144    0.014    0.188    0.019 products\aegis\lab\query.py:457(_positions)
+       37    0.000    0.000    0.168    0.005 site:numpy\_core\fromnumeric.py:48(_wrapfunc)
+        1    0.013    0.013    0.148    0.148 products\aegis\lab\query.py:298(_by_value)
+        2    0.000    0.000    0.142    0.071 site:numpy\_core\fromnumeric.py:1115(argsort)
+        2    0.141    0.071    0.141    0.071 {method 'argsort' of 'numpy.ndarray' objects}
+        3    0.000    0.000    0.061    0.020 products\aegis\lab\query.py:167(_status_codes)
+        1    0.058    0.058    0.060    0.060 products\aegis\lab\query.py:401(histograms)
+        3    0.054    0.018    0.054    0.018 site:pyarrow\compute.py:256(wrapper)
+        2    0.004    0.002    0.047    0.024 products\aegis\lab\query.py:177(filter_mask)
+        1    0.001    0.001    0.035    0.035 products\aegis\lab\sources.py:560(scope)
+        1    0.006    0.006    0.034    0.034 products\aegis\lab\query.py:226(scope_counts)
+       16    0.024    0.001    0.024    0.001 {method 'astype' of 'numpy.ndarray' objects}
+       10    0.000    0.000    0.022    0.002 site:numpy\_core\fromnumeric.py:2245(clip)
+       10    0.000    0.000    0.022    0.002 {method 'clip' of 'numpy.ndarray' objects}
+       10    0.022    0.002    0.022    0.002 site:numpy\_core\_methods.py:96(_clip)
+        8    0.017    0.002    0.017    0.002 products\aegis\lab\query.py:310(_tally)
+       21    0.006    0.000    0.006    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       11    0.000    0.000    0.006    0.001 {method 'sum' of 'numpy.ndarray' objects}
+       11    0.000    0.000    0.006    0.001 site:numpy\_core\_methods.py:47(_sum)
+       40    0.005    0.000    0.005    0.000 {built-in method numpy.asarray}
+       21    0.000    0.000    0.005    0.000 site:numpy\_core\numeric.py:675(flatnonzero)
+       21    0.000    0.000    0.005    0.000 site:numpy\_core\fromnumeric.py:2031(nonzero)
+        3    0.002    0.001    0.004    0.001 products\aegis\lab\query.py:173(_block0)
+       21    0.004    0.000    0.004    0.000 {method 'nonzero' of 'numpy.ndarray' objects}
+       15    0.001    0.000    0.004    0.000 products\aegis\lab\query.py:153(_numbers)
+      6/2    0.000    0.000    0.003    0.002 {built-in method builtins.next}
+        2    0.000    0.000    0.003    0.002 products\aegis\api.py:1369(_lab_experiment)
+      3/1    0.000    0.000    0.003    0.003 C:\Users\fordr\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:132(__enter__)
+       15    0.003    0.000    0.003    0.000 site:pyarrow\compute.py:348(cast)
+        1    0.000    0.000    0.002    0.002 products\aegis\lab\sources.py:272(open_experiment)
+        1    0.000    0.000    0.001    0.001 products\aegis\api.py:906(_experiment)
+        1    0.000    0.000    0.001    0.001 products\aegis\experiments.py:376(get)
+        3    0.001    0.000    0.001    0.000 site:pyarrow\compute.py:511(fill_null)
