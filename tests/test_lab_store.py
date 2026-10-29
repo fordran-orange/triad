@@ -1472,6 +1472,183 @@ def test_experiment_attachments_travel_with_trash_and_restore(tmp_path):
     assert store.layout(EXPERIMENT) == 2 and len(store.cells(EXPERIMENT)) == 12
 
 
+# -- R3 independent QA (2026-10-29): a move to or from Recently deleted is whole or nothing ------
+def compacted_experiment(tmp_path):
+    """A finished layout-2 experiment as finalize leaves it (manifest and one part), with every
+    attachment folder populated, beside its repository, store and Library."""
+    from products.aegis.library import Library
+
+    repository = JsonRunRepository(tmp_path / "aegis")
+    store = exp.ExperimentStore(repository)
+    strategy = StrategyLibrary(repository).create("Breakout", pinned())
+    cells_dir = layout2_dir(tmp_path, [rows_of(range(6)), rows_of(range(6, 12))])
+    hand_document(repository, strategy, experiment_id=EXPERIMENT, status="done", layout2=True)
+    lab_store.compact(cells_dir, now=NOW)
+    lab_store.reclaim(cells_dir, now=NOW, retain_seconds=0)
+    folder = repository.root / "experiments"
+    for suffix in ITEM_FOLDERS["experiments"]:
+        if suffix == "cells":
+            continue
+        path = folder / f"{EXPERIMENT}.{suffix}"
+        if suffix.endswith(".jsonl"):
+            path.write_text('{"event": "done"}\n', encoding="utf-8")
+        else:
+            path.mkdir()
+            (path / "000000.parquet").write_bytes(suffix.encode())
+    return repository, store, Library(repository, store), cells_dir
+
+
+def held(path: Path):
+    """A thread holding `path` open as a Lab read of a part does (pyarrow's ParquetFile), until
+    the returned release() is called."""
+    opened, done = threading.Event(), threading.Event()
+
+    def hold():
+        with pq.ParquetFile(path) if path.suffix == ".parquet" else open(path, "rb"):
+            opened.set()
+            done.wait(60)
+
+    thread = threading.Thread(target=hold)
+    thread.start()
+    assert opened.wait(10)
+
+    def release():
+        done.set()
+        thread.join(10)
+
+    return release
+
+
+@pytest.fixture
+def quick_moves(monkeypatch):
+    """A refused move gives up after a few tries instead of the route's few seconds."""
+    from products.aegis import runs
+
+    monkeypatch.setattr(runs, "MOVE_ATTEMPTS", 3)
+    monkeypatch.setattr(runs, "MOVE_DELAY", 0.01)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="only Windows refuses a rename under an open file")
+def test_trash_under_a_held_part_moves_nothing_and_says_so(tmp_path, quick_moves):
+    from products.aegis.library import Refused
+
+    repository, _store, library, cells_dir = compacted_experiment(tmp_path)
+    folder = repository.root / "experiments"
+    before = attachment_contents(folder, EXPERIMENT)
+    rows = lab_store.read_latest(cells_dir).table
+    release = held(cells_dir / "part-1.parquet")
+    try:
+        with pytest.raises(Refused, match="in use"):
+            library.delete("experiment", EXPERIMENT)
+        assert attachment_contents(folder, EXPERIMENT) == before  # every piece still live
+        assert not (repository.root / "trash" / "experiments" / EXPERIMENT).exists()
+        assert lab_store.read_latest(cells_dir).table.equals(rows)
+    finally:
+        release()
+    library.delete("experiment", EXPERIMENT)  # the reader gone, the same delete goes through
+    assert attachment_contents(folder, EXPERIMENT) == {}
+    library.restore("experiment", EXPERIMENT)
+    assert attachment_contents(folder, EXPERIMENT) == before
+    assert lab_store.read_latest(cells_dir).table.equals(rows)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="only Windows refuses a rename under an open file")
+def test_restore_under_a_held_file_in_the_trash_moves_nothing(tmp_path, quick_moves):
+    from products.aegis.library import Refused
+
+    repository, _store, library, _cells_dir = compacted_experiment(tmp_path)
+    folder = repository.root / "experiments"
+    before = attachment_contents(folder, EXPERIMENT)
+    library.delete("experiment", EXPERIMENT)
+    trash = repository.root / "trash" / "experiments" / EXPERIMENT
+    trashed = attachment_contents(trash, EXPERIMENT)
+    release = held(trash / f"{EXPERIMENT}.cells" / "part-1.parquet")
+    try:
+        with pytest.raises(Refused, match="in use"):
+            library.restore("experiment", EXPERIMENT)
+        assert attachment_contents(trash, EXPERIMENT) == trashed  # the item stays deleted, whole
+        assert attachment_contents(folder, EXPERIMENT) == {}
+    finally:
+        release()
+    library.restore("experiment", EXPERIMENT)
+    assert attachment_contents(folder, EXPERIMENT) == before and not trash.exists()
+
+
+def test_a_refused_piece_puts_back_every_piece_already_moved(tmp_path, quick_moves, monkeypatch):
+    """Portable: the rename of one attachment refused (as Windows refuses it under a reader), the
+    pieces moved before it go back and the item is live and whole."""
+    from products.aegis import runs
+    from products.aegis.library import Refused
+
+    repository, store, library, _cells_dir = compacted_experiment(tmp_path)
+    folder = repository.root / "experiments"
+    before = attachment_contents(folder, EXPERIMENT)
+    real = os.rename
+
+    def rename(source, target):
+        if str(source).endswith(f"{EXPERIMENT}.reports"):
+            raise PermissionError(13, "held by a reader", str(source))
+        return real(source, target)
+
+    monkeypatch.setattr(runs.os, "rename", rename)
+    with pytest.raises(Refused, match="in use"):
+        library.delete("experiment", EXPERIMENT)
+    assert attachment_contents(folder, EXPERIMENT) == before
+    assert not (repository.root / "trash" / "experiments" / EXPERIMENT).exists()
+    assert repository.list_trash() == []
+    assert len(store.cells(EXPERIMENT)) == 12
+
+
+def test_a_trash_move_waits_for_an_in_process_lab_read(tmp_path):
+    """The Library takes the experiment's write lock for the move: a Lab read in this worker
+    finishes first, so the move is not refused by our own reader."""
+    repository, _store, library, _cells_dir = compacted_experiment(tmp_path)
+    reading, finish = threading.Event(), threading.Event()
+
+    def read():
+        with lab_store.LOCKS.read(EXPERIMENT):
+            reading.set()
+            finish.wait(10)
+
+    thread = threading.Thread(target=read)
+    thread.start()
+    assert reading.wait(10)
+    deleted = threading.Event()
+    deleter = threading.Thread(
+        target=lambda: (library.delete("experiment", EXPERIMENT), deleted.set())
+    )
+    deleter.start()
+    time.sleep(0.3)
+    assert not deleted.is_set()  # waiting for the read, not refused and not moving
+    finish.set()
+    thread.join(10)
+    deleter.join(10)
+    assert deleted.is_set()
+    assert [item["id"] for item in repository.list_trash()] == [EXPERIMENT]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="only Windows refuses a rename under an open file")
+def test_a_hard_delete_under_a_held_part_deletes_nothing_and_says_so(tmp_path, quick_moves):
+    """R3 QA D2: the hard delete never leaves a live experiment's folder half erased behind a
+    removed document (whose id a new experiment could then take, reading the old trials)."""
+    from products.aegis.runs import ItemBusy
+
+    repository, store, _library, cells_dir = compacted_experiment(tmp_path)
+    folder = repository.root / "experiments"
+    before = attachment_contents(folder, EXPERIMENT)
+    release = held(cells_dir / "part-1.parquet")
+    try:
+        with pytest.raises(ItemBusy, match="in use"):
+            repository.delete_experiment(EXPERIMENT)
+        assert attachment_contents(folder, EXPERIMENT) == before
+        assert store.free_id("lab trials") != EXPERIMENT  # the id stays taken
+    finally:
+        release()
+    repository.delete_experiment(EXPERIMENT)
+    assert attachment_contents(folder, EXPERIMENT) == {}
+    assert not any((repository.root / ".erasing").glob("*"))
+
+
 def finished_through_api(c, runner, name: str) -> str:
     """A layout-2 experiment created through `POST /experiments` (so `data_pinned` and `versions`
     are written) and run to `done`. It waits for the runner's own record too: the runner saves the

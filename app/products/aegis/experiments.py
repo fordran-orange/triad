@@ -412,7 +412,8 @@ class ExperimentStore:
         return float(chosen[0]["ms_per_cell_bar"]) if chosen else None
 
     def delete(self, experiment_id: str) -> None:
-        self.repository.delete_experiment(experiment_id)
+        with lab_store.LOCKS.write(experiment_id):  # this worker's reads of it finish first
+            self.repository.delete_experiment(experiment_id)
 
     # -- cells and curves ---------------------------------------------------------------------
     def cells_dir(self, experiment_id: str) -> Path:

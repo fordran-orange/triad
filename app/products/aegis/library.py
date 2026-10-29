@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -19,7 +20,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from products.aegis.experiments import ExperimentStore
-from products.aegis.runs import ExperimentReferenced, RunRepository, _retry
+from products.aegis.lab import store as lab_store
+from products.aegis.runs import ExperimentReferenced, ItemBusy, RunRepository, _retry
 
 KINDS = ("backtest", "optimization", "walkforward", "experiment", "study")
 FOLDERS = {
@@ -420,8 +422,9 @@ class Library:
             "deleted_at": datetime.now(UTC).isoformat(),
         }
         try:
-            self.repository.move_to_trash(FOLDERS[kind], identifier, meta)
-        except FileExistsError as exc:
+            with self._exclusive(kind, identifier):
+                self.repository.move_to_trash(FOLDERS[kind], identifier, meta)
+        except (FileExistsError, ItemBusy) as exc:
             raise Refused(str(exc)) from exc
 
     def restore(self, kind: str, identifier: str) -> None:
@@ -441,9 +444,16 @@ class Library:
                         f"study {identifier} needs its experiment {parent} restored first"
                     ) from exc
         try:
-            self.repository.restore_from_trash(folder, identifier)
-        except FileExistsError as exc:
+            with self._exclusive(kind, identifier):
+                self.repository.restore_from_trash(folder, identifier)
+        except (FileExistsError, ItemBusy) as exc:
             raise Refused(str(exc)) from exc
+
+    @staticmethod
+    def _exclusive(kind: str, identifier: str):
+        """An experiment moves under its write lock, so this worker's own Lab reads of it finish
+        first and never refuse the move (R3 QA); other kinds have no such readers."""
+        return lab_store.LOCKS.write(identifier) if kind == "experiment" else nullcontext()
 
     def empty(self, items: list[tuple[str, str]] | None = None) -> int:
         """Erase trashed items for good (all, or the named ones); their annotations go too."""

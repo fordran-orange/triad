@@ -7,6 +7,7 @@ a future option behind the same interface and is not built here.
 
 from __future__ import annotations
 
+import errno
 import gzip
 import json
 import logging
@@ -15,6 +16,7 @@ import re
 import shutil
 import threading
 import time
+import uuid
 import zlib
 from pathlib import Path
 from typing import Protocol
@@ -257,6 +259,29 @@ def _unlink_document(folder: Path, identifier: str) -> None:
         _retry(path.unlink)
 
 
+class ItemBusy(Exception):
+    """A move to or from Recently deleted, or a hard delete, that a held file refused: every
+    piece is back where it was (409, try again)."""
+
+
+# A refused rename is retried for about 5 s, long enough for a Lab read of a part to finish.
+MOVE_ATTEMPTS = 200
+MOVE_DELAY = 0.025
+
+
+def _move(source: Path, target: Path) -> None:
+    """Move a document or an attachment folder by rename: within one volume (the trash lives
+    under the same root) a rename moves the whole piece or refuses and moves nothing. shutil.move
+    falls back to copy-and-delete when Windows refuses the rename of a folder whose file a reader
+    holds, and that tore the live folder (R3 QA D1). Another volume falls back to shutil.move."""
+    try:
+        _retry(lambda: os.rename(source, target), attempts=MOVE_ATTEMPTS, delay=MOVE_DELAY)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        shutil.move(str(source), str(target))
+
+
 def _retry(action, attempts: int = 50, delay: float = 0.01):
     """Run a file operation that Windows may refuse while another handle is open on the file."""
     for attempt in range(attempts):
@@ -421,9 +446,28 @@ class JsonRunRepository:
             if (live / path.name).exists():
                 clash = True
                 continue
-            _retry(lambda path=path: shutil.move(str(path), str(live / path.name)))
+            _move(path, live / path.name)
         if not clash:
             shutil.rmtree(target, ignore_errors=True)
+
+    @staticmethod
+    def _move_all(moves: list[tuple[Path, Path]], what: str) -> None:
+        """Rename each (source, target) in order. When one is refused (a held file), every piece
+        already moved goes back, in reverse, and ItemBusy is raised: the item is where it was,
+        whole (R3 QA D1). A put-back refused in turn leaves a stranded piece for the next move or
+        `heal_trash`, as an interrupted move always did."""
+        done: list[tuple[Path, Path]] = []
+        for source, target in moves:
+            try:
+                _move(source, target)
+            except PermissionError as exc:
+                for moved_from, moved_to in reversed(done):
+                    _move(moved_to, moved_from)
+                raise ItemBusy(
+                    f"{what}: {source.name} is in use (a file inside it is open); nothing was "
+                    "moved, try again in a moment"
+                ) from exc
+            done.append((source, target))
 
     def move_to_trash(self, folder: str, identifier: str, meta: dict) -> None:
         source = document_path(self._folder(folder), _check_id(identifier))
@@ -441,8 +485,12 @@ class JsonRunRepository:
         target.mkdir(parents=True)
         self._write(target / "trash.json", meta)
         pieces = [p for p in self._item_paths(folder, identifier) if p != source] + [source]
-        for path in pieces:  # the document last: once it has moved, the item is deleted
-            _retry(lambda path=path: shutil.move(str(path), str(target / path.name)))
+        try:  # the document last: once it has moved, the item is deleted
+            self._move_all([(p, target / p.name) for p in pieces], f"{folder}/{identifier}")
+        except ItemBusy:
+            if all(p.name == "trash.json" for p in target.iterdir()):
+                shutil.rmtree(target, ignore_errors=True)  # everything is back: no trash entry
+            raise
 
     def restore_from_trash(self, folder: str, identifier: str) -> None:
         target = self._trash(folder, identifier)
@@ -455,8 +503,13 @@ class JsonRunRepository:
             raise KeyError(identifier)
         if document_path(live, identifier) is not None:
             raise FileExistsError(f"an item with id {identifier} exists")
-        _retry(lambda: shutil.move(str(document), str(live / document.name)))  # now live
-        self._bring_back(folder, identifier)
+        pieces = [p for p in sorted(target.iterdir()) if p.name != "trash.json" and p != document]
+        clash = any((live / p.name).exists() for p in pieces)  # a piece already live stays put
+        moves = [(document, live / document.name)]  # the document first: now the item is live
+        moves += [(p, live / p.name) for p in pieces if not (live / p.name).exists()]
+        self._move_all(moves, f"{folder}/{identifier}")
+        if not clash:
+            shutil.rmtree(target, ignore_errors=True)
 
     def heal_trash(self) -> list[str]:
         """Finish every move a crash or a refused file left part way (run at startup)."""
@@ -469,6 +522,9 @@ class JsonRunRepository:
             if document_path(self._folder(folder), identifier) is not None:
                 self._bring_back(folder, identifier)
                 healed.append(f"{folder}/{identifier}")
+        erasing = self.root / ".erasing"  # a hard delete whose erase stopped part way
+        for leftover in sorted(erasing.iterdir()) if erasing.is_dir() else []:
+            shutil.rmtree(leftover, ignore_errors=True)
         return healed
 
     def list_trash(self) -> list[dict]:
@@ -555,18 +611,27 @@ class JsonRunRepository:
         return self._folder("experiments") / f"{_check_id(experiment_id)}.{kind}"
 
     def delete_experiment(self, experiment_id: str) -> None:
+        """Erase an experiment for good, whole or not at all. Every piece of the trash's list is
+        renamed into a private staging folder first, the document last, so a held file puts every
+        moved piece back and raises ItemBusy with the experiment untouched (R3 QA D2: a held file
+        used to stay behind a removed document, and a new experiment taking the id read the old
+        trials). Then the staging folder is erased; leftovers are erased by `heal_trash`."""
         folder = self._folder("experiments")
         identifier = _check_id(experiment_id)
-        _unlink_document(folder, identifier)
-        sidecar = folder / f"{identifier}.summary.json"
-        if sidecar.is_file():
-            _retry(sidecar.unlink)
-        for entry in ITEM_FOLDERS["experiments"]:  # the trash's list: nothing of it stays behind
-            path = folder / f"{identifier}.{entry}"
-            if path.is_dir():
-                shutil.rmtree(path, ignore_errors=True)
-            elif path.is_file():
-                _retry(path.unlink)
+        document = document_path(folder, identifier)
+        if document is None:
+            raise KeyError(identifier)
+        pieces = [p for p in self._item_paths("experiments", identifier) if p != document]
+        staging = self.root / ".erasing" / f"experiments-{identifier}-{uuid.uuid4().hex[:8]}"
+        staging.mkdir(parents=True)
+        try:
+            self._move_all(
+                [(p, staging / p.name) for p in [*pieces, document]], f"experiments/{identifier}"
+            )
+        except ItemBusy:
+            shutil.rmtree(staging, ignore_errors=True)  # empty: every piece went back
+            raise
+        _retry(lambda: shutil.rmtree(staging))
 
     # Studies (Mission 8 spec §6): the document on the repository, each window's files under
     # `studies/<id>.windows/<symbol>/`.
