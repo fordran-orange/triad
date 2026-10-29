@@ -230,3 +230,53 @@ def test_policy_constants_match_spec():
     assert policy.LAB_CACHE_BYTES == 400 * 1024 * 1024
     assert policy.SHARPE_MIN_TRADES == 20
     assert policy.LOW_DISK_GB == 10
+    # Phase 3 (Task 1): importance and interval constants (§7.3, §7.4).
+    assert policy.IMPORTANCE_ROWS == 50_000
+    assert policy.BOOTSTRAP_B == 200
+    assert policy.PERMUTATION_P == 200
+    assert policy.COARSE_BOOTSTRAP_B == 50
+    assert policy.COARSE_PERMUTATION_P == 50
+    assert policy.COARSE_BINS == 4
+    assert policy.INTERVAL == 0.90
+    assert policy.FLOOR_QUANTILE == 0.95
+    # Blocks (§7.3a).
+    assert policy.SCREEN_BLOCKS == 4
+    assert policy.MAX_BLOCKS == 8
+    # Coverage and aliasing (§7.3, §7.4).
+    assert policy.IMPORTANCE_MIN_N_FACTOR == 30
+    assert policy.IMPORTANCE_MIN_PER_VALUE == 20
+    assert policy.ALIAS_V == 0.3
+    assert policy.PAIR_MIN_N == 4
+    assert policy.PAIR_MIN_COVERAGE == 0.5
+    assert policy.PAIR_BALANCE_TVD == 0.25
+    assert policy.TRIPLE_TOP == 20
+    # The rule (§7.4, §7.4a).
+    assert policy.RESIDUAL_VETO == 0.3
+    assert policy.RESIDUAL_INCONSISTENT == -0.05
+    assert policy.THETA_MIN == 0.01
+    # Robustness (§7.6).
+    assert policy.PLATEAU_MIN_COVERAGE == 0.5
+    assert policy.NEIGHBOUR_R == 1
+    assert policy.NEIGHBOUR_M_GRID == 1
+    assert policy.NEIGHBOUR_M_SAMPLED == 2
+    assert policy.PEAK_IQR_FACTOR == 3.0
+    assert policy.REGION_RADIUS == 0.15
+    assert policy.REGION_AXES == 6
+    assert policy.REGION_MIN_N == 30
+    assert policy.FOLDS_MIN == 3
+    assert policy.FOLD_MIN_TRADES == 30
+    assert policy.FOLD_RATIO_BAND == (0.5, 2.0)
+    assert policy.FOLD_DRAWDOWN_FACTOR == 1.5
+    assert policy.STRESS_KEEP == 0.70
+    assert policy.STRESS_DRAWDOWN_FACTOR == 1.3
+    # Pareto, parallel and convergence (§7.7, §7.9, §7.10).
+    assert policy.PARETO_FRONT_MAX == 2_000
+    assert policy.PARETO_DENSITY_BINS == 64
+    assert policy.PARALLEL_MAX_LINES == 5_000
+    assert policy.PARALLEL_STRATA == 10
+    assert policy.CONVERGENCE_BATCH == 5_000
+    assert policy.CONVERGENCE_TOP == 0.01
+    assert policy.CONVERGENCE_MAX_POINTS == 1_000
+    # Task budgets (§9.4, §9.6).
+    assert policy.TASK_BUDGET_S == 180
+    assert policy.FINE_STAGE_BUDGET_S == 30

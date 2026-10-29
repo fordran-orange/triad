@@ -667,6 +667,14 @@ def permitted_mask(frame: pd.DataFrame, temporal, data_key: str | None = None) -
     return mask
 
 
+def _evaluating(timestamps: pd.Series, evaluate_from: datetime | None) -> np.ndarray:
+    """The bars evaluated: every bar, or those at or after the warm-up boundary (before it no
+    entry is permitted and no equity point is reported; indicators still warm up)."""
+    if evaluate_from is None:
+        return np.ones(len(timestamps), dtype=np.bool_)
+    return (timestamps >= evaluate_from).to_numpy(dtype=np.bool_)
+
+
 def _simulate_side_kernel(
     frame: pd.DataFrame,
     strategy: StrategySpec,
@@ -683,10 +691,7 @@ def _simulate_side_kernel(
         return _simulate_side(frame, strategy, side, events, settings, symbol, cache, data_key)
     data = _side_frame(frame, spec, cache, data_key)
     timestamps = data["timestamp"]
-    if settings.evaluate_from is None:
-        evaluating = np.ones(len(data), dtype=np.bool_)
-    else:
-        evaluating = (timestamps >= settings.evaluate_from).to_numpy(dtype=np.bool_)
+    evaluating = _evaluating(timestamps, settings.evaluate_from)
     carried = settings.initial_position
     carried_array = np.zeros(8)
     if carried is not None and carried.side == side:
@@ -866,16 +871,20 @@ def _side_metrics(
     settings: BacktestSettings,
     cache: IndicatorCache,
     data_key: str,
+    evaluate_from: datetime | None = None,
 ) -> tuple[list[dict], dict, list[bool], np.ndarray]:
     """(lite trades, metrics, exposure flags, trade returns) of one side from the kernel; no
     series, no per-bar dicts, no tags. The returns are a copy of the kernel's per-trade `ret`
     column (net / capital at entry), the Lab's trade Sharpe input (Optimization Lab v2 Phase 2b).
-    Carried positions are not supported here (experiments never carry)."""
+    Carried positions are not supported here (experiments never carry). With `evaluate_from`
+    only the bars from it on are evaluated, as `settings.evaluate_from` evaluates them in the full
+    engine (a Lab screening block, Phase 3 §7.3a)."""
     spec = strategy.long_side if side == "LONG" else strategy.short_side
     if not spec.enabled:
         return [], _metrics([], [], settings.initial_capital), [], np.empty(0)
     data = _side_frame(frame, spec, cache, data_key)
-    n = len(data)
+    timestamps = data["timestamp"]
+    evaluating = _evaluating(timestamps, evaluate_from)
     trades_array, n_trades, equity, drawdown, in_flags, n_points, _scalars, _ = (
         kernel.simulate_arrays(
             data["open"].to_numpy(dtype=np.float64),
@@ -885,7 +894,7 @@ def _side_metrics(
             data["entry_signal"].to_numpy(dtype=np.bool_),
             data["exit_signal"].to_numpy(dtype=np.bool_),
             data["warm"].to_numpy(dtype=np.bool_),
-            np.ones(n, dtype=np.bool_),
+            evaluating,
             permitted_mask(frame, strategy.temporal, data_key),
             _side_sign(side),
             settings.initial_capital,
@@ -897,18 +906,19 @@ def _side_metrics(
             *_levels(spec),
         )
     )
-    timestamps = data["timestamp"]
     trades = [
         {"exit_time": timestamps.iloc[int(row[1])].isoformat(), "net_pnl": float(row[8])}
         for row in trades_array[:n_trades]
     ]
     flags = [bool(flag) for flag in in_flags[:n_points]]
+    # The equity points are the evaluated bars, so `cagr` spans the first to the last of them.
+    evaluated = np.flatnonzero(evaluating)[:n_points]
     metrics = _metrics_arrays(
         [t["net_pnl"] for t in trades],
         equity[:n_points],
         drawdown[:n_points],
-        timestamps.iloc[0],
-        timestamps.iloc[n - 1],
+        timestamps.iloc[int(evaluated[0])] if n_points else None,
+        timestamps.iloc[int(evaluated[-1])] if n_points else None,
         settings.initial_capital,
         _fraction(flags),
     )
@@ -922,15 +932,24 @@ def run_metrics(
     cache: IndicatorCache,
     want_curve: bool = False,
     want_lab: bool = False,
+    *,
+    evaluate_from: datetime | None = None,
 ) -> dict:
     """Metrics only, for the experiment pool (Mission 6): equal to `run_backtest`'s metrics for
     the same request, at a fraction of the cost. Falls back to the full reference path when the
     kernel is unavailable. With `want_lab` the result also carries `lab_metrics`, the trade
-    Sharpe per scope (Optimization Lab v2 Phase 2b), computed beside the metrics, never in them."""
+    Sharpe per scope (Optimization Lab v2 Phase 2b), computed beside the metrics, never in them.
+    With `evaluate_from` the frame's earlier bars only warm up: the result equals `run_backtest`
+    with `settings.evaluate_from` set, and `first_time` is the first evaluated bar's (a Lab
+    screening block, Phase 3 §7.3a). Without it the result is exactly as before."""
     validate(request.strategy.temporal)
     _check_initial_position(request)
     _check_warmup(frame, request.strategy)
+    first_time, last_time = _evaluated_span(frame, evaluate_from)
     if not kernel.AVAILABLE:
+        if evaluate_from is not None:
+            settings = request.settings.model_copy(update={"evaluate_from": evaluate_from})
+            request = request.model_copy(update={"settings": settings})
         full = run_prepared(request, frame, data_key, cache)
         curve = [float(p["equity"]) for p in full["combined"]["equity"]] if want_curve else None
         result = {
@@ -939,8 +958,8 @@ def run_metrics(
             "combined": full["combined"]["metrics"],
             "engine": full["engine"],
             "curve": curve,
-            "first_time": frame["timestamp"].iloc[0].isoformat(),
-            "last_time": frame["timestamp"].iloc[-1].isoformat(),
+            "first_time": first_time,
+            "last_time": last_time,
         }
         if want_lab:
             result["lab_metrics"] = sharpe_scopes(
@@ -949,10 +968,10 @@ def run_metrics(
             )
         return result
     long_trades, long_metrics, long_flags, long_ret = _side_metrics(
-        frame, request.strategy, "LONG", request.settings, cache, data_key
+        frame, request.strategy, "LONG", request.settings, cache, data_key, evaluate_from
     )
     short_trades, short_metrics, short_flags, short_ret = _side_metrics(
-        frame, request.strategy, "SHORT", request.settings, cache, data_key
+        frame, request.strategy, "SHORT", request.settings, cache, data_key, evaluate_from
     )
     combined = _combine(
         {"trades": long_trades}, {"trades": short_trades}, request.settings.initial_capital
@@ -970,12 +989,25 @@ def run_metrics(
         "combined": combined["metrics"],
         "engine": "kernel",
         "curve": [float(p["equity"]) for p in combined["equity"]] if want_curve else None,
-        "first_time": frame["timestamp"].iloc[0].isoformat(),
-        "last_time": frame["timestamp"].iloc[-1].isoformat(),
+        "first_time": first_time,
+        "last_time": last_time,
     }
     if want_lab:
         result["lab_metrics"] = sharpe_scopes(long_ret, short_ret)
     return result
+
+
+def _evaluated_span(
+    frame: pd.DataFrame, evaluate_from: datetime | None
+) -> tuple[str | None, str | None]:
+    """(first_time, last_time) of the evaluated bars as ISO strings: the frame's first and last
+    bars, or the first and last from `evaluate_from` on; (None, None) when none is evaluated."""
+    timestamps = frame["timestamp"]
+    if evaluate_from is not None:
+        timestamps = timestamps[_evaluating(timestamps, evaluate_from)]
+        if timestamps.empty:
+            return None, None
+    return timestamps.iloc[0].isoformat(), timestamps.iloc[-1].isoformat()
 
 
 def _levels(side: StrategySide) -> tuple[float, float]:
