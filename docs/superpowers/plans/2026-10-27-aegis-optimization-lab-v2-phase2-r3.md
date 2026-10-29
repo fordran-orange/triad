@@ -15,7 +15,9 @@ Task 13 was run on Opus 5.5 after a `/model` switch; the mandatory independent Q
 | `e8fc3ec` | R2.5's fix round 1 and the revised note, committed as the note said; **R2.5 passed by Randall** ("Pass R2.5, go"), the five findings read |
 | `9cd6c26` | `main` merged in: Mission 14's acceptance, its milestone QA and review fix pass and its record (`760baf7`, `a6ba93b`, `066bf5a`, `1737ea0`). One conflict, the walk's docstring, both sides kept. The walk holds 102 base items and the 13 Lab items numbered after them, **103 to 115**. The Lab's governance item allows exactly the four Core files of Mission 14's fix pass (`LAB_MAIN_CORE_FILES`, attributed to `a6ba93b`); the Lab changes no Core file |
 | `b3ffc92` | The R3 QA's fix: a move to or from Recently deleted, and a hard delete, is whole or nothing (below) |
-| (this note) | The R3 note and the two benchmark records |
+| `730746e` | The R3 note and the two benchmark records |
+| `bda08a8` | R3 passed by Randall |
+| `8c522bb` | QA observations O1 and O2 fixed at Randall's request, with a staging-heal hazard found while fixing them; verified PASS (below) |
 
 ## Verdict
 
@@ -27,7 +29,8 @@ Phase 3. Phase 2 is complete and its checks are green. At the hand-off commit:
   `identical`, the 14 golden keys are unchanged and the legacy reads are identical.
 - **Independent QA (mandatory, Fable 5.1):** FAIL at `9cd6c26` on one High defect in the trash path.
   It was fixed test-first in `b3ffc92`, and the same reviewer then verified the fix:
-  **PASS_WITH_OBSERVATIONS**, two Low observations older than the fix.
+  **PASS_WITH_OBSERVATIONS**, two Low observations older than the fix, both since fixed in `8c522bb`
+  and verified **PASS** by the same reviewer.
 - **Track A (1M trials over HTTP):** 7 of 11 rows True. Warm open, filter + heatmap, stat change and
   the worker's memory growth miss.
 - **Track B (real engine):** cases B and C meet their rates. Case A misses 150 trials / s by 3.5 %.
@@ -44,7 +47,7 @@ Run from the worktree with the plan's commands (worktree `PYTHONPATH`, `TRADING_
 
 | Check | Result |
 |---|---|
-| The whole Aegis scope, no paths | at `9cd6c26`: `685 passed, 1 skipped` (356.9 s); at `b3ffc92`: **`690 passed, 1 skipped`** (333.4 s), the five new tests included; the skip is `test_aegis_lineage_migration` (integration) |
+| The whole Aegis scope, no paths | at `9cd6c26`: `685 passed, 1 skipped` (356.9 s); at `b3ffc92`: **`690 passed, 1 skipped`** (333.4 s), the five new tests included; at `8c522bb`: `696 passed, 1 skipped` (328.9 s), six more; the skip is `test_aegis_lineage_migration` (integration) |
 | Core scope: `test_architecture.py::test_dependency_directions`, `test_pytest_scope.py::test_every_module_in_this_repository_declares_one_owner` | **`2 passed`**, with `trading_core` and `products.aegis.lab` imported from the worktree |
 | The whole of `test_architecture.py` beside them | `33 passed, 2 failed`: `test_core_startup_with_product_imports_blocked` and `test_product_libraries_absent_from_core_and_triad`. Both fail on any worktree: its root has no `.env` (Core cannot open its store, so the kill-switch request is not the expected 401) and no `.venv-triad`. The branch's Core, platform host, Triad and `test_architecture.py` are byte-identical to `main` (`git diff --name-only main` empty), where both passed in `tools\verify.ps1` the same morning |
 | `npm test` | `Test Files 32 passed (32)`, `Tests 372 passed (372)` |
@@ -131,6 +134,38 @@ Its observations, both Low and older than the fix (Mission 9's I4 rule), left fo
   of that experiment wait that long; other experiments are unaffected.
 - `curves()`, `read_report` and a layout-1 read run outside the lock by design; a delete during one
   meets the 409 "try again", loud and whole.
+
+**O1 and O2 fixed, `8c522bb`** (Randall, after R3: "Fix them now"; tests first, RED then GREEN):
+- **O2:** `_move_all` tries every put-back. A refused one is skipped and logged, and `ItemBusy` is
+  still raised (409), naming what stays in Recently deleted until the next try or the worker's restart
+  ("the move was undone except …").
+- **O1:** a trashed `<id>.summary.json` whose live twin exists is dropped, never a clash (it is derived
+  from the live document). On restore, a live sidecar with no live document is an orphan, and the one
+  trashed with the document replaces it.
+- **A hazard found while fixing them:** `heal_trash` erased every `.erasing` staging folder at startup.
+  An undone hard delete with a refused put-back leaves a piece of a still-live experiment there.
+  `_heal_staging` now erases a staging folder only when it holds its document (the delete got past its
+  last move) and otherwise puts the pieces back. `delete_experiment` removes its staging only when empty.
+- **`heal_trash` is best effort per item:** a held piece is logged and skipped, never an error out of
+  the worker's start; the next heal finishes it.
+- Six tests: `test_a_refused_put_back_still_answers_refused_and_heals_whole`,
+  `test_a_stale_trashed_sidecar_is_never_a_clash`, `test_a_restore_replaces_an_orphan_live_sidecar`,
+  `test_heal_trash_never_raises_on_a_held_piece`, `test_an_undone_hard_delete_is_put_back_never_erased`,
+  `test_heal_trash_erases_a_staging_folder_that_holds_its_document`.
+
+**Verified at `8c522bb`: PASS** (the same reviewer). It re-ran `tests\test_lab_store.py
+tests\test_aegis_runs.py tests\test_aegis_library.py` (86 passed) and 22 probes of its own (its 13
+earlier fix probes included):
+- Its stranding probe now meets `Refused` (409); after the heal the trash folder is gone and the next
+  delete goes through.
+- Staging, both ways: one holding its document is erased; one without is put back whole and never
+  erased. Ids with hyphens and dots parse right, and unparsable or clashing names are left alone with a
+  warning.
+- The orphan-sidecar rule fires only with no live document and a trashed replacement present; a held
+  staging piece at heal is skipped, never raised.
+- No defects. Observations: the sidecar rules can only remove a file named exactly
+  `<id>.summary.json`; and after a refused put-back of the document on restore, the route answers
+  "try again" although the item is already live (the retry completes it).
 
 **The DSR worked example:** `not reproduced: paper unavailable; the case is the pinned formula check`
 (Randall, 2026-10-29). The QA recomputed the pinned case (`sr0 = 0.050612`, DSR `0.494618`) and found
@@ -285,8 +320,8 @@ each on the pinned bytes, 4 of 30 metric pairs compared per trial (the page row'
    R3 diff covers Task 13 only; Tasks 1–12's runs are covered by their own walk-time checks.
 3. **The two worktree-only architecture failures** are recorded, not fixed: they test the checkout's
    environment, not the code, and the code is identical to `main`'s, where they pass. Cost: none.
-4. **QA observations O1 and O2 deferred to Randall** rather than widening R3: both are older than the
-   fix, Low, and leave data whole. Cost: a rare refused delete until the stale sidecar is removed.
+4. **QA observations O1 and O2 left to Randall at R3**, then fixed at his request (`8c522bb`, above).
+   Cost: none left.
 5. **The Lab walk re-run on `b3ffc92`**, since the merge and the fix changed the walk file and the
    trash path after R2.5's evidence. Cost: one more 12,000-trial bench experiment in the scratch root.
 6. **A miss is a finding, never a re-baseline** (the plan): Track A's and Track B's misses are listed
@@ -301,7 +336,6 @@ each on the pinned bytes, 4 of 30 metric pairs compared per trial (the page row'
 - The Phase 3 §9.6a rows (Pareto, neighbourhood / robustness, importance): `lab_benchmark.py analytics`
   at R3.5.
 - Track A's and Track B's misses (above), for Phase 3's planning.
-- QA observations O1 and O2.
 
 ## Decisions this plan made where the spec left a choice
 
@@ -356,8 +390,8 @@ From the plan's Self-review; each held through Phase 2.
 
 ## Open questions for Randall
 
-Question 3 is answered: R3 passes with the misses as Phase 3 findings (2026-10-29). Questions 1, 2 and 4
-stay open.
+Questions 3 and 4 are answered: R3 passes with the misses as Phase 3 findings, and O1 and O2 are fixed
+(`8c522bb`), both 2026-10-29. Questions 1 and 2 stay open.
 
 1. **R2's question 1:** the shell keeps the workstation's top bar rather than the design's stage
    stepper. Randall said he answers it at R3.
@@ -369,7 +403,8 @@ stay open.
 ## R3 checkpoint
 
 **Passed** by Randall on 2026-10-29 ("Pass R3"): the checks and the QA's verdict accepted, the benchmark
-misses carried into Phase 3 as findings. Still open: R2's question 1 and QA observations O1 and O2.
+misses carried into Phase 3 as findings. Still open: R2's question 1. QA observations O1 and O2 were
+fixed afterwards (`8c522bb`, verified PASS).
 
 What Randall was asked:
 
