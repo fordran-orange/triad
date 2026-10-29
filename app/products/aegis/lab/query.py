@@ -8,6 +8,10 @@ drops a row. A metric that is null or non-finite is undefined: counted in the sc
 as zero, never coloured, listed last under its sort. A square no trial has tested holds no value.
 `scope_counts` is a function of (frame, filter, metric) except for its `shown` and `basis`, so
 every view of one filter repeats the same numbers.
+
+The views that read a snapshot's fixed work (the completed mask, the lattice codes, the metric
+orders) take that snapshot's `FrameIndex` (`index.py`) as `index`; with None they compute it per
+request, as Phase 2 did, and the answers are the same.
 """
 
 from __future__ import annotations
@@ -35,6 +39,7 @@ from products.aegis.lab.policy import (
 from products.aegis.pool import METRICS, SCOPES
 
 if TYPE_CHECKING:
+    from products.aegis.lab.index import FrameIndex
     from products.aegis.lab.store import Snapshot
 
 TRIAL_NO = "trial_no"
@@ -174,11 +179,22 @@ def _block0(table: pa.Table) -> np.ndarray:
     return _numbers(table, "block") == 0
 
 
-def filter_mask(frame: TrialFrame, flt: LabFilter) -> np.ndarray:
+def _completed(frame: TrialFrame, index: FrameIndex | None) -> np.ndarray:
+    """The completed (ok, block 0) rows: the index's mask, else computed. Never written to."""
+    if index is None:
+        return _block0(frame.table) & (_status_codes(frame.table) == 0)
+    if index.rows != frame.table.num_rows:
+        raise ValueError(f"an index of {index.rows} rows cannot answer {frame.table.num_rows}")
+    return index.completed
+
+
+def filter_mask(
+    frame: TrialFrame, flt: LabFilter, *, index: FrameIndex | None = None
+) -> np.ndarray:
     """The completed (ok, block 0) rows the filter's ranges, values, pass and status keep; the
     scope never drops a row, it chooses the metric column."""
     table = frame.table
-    mask = _block0(table) & (_status_codes(table) == 0)
+    mask = _completed(frame, index).copy()
     for path, (a, b) in flt.ranges.items():
         _parameter(frame, path)
         values = _numbers(table, path)
@@ -232,19 +248,32 @@ def scope_counts(
     basis: str = BASIS_EXACT,
     unique: int | None = None,
     mask: np.ndarray | None = None,
+    index: FrameIndex | None = None,
 ) -> dict:
     """The §6.4 counts of one filter. `snapshot` and `provisional` are the envelope's, never the
     scope's. `unique` counts the distinct `param_key` of the completed trials; a row without a
     key (a promoted layout-1 trial, whose cell is its configuration) counts as its own. A caller
     that already holds them passes `unique` (a function of the frame alone, so one count serves
-    every request on a snapshot) and the filter's `mask` (`filter_mask(frame, flt)`)."""
+    every request on a snapshot) and the filter's `mask` (`filter_mask(frame, flt)`); the
+    snapshot's `index` holds the status tallies."""
     table = frame.table
-    codes = _status_codes(table)
-    base = _block0(table)
-    completed = base & (codes == 0)
-    attempted = int(base.sum())
+    if index is None:
+        codes = _status_codes(table)
+        base = _block0(table)
+        completed = base & (codes == 0)
+        tallies = {
+            "attempted": int(base.sum()),
+            "evaluations_done": int((codes == 0).sum()),
+            "completed": int(completed.sum()),
+            "invalid": int((base & (codes == 1)).sum()),
+            "failed": int((base & (codes == 2)).sum()),
+        }
+    else:
+        completed = _completed(frame, index)
+        tallies = index.tallies
+    attempted = tallies["attempted"]
     if mask is None:
-        mask = filter_mask(frame, flt)
+        mask = filter_mask(frame, flt, index=index)
     undefined = 0
     if metric is not None:
         column = _numbers(table, metric_column(flt.scope, metric))
@@ -262,10 +291,10 @@ def scope_counts(
         "remaining": max(0, frame.budget_total - frame.reserved - frame.scheduled),
         "reused": frame.reused,
         "attempted": attempted,
-        "evaluations_done": int((codes == 0).sum()),
-        "completed": int(completed.sum()),
-        "invalid": int((base & (codes == 1)).sum()),
-        "failed": int((base & (codes == 2)).sum()),
+        "evaluations_done": tallies["evaluations_done"],
+        "completed": tallies["completed"],
+        "invalid": tallies["invalid"],
+        "failed": tallies["failed"],
         "pending": frame.scheduled - attempted,
         "unique": int(unique),
         "duplicates": frame.duplicates,
@@ -285,11 +314,12 @@ def counts_view(
     metric: str | None = None,
     unique: int | None = None,
     mask: np.ndarray | None = None,
+    index: FrameIndex | None = None,
 ) -> dict:
     """The counts view: the scope itself (`shown` 0, `Tested (exact)`), which the route sends as
     the envelope's `scope` beside an empty payload. With a metric, `undefined` is counted over
     its column, as the other views count it."""
-    return scope_counts(frame, flt, 0, metric=metric, unique=unique, mask=mask)
+    return scope_counts(frame, flt, 0, metric=metric, unique=unique, mask=mask, index=index)
 
 
 # --- grouped statistics, without a loop over trials ------------------------------------------
@@ -476,11 +506,13 @@ def _confounded(
     square: np.ndarray,
     n: np.ndarray,
     axes: tuple[str, str],
+    index: FrameIndex | None = None,
 ) -> list[list[str]]:
     """Per square of n >= AGG_MIN_N, the other parameters whose value distribution inside it is
     more than CONFOUNDED_TVD (total variation distance) from the matrix's population, by
     descending distance, at most CONFOUNDED_LISTED. Over the values a square holds,
-    TVD = (1 + sum(|p - q| - q)) / 2, since the population's q sums to one."""
+    TVD = (1 + sum(|p - q| - q)) / 2, since the population's q sums to one. The lattice
+    positions are the index's codes when it is given."""
     size = len(n)
     others = [p.path for p in frame.parameters if p.path not in axes]
     supported = n >= AGG_MIN_N
@@ -491,12 +523,16 @@ def _confounded(
     inside = square[member]
     tvd = np.zeros((len(others), size))
     for k, path in enumerate(others):  # a loop over the parameters
-        held = _numbers(frame.table, path)[population]
         lattice = _axis(frame, path)
-        code = _positions(held, lattice)
         width = len(lattice)
-        if (code < 0).any():  # a value off the lattice: the values held are the categories
-            _, code = np.unique(held, return_inverse=True)
+        if index is None:
+            code = _positions(_numbers(frame.table, path)[population], lattice)
+            off = bool((code < 0).any())
+        else:
+            code = index.codes_for(frame, path)[population]
+            off = bool((code == width).any())
+        if off:  # a value off the lattice: the values held are the categories
+            _, code = np.unique(_numbers(frame.table, path)[population], return_inverse=True)
             width = int(code.max()) + 1
         q = np.bincount(code, minlength=width) / len(population)
         joint, _, count = _tally(inside * width + code[member], size * width, inverse=False)
@@ -522,12 +558,16 @@ def matrix_view(
     mode: Literal["exact", "aggregate"],
     stat: Literal["best", "median", "mean", "worst"] = "best",
     fixed: Mapping[str, float] | None = None,
+    index: FrameIndex | None = None,
+    all_stats: bool = False,
 ) -> dict:
     """One square per (rows, cols) value pair over the filtered trials that also match `fixed`
     (None: no constraint). Exact (§7.1): a tested square holds its lowest trial number's value
     and id, with the other trials on it counted as `duplicates`. Aggregate (§7.2): the `stat` of
     the square's defined values with its n, quartiles, range, `low_n`, `confounded` and
-    histogram. An untested square is None, never filled."""
+    histogram. An untested square is None, never filled. With `all_stats`, an aggregate also
+    carries `values_by_stat`, every stat's grid from the same groups (what the routes cache, so
+    a stat change is not computed again)."""
     if rows == cols:
         raise ValueError("a matrix needs two different parameters")
     row_axis, col_axis = _axis(frame, rows), _axis(frame, cols)
@@ -545,16 +585,21 @@ def matrix_view(
         raise ValueError(f"unknown stat {stat!r}")
     column = metric_column(flt.scope, metric)
     table = frame.table
-    mask = filter_mask(frame, flt)
+    mask = filter_mask(frame, flt, index=index)
     filtered = int(mask.sum())
     for path, value in fixed.items():
         mask &= _numbers(table, path) == value
     candidates = np.flatnonzero(mask)
-    r = _positions(_numbers(table, rows)[candidates], row_axis)
-    c = _positions(_numbers(table, cols)[candidates], col_axis)
-    on = (r >= 0) & (c >= 0)
-    population = candidates[on]
     height, width = len(row_axis), len(col_axis)
+    if index is None:
+        r = _positions(_numbers(table, rows)[candidates], row_axis)
+        c = _positions(_numbers(table, cols)[candidates], col_axis)
+        on = (r >= 0) & (c >= 0)
+    else:  # off the lattice, a code is the lattice's length
+        r = index.codes_for(frame, rows)[candidates].astype(np.int64)
+        c = index.codes_for(frame, cols)[candidates].astype(np.int64)
+        on = (r < height) & (c < width)
+    population = candidates[on]
     size = height * width
     square = r[on] * width + c[on]
     counts = np.bincount(square, minlength=size)
@@ -588,8 +633,9 @@ def matrix_view(
             duplicates=_grid(np.maximum(counts - 1, 0).tolist(), height, width),
         )
         return out
-    groups = _Groups(square, values, size)
-    confounded = _confounded(frame, population, square, groups.n, (rows, cols))
+    by_value = None if index is None else index.restricted(table, column, population, values)
+    groups = _Groups(square, values, size, by_value)
+    confounded = _confounded(frame, population, square, groups.n, (rows, cols), index)
     edges, bin_counts, bins, edge_start, count_start = groups.histograms()
     n, m = groups.n.tolist(), groups.m.tolist()
     p25, p75 = _optional(groups.quantile(0.25)), _optional(groups.quantile(0.75))
@@ -624,6 +670,10 @@ def matrix_view(
         empty=untested,
         stats=_grid(stats, height, width),
     )
+    if all_stats:
+        out["values_by_stat"] = {
+            name: _grid(_optional(groups.stat(name, metric)), height, width) for name in STATS
+        }
     return out
 
 
@@ -697,18 +747,25 @@ def page_view(
     offset: int,
     limit: int,
     metric: str,
+    index: FrameIndex | None = None,
 ) -> dict:
     """One offset page of the filtered trials by (sort, trial_no), the undefined values last
     whatever the direction. With no `sort`, the scope's metric column, best first (descending,
-    ascending for max_drawdown)."""
+    ascending for max_drawdown). With the snapshot's `index`, its order of the whole frame is
+    restricted to the filtered rows, never sorted again."""
     _check_window(offset, limit)
     column = metric_column(flt.scope, metric)
     if sort is None:
         sort, descending = column, metric not in LOWER_IS_BETTER
     elif sort not in _sortable(frame):
         raise KeyError(f"unknown sort column {sort!r}")
-    members = np.flatnonzero(filter_mask(frame, flt))
-    return _page(frame, _ordered(frame.table, members, sort, descending), offset, limit)
+    mask = filter_mask(frame, flt, index=index)
+    if index is None:
+        ordered = _ordered(frame.table, np.flatnonzero(mask), sort, descending)
+    else:
+        whole = index.order(sort, descending, frame.table)
+        ordered = whole[mask[whole]].astype(np.int64)
+    return _page(frame, ordered, offset, limit)
 
 
 def top_view(frame: TrialFrame, flt: LabFilter, *, metric: str, k: int) -> dict:
@@ -770,8 +827,44 @@ def square_trials_view(
 # --- marginals and parallel bundles (§7.9) ---------------------------------------------------
 
 
+def _marginal_groups(
+    frame: TrialFrame, parameter: ParameterInfo, members: np.ndarray, index: FrameIndex | None
+) -> tuple[np.ndarray, dict, int]:
+    """Each member's group on `parameter`, its entry (`values` or `buckets`) and the number of
+    groups sent: its lattice position (a value off the lattice in one more group, never sent),
+    or its equal-width bucket over [start, stop] when it has more than MARGINAL_BUCKETS values."""
+    lattice = np.unique(np.asarray(parameter.values, dtype=np.float64))
+    size = len(lattice)
+    if size <= MARGINAL_BUCKETS:
+        entry: dict = {"values": lattice.tolist()}
+        if index is not None:  # a code off the lattice is `size` already
+            return index.codes_for(frame, parameter.path)[members], entry, size
+        group = _positions(_numbers(frame.table, parameter.path)[members], lattice)
+        return np.where(group < 0, size, group), entry, size
+    lo, hi = sorted((float(parameter.start), float(parameter.stop)))
+    edges = np.linspace(lo, hi, MARGINAL_BUCKETS + 1)
+    held = _numbers(frame.table, parameter.path)[members]
+    group = np.searchsorted(edges[1:-1], held, side="right")
+    entry = {"buckets": np.stack([edges[:-1], edges[1:]], axis=1).tolist()}
+    return group, entry, MARGINAL_BUCKETS
+
+
+def tested_per_value(
+    frame: TrialFrame, parameter: ParameterInfo, members: np.ndarray, index: FrameIndex | None
+) -> tuple[dict, list[int]]:
+    """One parameter's marginal entry (`values` or `buckets`) and its `n`, counted alone: what
+    the summary sends, without the marginals' sort of the metric."""
+    group, entry, size = _marginal_groups(frame, parameter, members, index)
+    return entry, np.bincount(group, minlength=size + 1)[:size].tolist()
+
+
 def marginals_view(
-    frame: TrialFrame, flt: LabFilter, *, metric: str, paths: Sequence[str] | None = None
+    frame: TrialFrame,
+    flt: LabFilter,
+    *,
+    metric: str,
+    paths: Sequence[str] | None = None,
+    index: FrameIndex | None = None,
 ) -> dict:
     """Per parameter (default: every one), the filtered trials per value, or per bucket when it
     has more than MARGINAL_BUCKETS values (equal-width over [start, stop]), with the best and the
@@ -780,25 +873,17 @@ def marginals_view(
     chosen = [p.path for p in frame.parameters] if paths is None else list(paths)
     parameters = [_parameter(frame, path) for path in chosen]
     table = frame.table
-    members = np.flatnonzero(filter_mask(frame, flt))
+    members = np.flatnonzero(filter_mask(frame, flt, index=index))
     values = _numbers(table, column)[members]
-    by_value = _by_value(values)  # one sort of the metric serves every parameter
+    # one sort of the metric serves every parameter: the index's, restricted, when it is given
+    if index is None:
+        by_value = _by_value(values)
+    else:
+        by_value = index.restricted(table, column, members, values)
     out: dict[str, dict] = {}
     for parameter in parameters:  # a loop over the parameters
-        held = _numbers(table, parameter.path)[members]
-        lattice = np.unique(np.asarray(parameter.values, dtype=np.float64))
-        if len(lattice) <= MARGINAL_BUCKETS:
-            group = _positions(held, lattice)
-            entry: dict = {"values": lattice.tolist()}
-            size = len(lattice)
-        else:
-            lo, hi = sorted((float(parameter.start), float(parameter.stop)))
-            edges = np.linspace(lo, hi, MARGINAL_BUCKETS + 1)
-            group = np.searchsorted(edges[1:-1], held, side="right")
-            entry = {"buckets": np.stack([edges[:-1], edges[1:]], axis=1).tolist()}
-            size = MARGINAL_BUCKETS
-        # a value off the lattice is tallied in one more group, never sent
-        groups = _Groups(np.where(group < 0, size, group), values, size + 1, by_value)
+        group, entry, size = _marginal_groups(frame, parameter, members, index)
+        groups = _Groups(group, values, size + 1, by_value)
         entry["n"] = groups.n[:size].tolist()
         entry["best"] = _optional(groups.stat("best", metric)[:size])
         entry["median"] = _optional(groups.median()[:size])

@@ -463,12 +463,27 @@ REGISTRY = SnapshotRegistry()
 # -- the reader -------------------------------------------------------------------------------
 
 
+def _in_order(table: pa.Table) -> bool:
+    """True when (trial_no, block) strictly increases row by row: no copy and no second attempt
+    of any trial, already in the canonical order (a part, and the chunks after it, as written)."""
+    trial = np.asarray(table.column("trial_no").to_numpy())
+    block = np.asarray(table.column("block").to_numpy())
+    if trial.dtype.kind not in "iu" or block.dtype.kind not in "iu":  # a null: never in order
+        return False
+    later, earlier = trial[1:], trial[:-1]
+    return bool(np.all((later > earlier) | ((later == earlier) & (block[1:] > block[:-1]))))
+
+
 def _canonical(table: pa.Table) -> tuple[pa.Table, int]:
     """§7.3a in two steps: copies of one (trial_no, block, attempt) collapse to the first one
     read (parts before chunks), counted as duplicates; then the highest attempt of each
-    (trial_no, block) is kept. Sorted by trial_no, then block."""
+    (trial_no, block) is kept. Sorted by trial_no, then block. A table already strictly in that
+    order holds neither, so it is kept as read, without a sort or a `take` (its chunks combined,
+    as the take would leave them)."""
     if not len(table):
         return table, 0
+    if _in_order(table):
+        return table.combine_chunks(), 0
     order = pc.sort_indices(
         table,
         sort_keys=[("trial_no", "ascending"), ("block", "ascending"), ("attempt", "descending")],

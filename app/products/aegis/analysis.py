@@ -87,9 +87,28 @@ def neighbours_exhaustive(grid: Grid, run: list[int]) -> dict[int, list[int]]:
     return {cell: [n for n in grid.neighbours(cell) if n in present] for cell in run}
 
 
+# A block of rows' difference cube (rows x n x D float64) holds at most this many bytes.
+DISTANCE_BLOCK_BYTES = 32 * 1024 * 1024
+
+
+def _block_rows(n: int, d: int) -> int:
+    """How many rows' distances to all `n` points one block computes, within the byte bound."""
+    return max(1, DISTANCE_BLOCK_BYTES // max(1, n * d * 8))
+
+
+def _distances(block: np.ndarray, points: np.ndarray) -> np.ndarray:
+    """Each block row's Euclidean distance to every point: the differences squared in place,
+    summed over the parameters, then the root (the arithmetic of `((a - b) ** 2).sum(axis=2)`,
+    with one cube alive instead of two)."""
+    cube = block[:, None, :] - points[None, :, :]
+    np.square(cube, out=cube)
+    return np.sqrt(cube.sum(axis=2))
+
+
 def neighbours_sampled(grid: Grid, run: list[int], k: int) -> dict[int, list[int]]:
     """The `k` nearest run cells of each run cell by normalized Euclidean distance over parameter
-    positions, ties by lower cell index; brute force in chunks (plan ruling P6)."""
+    positions, ties by lower cell index; brute force in blocks of rows bounded by bytes (plan
+    ruling P6, Phase 3 Task 0)."""
     cells = np.asarray(sorted(run), dtype=np.int64)
     n = len(cells)
     if n == 0:
@@ -100,9 +119,10 @@ def neighbours_sampled(grid: Grid, run: list[int], k: int) -> dict[int, list[int
     relation: dict[int, list[int]] = {}
     if k <= 0:
         return {int(c): [] for c in cells}
-    for start in range(0, n, 512):
-        block = points[start : start + 512]
-        distances = np.sqrt(((block[:, None, :] - points[None, :, :]) ** 2).sum(axis=2))
+    rows = _block_rows(n, points.shape[1])
+    for start in range(0, n, rows):
+        block = points[start : start + rows]
+        distances = _distances(block, points)
         for i in range(len(block)):
             row = distances[i].copy()
             row[start + i] = np.inf
@@ -354,21 +374,22 @@ def _silhouette(points: np.ndarray, labels: np.ndarray) -> float:
     n = len(points)
     if n < 2 or len(set(labels.tolist())) < 2:
         return float("nan")
-    distances = np.sqrt(((points[:, None, :] - points[None, :, :]) ** 2).sum(axis=2))
     scores = []
-    for i in range(n):
-        own = labels == i * 0 + labels[i]
-        own[i] = False
-        if not own.any():
-            scores.append(0.0)
-            continue
-        a = distances[i][own].mean()
-        b = min(
-            distances[i][labels == other].mean()
-            for other in set(labels.tolist())
-            if other != labels[i]
-        )
-        scores.append((b - a) / max(a, b) if max(a, b) > 0 else 0.0)
+    rows = _block_rows(n, points.shape[1])  # a block of rows' distances at a time, never n x n
+    for start in range(0, n, rows):
+        distances = _distances(points[start : start + rows], points)
+        for i in range(start, start + len(distances)):
+            row = distances[i - start]
+            own = labels == labels[i]
+            own[i] = False
+            if not own.any():
+                scores.append(0.0)
+                continue
+            a = row[own].mean()
+            b = min(
+                row[labels == other].mean() for other in set(labels.tolist()) if other != labels[i]
+            )
+            scores.append((b - a) / max(a, b) if max(a, b) > 0 else 0.0)
     return float(np.mean(scores))
 
 

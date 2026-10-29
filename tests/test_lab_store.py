@@ -1958,3 +1958,54 @@ def test_legacy_resume_unchanged(client, monkeypatch):  # noqa: F811
     assert finished.progress["cells_done"] == 4
     assert store.layout(doc.id) == 1  # today's path: layout-1 chunks, never compacted
     assert lab_store.read_manifest(store.cells_dir(doc.id)) is None
+
+
+def test_canonical_skips_the_take_on_identity_order(monkeypatch):
+    """A table already strictly increasing in (trial_no, block), as a part and the chunks after
+    it are written, is canonical as read: no sort and no `take` (one chunk per column, as the
+    take left it); a repeated (trial_no, block) still sorts and dedupes."""
+    import pyarrow.compute as pc
+
+    taken: list[str] = []
+    original_take, original_sort = pc.take, pc.sort_indices
+
+    def take(data, indices, *args, **kwargs):
+        taken.append(type(data).__name__)
+        return original_take(data, indices, *args, **kwargs)
+
+    def sort_indices(*args, **kwargs):
+        taken.append("sort_indices")
+        return original_sort(*args, **kwargs)
+
+    monkeypatch.setattr(pc, "take", take)
+    monkeypatch.setattr(pc, "sort_indices", sort_indices)
+
+    def table(rows: list[tuple[int, int, int]]) -> pa.Table:
+        trial, block, attempt = zip(*rows, strict=True)
+        return pa.table(
+            {
+                "trial_no": pa.array(trial, pa.int64()),
+                "block": pa.array(block, pa.uint8()),
+                "attempt": pa.array(attempt, pa.uint8()),
+                "status": pa.array(["ok"] * len(rows)).dictionary_encode(),
+            }
+        )
+
+    blocked = [(0, 0, 0), (0, 1, 0), (0, 2, 1), (1, 0, 0), (1, 2, 0), (4, 0, 2), (4, 1, 0)]
+    in_order = pa.concat_tables([table(blocked[:3]), table(blocked[3:])])  # a part, then a chunk
+    assert in_order.column("trial_no").num_chunks == 2
+    canonical, duplicates = lab_store._canonical(in_order)
+    assert taken == [] and duplicates == 0
+    assert canonical.equals(in_order)
+    assert {canonical.column(name).num_chunks for name in canonical.column_names} == {1}
+
+    repeated = table([(0, 0, 0), (1, 0, 0), (1, 0, 1), (1, 0, 1), (2, 0, 0), (2, 1, 0)])
+    canonical, duplicates = lab_store._canonical(repeated)
+    assert "Table" in taken and "sort_indices" in taken
+    assert duplicates == 1  # the second copy of (1, 0) attempt 1
+    kept = canonical.select(["trial_no", "block", "attempt"]).to_pylist()
+    assert [tuple(row.values()) for row in kept] == [(0, 0, 0), (1, 0, 1), (2, 0, 0), (2, 1, 0)]
+    taken.clear()
+    backwards = table([(3, 0, 0), (1, 0, 0)])  # in no order: sorted
+    canonical, _ = lab_store._canonical(backwards)
+    assert canonical.column("trial_no").to_pylist() == [1, 3] and "Table" in taken

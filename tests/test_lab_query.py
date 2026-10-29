@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 from collections import Counter, defaultdict
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import numpy as np
@@ -18,10 +19,13 @@ from products.aegis import experiments as exp
 from products.aegis.lab import identity, policy
 from products.aegis.lab import store as lab_store
 from products.aegis.lab.cache import LabCache, cache_bytes_from_env
+from products.aegis.lab.index import build_index
 from products.aegis.lab.query import (
     LabFilter,
     ParameterInfo,
     TrialFrame,
+    _axis,
+    _numbers,
     counts_view,
     envelope,
     filter_mask,
@@ -1288,3 +1292,198 @@ def test_reference_crossover_grid_matches_optimizer():
     (best_exp,) = top_view(experiment, LabFilter(), metric="net_pnl", k=1)["rows"]
     assert best_opt["params"] == best_exp["params"] and best_opt["trial_no"] == 5
     assert best_opt["trial_id"] == "opt:reference#5" and best_opt["values"]["long.net_pnl"] == 4.0
+
+
+# --- the per-snapshot index (Phase 3 Task 0) --------------------------------------------------
+
+
+def index_answers(
+    frame: TrialFrame, flt: LabFilter, state: dict, index, pages, unique: int
+) -> dict:
+    """Counts, both matrix modes (every aggregate stat), the pages and the marginals of one
+    filter, each with its scope as the routes build it (one mask per request, the snapshot's
+    `unique`), with `index` (None: computed per request, as Phase 2 did)."""
+    metric = state["metric"]
+    rows, cols = state["axes"]
+    mask = filter_mask(frame, flt, index=index)
+
+    def scope(shown: int, basis: str = "Tested (exact)") -> dict:
+        return scope_counts(
+            frame, flt, shown, metric=metric, basis=basis, unique=unique, mask=mask, index=index
+        )
+
+    out: dict = {
+        "mask": np.flatnonzero(mask).tolist(),
+        "counts": counts_view(frame, flt, metric=metric, index=index),  # its own mask and unique
+    }
+    exact = matrix_view(frame, flt, rows=rows, cols=cols, metric=metric, mode="exact", index=index)
+    out["exact"] = (exact, scope(squares_shown(exact)))
+    aggregate = matrix_view(
+        frame,
+        flt,
+        rows=rows,
+        cols=cols,
+        metric=metric,
+        mode="aggregate",
+        stat=state["stat"],
+        all_stats=True,
+        index=index,
+    )
+    out["aggregate"] = (aggregate, scope(squares_shown(aggregate), aggregate["basis"]))
+    for sort, descending, offset in pages:
+        page = page_view(
+            frame,
+            flt,
+            sort=sort,
+            descending=descending,
+            offset=offset,
+            limit=50,
+            metric=metric,
+            index=index,
+        )
+        out[f"page {sort} {descending} {offset}"] = (page, scope(len(page["rows"])))
+    marginals = marginals_view(frame, flt, metric=metric, index=index)
+    out["marginals"] = (marginals, scope(0, aggregated_basis_of(out["counts"])))
+    return out
+
+
+def aggregated_basis_of(counts: dict) -> str:
+    return f"Aggregated from tested (n = {counts['filtered']})"
+
+
+def test_index_answers_equal_per_request_answers():
+    """The index is a cache of per-snapshot work, never a second answer: over the Phase 2 churn
+    of filters, axes, stats, modes and metrics, every view built with it equals the same view
+    computed per request (payload and scope), on five seeded frames."""
+    checked = 0
+    for seed in range(5):
+        whole = synthetic_frame(20_000, 6, seed)
+        paths = [p.path for p in whole.parameters]
+        metrics_read = [  # the churn's metrics, and the page's, in every scope
+            f"{scope}.{name}"
+            for scope in SCOPES
+            for name in ("net_pnl", "cagr", "max_drawdown", "sharpe_trade", "trade_count")
+        ]
+        base = ["trial_no", "block", "status", "param_key", "cell", "pass", "design", "valid"]
+        stored = [f"pos.{k}" for k in range(len(paths))]  # so the codes come from pos.<k>
+        frame = replace(whole, table=whole.table.select([*base, *stored, *paths, *metrics_read]))
+        index = build_index(frame)
+        unique = scope_counts(frame, LabFilter())["unique"]
+        lattice = {p.path: p.values for p in frame.parameters}
+        state = {
+            "ranges": {},
+            "values": {},
+            "scope": "combined",
+            "pass": [],
+            "status": [],
+            "axes": (paths[0], paths[1]),
+            "stat": "best",
+            "mode": "aggregate",
+            "metric": "net_pnl",
+        }
+        for sequence in range(200):
+            rng = np.random.default_rng([sequence, seed, 20_000])
+            churn(state, rng, paths, lattice)
+            flt = LabFilter.model_validate(
+                {k: state[k] for k in ("ranges", "values", "scope", "pass", "status")}
+            )
+            column = metric_column(flt.scope, state["metric"])
+            offset = int(rng.integers(0, 2_000))
+            pages = [
+                (None, False, 0),
+                (column, True, offset),
+                (column, False, offset),
+                (paths[int(rng.integers(0, len(paths)))], True, offset),  # few values: ties
+            ]
+            fast = index_answers(frame, flt, state, index, pages, unique)
+            assert fast == index_answers(frame, flt, state, None, pages, unique), (seed, sequence)
+            assert set(fast["aggregate"][0]["values_by_stat"]) == {
+                "best",
+                "median",
+                "mean",
+                "worst",
+            }
+            checked += fast["counts"]["filtered"] > 0
+    assert checked >= 500  # the churn mostly leaves trials in view, so the checks have content
+
+
+def test_index_order_ties_by_trial_no():
+    """`order` is the stable order of the whole frame by the metric, equal values by trial
+    number in both directions, undefined values last; built once and memoized."""
+    spec = [(5, 2.0), (2, 2.0), (9, None), (1, 2.0), (7, 3.0), (3, None), (4, 3.0)]
+    rows = [
+        {"params": {X: 1.0, Y: float(t % 2)}, "metrics": metrics(net_pnl=v), "trial_no": t}
+        for t, v in spec
+    ]
+    frame = frame_of(rows, (X, Y))
+    index = build_index(frame)
+    trial = frame.table.column("trial_no").to_numpy()
+    ascending = index.order("combined.net_pnl", False, frame.table)
+    descending = index.order("combined.net_pnl", True, frame.table)
+    assert ascending.dtype == np.int32 and descending.dtype == np.int32
+    assert trial[ascending].tolist() == [1, 2, 5, 4, 7, 3, 9]
+    assert trial[descending].tolist() == [4, 7, 1, 2, 5, 3, 9]
+    assert index.order("combined.net_pnl", True) is descending  # memoized: no table needed
+    by_x = index.order(X, True, frame.table)  # one value: every row ties
+    assert trial[by_x].tolist() == sorted(trial.tolist())
+    with pytest.raises(ValueError, match="never seen"):
+        index.order("long.max_drawdown", False)
+
+
+def test_pos_codes_equal_positions(monkeypatch):
+    """A layout-2 frame's `pos.<k>` serve the codes once they equal `_positions` on the first
+    chunk; a frame whose `pos.<k>` disagree falls back to `_positions` over the whole column. A
+    value off its lattice codes as the lattice's length, and every view agrees with the
+    per-request answer on it."""
+    from products.aegis.lab import index as lab_index
+
+    lengths: list[int] = []
+    original = lab_index._positions
+
+    def spy(values, axis):
+        lengths.append(len(values))
+        return original(values, axis)
+
+    monkeypatch.setattr(lab_index, "_positions", spy)
+    monkeypatch.setattr(lab_index, "CHECKED_ROWS", 100)
+    frame = synthetic_frame(3_000, 6, 4)
+    index = build_index(frame)
+
+    def positions(frame: TrialFrame, path: str) -> np.ndarray:
+        return original(_numbers(frame.table, path), _axis(frame, path))
+
+    for parameter in frame.parameters:
+        codes = index.codes[parameter.path]
+        assert codes.dtype == np.uint16
+        assert np.array_equal(codes, positions(frame, parameter.path))
+    assert lengths == [100] * len(frame.parameters)  # the check only: pos.<k> held the codes
+
+    first = frame.parameters[0].path
+    width = len(frame.parameters[0].values)
+    stored = frame.table.column("pos.0").to_numpy().astype(np.int64)
+    at = frame.table.schema.get_field_index("pos.0")
+    wrong = frame.table.set_column(
+        at, "pos.0", pa.array(((stored + 1) % width).astype(np.uint16), pa.uint16())
+    )
+    lengths.clear()
+    fallback = build_index(replace(frame, table=wrong))
+    assert np.array_equal(fallback.codes[first], positions(frame, first))
+    assert 3_000 in lengths  # `_positions` over the whole column for pos.0
+
+    # A lattice that lost a value: the trials holding it are off the lattice.
+    held = sorted(set(frame.parameters[1].values))
+    narrowed = replace(frame.parameters[1], values=held[1:])
+    off = replace(frame, parameters=[frame.parameters[0], narrowed, *frame.parameters[2:]])
+    narrow_index = build_index(off)
+    second = frame.parameters[1].path
+    codes = narrow_index.codes[second]
+    values = _numbers(frame.table, second)
+    assert np.array_equal(codes == len(held) - 1, values == held[0])
+    flt = LabFilter()
+    for mode in ("exact", "aggregate"):
+        kwargs = {"rows": first, "cols": second, "metric": "net_pnl", "mode": mode}
+        assert matrix_view(off, flt, **kwargs, index=narrow_index) == matrix_view(
+            off, flt, **kwargs
+        )
+    with_index = marginals_view(off, flt, metric="net_pnl", index=narrow_index)
+    assert with_index == marginals_view(off, flt, metric="net_pnl")

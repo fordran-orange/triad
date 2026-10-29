@@ -55,6 +55,7 @@ from products.aegis.lab import identity
 from products.aegis.lab import sources as lab_sources
 from products.aegis.lab import store as lab_store
 from products.aegis.lab.cache import LabCache, cache_bytes_from_env
+from products.aegis.lab.index import FrameIndex
 from products.aegis.lab.policy import LOW_DISK_GB, PAGE_LIMIT, TOP_LIMIT
 from products.aegis.lab.query import LabFilter, TrialFrame
 from products.aegis.learned import LearnedPhrases
@@ -1415,9 +1416,26 @@ def _lab_optimization(
     return status, lab_sources.project(frame, columns)
 
 
-def _lab_answer(frame: TrialFrame, request: QueryRequest, unique: int | None) -> dict:
+def _lab_answer(
+    frame: TrialFrame,
+    request: QueryRequest,
+    unique: int | None,
+    *,
+    cache: LabCache,
+    source_identity: tuple,
+    index: FrameIndex | None = None,
+) -> dict:
+    """One query's answer over the snapshot's index (an experiment's; None for an optimization),
+    an aggregate matrix cached under its source's identity."""
     try:
-        return lab_sources.run_query(frame, request, unique=unique)
+        return lab_sources.run_query(
+            frame,
+            request,
+            unique=unique,
+            index=index,
+            cache=cache,
+            source_identity=source_identity,
+        )
     except (KeyError, ValueError) as exc:
         raise _lab_refused(exc) from exc
 
@@ -1459,7 +1477,10 @@ def lab_summary(
         lambda meta: lab_sources.COLUMNS_FOR("summary", None, meta.parameters, meta.objective),
     ) as (document, meta, frame):
         unique = lab_sources.experiment_unique(cache, frame, document)
-        return lab_sources.summary(frame, document, None, meta.spec_values, unique=unique)
+        index = lab_sources.experiment_index(cache, frame, document)
+        return lab_sources.summary(
+            frame, document, None, meta.spec_values, unique=unique, index=index, cache=cache
+        )
 
 
 @router.post("/lab/{src}/query")
@@ -1472,8 +1493,9 @@ def lab_query(
 ):
     ref = _lab_source(src)
     if ref.kind == "opt":
-        _, frame = _lab_optimization(runner, ref.id, request.view, request)
-        return _lab_answer(frame, request, None)
+        status, frame = _lab_optimization(runner, ref.id, request.view, request)
+        identity_of = lab_sources.optimization_source(status, frame)
+        return _lab_answer(frame, request, None, cache=cache, source_identity=identity_of)
     with _lab_experiment(
         ref.id,
         experiments,
@@ -1482,7 +1504,14 @@ def lab_query(
             request.view, request, meta.parameters, meta.objective
         ),
     ) as (document, _, frame):
-        return _lab_answer(frame, request, lab_sources.experiment_unique(cache, frame, document))
+        return _lab_answer(
+            frame,
+            request,
+            lab_sources.experiment_unique(cache, frame, document),
+            cache=cache,
+            source_identity=lab_sources.experiment_source(document),
+            index=lab_sources.experiment_index(cache, frame, document),
+        )
 
 
 @router.get("/lab/{src}/trials/{trial}")

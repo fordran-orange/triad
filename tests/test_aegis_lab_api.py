@@ -528,3 +528,218 @@ def test_build_route(client, lab_cache):
     assert body["data_root"] == str(aegis_data_root())
     assert body["cache"] == lab_cache.stats()
     assert set(body["disk"]) == {"free_gb", "low", "root"}
+
+
+# --- Phase 3 Task 0: one cache entry per column set, the matrix payload, the summary's counts ---
+
+
+def _open(repository, cache: LabCache, experiment_id: str, columns):
+    """One request's frame over `columns`, its registry hold released at once."""
+    store = experiments_module.ExperimentStore(repository)
+    document = store.get(experiment_id)
+    frame, handle = sources.open_experiment(document, store, cache, columns)
+    lab_store_module.REGISTRY.release(handle)
+    return document, frame
+
+
+def test_cache_key_is_the_column_set(client, lab_cache, monkeypatch):
+    """Two projections of the same columns in different orders share one cache entry (the key
+    is the sorted column set beside the row selection, Ruling P1), and each request's table
+    follows its own order without a copy."""
+    c, _, repository = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    document = experiments_module.ExperimentStore(repository).get(experiment_id)
+    meta = sources.experiment_meta(document)
+    columns = sources.COLUMNS_FOR("summary", None, meta.parameters, meta.objective)
+    reordered = (*reversed(columns[4:]), *columns[:4])
+    assert reordered != columns and set(reordered) == set(columns)
+    lab_cache.evict((("exp", experiment_id),))
+    _, first = _open(repository, lab_cache, experiment_id, columns)
+    _, second = _open(repository, lab_cache, experiment_id, reordered)
+    assert first.table.column_names == list(columns)
+    assert second.table.column_names == list(reordered)
+    keys = [key for key in lab_cache._entries if key[0] == ("exp", experiment_id)]
+    assert len(keys) == 1, keys
+    (key,) = keys
+    assert key[-1] == tuple(sorted(columns)) and key[-2] == sources.BLOCK0
+    assert lab_cache.stats()["hits"] >= 1
+    for name in columns:  # the same buffers, selected in another order
+        a, b = first.table.column(name).chunk(0), second.table.column(name).chunk(0)
+        assert [x.address for x in a.buffers() if x] == [y.address for y in b.buffers() if y]
+
+
+def test_stat_change_is_served_from_the_matrix_payload(client, lab_cache, monkeypatch):
+    """An aggregate matrix computes its four stats once per (source, snapshot, filter, axes,
+    metric, slice): `median` after `best` answers from the cached payload, equal to its own
+    computation, and the client's `filter_hash` is still echoed as sent."""
+    c, _, repository = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    calls: list[str] = []
+    original = sources.matrix_view
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs.get("stat"))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sources, "matrix_view", spy)
+    url = f"{LAB}/exp:{experiment_id}/query"
+    body = {
+        "filter": {},
+        "view": "matrix",
+        "rows": DONCHIAN,
+        "cols": RSI,
+        "metric": "net_pnl",
+        "mode": "aggregate",
+    }
+    answers = {}
+    for stat, filter_hash in (("best", "aa01"), ("median", "bb02"), ("worst", None)):
+        response = c.post(url, json={**body, "stat": stat, "filter_hash": filter_hash})
+        assert response.status_code == 200, response.text
+        answers[stat] = response.json()
+        assert answers[stat]["filter_hash"] == filter_hash
+    assert calls == ["best"]
+    document = experiments_module.ExperimentStore(repository).get(experiment_id)
+    meta = sources.experiment_meta(document)
+    request = api.QueryRequest.model_validate({**body, "stat": "median"})
+    columns = sources.COLUMNS_FOR("matrix", request, meta.parameters, meta.objective)
+    _, frame = _open(repository, LabCache(), experiment_id, columns)
+    for stat, answer in answers.items():
+        own = original(
+            frame,
+            request.filter,
+            rows=DONCHIAN,
+            cols=RSI,
+            metric="net_pnl",
+            mode="aggregate",
+            stat=stat,
+        )
+        assert {key: answer[key] for key in own} == own
+        assert "values_by_stat" not in answer
+    other = c.post(url, json={**body, "filter": {"ranges": {RSI: [7, 7]}}, "stat": "median"})
+    assert other.status_code == 200 and calls == ["best", "median"]  # another filter: computed
+
+
+def test_matrix_payload_never_crosses_sources(client, lab_cache, monkeypatch):
+    """Two experiments at the same snapshot numbers and filter each answer their own matrix,
+    each from its own cache entry."""
+    c, _, repository = client
+    first = _finished_experiment(c, monkeypatch, name="first")
+    surface = {
+        "parameters": [
+            {"path": DONCHIAN, "start": 10, "stop": 20, "step": 10},
+            {"path": RSI, "start": 7, "stop": 14, "step": 7},
+        ]
+    }
+    second = _finished_experiment(c, monkeypatch, name="second", surface=surface)
+    calls: list[str] = []
+    original = sources.matrix_view
+
+    def spy(*args, **kwargs):
+        calls.append(args[0].source)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sources, "matrix_view", spy)
+    body = {
+        "filter": {},
+        "view": "matrix",
+        "rows": DONCHIAN,
+        "cols": RSI,
+        "metric": "net_pnl",
+        "mode": "aggregate",
+    }
+    answers: dict[str, dict] = {}
+    for _ in range(2):
+        for experiment_id in (first, second):
+            response = c.post(f"{LAB}/exp:{experiment_id}/query", json=body)
+            assert response.status_code == 200, response.text
+            answer = response.json()
+            assert answer["snapshot"] == {"generation": 1, "chunk_watermark": 1}
+            assert answers.setdefault(experiment_id, answer) == answer
+    assert calls == [f"exp:{first}", f"exp:{second}"]  # each computed once, never the other's
+    assert answers[first]["rows"] == [10.0, 15.0] and answers[second]["rows"] == [10.0, 20.0]
+    request = api.QueryRequest.model_validate(body)
+    for experiment_id in (first, second):
+        document = experiments_module.ExperimentStore(repository).get(experiment_id)
+        meta = sources.experiment_meta(document)
+        columns = sources.COLUMNS_FOR("matrix", request, meta.parameters, meta.objective)
+        _, frame = _open(repository, LabCache(), experiment_id, columns)
+        own = original(
+            frame, request.filter, rows=DONCHIAN, cols=RSI, metric="net_pnl", mode="aggregate"
+        )
+        assert {key: answers[experiment_id][key] for key in own} == own
+
+
+def test_summary_tested_per_value_equals_marginals_n(client, monkeypatch):
+    """The summary counts each value's tested trials from the index's codes (never the whole
+    marginals view), equal to the marginals' `n`; a lattice over MARGINAL_BUCKETS values keeps
+    its buckets."""
+    from products.aegis.lab.index import build_index
+    from products.aegis.lab.query import LabFilter, marginals_view
+    from test_lab_query import frame_of, metrics
+
+    c, _, repository = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    called: list[str] = []
+    original = sources.marginals_view
+
+    def spy(*args, **kwargs):
+        called.append("marginals")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sources, "marginals_view", spy)
+    summary = c.get(f"{LAB}/exp:{experiment_id}/summary")
+    assert summary.status_code == 200, summary.text
+    assert called == []
+    document = experiments_module.ExperimentStore(repository).get(experiment_id)
+    meta = sources.experiment_meta(document)
+    columns = sources.COLUMNS_FOR("summary", None, meta.parameters, meta.objective)
+    _, frame = _open(repository, LabCache(), experiment_id, columns)
+    marginals = original(frame, LabFilter(), metric="net_pnl")["marginals"]
+    for entry in summary.json()["parameters"]:
+        assert entry["tested_per_value"] == marginals[entry["path"]]["n"]
+        assert entry["values"] == marginals[entry["path"]]["values"]
+    fine, coarse = "long_side.indicators.fine.length", "short_side.indicators.coarse.length"
+    rows = [
+        {
+            "params": {fine: 1.0 + (7 * t) % 300, coarse: 2.0 * (t % 16)},
+            "metrics": metrics(net_pnl=float(t % 9)),
+            "status": "failed" if t % 11 == 0 else "ok",
+        }
+        for t in range(900)
+    ]
+    hand = frame_of(rows, (fine, coarse), values={fine: [1.0 + v for v in range(300)]})
+    status = {"side": "long", "status": "done", "data": None, "engine": None}
+    built = sources.summary(hand, None, status, None, index=build_index(hand))
+    expected = marginals_view(hand, LabFilter(scope="long"), metric="net_pnl")["marginals"]
+    by_path = {entry["path"]: entry for entry in built["parameters"]}
+    assert by_path[fine]["bucketed"] is True and by_path[fine]["values"] is None
+    assert by_path[coarse]["bucketed"] is False
+    for path in (fine, coarse):
+        assert by_path[path]["tested_per_value"] == expected[path]["n"]
+
+
+def test_memory_released_after_a_load(monkeypatch):
+    """A miss hands the memory Arrow freed while loading back to the system, and so does an
+    eviction; a hit releases nothing."""
+    import pyarrow as pa
+    from products.aegis.lab import cache as cache_module
+
+    released: list[str] = []
+
+    class Pool:
+        def release_unused(self) -> None:
+            released.append("released")
+
+    monkeypatch.setattr(cache_module.pa, "default_memory_pool", lambda: Pool())
+    cache = LabCache(10_000)
+
+    def table(rows: int):
+        return lambda: pa.table({"x": list(range(rows))})
+
+    cache.get(("a",), table(500), size=lambda t: t.nbytes)  # 4,000 bytes: a miss
+    assert released == ["released"]
+    cache.get(("a",), table(500), size=lambda t: t.nbytes)  # a hit
+    assert released == ["released"]
+    cache.get(("b",), table(1000), size=lambda t: t.nbytes)  # a miss that evicts a
+    assert len(released) == 2 and cache.stats()["entries"] == 1
+    assert cache.evict(("b",)) == 1 and len(released) == 3

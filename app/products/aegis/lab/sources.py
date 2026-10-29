@@ -8,10 +8,16 @@ Lab cache, keyed by that snapshot. It never takes the runner's lock. An `opt:<jo
 a grid optimization's cells, from one `runner.status` call (the runner's lock, briefly, and no Lab
 lock), laid out in the same columns: one side, block 0, each cell a grid trial numbered by its
 place in the job's cells. The views themselves are `query.py`'s.
+
+What a snapshot fixes is cached beside its tables (Phase 3 Task 0): one table per column set and
+row selection, whatever order a view asks for its columns in; the snapshot's `FrameIndex`; the
+summary's counts per value and headline; and each aggregate matrix with its four stats, keyed by
+its source's identity, so a stat change answers from it and one source never meets another's.
 """
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections.abc import Sequence
@@ -30,6 +36,7 @@ from products.aegis.experiments import (
 )
 from products.aegis.lab import identity
 from products.aegis.lab.cache import LabCache
+from products.aegis.lab.index import FrameIndex, build_index
 from products.aegis.lab.policy import SHARPE_MIN_TRADES
 from products.aegis.lab.query import (
     BASIS_EXACT,
@@ -48,10 +55,19 @@ from products.aegis.lab.query import (
     parallel_view,
     scope_counts,
     square_trials_view,
+    tested_per_value,
     top_view,
     undefined_mask,
 )
-from products.aegis.lab.store import LOCKS, REGISTRY, Counters, file_set, latest_snapshot
+from products.aegis.lab.store import (
+    _KEPT,
+    LOCKS,
+    REGISTRY,
+    Counters,
+    Snapshot,
+    file_set,
+    latest_snapshot,
+)
 from products.aegis.optimize import SIDE_KEY, grid_values
 from products.aegis.pool import METRICS, SCOPES
 from products.aegis.runs import _check_id
@@ -71,6 +87,12 @@ _REQUIRED = {
 OPT_FINAL = ("done", "cancelled", "failed", "lost")  # an optimization no longer changing
 META_BYTES = 4096  # the nominal size of an `exp-meta` entry (Task 7's cache rule)
 UNIQUE_BYTES = 64  # and of an `exp-unique` count
+SUMMARY_BYTES = 65_536  # and of an `exp-summary` part (counts per value and the headline)
+# A cached aggregate matrix's size per square, its four stats' values, stats and histogram
+# included (1.3 to 1.9 KB measured, from 200 x 200 to 12 x 12 squares, every square tested).
+SQUARE_BYTES = 2048
+# The row selection in a table's and an index's key (Ruling P1): ordinary views read block 0.
+BLOCK0 = "block0"
 _TRIAL_NUMBER = re.compile(r"[0-9]{1,18}")  # below 2**63: a trial_no is an int64
 
 
@@ -299,7 +321,8 @@ def open_experiment(
                     experiment_id, list(columns), snapshot=snapshot, trial_no=trial_no
                 )
             else:
-                key = (snapshot.generation, snapshot.chunk_watermark, columns)
+                # The column set, never its order: one entry serves every view that loads it.
+                key = (snapshot.generation, snapshot.chunk_watermark, BLOCK0, column_set(columns))
                 trials = cache.get(
                     (("exp", experiment_id), document.created_at, *key),
                     lambda: store.trials(experiment_id, list(columns), snapshot=snapshot),
@@ -308,9 +331,11 @@ def open_experiment(
         except BaseException:
             REGISTRY.release(handle)
             raise
+    # The request's own order, as `read_trials` gives it (a zero-copy select).
+    table = trials.table.select(list(dict.fromkeys([*columns, *_KEPT])))
     frame = TrialFrame(
         source=f"exp:{experiment_id}",
-        table=trials.table,
+        table=table,
         parameters=meta.parameters,
         space=meta.space,
         valid=meta.valid,
@@ -325,6 +350,77 @@ def open_experiment(
         objective=meta.objective,
     )
     return frame, handle
+
+
+def column_set(columns: Sequence[str]) -> tuple[str, ...]:
+    """A table's cache key component: its columns sorted, each once."""
+    return tuple(sorted(set(columns)))
+
+
+def experiment_index(
+    cache: LabCache, frame: TrialFrame, document: ExperimentDocument
+) -> FrameIndex:
+    """The snapshot's index (index.py), built from the first request's frame on that snapshot of
+    this instance of the experiment and shared by every later one, whatever columns it loads:
+    their rows are the same block-0 rows in the same order."""
+    snapshot = frame.snapshot
+    return cache.get(
+        (
+            ("exp-index", document.id),
+            document.created_at,
+            snapshot.generation,
+            snapshot.chunk_watermark,
+            BLOCK0,
+        ),
+        lambda: build_index(frame),
+        size=lambda index: index.nbytes(len(frame.parameters)),
+    )
+
+
+def experiment_source(document: ExperimentDocument) -> tuple:
+    """The identity a cached answer of an experiment carries: one instance of its id."""
+    return ("exp", document.id, document.created_at)
+
+
+def optimization_source(status: dict, frame: TrialFrame) -> tuple:
+    """The identity a cached answer of an optimization carries: the job and the cells done that
+    its frame holds (one frozen copy of them, which a running job only appends to)."""
+    return ("opt", status["job_id"], frame.table.num_rows)
+
+
+def canonical_filter(flt: LabFilter) -> str:
+    """The filter as a server-side cache key, never echoed: the client's `filter_hash` is."""
+    return json.dumps(flt.model_dump(mode="json", by_alias=True), sort_keys=True)
+
+
+def matrix_payload_key(
+    source_identity: tuple,
+    snapshot: Snapshot | None,
+    canonical_filter: str,
+    scope: str,
+    rows: str,
+    cols: str,
+    metric: str,
+    fixed: dict[str, float] | None,
+    mode: str,
+) -> tuple:
+    """A matrix payload's cache key: its source's identity first (`experiment_source` or
+    `optimization_source`), so one source is never served another's heatmap, then the snapshot,
+    the filter and the view's own arguments. The stat is not part of it: the payload holds all
+    four."""
+    at = None if snapshot is None else (snapshot.generation, snapshot.chunk_watermark)
+    held = tuple(sorted((fixed or {}).items()))
+    return (
+        ("matrix", *source_identity),
+        at,
+        canonical_filter,
+        scope,
+        rows,
+        cols,
+        metric,
+        held,
+        mode,
+    )
 
 
 def experiment_unique(cache: LabCache, frame: TrialFrame, document: ExperimentDocument) -> int:
@@ -468,6 +564,22 @@ def optimization_identity(status: dict) -> dict:
 # --- the answers ------------------------------------------------------------------------------
 
 
+def _summary_part(frame: TrialFrame, scope_name: str, mask: np.ndarray, index: FrameIndex) -> dict:
+    """What a summary reads of the snapshot alone: each parameter's tested trials per value (or
+    bucket), counted from the index's codes over the completed rows, and the headline's best
+    trial and undefined count over the objective."""
+    column = metric_column(scope_name, frame.objective)
+    members = np.flatnonzero(mask)
+    return {
+        "tested": {
+            parameter.path: tested_per_value(frame, parameter, members, index)
+            for parameter in frame.parameters
+        },
+        "best": top_view(frame, LabFilter(scope=scope_name), metric=frame.objective, k=1)["rows"],
+        "undefined": int(undefined_mask(frame.table.column(column))[mask].sum()),
+    }
+
+
 def summary(
     frame: TrialFrame,
     document: ExperimentDocument | None,
@@ -475,24 +587,41 @@ def summary(
     spec_values: dict[str, float] | None,
     *,
     unique: int | None = None,
+    index: FrameIndex | None = None,
+    cache: LabCache | None = None,
 ) -> dict:
     """GET /lab/{src}/summary: the source's unfiltered scope, its parameters (each value's or
     bucket's tested trials), the headline over the objective (an experiment's combined scope, an
     optimization's own side), the latest snapshot of a layout-2 store and the identity fields.
-    `document` for an `exp:` source, `status` for an `opt:` one."""
+    `document` for an `exp:` source, `status` for an `opt:` one. Without the snapshot's `index`
+    one is built for this frame. With a `cache`, an experiment's snapshot part is kept under
+    `("exp-summary", id), created_at, generation, watermark`; the counts and the document's own
+    fields are read each time."""
     side = None if document is not None else status["side"]
     scope_name = side or "combined"
+    if index is None:
+        index = build_index(frame)
     unfiltered = LabFilter()
-    mask = filter_mask(frame, unfiltered)
-    counts = scope_counts(frame, unfiltered, unique=unique, mask=mask)
-    headline = LabFilter(scope=scope_name)
+    mask = filter_mask(frame, unfiltered, index=index)
+    counts = scope_counts(frame, unfiltered, unique=unique, mask=mask, index=index)
     column = metric_column(scope_name, frame.objective)
-    best = top_view(frame, headline, metric=frame.objective, k=1)["rows"]
-    undefined = int(undefined_mask(frame.table.column(column))[mask].sum())
-    marginals = marginals_view(frame, headline, metric=frame.objective)["marginals"]
+    if cache is not None and document is not None and frame.snapshot is not None:
+        part = cache.get(
+            (
+                ("exp-summary", document.id),
+                document.created_at,
+                frame.snapshot.generation,
+                frame.snapshot.chunk_watermark,
+            ),
+            lambda: _summary_part(frame, scope_name, mask, index),
+            size=lambda _: SUMMARY_BYTES,
+        )
+    else:
+        part = _summary_part(frame, scope_name, mask, index)
+    best, undefined = part["best"], part["undefined"]
     parameters = []
     for parameter in frame.parameters:
-        entry = marginals[parameter.path]
+        entry, tested = part["tested"][parameter.path]
         bucketed = "buckets" in entry
         parameters.append(
             {
@@ -505,7 +634,7 @@ def summary(
                 "step": parameter.step,
                 "n_values": len(parameter.values),
                 "values": None if bucketed else entry["values"],
-                "tested_per_value": entry["n"],
+                "tested_per_value": tested,
                 "bucketed": bucketed,
             }
         )
@@ -545,26 +674,21 @@ def summary(
     }
 
 
-def run_query(frame: TrialFrame, request: Any, *, unique: int | None = None) -> dict:
-    """POST /lab/{src}/query: one view of one filter in the envelope. The filter's mask is
-    computed once for the scope; each view states its basis, and `shown` is what it sends (the
-    squares holding trials, the rows, the bundles; 0 for counts and marginals). Without a
-    `metric`, a view reads the objective (counts then counts no `undefined`). A view's refusal
-    is its ValueError or KeyError."""
+def _matrix(
+    frame: TrialFrame,
+    request: Any,
+    metric: str,
+    index: FrameIndex | None,
+    cache: LabCache | None,
+    source_identity: tuple | None,
+) -> dict:
+    """The matrix view's payload. An aggregate one, with a cache and the source's identity, is
+    computed with its four stats once per `matrix_payload_key` and answered from that entry for
+    any stat."""
     flt = request.filter
-    view = request.view
-    metric = request.metric if view == "counts" else (request.metric or frame.objective)
-    mask = filter_mask(frame, flt)
-    aggregated = aggregated_basis(int(mask.sum()))
 
-    def scope(shown: int, basis: str = BASIS_EXACT) -> dict:
-        return scope_counts(frame, flt, shown, metric=metric, basis=basis, unique=unique, mask=mask)
-
-    if view == "counts":
-        payload: dict = {}
-        counted = counts_view(frame, flt, metric=metric, unique=unique, mask=mask)
-    elif view == "matrix":
-        payload = matrix_view(
+    def compute(**extra) -> dict:
+        return matrix_view(
             frame,
             flt,
             rows=request.rows,
@@ -573,7 +697,67 @@ def run_query(frame: TrialFrame, request: Any, *, unique: int | None = None) -> 
             mode=request.mode,
             stat=request.stat,
             fixed=request.fixed,
+            index=index,
+            **extra,
         )
+
+    if request.mode != "aggregate" or cache is None or source_identity is None:
+        return compute()
+    key = matrix_payload_key(
+        source_identity,
+        frame.snapshot,
+        canonical_filter(flt),
+        flt.scope,
+        request.rows,
+        request.cols,
+        metric,
+        request.fixed,
+        request.mode,
+    )
+    payload = cache.get(
+        key,
+        lambda: compute(all_stats=True),
+        size=lambda held: SQUARE_BYTES * len(held["rows"]) * len(held["cols"]),
+    )
+    by_stat = payload["values_by_stat"]
+    return {
+        name: by_stat[request.stat] if name == "values" else value
+        for name, value in payload.items()
+        if name != "values_by_stat"
+    }
+
+
+def run_query(
+    frame: TrialFrame,
+    request: Any,
+    *,
+    unique: int | None = None,
+    index: FrameIndex | None = None,
+    cache: LabCache | None = None,
+    source_identity: tuple | None = None,
+) -> dict:
+    """POST /lab/{src}/query: one view of one filter in the envelope. The filter's mask is
+    computed once for the scope; each view states its basis, and `shown` is what it sends (the
+    squares holding trials, the rows, the bundles; 0 for counts and marginals). Without a
+    `metric`, a view reads the objective (counts then counts no `undefined`). A view's refusal
+    is its ValueError or KeyError. `index` is the snapshot's (None: computed per request); with
+    a `cache` and the source's identity, an aggregate matrix is cached with its four stats."""
+    flt = request.filter
+    view = request.view
+    metric = request.metric if view == "counts" else (request.metric or frame.objective)
+    mask = filter_mask(frame, flt, index=index)
+    aggregated = aggregated_basis(int(mask.sum()))
+
+    def scope(shown: int, basis: str = BASIS_EXACT) -> dict:
+        return scope_counts(
+            frame, flt, shown, metric=metric, basis=basis, unique=unique, mask=mask, index=index
+        )
+
+    if view == "counts":
+        payload: dict = {}
+        counted = counts_view(frame, flt, metric=metric, unique=unique, mask=mask, index=index)
+    elif view == "matrix":
+        payload = _matrix(frame, request, metric, index, cache, source_identity)
         squares = sum(1 for row in payload["counts"] for count in row if count)
         counted = scope(squares, payload["basis"])
     elif view == "page":
@@ -585,13 +769,14 @@ def run_query(frame: TrialFrame, request: Any, *, unique: int | None = None) -> 
             offset=request.offset,
             limit=request.limit,
             metric=metric,
+            index=index,
         )
         counted = scope(len(payload["rows"]))
     elif view == "top":
         payload = top_view(frame, flt, metric=metric, k=request.k)
         counted = scope(len(payload["rows"]))
     elif view == "marginals":
-        payload = marginals_view(frame, flt, metric=metric, paths=request.paths)
+        payload = marginals_view(frame, flt, metric=metric, paths=request.paths, index=index)
         counted = scope(0, aggregated)
     elif view == "parallel":
         axes = request.axes if request.axes is not None else [p.path for p in frame.parameters]
@@ -666,16 +851,23 @@ def trial_detail(frame: TrialFrame, trial_no: int, trial_identity: dict) -> dict
 
 __all__ = [
     "BASE",
+    "BLOCK0",
     "COLUMNS_FOR",
     "ExperimentMeta",
     "SourceRef",
     "cached_meta",
+    "canonical_filter",
+    "column_set",
     "experiment_identity",
+    "experiment_index",
     "experiment_meta",
+    "experiment_source",
     "experiment_unique",
+    "matrix_payload_key",
     "open_experiment",
     "opt_frame",
     "optimization_identity",
+    "optimization_source",
     "parse_source",
     "project",
     "run_query",

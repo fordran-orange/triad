@@ -2,11 +2,16 @@
 tables and experiment metadata, shared by the Lab routes of one worker.
 
 A key is a tuple whose first element is the source tuple itself, `(("exp", id), created_at,
-generation, chunk_watermark, columns)` for a trial table (the document's `created_at`, so a
-re-created id never meets its predecessor's tables) and `(("exp-meta", id), updated_at)` for an
+generation, chunk_watermark, rows, column set)` for a trial table (the document's `created_at`, so
+a re-created id never meets its predecessor's tables; the row selection and the sorted column set,
+so one table serves every order of its columns) and `(("exp-meta", id), updated_at)` for an
 experiment's metadata, so `evict((("exp", id),))` drops every table of one experiment and nothing
 else. Each value is sized by the caller's `size` callable; the total never exceeds `max_bytes`
-(`LAB_CACHE_BYTES`, or `AEGIS_LAB_CACHE_MB` where the cache is built)."""
+(`LAB_CACHE_BYTES`, or `AEGIS_LAB_CACHE_MB` where the cache is built).
+
+Arrow's allocator (mimalloc) keeps the pages of freed buffers for reuse: after a load (whose
+reads and canonical sort free their intermediates) and after an eviction, the cache hands them
+back to the system, so the worker holds what the cache holds and little more."""
 
 from __future__ import annotations
 
@@ -15,6 +20,8 @@ import threading
 from collections import OrderedDict
 from collections.abc import Callable
 from typing import Any, TypeVar
+
+import pyarrow as pa
 
 from products.aegis.lab.policy import LAB_CACHE_BYTES
 
@@ -31,6 +38,11 @@ def cache_bytes_from_env() -> int:
     if megabytes < 0:
         raise ValueError(f"{ENV_CACHE_MB} must be a whole number of megabytes >= 0, not {raw!r}")
     return megabytes * 1024 * 1024
+
+
+def release_unused() -> None:
+    """Hand the memory Arrow's pool keeps from freed buffers back to the system."""
+    pa.default_memory_pool().release_unused()
 
 
 class LabCache:
@@ -60,7 +72,9 @@ class LabCache:
         value = loader()
         nbytes = int(size(value))
         if nbytes > self.max_bytes:
+            release_unused()
             return value
+        evicted = []  # dropped outside the lock, before the memory they held is released
         with self._lock:
             held = self._entries.pop(key, None)
             if held is not None:
@@ -68,8 +82,10 @@ class LabCache:
             self._entries[key] = (value, nbytes)
             self._bytes += nbytes
             while self._bytes > self.max_bytes:
-                _, (_, freed) = self._entries.popitem(last=False)
-                self._bytes -= freed
+                evicted.append(self._entries.popitem(last=False)[1])
+                self._bytes -= evicted[-1][1]
+        evicted.clear()
+        release_unused()
         return value
 
     def evict(self, prefix: tuple) -> int:
@@ -80,7 +96,9 @@ class LabCache:
             gone = [key for key in self._entries if key[: len(prefix)] == prefix]
             for key in gone:
                 self._bytes -= self._entries.pop(key)[1]
-            return len(gone)
+        if gone:
+            release_unused()
+        return len(gone)
 
     def stats(self) -> dict:
         with self._lock:

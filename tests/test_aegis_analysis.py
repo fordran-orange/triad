@@ -326,3 +326,90 @@ def test_flat_between_the_percentiles_is_not_called_identical():
     assert "every valid cell has the same" not in report["statement"]
     assert report["peaks"] and report["peaks"][0]["cell"] == 77 and report["peaks"][0]["fragile"]
     assert report["cells_named"] == [77]
+
+
+class _PositionGrid:
+    """What `neighbours_sampled` reads of a grid: its shape and a cell's positions."""
+
+    def __init__(self, shape: tuple[int, ...]) -> None:
+        self.shape = shape
+        self.strides = np.cumprod((1,) + shape[::-1][:-1])[::-1]
+
+    def positions(self, cell: int) -> list[int]:
+        return [(cell // int(s)) % d for s, d in zip(self.strides, self.shape, strict=True)]
+
+
+def _neighbours_512(grid, run, k):
+    """The Phase 2 relation, 512 rows of the whole difference cube at a time (the reference)."""
+    cells = np.asarray(sorted(run), dtype=np.int64)
+    n = len(cells)
+    scale = np.array([max(s - 1, 1) for s in grid.shape], dtype=np.float64)
+    points = np.array([grid.positions(int(c)) for c in cells], dtype=np.float64) / scale
+    k = min(k, n - 1)
+    relation = {}
+    for start in range(0, n, 512):
+        block = points[start : start + 512]
+        distances = np.sqrt(((block[:, None, :] - points[None, :, :]) ** 2).sum(axis=2))
+        for i in range(len(block)):
+            row = distances[i].copy()
+            row[start + i] = np.inf
+            order = np.lexsort((cells, row))[:k]
+            relation[int(cells[start + i])] = [int(cells[j]) for j in order]
+    return relation
+
+
+def _silhouette_whole(points, labels):
+    """The Phase 2 silhouette over the whole n x n x D cube (the reference)."""
+    n = len(points)
+    distances = np.sqrt(((points[:, None, :] - points[None, :, :]) ** 2).sum(axis=2))
+    scores = []
+    for i in range(n):
+        own = labels == labels[i]
+        own[i] = False
+        if not own.any():
+            scores.append(0.0)
+            continue
+        a = distances[i][own].mean()
+        b = min(
+            distances[i][labels == other].mean()
+            for other in set(labels.tolist())
+            if other != labels[i]
+        )
+        scores.append((b - a) / max(a, b) if max(a, b) > 0 else 0.0)
+    return float(np.mean(scores))
+
+
+def test_sampled_neighbours_bounded_and_identical():
+    """The report's sampled relation blocks its rows by bytes (a 32 MiB difference cube at most),
+    with the same arithmetic per row: the relation equals the 512-row version and the peak stays
+    under 64 MB (the 512-row cube alone is 74 MB at n = 3,000, D = 6). The silhouette is blocked
+    the same way and is the same number."""
+    import tracemalloc
+
+    from products.aegis.analysis import _silhouette
+
+    shape = (12, 12, 14, 14, 19, 12)
+    rng = np.random.default_rng(5)
+    size = int(np.prod(shape))
+    run = sorted(int(c) for c in rng.choice(size, size=3_000, replace=False))
+    grid = _PositionGrid(shape)
+    expected = _neighbours_512(grid, run, 2 * len(shape))
+    tracemalloc.start()
+    try:
+        relation = neighbours_sampled(grid, run, 2 * len(shape))
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert relation == expected
+    assert peak < 64 * 1024 * 1024, peak / 2**20
+    for d in (2, 4):
+        points = rng.normal(size=(1_200, d))
+        labels = rng.integers(0, 3, size=1_200)
+        assert _silhouette(points, labels) == _silhouette_whole(points, labels)
+    tracemalloc.start()
+    try:
+        _silhouette(rng.normal(size=(2_000, 4)), rng.integers(0, 3, size=2_000))
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 64 * 1024 * 1024, peak / 2**20  # the whole cube: 128 MB, twice
