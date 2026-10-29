@@ -675,6 +675,8 @@ Each fix below was prototyped against the current code and is bit-identical in o
 
 ### Open questions for Randall (before execution)
 
+**Answered 2026-10-29** ("Accept all three"): questions 1, 2 and 3 accepted as written (decisions 18–20 stand); question 4 accepted (walk 112 on 10 parameters); question 6: subagent-driven execution. Question 5 (R2's stepper) stays open and does not block execution.
+
 1. **Family-wise detection floors** (decision 18): accept max-T floors for "Detected", or keep §7.3's per-share floors and change §20 case 7's expectation?
 2. **Re-centred intervals and unclamped coarse terms** (decision 19): accept?
 3. **The rule's row requirement** (decision 20): accept 20,000 rows for the two proposal cases, and the consequence that real experiments need about that many uniform trials before deprioritization can propose?
