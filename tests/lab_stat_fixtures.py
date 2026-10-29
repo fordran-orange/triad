@@ -253,6 +253,116 @@ def stat_frame(
     )
 
 
+# --- the §20 cases' generators (Task 5; Ruling P7 for case 5) ---------------------------------
+
+# Case 9: the re-screen keeps x₁ within 0.7 of the parent's range, so its lattice is the parent's
+# first five of eight values: index 4 of 7 is 0.57 of the range, while index 5 would be 0.71.
+CHILD_VALUES = 5
+# Case 14: three independent binary inputs and their parity x₄, which a validity table defines.
+BINARY = 2
+# Decision 21's order (review B1): a second effect this faint has a share of ≈ 0.002 at 8 values
+# (0.15² · 0.107 / 1.21): about four times its family floor at 20,000 rows (≈ 0.0005), so it is
+# detected, while its upper bound stays near a third of θ_min, so it is negligible.
+FAINT = 0.15
+
+
+def value_index(u: np.ndarray, size: int) -> np.ndarray:
+    """Normalised inputs back to value indices 0..size-1 on a lattice of `size` values."""
+    return np.rint(u * (size - 1)).astype(np.int64)
+
+
+def first_order(u: np.ndarray) -> np.ndarray:
+    """Cases 1, 4, 10, 13, 15 and 16: Y = 3·x₁."""
+    return 3.0 * u[:, 0]
+
+
+def faint_second(u: np.ndarray) -> np.ndarray:
+    """Decision 21's order: Y = 3·x₁ + FAINT·x₂, a detected but negligible x₂."""
+    return 3.0 * u[:, 0] + FAINT * u[:, 1]
+
+
+def xor_pair(u: np.ndarray) -> np.ndarray:
+    """Case 2: Y = 2·[(x₁ > m) XOR (x₂ > m)]."""
+    return 2.0 * (high(u[:, 0]) ^ high(u[:, 1]))
+
+
+def parity(order: int) -> Generator:
+    """Cases 3 and 12: Y = 2·parity(x₁ > m, …, x_order > m)."""
+
+    def generator(u: np.ndarray) -> np.ndarray:
+        return 2.0 * np.logical_xor.reduce(high(u[:, :order]), axis=1)
+
+    return generator
+
+
+def uneven_effect(u: np.ndarray) -> np.ndarray:
+    """Case 5, §20's generator (Ruling P7): Y = 3·x₂ + x₁·x₂."""
+    return 3.0 * u[:, 1] + u[:, 0] * u[:, 1]
+
+
+def hinge(u: np.ndarray) -> np.ndarray:
+    """Case 9 on the parent's range: Y = 3·max(0, x₁ - 0.8·range)."""
+    return 3.0 * np.maximum(0.0, u[:, 0] - 0.8)
+
+
+def child_hinge(u: np.ndarray) -> np.ndarray:
+    """Case 9 on the re-screen: the same Y on the parent's scale, not on [0, 1] re-normalised to
+    the child's range: the child's x₁ spans the parent's first CHILD_VALUES values."""
+    scaled = u.copy()
+    scaled[:, 0] = u[:, 0] * (CHILD_VALUES - 1) / (VALUES - 1)
+    return hinge(scaled)
+
+
+def two_apart(u: np.ndarray) -> np.ndarray:
+    """Case 10's validity: x₂ ≥ x₁ + 2 on the value lattice (21 of 64 (x₁, x₂) cells)."""
+    return value_index(u[:, 1], VALUES) >= value_index(u[:, 0], VALUES) + 2
+
+
+def sine(u: np.ndarray) -> np.ndarray:
+    """Case 11: Y = sin(8π·x₁ / range)."""
+    return np.sin(8.0 * math.pi * u[:, 0])
+
+
+def parity_table(u: np.ndarray) -> np.ndarray:
+    """Case 14's validity: x₄ = x₁ XOR x₂ XOR x₃ on binary inputs, half the grid."""
+    return high(u[:, 3]) == np.logical_xor.reduce(high(u[:, :3]), axis=1)
+
+
+def parity_bit(u: np.ndarray) -> np.ndarray:
+    """Case 14: Y = 2·x₄, the parity bit."""
+    return 2.0 * u[:, 3]
+
+
+def one_cell_skipped(u: np.ndarray) -> np.ndarray:
+    """Case 15's validity: x₂ ≥ x₁ - 6 on the value lattice, which skips the one (x₁, x₂) cell
+    (8, 1) of 64: 1.6 % of the grid, printed `2 %` (an integer at 1 % and above)."""
+    return value_index(u[:, 1], VALUES) >= value_index(u[:, 0], VALUES) - 6
+
+
+def quadrant(u: np.ndarray) -> np.ndarray:
+    """Case 16: `profit_factor` undefined exactly when x₁ is high and x₂ low."""
+    return high(u[:, 0]) & ~high(u[:, 1])
+
+
+def scope_document(
+    frame: TrialFrame, *, strategy_hash: str = "h-1", sha256: str = "sha-1", revision: int = 1
+) -> dict:
+    """The fields of an experiment document that `analytics.evidence_scope` reads, for `frame`'s
+    surface: lattice 1..B per parameter, a Latin-hypercube sampler, the frame's blocks."""
+    parameters = [
+        {"path": p.path, "start": p.start, "stop": p.stop, "step": p.step} for p in frame.parameters
+    ]
+    return {
+        "strategy_hash": strategy_hash,
+        "data": {"symbol": "QQQ", "timeframe": "1h", "start": "2016-01-01", "end": "2026-09-18"},
+        "data_pinned": {"sha256": sha256},
+        "surface": {"parameters": parameters},
+        "sampler": {"method": "lhs+refine", "seed": 1, "revision": revision},
+        "blocks": frame.blocks,
+        "search_space": {"hash": identity.search_space_hash(parameters)},
+    }
+
+
 def stack_frames(first: TrialFrame, *others: TrialFrame) -> TrialFrame:
     """`first` with the other frames' rows after its own, their trial numbers continuing its own
     (the frames share their parameters and blocks): one experiment of several passes."""

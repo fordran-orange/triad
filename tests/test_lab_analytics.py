@@ -1,17 +1,31 @@
-"""Optimization Lab v2, Phase 3, Task 4: importance on the fine grid (spec §7.3 and §7.4,
-decisions 17 to 19). The analysis cohort, the adjusted shares, their re-centred bootstrap
-intervals, the per-share and family-wise (max-T) detection floors, coverage and aliasing, on the
-seeded experiments of `lab_stat_fixtures.stat_frame` at its fixed generator constants. These are
-the fine-grid halves of the sixteen §20 cases; their statuses are Task 5's."""
+"""Optimization Lab v2, Phase 3, Tasks 4 and 5: importance (spec §7.3, §7.4 and §7.4a, decisions
+17 to 21).
 
+Task 4: the analysis cohort, the adjusted shares, their re-centred bootstrap intervals, the
+per-share and family-wise (max-T) detection floors, coverage and aliasing.
+Task 5: the coarse decomposition and its residual, availability, the veto, the recommended
+statuses and the evidence scope: the sixteen §20 cases at seeds 1, 2 and 3.
+
+Every case runs on the seeded experiments of `lab_stat_fixtures.stat_frame` at its fixed
+generator constants; a (case, seed) that does not hold is a strict xfail carrying its numbers,
+an R3.5 finding, never tuned away."""
+
+import functools
+import itertools
+import json
 import math
+import re
 from dataclasses import replace
+from types import MappingProxyType
 
 import numpy as np
 import pyarrow as pa
 import pytest
 from lab_stat_fixtures import (
+    BINARY,
+    CHILD_VALUES,
     D_WIDE,
+    PROPOSAL_ROWS,
     SIGMA,
     SINE_VALUES,
     SPARSE_PRESENT,
@@ -19,23 +33,51 @@ from lab_stat_fixtures import (
     VALUES,
     D,
     aliased_rows,
+    child_hinge,
+    faint_second,
+    first_order,
     high,
+    hinge,
+    one_cell_skipped,
+    parity,
+    parity_bit,
+    parity_table,
+    quadrant,
+    scope_document,
+    sine,
     stack_frames,
     stat_frame,
+    two_apart,
+    uneven_effect,
     uneven_rows,
+    value_index,
+    xor_pair,
     zero,
 )
+from products.aegis.lab import store as lab_store
 from products.aegis.lab.analytics import (
     INCREMENTS,
     INSUFFICIENT,
     MAINS,
     MEASURED,
+    CoarseTerms,
     FineTerms,
     aliased,
+    assess,
+    availability,
     block_mains,
+    candidates,
+    coarse,
+    coarse_bins,
+    coarse_floors,
+    coarse_intervals,
+    coarse_parts,
     cohort,
+    compare_scope,
+    conditions,
     coverage_label,
     cramers_v,
+    evidence_scope,
     fine_families,
     fine_parts,
     fine_shares,
@@ -44,12 +86,19 @@ from products.aegis.lab.analytics import (
     interaction,
     intervals,
     pair_quality,
+    statuses,
+    triples_top,
+    veto,
 )
 from products.aegis.lab.policy import (
     BOOTSTRAP_B,
+    COARSE_BOOTSTRAP_B,
+    COARSE_PERMUTATION_P,
     IMPORTANCE_ROWS,
     PERMUTATION_P,
+    RESIDUAL_VETO,
     THETA_MIN,
+    TRIPLE_TOP,
 )
 from products.aegis.lab.query import BLOCK0, LabFilter, matrix_view
 from products.aegis.lab.shares import design_of, parameter_blocks
@@ -554,3 +603,646 @@ def test_stat_frame_writes_valid_cells_blocks_and_undefined_rows():
     assert (x1 >= x0).all()
     pf = table.column("combined.profit_factor")
     assert 0 < pf.null_count < table.num_rows and table.column("combined.net_pnl").null_count == 0
+
+
+# --- Task 5: the coarse decomposition, availability, the veto and the recommended statuses -----
+
+SEEDS = (1, 2, 3)
+VETO_TEXT = "structure not captured by mains, pairs and triples: deprioritization unsafe"
+VETO_WARNING = "unexplained share high: noise or higher-order structure"
+PRODUCT_HINT = "freeze or narrow the constrained ranges"
+METRIC_HINT = (
+    "choose a metric defined everywhere (net_pnl, max_drawdown, trade_count, exposure) "
+    "or retry the failed trials"
+)
+
+
+def at_seeds(flips=None):
+    """Seeds 1, 2 and 3 (Ruling P9). A (case, seed) in `flips` is a strict xfail whose reason
+    carries its numbers: visible in every run, never deleted, loosened or re-seeded."""
+    flips = flips or {}
+    params = []
+    for seed in SEEDS:
+        marks = ()
+        if seed in flips:
+            marks = pytest.mark.xfail(strict=True, reason=f"R3.5 finding: {flips[seed]}")
+        params.append(pytest.param(seed, id=f"seed{seed}", marks=marks))
+    return params
+
+
+def sparse_present(u):
+    """Case 6's validity: every fifth of x₁'s 40 values, so 8 are present."""
+    return value_index(u[:, 0], SPARSE_VALUES) % (SPARSE_VALUES // SPARSE_PRESENT) == 0
+
+
+def _case(**kwargs):
+    defaults = {"d": D, "values": VALUES}
+    return lambda seed: stat_frame(seed=seed, **{**defaults, **kwargs})
+
+
+# The §20 experiments, each a function of the seed. Case 13's experiment is case 1's (independent
+# inputs, Y = 3·x₁ + ε, 20,000 rows), so case 13 reads "01".
+CASES = {
+    "01": _case(n=PROPOSAL_ROWS, y=first_order),
+    "01@5000": _case(y=first_order),
+    "02": _case(y=xor_pair),
+    "03": _case(y=parity(3)),
+    "04": _case(y=first_order, draw=aliased_rows),
+    "05": _case(y=uneven_effect, draw=uneven_rows),
+    "06": _case(values=[SPARSE_VALUES] + [VALUES] * (D - 1), y=first_order, valid=sparse_present),
+    "07": _case(d=D_WIDE, y=zero),
+    "08": _case(y=first_order, blocks={1: zero, 2: first_order, 3: zero, 4: zero}),
+    "09": _case(y=hinge),
+    "09-child": _case(values=[CHILD_VALUES] + [VALUES] * (D - 1), y=child_hinge),
+    "10": _case(y=first_order, valid=two_apart),
+    "11": _case(values=[SINE_VALUES] + [VALUES] * (D - 1), y=sine),
+    "12": _case(y=parity(4)),
+    "14": _case(values=[BINARY] * 4 + [VALUES] * (D - 4), y=parity_bit, valid=parity_table),
+    "15": _case(y=first_order, valid=one_cell_skipped),
+    "16": _case(y=first_order, undefined=quadrant),
+    "faint": _case(n=PROPOSAL_ROWS, y=faint_second),
+}
+
+
+@functools.cache
+def assessed(case, seed, metric=METRIC):
+    """`(frame, cohort, result)` of a case at a seed, the data's and the analysis', computed once
+    per session."""
+    frame = CASES[case](seed)
+    c = cohort_of(frame, metric=metric, seed=seed)
+    return frame, c, assess(c, seed=seed, checkpoint=no_checkpoint)
+
+
+def by_path(result):
+    return {s.path: s for s in statuses(result)}
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case01_strong_first_order(seed):
+    """Case 1 on 20,000 rows (decision 20): Y = 3·x₁ + ε. x₁ is `Active · detected`, its S₁
+    upper bound far above θ_min; every noise parameter is `Deprioritized · proposable`."""
+    _, _, result = assessed("01", seed)
+    found = by_path(result)
+    first, *noise = result.paths
+    assert result.availability.available and result.veto is None
+    assert found[first].status == "Active · detected" and not found[first].proposable
+    assert fine_parts(result.fine.hi)[0][0] > 10 * THETA_MIN
+    for path in noise:
+        assert found[path].status == "Deprioritized · proposable", found[path]
+        assert found[path].proposable and found[path].failing is None
+
+
+# R3.5 finding (task-5-report.md): at 5,000 rows a noise own-direction triple increment's upper
+# bound sits ≈ 0.0042 above its point, so only 0-4 % cross θ_min and about half the noise
+# parameters clear all 21 of their triples (and their 7 fine Δ).
+FIVE_THOUSAND = {
+    1: "3 of 7 noise parameters proposable (x2, x6, x8); x3 and x7 fail condition 2 first, "
+    "x4 and x5 condition 3; noise triple increments with upper ≥ 0.01: 2.7 %",
+    2: "all 7 noise parameters proposable; no noise triple increment's upper bound reaches 0.01",
+    3: "1 of 7 noise parameters proposable (x7); x2, x4 and x8 fail condition 2 first, x3, x5 "
+    "and x6 condition 3; noise triple increments with upper ≥ 0.01: 4.1 %",
+}
+
+
+@pytest.mark.parametrize("seed", at_seeds(FIVE_THOUSAND))
+def test_case01_at_5000_rows_proposes_nothing_honestly(seed):
+    """Case 1 on §20's 5,000 rows (decision 20, review B3): a noise triple increment's null SD is
+    about √(2·48)/n, so its upper bound passes θ_min too often. No noise parameter is proposed:
+    each is `Active · not detected` with `failing` naming condition 3."""
+    _, _, result = assessed("01@5000", seed)
+    found = by_path(result)
+    for path in result.paths[1:]:
+        assert found[path].status == "Active · not detected", found[path]
+        assert not found[path].proposable
+        assert found[path].failing.startswith("not proposable: condition 3 ("), found[path]
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case01_at_5000_rows_fails_on_increments_only(seed):
+    """Case 1's 5,000-row companion, guarded while its named test is a strict xfail: no noise
+    parameter is detected, and one that is not proposed fails condition 2 or 3, never 1."""
+    _, _, result = assessed("01@5000", seed)
+    found = by_path(result)
+    assert found[result.paths[0]].status == "Active · detected"
+    for path in result.paths[1:]:
+        s = found[path]
+        assert s.status in {"Active · not detected", "Deprioritized · proposable"}, s
+        assert s.proposable or re.match(r"not proposable: condition [23] \(", s.failing), s
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case02_xor(seed):
+    """Case 2: Y = 2·[(x₁ > m) XOR (x₂ > m)] + ε. Both mains stay within their family floor and
+    both parameters are `Investigate · interaction not ruled out`, never proposable."""
+    _, _, result = assessed("02", seed)
+    found = by_path(result)
+    S = fine_parts(result.fine.terms)[0]
+    floor = fine_parts(result.fine.floors.family)[0]
+    assert (S[:2] <= floor[:2]).all(), (S[:2], floor[:2])
+    for path in result.paths[:2]:
+        assert found[path].status == "Investigate · interaction not ruled out", found[path]
+        assert not found[path].proposable
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case03_three_way_only(seed):
+    """Case 3: Y = 2·parity(x₁ > m, x₂ > m, x₃ > m) + ε. No main or pair is detected; the coarse
+    triple's own increments are, so all three are `Investigate · three-way effect not ruled
+    out`."""
+    _, _, result = assessed("03", seed)
+    found = by_path(result)
+    for path in result.paths[:3]:
+        assert found[path].status == "Investigate · three-way effect not ruled out", found[path]
+        assert not found[path].proposable
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case04_aliased(seed):
+    """Case 4: x₂ = x₁ + a small jitter, Y = 3·x₁ + ε. Both carry `aliased · credit shared with`
+    the other; neither is proposable; the rule is unavailable: `aliased inputs`."""
+    _, _, result = assessed("04", seed)
+    found = by_path(result)
+    a, b = result.paths[:2]
+    assert result.availability.reason == "aliased inputs"
+    assert f"aliased · credit shared with {b}" in found[a].flags
+    assert f"aliased · credit shared with {a}" in found[b].flags
+    assert not found[a].proposable and not found[b].proposable
+    assert found[a].failing == found[b].failing == "aliased inputs"
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case05_uneven_sampling(seed):
+    """Case 5 (§20's generator, Ruling P7): P(x₁ = v) ∝ v with x₃ following x₁;
+    Y = 3·x₂ + x₁·x₂ + ε. The (x₁, x₂) squares are flagged `confounded` (by x₃), x₁ is not
+    proposable, and condition 2 fails on the pair (x₁, x₂): Δ_{1|2} upper > θ_min."""
+    frame, _, result = assessed("05", seed)
+    paths = result.paths
+    matrix = matrix_view(
+        frame, LabFilter(), rows=paths[0], cols=paths[1], metric=METRIC, mode="aggregate"
+    )
+    flagged = [s["confounded"] for row in matrix["stats"] for s in row if s and s["confounded"]]
+    assert flagged and all(paths[2] in names for names in flagged)
+    assert not by_path(result)[paths[0]].proposable
+    assert fine_parts(result.fine.hi)[2][0, 1] > THETA_MIN
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case06_sparse_coverage(seed):
+    """Case 6: x₁ has 40 values, 8 of them present: `Insufficient coverage · unresolved`, listed
+    last with its coverage, never proposable."""
+    _, _, result = assessed("06", seed)
+    listed = statuses(result)
+    last = listed[-1]
+    assert last.path == result.paths[0]
+    assert last.status == "Insufficient coverage · unresolved"
+    assert last.label == "Insufficient coverage" and not last.proposable
+    assert f"{SPARSE_PRESENT} of {SPARSE_VALUES} values" in last.reason, last.reason
+    assert all(s.label == "Measured" for s in listed[:-1])
+
+
+# R3.5 finding (task-5-report.md): the coarse triple family's max-T floor at
+# COARSE_PERMUTATION_P = 50 over 3,420 own-direction increments (d = 20) is anti-conservative: on
+# pure noise some member exceeds its floor in 10 of 10 seeds at P = 50, 0 of 10 at P = 200
+# (t ≈ 4.4 against 5.0); at 5,000 rows its upper bound is then above θ_min, so rule 6 fires.
+PURE_NOISE = {
+    1: "rule 6 flags x1: own increment 0.0081 over its family floor 0.0078 (upper 0.0146); "
+    "t = 4.37, 1 of 3,420 increments over its floor",
+    2: "rule 6 flags x1 and x17 (0.0086 over 0.0073; 0.0100 over 0.0093); t = 4.46, 3 of "
+    "3,420 increments over their floor",
+    3: "rule 6 flags x8, x10, x15 and x17 (0.0075 to 0.0085 over floors 0.0074 to 0.0080); "
+    "t = 4.19, 5 of 3,420 increments over their floor",
+}
+
+
+@pytest.mark.parametrize("seed", at_seeds(PURE_NOISE))
+def test_case07_pure_noise(seed):
+    """Case 7: Y = ε over 20 parameters. Every status is `Active · not detected`; the residual
+    veto is raised with its text and its warning; nothing is proposed."""
+    _, _, result = assessed("07", seed)
+    listed = statuses(result)
+    assert len(listed) == D_WIDE
+    assert [s.status for s in listed] == ["Active · not detected"] * D_WIDE, [
+        (s.path, s.status, s.reason) for s in listed if s.status != "Active · not detected"
+    ]
+    assert result.veto == VETO_TEXT and VETO_WARNING in result.warnings
+    assert not any(s.proposable for s in listed)
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case07_pure_noise_vetoes_and_proposes_nothing(seed):
+    """Case 7's other half, guarded while its named test is a strict xfail: the veto and its
+    warning are raised, nothing is proposed, nothing is detected on the fine grid, and a status
+    other than `Active · not detected` comes from the coarse triple family alone (rule 6)."""
+    _, _, result = assessed("07", seed)
+    listed = statuses(result)
+    assert result.veto == VETO_TEXT and VETO_WARNING in result.warnings
+    assert result.coarse.lo > RESIDUAL_VETO
+    assert not any(s.proposable for s in listed)
+    assert all(s.failing == VETO_TEXT for s in listed)
+    assert {s.status for s in listed} <= {
+        "Active · not detected",
+        "Investigate · three-way effect not ruled out",
+    }
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case08_one_block_regime(seed):
+    """Case 8: Y = 3·x₁ in block 2 only and 0 (plus ε) in the other blocks, blocks = 4. x₁ is
+    `Investigate · period-dependent`, never proposable."""
+    _, _, result = assessed("08", seed)
+    found = by_path(result)[result.paths[0]]
+    assert found.status == "Investigate · period-dependent", found
+    assert not found.proposable
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case09_range_change(seed):
+    """Case 9: Y = 3·max(0, x₁ - 0.8·range) + ε. On the wide range x₁ is detected; the re-screen
+    on x₁ ∈ [0, 0.7·range] makes the wide-range evidence `stale: ranges changed`, and the
+    child's fresh S₁ is within its floor."""
+    parent_frame, parent_c, parent = assessed("09", seed)
+    child_frame, child_c, child = assessed("09-child", seed)
+    assert by_path(parent)[parent.paths[0]].status == "Active · detected"
+    evidence = evidence_scope(scope_document(parent_frame), parent_c)
+    current = evidence_scope(scope_document(child_frame), child_c)
+    assert compare_scope(evidence, current) == "stale: ranges changed"
+    S = fine_parts(child.fine.terms)[0]
+    floor = fine_parts(child.fine.floors.family)[0]
+    assert S[0] <= floor[0], (S[0], floor[0])
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case10_correlated_inputs(seed):
+    """Case 10: a validity constraint x₂ ≥ x₁ + 2 correlates the design; Y = 3·x₁ + ε. Both carry
+    `aliased · credit shared`, the rule is unavailable (`aliased inputs`, before the product
+    design's reason) and no parameter is proposable."""
+    _, _, result = assessed("10", seed)
+    found = by_path(result)
+    a, b = result.paths[:2]
+    assert result.availability.reason == "aliased inputs"
+    assert f"aliased · credit shared with {b}" in found[a].flags
+    assert f"aliased · credit shared with {a}" in found[b].flags
+    assert not any(s.proposable for s in found.values())
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case11_coarse_bin_cancellation(seed):
+    """Case 11: Y = sin(8π·x₁ / range) + ε on 17 values. The coarse S₁^c is ≈ 0 (it cancels in
+    every q = 4 bin) while the fine S₁ is large, so condition 1 fails on the fine grid and x₁
+    stays `Active · detected`."""
+    _, _, result = assessed("11", seed)
+    assert abs(result.coarse.S[0]) < THETA_MIN, result.coarse.S[0]
+    assert fine_parts(result.fine.terms)[0][0] > 0.5
+    assert by_path(result)[result.paths[0]].status == "Active · detected"
+    assert conditions(result, 0)[0].startswith("condition 1 (fine S upper")
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case12_higher_order(seed):
+    """Case 12: Y = 2·parity(x₁ > m, …, x₄ > m) + ε, which no main, pair or triple captures. The
+    residual's lower bound exceeds RESIDUAL_VETO: the veto is raised and nothing is proposed."""
+    _, _, result = assessed("12", seed)
+    assert result.coarse.lo > RESIDUAL_VETO
+    assert result.veto == VETO_TEXT and VETO_WARNING in result.warnings
+    assert not any(s.proposable for s in statuses(result))
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case13_own_direction_triple(seed):
+    """Case 13 on 20,000 rows: independent inputs, Y = 3·x₁ + ε. In the triple (x₁, x₂, x₃)
+    Δ_{1|23}^c > 0.5 while Δ_{2|13}^c ≈ 0: x₂ reads its own direction only and is
+    `Deprioritized · proposable`."""
+    _, _, result = assessed("01", seed)
+    assert result.coarse.Delta3[0, 1, 2] > 0.5
+    assert abs(result.coarse.Delta3[1, 0, 2]) < THETA_MIN
+    found = by_path(result)[result.paths[1]]
+    assert found.status == "Deprioritized · proposable" and found.proposable
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case14_pairwise_independent_jointly_dependent(seed):
+    """Case 14: three independent binary inputs and x₄ = x₁ XOR x₂ XOR x₃, defined by a validity
+    table: pairwise independent (no aliasing), jointly dependent. The rule is unavailable because
+    the inputs are not a product design, while the fine lists still have their entries."""
+    _, _, result = assessed("14", seed)
+    assert result.aliased_pairs == []
+    reason = result.availability.reason
+    assert reason.startswith("inputs are not a product design")
+    assert reason == "inputs are not a product design (50 % of the grid is invalid)"
+    assert result.availability.hint == PRODUCT_HINT
+    S = fine_parts(result.fine.terms)[0]
+    assert np.isfinite(S).all() and len(statuses(result)) == D
+    assert by_path(result)[result.paths[3]].status == "Active · detected"
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case15_weak_constraint(seed):
+    """Case 15: a validity constraint skipping one (x₁, x₂) cell of 64 is not aliased, yet the
+    inputs are not a product design: `2 %` with the hint to freeze or narrow."""
+    _, _, result = assessed("15", seed)
+    assert result.aliased_pairs == []
+    assert (
+        result.availability.reason == "inputs are not a product design (2 % of the grid is invalid)"
+    )
+    assert result.availability.hint == PRODUCT_HINT
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_case16_outcome_dependent_missingness(seed):
+    """Case 16: `profit_factor` undefined exactly when x₁ is high and x₂ low. The reason prints
+    the fixture's own count at every seed (Ruling P8: 1,189 at seed 1), and the descriptive
+    estimates carry their note; with `net_pnl` the rule is available."""
+    frame, _, result = assessed("16", seed, "profit_factor")
+    positions = [frame.table.column(f"pos.{k}").to_numpy().astype(int) for k in (0, 1)]
+    m = int(((positions[0] >= VALUES // 2) & (positions[1] < VALUES // 2)).sum())
+    n = frame.table.num_rows
+    expected = (
+        f"{m:,} of {n:,} configurations have no finite profit_factor "
+        f"(0 invalid, 0 failed, {m:,} undefined)"
+    )
+    assert result.availability.reason == expected
+    assert result.availability.hint == METRIC_HINT
+    assert result.note == f"on {n - m:,} of {n:,} configurations; missingness may bias"
+    if seed == 1:
+        assert expected == (
+            "1,189 of 5,000 configurations have no finite profit_factor "
+            "(0 invalid, 0 failed, 1,189 undefined)"
+        )
+        assert result.note == "on 3,811 of 5,000 configurations; missingness may bias"
+    _, _, defined = assessed("16", seed, "net_pnl")
+    assert defined.availability.available and defined.note is None
+
+
+@pytest.mark.parametrize("seed", at_seeds())
+def test_a_detected_but_negligible_share_stays_proposable(seed):
+    """Decision 21 puts `Deprioritized · proposable` before `Active · detected` (review B1):
+    Y = 3·x₁ + 0.15·x₂ + ε on 20,000 rows makes x₂'s share exceed its family floor while its
+    upper bound stays below θ_min, so x₂ is proposable, not `Active · detected`."""
+    _, _, result = assessed("faint", seed)
+    S = fine_parts(result.fine.terms)[0]
+    floor = fine_parts(result.fine.floors.family)[0]
+    upper = fine_parts(result.fine.hi)[0]
+    assert S[1] > floor[1] and upper[1] < THETA_MIN, (S[1], floor[1], upper[1])
+    found = by_path(result)[result.paths[1]]
+    assert found.status == "Deprioritized · proposable" and found.proposable
+
+
+def test_rule_unavailable_when_aliased_or_adaptive():
+    """Adaptive rows alone leave no uniform rows of the current space, the first reason; aliased
+    inputs make the rule unavailable even on a fully valid grid."""
+    adaptive = stat_frame(d=D, values=VALUES, n=500, seed=SEED, y=first_order, design="adaptive")
+    c = cohort_of(adaptive)
+    assert c.n_uniform_total == 0
+    found = availability(c, cramers_v(c.X_uniform, c.B), math.nan, math.nan)
+    assert not found.available and found.reason == "no uniform rows of the current space"
+    assert found.hint is None
+    result = assess(c, seed=SEED, checkpoint=no_checkpoint)
+    listed = statuses(result)
+    assert all(s.failing == "no uniform rows of the current space" for s in listed)
+    _, aliased_c, aliased_result = assessed("04", SEED)
+    assert aliased_c.invalid_share == 0.0
+    assert aliased_result.availability.reason == "aliased inputs"
+
+
+def test_stale_then_rescreen_refreshes_evidence():
+    """Evidence from the wide range is stale on the narrow child; a re-screen's fresh uniform
+    cohort on the child is `current`. A later snapshot, a new sampler revision or other data
+    makes it stale again, naming the field."""
+    parent_frame, parent_c, _ = assessed("09", SEED)
+    child_frame, child_c, _ = assessed("09-child", SEED)
+    document = scope_document(child_frame)
+    current = evidence_scope(document, child_c)
+    old = evidence_scope(scope_document(parent_frame), parent_c)
+    assert compare_scope(old, current) == "stale: ranges changed"
+    rescreen = CASES["09-child"](SEED + 10)  # a fresh uniform sample over the child's space
+    fresh = evidence_scope(document, cohort_of(rescreen, seed=SEED + 10))
+    assert compare_scope(fresh, current) == "current"
+    later = replace(child_frame, snapshot=lab_store.Snapshot(1, 7))
+    assert compare_scope(current, evidence_scope(document, cohort_of(later))) == (
+        "stale: snapshot changed"
+    )
+    revised = evidence_scope(scope_document(child_frame, revision=2), child_c)
+    assert compare_scope(current, revised) == "stale: sampler changed"
+    moved = evidence_scope(scope_document(child_frame, sha256="sha-2"), child_c)
+    assert compare_scope(current, moved) == "stale: data identity changed"
+
+
+def test_recentred_r_interval_contains_one_on_pure_noise():
+    """Pure noise at d = 20: the residual's re-centred interval contains 1 (decision 19), and the
+    coarse terms are unclamped (some noise shares are negative), so R is not biased down."""
+    _, _, result = assessed("07", SEED)
+    found = result.coarse
+    assert found.lo <= 1.0 <= found.hi, (found.lo, found.R, found.hi)
+    assert found.lo <= found.R <= found.hi
+    assert (found.S < 0).any() and (found.T < 0).any()
+
+
+def test_failing_is_set_on_every_non_proposable_parameter():
+    """Every parameter that is not proposable names why: the availability reason when the rule
+    is unavailable, else the veto, else its first failed §7.4a condition; a proposable one has
+    none."""
+    kinds = set()
+    for case in ("01", "02", "04", "06", "07", "12"):
+        _, _, result = assessed(case, SEED)
+        for s in statuses(result):
+            if s.proposable:
+                assert s.failing is None and s.status == "Deprioritized · proposable"
+                kinds.add("proposable")
+            elif not result.availability.available:
+                assert s.failing == result.availability.reason
+                kinds.add("unavailable")
+            elif result.veto is not None:
+                assert s.failing == VETO_TEXT
+                kinds.add("veto")
+            else:
+                assert re.fullmatch(r"not proposable: condition [1-5] \(.+\)", s.failing), s
+                kinds.add("condition")
+    assert kinds == {"proposable", "unavailable", "veto", "condition"}
+
+
+# --- Task 5's definitions ---------------------------------------------------------------------
+
+
+def test_coarse_bins_and_terms_match_the_definition():
+    """The coarse bins are the lattice's q = 4 quantile bins (fewer values keep one bin each), and
+    the coarse terms are the adjusted, unclamped η² of every main, pair and triple on them, the
+    own-direction triple increments `Δ_{i|jk} = J_ijk - J_jk`, and
+    `R = 1 - ΣS - ΣI_pair - ΣI_triple`; a weighted call equals the rows repeated."""
+    values = [3, 8, 17, 2, 40]
+    frame = stat_frame(
+        d=5,
+        values=values,
+        n=1_000,
+        seed=SEED,
+        y=lambda u: u[:, 0] * u[:, 1] + np.sin(6.0 * u[:, 2]) + u[:, 3] * u[:, 4] * u[:, 1],
+    )
+    c = cohort_of(frame)
+    X = c.X.astype(int)
+    Xq = coarse_bins(c.X, c.B)
+    bins = [X[:, 0], X[:, 1] // 2, X[:, 2] * 4 // 17, X[:, 3], X[:, 4] // 10]
+    assert np.array_equal(Xq, np.stack(bins, axis=1)) and not Xq.flags.writeable
+    q, Y = Xq.astype(int), c.Y
+
+    def adjusted(*columns) -> float:
+        n, mean = len(Y), Y.mean()
+        cells = {}
+        for key, y in zip(zip(*columns, strict=True), Y, strict=True):
+            cells.setdefault(key, []).append(y)
+        between = sum(len(v) * (np.mean(v) - mean) ** 2 for v in cells.values())
+        s = between / ((Y - mean) ** 2).sum()
+        k = len(cells)
+        return s - (k - 1) / (n - k) * (1 - s)  # unclamped
+
+    found = coarse(Xq, Y)
+    d = len(values)
+    S = np.array([adjusted(q[:, i]) for i in range(d)])
+    J = np.array(
+        [[adjusted(q[:, i], q[:, j]) if i != j else S[i] for j in range(d)] for i in range(d)]
+    )
+    T = {t: adjusted(*(q[:, i] for i in t)) for t in itertools.combinations(range(d), 3)}
+    assert found.S == pytest.approx(S, abs=1e-12)
+    assert np.allclose(found.J, J, atol=1e-12)
+    assert np.allclose(found.D, incremental(S, J), atol=1e-12)
+    assert [tuple(t) for t in found.triples] == list(T)
+    assert np.allclose(found.T, list(T.values()), atol=1e-12)
+    for (a, b, k), share in T.items():
+        for i, (j, m) in ((a, (b, k)), (b, (a, k)), (k, (a, b))):
+            assert found.Delta3[i, j, m] == pytest.approx(share - J[j, m], abs=1e-12)
+            assert found.Delta3[i, m, j] == found.Delta3[i, j, m]
+    assert np.isnan(found.Delta3[0, 0, 1]) and np.isnan(found.Delta3[0, 1, 1])
+    assert (found.increments < 0).any()  # unclamped: below 0 where the brute force is
+    I2 = sum(J[i, j] - S[i] - S[j] for i, j in itertools.combinations(range(d), 2))
+    I3 = sum(
+        share - J[a, b] - J[a, k] - J[b, k] + S[a] + S[b] + S[k] for (a, b, k), share in T.items()
+    )
+    assert found.R == pytest.approx(1.0 - S.sum() - I2 - I3, abs=1e-10)
+    assert math.isnan(found.lo) and math.isnan(found.hi)
+    rng = np.random.default_rng(7)
+    w = np.bincount(rng.integers(0, len(Y), len(Y)), minlength=len(Y)).astype(float)
+    rows = np.repeat(np.arange(len(Y)), w.astype(int))
+    fn = CoarseTerms(Xq.max(axis=0) + 1)
+    assert np.allclose(fn(Xq, Y, w), fn(Xq[rows], Y[rows]), atol=1e-12, equal_nan=True)
+
+
+def test_coarse_intervals_bound_r_and_the_candidates_only():
+    """The coarse bootstrap (B_c = 50 by default, its own stream) bounds R and, for each
+    candidate, its coarse main, its increments beyond every other parameter and every triple
+    containing it in all three directions; nothing else. The coarse null (P = 50) floors the
+    triple increments, one family. Both call the checkpoint once per resample."""
+    c = cohort_of(stat_frame(d=4, values=VALUES, n=800, seed=SEED, y=first_order))
+    Xq = coarse_bins(c.X, c.B)
+    calls = []
+    bounds = coarse_intervals(Xq, c.Y, [2], b=7, seed=SEED, checkpoint=lambda: calls.append("b"))
+    assert calls == ["b"] * 7
+    point = coarse(Xq, c.Y)
+    assert bounds.R_lo <= point.R <= bounds.R_hi
+    others = [0, 1, 3]
+    assert np.isfinite(bounds.S_hi[2]) and np.isnan(bounds.S_hi[others]).all()
+    assert np.isfinite(bounds.D_hi[2, others]).all() and np.isnan(bounds.D_hi[others]).all()
+    containing = (point.triples == 2).any(axis=1)
+    assert np.isfinite(bounds.inc_hi[containing]).all()
+    assert np.isnan(bounds.inc_hi[~containing]).all()
+    assert bounds.candidates == (2,)
+    found = coarse_floors(Xq, c.Y, p=6, seed=SEED, checkpoint=lambda: calls.append("p"))
+    assert calls.count("p") == 6
+    family = coarse_parts(found.family, 4)
+    assert np.isfinite(family.increments).all() and np.isnan(family.S).all()
+    assert math.isnan(family.R) and set(found.t) == {"triple increments"}
+    defaults = {"b": coarse_intervals.__kwdefaults__["b"], "p": coarse_floors.__kwdefaults__["p"]}
+    assert defaults == {"b": COARSE_BOOTSTRAP_B, "p": COARSE_PERMUTATION_P} == {"b": 50, "p": 50}
+    shared_lo, _ = intervals(
+        CoarseTerms(Xq.max(axis=0) + 1), Xq, c.Y, b=7, seed=SEED, checkpoint=no_checkpoint
+    )
+    assert shared_lo[0] != bounds.R_lo  # the coarse bootstrap draws its own resamples
+
+
+def test_candidates_pass_conditions_1_and_2_on_point_estimates():
+    """Candidates (§7.4) pass conditions 1 and 2 on their point estimates: the parity triple's
+    members do, a strong main does not."""
+    assert {0, 1, 2} <= set(candidates(assessed("03", SEED)[2]))
+    assert 0 not in candidates(assessed("01@5000", SEED)[2])
+
+
+def test_availability_reasons_in_order_and_their_strings():
+    """The first failing reason wins, in the brief's order; `{p} %` is an integer at 1 % and
+    above and one decimal below; counts carry thousands separators; the panel line reads
+    `empirical deprioritization unavailable: <reason>`. The veto rises above RESIDUAL_VETO."""
+    _, c, _ = assessed("02", SEED)
+    V = cramers_v(c.X_uniform, c.B)
+    clean = availability(c, V, 0.5, 0.1)
+    assert clean.available and clean.reason is None and clean.reasons == [] and clean.hint is None
+    assert clean.message is None
+
+    def reason_of(**changes):
+        return availability(replace(c, **changes), V, 0.5, 0.1)
+
+    product = "inputs are not a product design ({} % of the grid is invalid)"
+    assert reason_of(invalid_share=0.004).reason == product.format("0.4")
+    assert reason_of(invalid_share=0.0156).reason == product.format("2")
+    assert reason_of(invalid_share=0.35).hint == PRODUCT_HINT
+    lost = MappingProxyType({"invalid": 3, "failed": 1_200, "undefined": 0})
+    missing = reason_of(missing=lost, n_uniform_total=12_345, metric="mar")
+    expected = (
+        "1,203 of 12,345 configurations have no finite mar (3 invalid, 1,200 failed, 0 undefined)"
+    )
+    assert missing.reason == expected and missing.hint == METRIC_HINT
+    assert missing.message == f"empirical deprioritization unavailable: {expected}"
+    assert availability(c, V, -0.06, -0.2).reason == "decomposition inconsistent"
+    assert availability(c, V, -0.05, -0.2).available
+    tied = V.copy()
+    tied[0, 1] = tied[1, 0] = 0.31
+    broken = replace(c, invalid_share=0.004, missing=lost, n_uniform_total=12_345, metric="mar")
+    everything = availability(broken, tied, -0.06, -0.2)
+    assert everything.reasons == [
+        "aliased inputs",
+        product.format("0.4"),
+        expected,
+        "decomposition inconsistent",
+    ]
+    assert everything.reason == "aliased inputs" and everything.hint is None
+    none = availability(replace(broken, n_uniform_total=0), tied, -0.06, -0.2)
+    assert none.reason == "no uniform rows of the current space"
+    assert veto(RESIDUAL_VETO + 1e-9) == VETO_TEXT
+    assert veto(RESIDUAL_VETO) is None and veto(math.nan) is None
+
+
+def test_a_constant_block_is_not_measured():
+    """A block whose metric never varies has no shares: every parameter carries
+    `not measured in block <b>`, and condition 1 fails there."""
+    frame = stat_frame(
+        d=3, values=4, n=2_000, seed=SEED, y=first_order, blocks={1: first_order, 2: zero}
+    )
+    table = frame.table
+    block = table.column("block").to_numpy()
+    column = "combined.net_pnl"
+    value = np.asarray(table.column(column).to_numpy(), dtype=float).copy()
+    value[block == 2] = 1.0
+    table = table.set_column(table.schema.get_field_index(column), column, pa.array(value))
+    c = cohort_of(replace(frame, table=table))
+    result = assess(c, seed=SEED, checkpoint=no_checkpoint)
+    assert result.availability.available and result.veto is None
+    for i, s in enumerate(statuses(result)):
+        assert "not measured in block 2" in s.flags
+        assert "condition 1 (not measured in block 2)" in conditions(result, i)
+        assert s.failing == "not proposable: condition 1 (not measured in block 2)"
+
+
+def test_importance_result_serialises_to_plain_json():
+    """`to_json` holds plain JSON types only: lists for arrays, null for NaN, the statuses and the
+    availability included."""
+    _, _, result = assessed("08", SEED)
+    plain = json.loads(json.dumps(result.to_json(), allow_nan=False))
+    assert plain["paths"] == list(result.paths)
+    assert [s["status"] for s in plain["statuses"]] == [s.status for s in statuses(result)]
+    assert plain["availability"]["available"] is True
+    assert sorted(plain["blocks"]) == ["1", "2", "3", "4"]
+    assert plain["coarse"]["R"] == pytest.approx(result.coarse.R)
+    assert None in plain["coarse_bounds"]["S_hi"]  # x₁ is no candidate: its bound is NaN
+
+
+def test_triples_top_ranks_by_the_largest_own_increment():
+    """The triples are ranked by their largest own-direction increment Δ^c, TRIPLE_TOP of them."""
+    _, _, result = assessed("03", SEED)
+    top = triples_top(result.coarse)
+    assert top[0] == (0, 1, 2) and len(top) == TRIPLE_TOP
+    assert triples_top(result.coarse, k=3) == top[:3]

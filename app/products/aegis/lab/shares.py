@@ -18,10 +18,14 @@ than rows), which no comparison downstream passes.
   - a block pair whose joint table would exceed JOINT_CELLS (a large parameter beside a block) is
     scattered pair by pair instead, each into its own B_i·B_j cells.
 - At 8 values and d = 20 a pass scatters the rows 55 times, not 210.
+- With `triples` (the coarse decomposition, Task 5) every triple i < j < k follows the pairs, one
+  scatter each, keyed by the pair key of (i, j) (stored once per pair, as small as it fits) and
+  X_k: 1,140 scatters at d = 20 on the coarse grid's 64-cell triples.
 """
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -38,6 +42,7 @@ BLOCK_CELLS = 64
 JOINT_CELLS = 1 << 14
 _CONSTANT = 1e-12  # Y is constant when its spread is below this relative to its magnitude
 _TINY = np.finfo(np.float64).tiny
+_INT16_MAX = int(np.iinfo(np.int16).max)
 # The fine stage's families (decision 18): the mains, and the increments over all ordered pairs.
 MAINS = "mains"
 INCREMENTS = "increments"
@@ -103,14 +108,28 @@ def _one_hot(cell: np.ndarray, width: int) -> np.ndarray:
     return out
 
 
-def design_of(X: np.ndarray, B: Sequence[int], *, pairs: bool = True) -> Design:
-    """X's `Design` over parameters of `B` values: the mains and, with `pairs`, every pair."""
+def design_of(
+    X: np.ndarray, B: Sequence[int], *, pairs: bool = True, triples: bool = False
+) -> Design:
+    """X's `Design` over parameters of `B` values: the mains and, with `pairs`, every pair; with
+    `triples` (which needs `pairs`), every triple i < j < k after them, in
+    `itertools.combinations` order, a triple's cell `(X_i · B_j + X_j) · B_k + X_k`."""
     n, d = X.shape
     B = [int(b) for b in B]
+    if triples and not pairs:
+        raise ValueError("a design with triples needs its pairs")
     groups = parameter_blocks(B)
     upper = [(int(i), int(j)) for i, j in zip(*np.triu_indices(d, 1), strict=True)] if pairs else []
+    trios = list(itertools.combinations(range(d), 3)) if triples else []
     grid = {(i, i): i for i in range(d)} | {pair: g for g, pair in enumerate(upper, start=d)}
-    starts = np.cumsum([0, *(B[i] for i in range(d)), *(B[i] * B[j] for i, j in upper)])
+    starts = np.cumsum(
+        [
+            0,
+            *(B[i] for i in range(d)),
+            *(B[i] * B[j] for i, j in upper),
+            *(B[i] * B[j] * B[k] for i, j, k in trios),
+        ]
+    )
     columns: dict[int, np.ndarray] = {}
 
     def column(i: int) -> np.ndarray:
@@ -173,6 +192,18 @@ def design_of(X: np.ndarray, B: Sequence[int], *, pairs: bool = True) -> Design:
                 for j in groups[q]:
                     scatters.append(Scatter(column(i), column(j), B[j], B[i] * B[j]))
                     dest.append(cells_of(i, j))
+    widest = max(B, default=1)
+    pair_keys: dict[tuple[int, int], np.ndarray] = {}
+    for g, (i, j, k) in enumerate(trios, start=d + len(upper)):
+        if (i, j) not in pair_keys:
+            # `cell_sums` multiplies the stored key by B_k in the key's own type: int16 holds every
+            # product when B_i·B_j·max(B) does.
+            fits = B[i] * B[j] * widest <= _INT16_MAX
+            key = column(i) * B[j] + column(j)
+            pair_keys[(i, j)] = key.astype(np.int16) if fits else key
+        size = B[i] * B[j] * B[k]
+        scatters.append(Scatter(pair_keys[(i, j)], column(k), B[k], size))
+        dest.append(starts[g] + np.arange(size))
     flat = np.concatenate(dest) if dest else np.zeros(0, dtype=np.intp)
     size = int(starts[-1])
     if not np.array_equal(np.sort(flat), np.arange(size)):
@@ -236,9 +267,13 @@ def cell_sums(design: Design, *weights: np.ndarray | None) -> list[np.ndarray]:
     return out
 
 
-def adjusted_shares(design: Design, Y: np.ndarray, w: np.ndarray | None) -> np.ndarray:
+def adjusted_shares(
+    design: Design, Y: np.ndarray, w: np.ndarray | None, *, clamp: bool = True
+) -> np.ndarray:
     """Each grid's adjusted share of Y over the rows weighted by `w` (None: each row once), in
-    grid order (module docstring)."""
+    grid order (module docstring). `clamp=False` keeps a negative adjusted share as it is: the
+    coarse decomposition sums its terms into the residual, which clamping would bias (decision
+    19); clamping at 0 is then for display only."""
     m = len(design.starts)
     if len(Y) < 2 or not m:
         return np.full(m, np.nan)
@@ -269,7 +304,7 @@ def adjusted_shares(design: Design, Y: np.ndarray, w: np.ndarray | None) -> np.n
     adjusted = np.full(m, np.nan)
     fits = room > 0
     adjusted[fits] = share[fits] - (cells[fits] - 1.0) / room[fits] * (1.0 - share[fits])
-    return np.maximum(adjusted, 0.0)  # NaN stays NaN
+    return np.maximum(adjusted, 0.0) if clamp else adjusted  # NaN stays NaN
 
 
 def pair_matrix(S: np.ndarray, pairs: np.ndarray) -> np.ndarray:
