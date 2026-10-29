@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -25,13 +26,13 @@ import pyarrow as pa
 
 from products.aegis.lab.policy import PART_ROW_GROUP
 from products.aegis.lab.query import (
+    ParameterInfo,
     TrialFrame,
     _axis,
-    _block0,
     _numbers,
     _ordered,
     _positions,
-    _status_codes,
+    _status_tallies,
 )
 
 CHECKED_ROWS = PART_ROW_GROUP  # a stored `pos.<k>` is trusted once it equals `_positions` here
@@ -113,10 +114,25 @@ class FrameIndex:
         rank = np.cumsum(inside, dtype=np.int64) - 1
         return rank[rows[:defined]]
 
-    def nbytes(self, parameters: int) -> int:
-        """The index's size once filled: the completed mask, a uint16 code per parameter and
-        ORDERS_KEPT orders, whatever it holds yet (the cache's size of it)."""
-        return self.rows * (1 + 2 * parameters + 4 * ORDERS_KEPT)
+    def nbytes(self, parameters: Sequence[ParameterInfo]) -> int:
+        """The index's size once filled (the cache's size of it): each array it holds at its own
+        size, the codes of a parameter it does not hold yet at the width they will take, and
+        ORDERS_KEPT int32 orders."""
+        size = self.completed.nbytes + ORDERS_KEPT * self.rows * np.dtype(np.int32).itemsize
+        for parameter in parameters:
+            held = self.codes.get(parameter.path)
+            if held is not None:
+                size += held.nbytes
+            else:
+                width = len(np.unique(np.asarray(parameter.values, dtype=np.float64)))
+                size += self.rows * np.dtype(_code_dtype(width)).itemsize
+        return size
+
+
+def _code_dtype(width: int) -> type:
+    """A lattice of `width` values codes as uint16 (its "off" code, `width`, included), as
+    uint32 beyond."""
+    return np.uint16 if width <= _UINT16_MAX else np.uint32
 
 
 def _frozen(array: np.ndarray) -> np.ndarray:
@@ -132,7 +148,7 @@ def _lattice_codes(frame: TrialFrame, path: str) -> np.ndarray:
     table = frame.table
     axis = _axis(frame, path)
     width = len(axis)
-    dtype = np.uint16 if width <= _UINT16_MAX else np.uint32
+    dtype = _code_dtype(width)
     k = next(i for i, parameter in enumerate(frame.parameters) if parameter.path == path)
     stored = f"pos.{k}"
     values = _numbers(table, path)
@@ -151,16 +167,7 @@ def build_index(frame: TrialFrame) -> FrameIndex:
     """The index of `frame`'s rows: the completed mask and the status tallies, and the codes of
     every parameter whose values the frame loaded (the others when a later frame brings them)."""
     table = frame.table
-    block0 = _block0(table)
-    status = _status_codes(table)
-    completed = block0 & (status == 0)
-    tallies = {
-        "attempted": int(block0.sum()),
-        "evaluations_done": int((status == 0).sum()),
-        "completed": int(completed.sum()),
-        "invalid": int((block0 & (status == 1)).sum()),
-        "failed": int((block0 & (status == 2)).sum()),
-    }
+    completed, tallies = _status_tallies(table)
     index = FrameIndex(completed=_frozen(completed), tallies=tallies, codes={})
     names = set(table.column_names)
     for parameter in frame.parameters:

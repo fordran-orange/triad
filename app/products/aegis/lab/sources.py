@@ -78,6 +78,7 @@ from products.aegis.surface import _whole_number, resolve_path
 # configuration (`unique` counts distinct keys).
 BASE = ("trial_no", "block", "status", "param_key")
 VIEWS = ("counts", "matrix", "page", "top", "marginals", "parallel", "square_trials")
+INDEXED_VIEWS = ("counts", "matrix", "page", "marginals")  # the views that read the index
 # A page row's `values` beside the objective (the page's metric columns, §9.3).
 PAGE_VALUES = ("net_pnl", "max_drawdown", "trade_count", "exposure", "sharpe_trade")
 _REQUIRED = {
@@ -327,6 +328,7 @@ def open_experiment(
                     (("exp", experiment_id), document.created_at, *key),
                     lambda: store.trials(experiment_id, list(columns), snapshot=snapshot),
                     size=lambda held: held.table.nbytes,
+                    release=True,
                 )
         except BaseException:
             REGISTRY.release(handle)
@@ -373,7 +375,8 @@ def experiment_index(
             BLOCK0,
         ),
         lambda: build_index(frame),
-        size=lambda index: index.nbytes(len(frame.parameters)),
+        size=lambda index: index.nbytes(frame.parameters),
+        release=True,
     )
 
 
@@ -853,6 +856,7 @@ __all__ = [
     "BASE",
     "BLOCK0",
     "COLUMNS_FOR",
+    "INDEXED_VIEWS",
     "ExperimentMeta",
     "SourceRef",
     "cached_meta",

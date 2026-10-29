@@ -9,9 +9,10 @@ experiment's metadata, so `evict((("exp", id),))` drops every table of one exper
 else. Each value is sized by the caller's `size` callable; the total never exceeds `max_bytes`
 (`LAB_CACHE_BYTES`, or `AEGIS_LAB_CACHE_MB` where the cache is built).
 
-Arrow's allocator (mimalloc) keeps the pages of freed buffers for reuse: after a load (whose
-reads and canonical sort free their intermediates) and after an eviction, the cache hands them
-back to the system, so the worker holds what the cache holds and little more."""
+Arrow's allocator (mimalloc) keeps the pages of freed buffers for reuse: after a load that
+works in Arrow memory (a table's read and canonical sort, an index's build: the caller says so
+with `release=True`) and after an eviction, the cache hands them back to the system, so the
+worker holds what the cache holds and little more."""
 
 from __future__ import annotations
 
@@ -58,10 +59,18 @@ class LabCache:
         self._hits = 0
         self._misses = 0
 
-    def get(self, key: tuple, loader: Callable[[], T], *, size: Callable[[T], int]) -> T:
+    def get(
+        self,
+        key: tuple,
+        loader: Callable[[], T],
+        *,
+        size: Callable[[T], int],
+        release: bool = False,
+    ) -> T:
         """The cached value of `key`, else `loader()`'s, cached when `size(value)` fits within
         `max_bytes` (a larger value is returned uncached) and the oldest entries evicted until
-        the total fits again."""
+        the total fits again. After a miss with `release` (a load in Arrow memory) or one that
+        evicted, Arrow's unused memory goes back to the system."""
         with self._lock:
             entry = self._entries.get(key)
             if entry is not None:
@@ -72,7 +81,8 @@ class LabCache:
         value = loader()
         nbytes = int(size(value))
         if nbytes > self.max_bytes:
-            release_unused()
+            if release:
+                release_unused()
             return value
         evicted = []  # dropped outside the lock, before the memory they held is released
         with self._lock:
@@ -84,8 +94,9 @@ class LabCache:
             while self._bytes > self.max_bytes:
                 evicted.append(self._entries.popitem(last=False)[1])
                 self._bytes -= evicted[-1][1]
-        evicted.clear()
-        release_unused()
+        if release or evicted:
+            evicted.clear()
+            release_unused()
         return value
 
     def evict(self, prefix: tuple) -> int:

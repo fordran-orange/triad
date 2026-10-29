@@ -1504,13 +1504,16 @@ def lab_query(
             request.view, request, meta.parameters, meta.objective
         ),
     ) as (document, _, frame):
+        index = None  # built or fetched only for the views that read it
+        if request.view in lab_sources.INDEXED_VIEWS:
+            index = lab_sources.experiment_index(cache, frame, document)
         return _lab_answer(
             frame,
             request,
             lab_sources.experiment_unique(cache, frame, document),
             cache=cache,
             source_identity=lab_sources.experiment_source(document),
-            index=lab_sources.experiment_index(cache, frame, document),
+            index=index,
         )
 
 

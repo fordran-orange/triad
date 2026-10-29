@@ -670,31 +670,40 @@ def test_matrix_payload_never_crosses_sources(client, lab_cache, monkeypatch):
 
 
 def test_summary_tested_per_value_equals_marginals_n(client, monkeypatch):
-    """The summary counts each value's tested trials from the index's codes (never the whole
-    marginals view), equal to the marginals' `n`; a lattice over MARGINAL_BUCKETS values keeps
-    its buckets."""
+    """The summary counts each value's tested trials from the index's codes, one count per
+    parameter and never the marginals' grouping of the metric, equal to the marginals' `n`; a
+    lattice over MARGINAL_BUCKETS values keeps its buckets."""
+    from products.aegis.lab import query as query_module
     from products.aegis.lab.index import build_index
     from products.aegis.lab.query import LabFilter, marginals_view
     from test_lab_query import frame_of, metrics
 
     c, _, repository = client
     experiment_id = _finished_experiment(c, monkeypatch)
-    called: list[str] = []
-    original = sources.marginals_view
+    counted: list[str] = []
+    grouped: list[int] = []
+    tested, groups = sources.tested_per_value, query_module._Groups
 
-    def spy(*args, **kwargs):
-        called.append("marginals")
-        return original(*args, **kwargs)
+    def count(frame, parameter, members, index):
+        counted.append(parameter.path)
+        return tested(frame, parameter, members, index)
 
-    monkeypatch.setattr(sources, "marginals_view", spy)
+    class Groups(groups):  # the marginals' (and the matrix's) sort of the metric by group
+        def __init__(self, *args, **kwargs):
+            grouped.append(1)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(sources, "tested_per_value", count)
+    monkeypatch.setattr(query_module, "_Groups", Groups)
     summary = c.get(f"{LAB}/exp:{experiment_id}/summary")
     assert summary.status_code == 200, summary.text
-    assert called == []
+    assert counted == [DONCHIAN, RSI] and grouped == []
     document = experiments_module.ExperimentStore(repository).get(experiment_id)
     meta = sources.experiment_meta(document)
     columns = sources.COLUMNS_FOR("summary", None, meta.parameters, meta.objective)
     _, frame = _open(repository, LabCache(), experiment_id, columns)
-    marginals = original(frame, LabFilter(), metric="net_pnl")["marginals"]
+    marginals = marginals_view(frame, LabFilter(), metric="net_pnl")["marginals"]
+    assert grouped  # the spy sees a grouping: the summary's empty list is not vacuous
     for entry in summary.json()["parameters"]:
         assert entry["tested_per_value"] == marginals[entry["path"]]["n"]
         assert entry["values"] == marginals[entry["path"]]["values"]
@@ -719,8 +728,8 @@ def test_summary_tested_per_value_equals_marginals_n(client, monkeypatch):
 
 
 def test_memory_released_after_a_load(monkeypatch):
-    """A miss hands the memory Arrow freed while loading back to the system, and so does an
-    eviction; a hit releases nothing."""
+    """A miss that loads Arrow memory (a table, an index: `release=True`) hands what Arrow freed
+    while loading back to the system, and so does an eviction; a hit releases nothing."""
     import pyarrow as pa
     from products.aegis.lab import cache as cache_module
 
@@ -736,10 +745,73 @@ def test_memory_released_after_a_load(monkeypatch):
     def table(rows: int):
         return lambda: pa.table({"x": list(range(rows))})
 
-    cache.get(("a",), table(500), size=lambda t: t.nbytes)  # 4,000 bytes: a miss
+    cache.get(("a",), table(500), size=lambda t: t.nbytes, release=True)  # 4,000 bytes: a miss
     assert released == ["released"]
-    cache.get(("a",), table(500), size=lambda t: t.nbytes)  # a hit
+    cache.get(("a",), table(500), size=lambda t: t.nbytes, release=True)  # a hit
     assert released == ["released"]
-    cache.get(("b",), table(1000), size=lambda t: t.nbytes)  # a miss that evicts a
+    cache.get(("b",), table(1000), size=lambda t: t.nbytes, release=True)  # a miss evicting a
     assert len(released) == 2 and cache.stats()["entries"] == 1
     assert cache.evict(("b",)) == 1 and len(released) == 3
+
+
+def test_release_only_after_table_and_index_loads(client, lab_cache, monkeypatch):
+    """The routes release Arrow's freed memory after loading a table or an index, never after a
+    miss that holds no Arrow memory (metadata, `unique`, the summary part, a matrix payload),
+    unless that miss evicts."""
+    from products.aegis.lab import cache as cache_module
+
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    released: list[str] = []
+    monkeypatch.setattr(cache_module, "release_unused", lambda: released.append("released"))
+    lab_cache.evict((("exp", experiment_id),))
+    released.clear()
+    url = f"{LAB}/exp:{experiment_id}/query"
+    body = {"filter": {}, "view": "matrix", "rows": DONCHIAN, "cols": RSI, "metric": "net_pnl"}
+    first = c.post(url, json={**body, "mode": "aggregate"})
+    assert first.status_code == 200, first.text
+    assert released == ["released", "released"]  # the table, then the index; never the rest
+    other = c.post(url, json={**body, "mode": "aggregate", "filter": {"ranges": {RSI: [7, 7]}}})
+    assert other.status_code == 200 and released == ["released"] * 2  # a payload-only miss
+    plain = LabCache(10_000)
+    plain.get(("payload",), lambda: {"values": [1.0]}, size=lambda _: 4_000)
+    assert released == ["released"] * 2
+    plain.get(("payload", 2), lambda: {"values": [2.0]}, size=lambda _: 8_000)  # evicts one
+    assert released == ["released"] * 3
+
+
+def test_index_only_for_the_views_that_read_it(client, lab_cache, monkeypatch):
+    """`top`, `parallel` and `square_trials` never read the index, so their requests never build
+    or fetch it; counts, matrix, page, marginals and the summary do."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    built: list[str] = []
+    original = sources.experiment_index
+
+    def spy(cache, frame, document):
+        built.append("index")
+        return original(cache, frame, document)
+
+    monkeypatch.setattr(sources, "experiment_index", spy)
+    url = f"{LAB}/exp:{experiment_id}/query"
+    unread = [
+        {"view": "top", "metric": "net_pnl"},
+        {"view": "parallel", "axes": [DONCHIAN, RSI], "metric": "net_pnl"},
+        {"view": "square_trials", "rows": DONCHIAN, "cols": RSI, "row_value": 10, "col_value": 7},
+    ]
+    for body in unread:
+        response = c.post(url, json={"filter": {}, **body})
+        assert response.status_code == 200, (body, response.text)
+    assert built == []
+    assert not [key for key in lab_cache._entries if key[0] == ("exp-index", experiment_id)]
+    read = [
+        {"view": "counts"},
+        {"view": "matrix", "rows": DONCHIAN, "cols": RSI, "metric": "net_pnl"},
+        {"view": "page"},
+        {"view": "marginals", "metric": "net_pnl"},
+    ]
+    for body in read:
+        response = c.post(url, json={"filter": {}, **body})
+        assert response.status_code == 200, (body, response.text)
+    assert c.get(f"{LAB}/exp:{experiment_id}/summary").status_code == 200
+    assert built == ["index"] * 5

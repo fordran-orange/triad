@@ -179,10 +179,26 @@ def _block0(table: pa.Table) -> np.ndarray:
     return _numbers(table, "block") == 0
 
 
+def _status_tallies(table: pa.Table) -> tuple[np.ndarray, dict[str, int]]:
+    """§6.4's one rule for the status counts: the completed rows (ok and block 0) and the
+    tallies every scope repeats, `attempted` (block 0), `evaluations_done` (ok, any block),
+    `completed`, `invalid` and `failed` (block 0). The index holds them per snapshot."""
+    codes = _status_codes(table)
+    base = _block0(table)
+    completed = base & (codes == 0)
+    return completed, {
+        "attempted": int(base.sum()),
+        "evaluations_done": int((codes == 0).sum()),
+        "completed": int(completed.sum()),
+        "invalid": int((base & (codes == 1)).sum()),
+        "failed": int((base & (codes == 2)).sum()),
+    }
+
+
 def _completed(frame: TrialFrame, index: FrameIndex | None) -> np.ndarray:
     """The completed (ok, block 0) rows: the index's mask, else computed. Never written to."""
     if index is None:
-        return _block0(frame.table) & (_status_codes(frame.table) == 0)
+        return _status_tallies(frame.table)[0]
     if index.rows != frame.table.num_rows:
         raise ValueError(f"an index of {index.rows} rows cannot answer {frame.table.num_rows}")
     return index.completed
@@ -258,16 +274,7 @@ def scope_counts(
     snapshot's `index` holds the status tallies."""
     table = frame.table
     if index is None:
-        codes = _status_codes(table)
-        base = _block0(table)
-        completed = base & (codes == 0)
-        tallies = {
-            "attempted": int(base.sum()),
-            "evaluations_done": int((codes == 0).sum()),
-            "completed": int(completed.sum()),
-            "invalid": int((base & (codes == 1)).sum()),
-            "failed": int((base & (codes == 2)).sum()),
-        }
+        completed, tallies = _status_tallies(table)
     else:
         completed = _completed(frame, index)
         tallies = index.tallies
