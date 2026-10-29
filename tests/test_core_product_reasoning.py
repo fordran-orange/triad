@@ -9,7 +9,7 @@ from types import SimpleNamespace as NS
 import pytest
 from test_day3_integration import engine  # noqa: F401
 from trading_core import product_reasoning as module
-from trading_core.contracts import AgentRunResult
+from trading_core.contracts import AgentRunResult, FileChange, ImprovementProposal
 from trading_core.intelligence.records import Records
 from trading_core.product_reasoning import ReasoningFailed, ReasoningRequest, check_shape
 from trading_core.runtime import Runtime
@@ -121,6 +121,25 @@ def test_the_request_asks_for_no_tools(engine, monkeypatch):  # noqa: F811
         {"actions_taken": ("wrote a file",)},
         {"commands_executed": ("dir",)},
         {"tests_run": ("pytest",)},
+        {"files_changed": (FileChange(path="a.py", content="x = 1"),)},
+        {
+            "proposal": ImprovementProposal(
+                agent="CLAUDE",
+                title="a change",
+                problem="p",
+                evidence=(),
+                proposed_change="c",
+                expected_benefit="b",
+                possible_downside="d",
+                affected_components=(),
+                risk_class="LOW",
+                reversibility="r",
+                test_plan=(),
+                rollback_plan="r",
+                estimated_cost=0,
+                permissions_required=(),
+            )
+        },
     ],
 )
 def test_a_failed_or_acting_run_is_provider_failed(engine, monkeypatch, outcome):  # noqa: F811
@@ -197,6 +216,10 @@ def test_a_reading_past_the_limit_is_timed_out(engine, monkeypatch):  # noqa: F8
     while not calls or engine.host.store.get(calls[0].work_item_id).status != "COMPLETED":
         assert time.monotonic() < deadline, "the timed-out run was never recorded"
         time.sleep(0.2)
+    # The run's own time allocation is the spec's 120 s (review 2026-10-28): the runtime stops a
+    # run past it, so the product's lease never outlives the 504 by the default 480 s.
+    work = engine.host.store.get(calls[0].work_item_id)
+    assert work.compute_budget.timeout_seconds == module.RUN_SECONDS == 120
 
 
 def test_check_shape():
@@ -252,3 +275,20 @@ def test_providers_say_what_routing_would_assign_a_reading_now(engine, monkeypat
     assert need.billing_sources == ("SUBSCRIPTION",)
     with pytest.raises(KeyError):
         engine.host.store.get(work.work_item_id)
+
+
+@pytest.mark.integration
+def test_a_core_failure_before_the_run_is_reported_not_raised(engine, monkeypatch):  # noqa: F811
+    """The store or the router failing before any run is Core's failure (503 core_failed), not
+    an unhandled error and not the provider's (review 2026-10-28)."""
+    calls = []
+    service = reasoning(engine, monkeypatch, json.dumps(ANSWER), calls)
+
+    def broken(name):
+        raise OSError("postgres is down")
+
+    monkeypatch.setattr(service.records.store, "lease", broken)
+    with pytest.raises(ReasoningFailed) as caught:
+        service.reason("aegis", REQUEST)
+    assert (caught.value.reason, caught.value.status) == ("core_failed", 503)
+    assert calls == []

@@ -1,8 +1,10 @@
 """Aegis workstation acceptance: walks the 22 Mission 3 definition-of-done items, the 14 Mission 4
 items, the 11 Mission 5 items, the 13 Mission 6 items, the 9 Mission 8 items, the 7 Mission 9
-items, the 5 limits items, the 5 Mission 10 items, the 2 Mission 11 items, the 2 Mission 12 items and the 7 Mission 13 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
+items, the 5 limits items, the 5 Mission 10 items, the 2 Mission 11 items, the 2 Mission 12 items, the 7 Mission 13 items and the 5 Mission 14 items in Chromium against the running worker and writes logs/aegis-acceptance-<stamp>.json with PASS/FAIL per item, timings
 (indicator ms, backtest ms, optimizer cell ms, experiment cell ms) and the result_hash values.
 Items 51 and 63 restart the scratch worker through tools/start_aegis_scratch.ps1 -Stop and require --pid-file.
+Item 98 reads one sentence with Claude through Core, for real: the walk needs the product key
+issued and Claude routable (Mission 14 spec §5); item 101 needs Codex offered.
 The 13 Optimization Lab items (LAB_ITEMS) follow, numbered after whatever precedes them; they make
 their own fixtures, so `--only lab` runs them alone and never restarts the worker.
 
@@ -102,7 +104,7 @@ ITEMS = [
     "rerun the new strategy's backtest unchanged and obtain the same result_hash",
     "the Indicators tab lists kind, parameters, source, pane and latest values; removing a read indicator is refused",
     "invalid rules and parameters are refused with 422 naming the problem",
-    "governance unchanged and no file under Core, the platform host or Triad changed",
+    "governance unchanged and no file under Core, the platform host or Triad changed but Mission 14's Core files and the two Core fixes merged from main",
     # Mission 6 (spec §2 items 1–13)
     "every earlier item ran on the kernel engine: the status reports it available and the recorded Mission 3 and 5 hashes are reproduced",
     "define the 252-cell experiment on the breakout document (four parameters across both sides, MAR): the plan says exhaustive, 252 runs, priced",
@@ -116,7 +118,7 @@ ITEMS = [
     "plan the over-budget experiment (step 1, budget 2,000): sampled with its fraction and the levers; freezing the two short-side parameters gives 682 cells, exhaustive",
     "recompute the finished experiment's report with net P&L and tolerance 0.10 without rerunning: both reports kept",
     "every refusal is honest over HTTP: no parameters, eleven, a path on the wrong side, a fractional step, a budget of zero, a pause on a finished experiment, a delete of a running one",
-    "governance unchanged, no file under Core, the platform host or Triad changed, and pyproject.toml changed by the one optional-extra line only",
+    "governance unchanged, no file under Core, the platform host or Triad changed but Mission 14's Core files and the two Core fixes merged from main, and pyproject.toml changed by the one optional-extra line only",
     # Mission 8 (spec §3 items 1–9)
     "plan a study from the finished breakout experiment: per symbol the windows, 252 cells per window exhaustive, the runs and an estimate priced from the measured cost",
     "start it on QQQ, SPY and ITOT 1h 2016-09-19 → 2026-09-18 with 3,493 + 873 bars: progress advances by window while the status route answers under 500 ms",
@@ -126,7 +128,7 @@ ITEMS = [
     "an identical study reproduces every per-rule result hash",
     "every refusal answers 422 or 409 naming the problem",
     "record the decision accepted with a note: shown on the study and in the list under its experiment",
-    "governance unchanged and no file under Core, the platform host or Triad changed since the Mission 8 plan",
+    "governance unchanged and no file under Core, the platform host or Triad changed but Mission 14's Core files and the two Core fixes merged from main since the Mission 8 plan",
     # Mission 9 (spec §3 items 1–7)
     "the Library lists saved results of all five kinds with each kind's headline numbers, 50 rows per page",
     "filters, search and sort narrow and order the list; a label and star set on item 22's run are found by search and by Starred",
@@ -134,7 +136,7 @@ ITEMS = [
     "item 21's optimization opens with its matrix and table, item 28's walk-forward with its windows, stitched equity and stability; the experiment and study open on the Experiments page selected",
     "item 22's pair compares as identical; item 39's run against item 54's lists exactly the differing parameters, carries ▲/▼ marks and draws both curves on one calendar axis",
     "delete → Recently deleted → restore keeps the result hash; the refusals answer 409 naming a parent with studies, a running study and a study whose parent is trashed",
-    "governance unchanged, no file under Core, the platform host or Triad changed since the Mission 9 plan, items 1–69 still pass and Recently deleted was never emptied",
+    "governance unchanged, no file under Core, the platform host or Triad changed but Mission 14's Core files and the two Core fixes merged from main since the Mission 9 plan, items 1–69 still pass and Recently deleted was never emptied",
     # the limits change (2026-10-20)
     "a ten-year 15m backtest (65,107 bars) runs and its chart loads under the 2,000,000-bar guard",
     "a three-parameter grid of more than 400 cells runs on the pool; its matrix switches axes, a square's best cell loads and its backtest equals the cell",
@@ -159,8 +161,13 @@ ITEMS = [
     "after a reload the blocks are where they were saved; a strategy saved before the builder opens laid out automatically, not edited, its hash unchanged",
     "an experiment over the stop loss percentage runs to done with a cell per value",
     "the panel beside the chart reads the side as text with its stop and target, and Edit in builder opens that side",
-    "text the reader cannot read is refused naming the word, and the strategy is unchanged",
+    "text the reader cannot read is refused naming the word, or the AI leaves it unexpressed, and the strategy is unchanged",
     "governance unchanged since the Mission 13 plan and items 1–96 still pass",
+    "a sentence the reader refuses is read by Claude through Core: the thinking state, the rewrite and read-by lines, Apply, and the sides it describes",
+    'what Claude substituted for "crosses up" is listed as learned, and the same phrasing is then read by the phrase reader with no provider',
+    "Remove forgets it: the same sentence goes to the provider again, and Cancel stops the wait with the text kept",
+    "the provider chosen is remembered across a reload, then set back as found; the save mode untouched",
+    "governance: Core changed since the Mission 14 plan only in its own files and the two fixes merged from main, nothing under the platform host or Triad, the key only in the ignored .env; exchange CLOSED, schedule disabled, items 1–101 pass",
 ]
 # Optimization Lab v2, Phase 1 (plan Task 7, and the final review's fix wave) and Phase 2 (Task 12,
 # the five on the real 12,000-trial experiment): thirteen items numbered after whatever precedes
@@ -179,10 +186,18 @@ LAB_ITEMS = [
     "(109) counts are identical across the heatmap, the table and the header",
     "(110) a brush updates the heatmap, the parallel coordinates, the table and the counts together on the real 12k experiment",
     "(104b) the Lab's sub-nav keeps the filter, the selection and the pins on the real 12,000-trial experiment",
-    "governance unchanged since the Optimization Lab v2 plan (LAB_BASE) and the Lab items pass",
+    "governance unchanged since the Optimization Lab v2 plan (LAB_BASE) but Mission 14's fix pass merged from main, and the Lab items pass",
 ]
 ITEMS += LAB_ITEMS
 LAB_BASE = "1882c81"  # Mission 14 merged into the Lab branch; Core, platform host and Triad frozen
+# Core files changed since LAB_BASE by Mission 14's milestone QA and review fix pass (a6ba93b),
+# governed and merged on main, then merged into the Lab branch. The Lab changes no Core file.
+LAB_MAIN_CORE_FILES = [
+    "app/trading_core/api.py",
+    "app/trading_core/product_reasoning.py",
+    "app/trading_core/product_reasoning_api.py",
+    "app/trading_core/security.py",
+]
 LAB_STRATEGY = "ema9-sma30-cross-v1"  # the built-in reference document
 LAB_RANGE = ("2024-01-02", "2024-03-28")  # QQQ 1h: the fixtures finish in seconds
 LAB_SURFACE = [  # 3 × 3 = 9 cells, the same grid for the optimization and the experiment
@@ -383,6 +398,26 @@ OPERATOR_SENTENCE = "buy when 9 ema crosses 30 sma and price is above 200 sma"
 STUDY_FRAMES_BASE = (
     "f9ae2a2"  # the Mission 12 plan commit; Core, platform host and Triad frozen since
 )
+AI_READING_BASE = "0117490"  # the Mission 14 plan commit; Core changed since only as below
+MISSION14_CORE_FILES = [  # spec §6 and §9: the product reasoning route, its module, the key
+    "app/trading_core/api.py",  # setting, and Routing.evaluate (providers offered while routable)
+    "app/trading_core/intelligence/routing.py",
+    "app/trading_core/product_reasoning.py",
+    "app/trading_core/product_reasoning_api.py",
+    "app/trading_core/security.py",  # the key in Core's redaction set (the milestone review)
+    "app/trading_core/settings.py",
+]
+MAIN_CORE_FILES = [  # Core work governed and merged on main meanwhile, then merged into the branch
+    "app/trading_core/providers/verification.py",  # the Grok provider Test budget (5f625e2, 042d5c9)
+    "app/trading_core/runtime.py",  # the Codex strict-schema fix (c6c1149)
+]
+EXPECTED_CORE_CHANGES = sorted(MISSION14_CORE_FILES + MAIN_CORE_FILES)
+CORE_CHANGE_NOTE = (
+    f"but Mission 14's {len(MISSION14_CORE_FILES)} Core files "
+    f"and the {len(MAIN_CORE_FILES)} Core fixes merged from main"
+)
+AI_SENTENCE = "buy when 9 ema crosses up 30 sma, exit when it crosses back down"
+LEARNED_SENTENCE = "buy when 9 ema crosses up 30 sma"  # readable once "crosses up" is learned
 ONE_MINUTE_SURFACE = [  # item 89: 2 × 2 = 4 cells on QQQ 1m, a parent finished in seconds
     ("long_side.indicators.donchian.length", 10, 20, 10),
     ("long_side.indicators.rsi.length", 7, 14, 7),
@@ -621,6 +656,26 @@ class Acceptance:
         )
         return caught.value.json()
 
+    def open_in_builder(self, doc_id: str):
+        page = self.page
+        page.locator("#nav-lab").click()
+
+        # Earlier items can leave unsaved workspace edits: opening another strategy asks first.
+        def accept(dialog):
+            dialog.accept()
+
+        page.on("dialog", accept)
+        try:
+            page.locator(f"#doc-{doc_id}").click()
+            page.wait_for_function(
+                f"document.querySelector('#doc-{doc_id}')?.classList.contains('selected')",
+                timeout=30_000,
+            )
+        finally:
+            page.remove_listener("dialog", accept)
+        page.wait_for_selector('.react-flow__node[data-id="entry"]', timeout=30_000)
+        page.wait_for_timeout(500)
+
     def screenshot_path(self, label: str) -> Path:
         return ROOT / "logs" / f"aegis-acceptance-{self.stamp}-{label}.png"
 
@@ -817,6 +872,13 @@ class Acceptance:
         page.wait_for_function(
             "document.getElementById('strategy-name')?.innerText.length > 1", timeout=30_000
         )
+        # The walk's precondition (items 70-76 list the runs of items 22, 39 and 54; item 85 ends
+        # in "every"): a worker found in "kept" mode is switched first, and the switch is reported.
+        found = self.api("preferences")["save_runs"]
+        self.timings["save_mode_found"] = found  # the evidence says whether the walk switched it
+        if found != "every":
+            how = self.restore_save_mode()
+            print(f"save mode was {found!r}; set to 'every' through the {how} before item 1")
 
         def item1():
             self.select("Symbol", "QQQ")
@@ -1008,7 +1070,7 @@ class Acceptance:
 
         def item16():
             run_id = self.first_run["run_id"]
-            page.get_by_title("Saved runs").click()
+            page.get_by_title("Saved runs", exact=True).click()
             page.wait_for_selector(".drawer .run-row")
             row = page.locator(
                 ".drawer .run-row", has_text=self.first_run["result_hash"][:12]
@@ -1733,8 +1795,11 @@ class Acceptance:
                 text=True,
                 check=True,
             ).stdout.strip()
-            assert committed == "" and pending == "", (committed, pending)
-            return f"aegis {status['mode']} / {status['exchange']}; no change under {', '.join(paths)} since {MISSION5_BASE}"
+            assert sorted(committed.split()) == EXPECTED_CORE_CHANGES and pending == "", (
+                committed,
+                pending,
+            )
+            return f"aegis {status['mode']} / {status['exchange']}; no change under {', '.join(paths)} {CORE_CHANGE_NOTE} since {MISSION5_BASE}"
 
         self.item(47, item47)
 
@@ -2313,14 +2378,17 @@ class Acceptance:
             paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
             committed = git("diff", "--name-only", MISSION6_BASE, "HEAD", "--", *paths).strip()
             pending = git("status", "--porcelain", "--", *paths).strip()
-            assert committed == "" and pending == "", (committed, pending)
+            assert sorted(committed.split()) == EXPECTED_CORE_CHANGES and pending == "", (
+                committed,
+                pending,
+            )
             diff = git("diff", MISSION6_BASE, MISSION6_END, "--", "pyproject.toml").splitlines()
             added = [line for line in diff if line.startswith("+") and not line.startswith("+++")]
             removed = [line for line in diff if line.startswith("-") and not line.startswith("---")]
             assert added == ['+aegis = ["numba>=0.61,<0.69"]'] and removed == [], (added, removed)
             return (
                 f"aegis {status['mode']} / {status['exchange']}, kernel available; DailySchedule "
-                f"{schedule['id'][:8]} enabled={schedule['enabled']}; no change under {', '.join(paths)} "
+                f"{schedule['id'][:8]} enabled={schedule['enabled']}; no change under {', '.join(paths)} {CORE_CHANGE_NOTE} "
                 f"since {MISSION6_BASE}; pyproject.toml over Mission 6 ({MISSION6_BASE}..{MISSION6_END}): "
                 f"one added line {added[0][1:]!r}, nothing removed"
             )
@@ -2830,10 +2898,13 @@ class Acceptance:
             paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
             committed = git("diff", "--name-only", MISSION8_BASE, "HEAD", "--", *paths).strip()
             pending = git("status", "--porcelain", "--", *paths).strip()
-            assert committed == "" and pending == "", (committed, pending)
+            assert sorted(committed.split()) == EXPECTED_CORE_CHANGES and pending == "", (
+                committed,
+                pending,
+            )
             return (
                 f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} "
-                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since {MISSION8_BASE}"
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} {CORE_CHANGE_NOTE} since {MISSION8_BASE}"
             )
 
         self.item(69, item69)
@@ -3335,7 +3406,10 @@ class Acceptance:
             paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
             committed = git("diff", "--name-only", MISSION9_BASE, "HEAD", "--", *paths).strip()
             pending = git("status", "--porcelain", "--", *paths).strip()
-            assert committed == "" and pending == "", (committed, pending)
+            assert sorted(committed.split()) == EXPECTED_CORE_CHANGES and pending == "", (
+                committed,
+                pending,
+            )
             earlier = [r for r in self.results if r["item"] <= 69]
             failed = [r["item"] for r in earlier if r["status"] != "PASS"]
             assert len(earlier) == 69 and not failed, failed
@@ -3345,7 +3419,7 @@ class Acceptance:
             assert kept <= trash, (kept, trash)
             return (
                 f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} "
-                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since {MISSION9_BASE}; "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} {CORE_CHANGE_NOTE} since {MISSION9_BASE}; "
                 f"items 1–69 PASS; Recently deleted holds {len(trash)} item(s), never emptied"
             )
 
@@ -3633,13 +3707,16 @@ class Acceptance:
             paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
             committed = git("diff", "--name-only", LIMITS_BASE, "HEAD", "--", *paths).strip()
             pending = git("status", "--porcelain", "--", *paths).strip()
-            assert committed == "" and pending == "", (committed, pending)
+            assert sorted(committed.split()) == EXPECTED_CORE_CHANGES and pending == "", (
+                committed,
+                pending,
+            )
             earlier = [r for r in self.results if r["item"] <= 76]
             failed = [r["item"] for r in earlier if r["status"] != "PASS"]
             assert len(earlier) == 76 and not failed, failed
             return (
                 f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} "
-                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} {CORE_CHANGE_NOTE} since "
                 f"{LIMITS_BASE}; items 1–76 PASS"
             )
 
@@ -3712,8 +3789,11 @@ class Acceptance:
         self.page.wait_for_timeout(300)
         return self.js("document.getElementById('chart-shown-as')?.innerText ?? ''")
 
-    def wheel_until(self, delta: int, done, batches: int = 15) -> bool:
-        """Wheel over the chart in batches of four notches until `done()` holds."""
+    def wheel_until(self, delta: int, done, batches: int = 30) -> bool:
+        """Wheel over the chart in batches of four notches until `done()` holds. In isolation the
+        ten-year zoom-in needs one batch; the 2026-10-28 walk, on a machine busy after a restart
+        (CompatTelRunner, memory compression), ran out of 15, so the budget is 30 (it returns as
+        soon as `done()` holds, so a passing walk pays nothing)."""
         box = self.page.locator("#chart-mount").bounding_box()
         for _ in range(batches):
             self.page.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.4)
@@ -4006,13 +4086,16 @@ class Acceptance:
             paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
             committed = git("diff", "--name-only", NO_LIMIT_BASE, "HEAD", "--", *paths).strip()
             pending = git("status", "--porcelain", "--", *paths).strip()
-            assert committed == "" and pending == "", (committed, pending)
+            assert sorted(committed.split()) == EXPECTED_CORE_CHANGES and pending == "", (
+                committed,
+                pending,
+            )
             earlier = [r for r in self.results if r["item"] <= 81]
             failed = [r["item"] for r in earlier if r["status"] != "PASS"]
             assert len(earlier) == 81 and not failed, failed
             return (
                 f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} "
-                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} {CORE_CHANGE_NOTE} since "
                 f"{NO_LIMIT_BASE}; items 1–81 PASS"
             )
 
@@ -4130,13 +4213,16 @@ class Acceptance:
             paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
             committed = git("diff", "--name-only", COMPRESSED_BASE, "HEAD", "--", *paths).strip()
             pending = git("status", "--porcelain", "--", *paths).strip()
-            assert committed == "" and pending == "", (committed, pending)
+            assert sorted(committed.split()) == EXPECTED_CORE_CHANGES and pending == "", (
+                committed,
+                pending,
+            )
             earlier = [r for r in self.results if r["item"] <= 86]
             failed = [r["item"] for r in earlier if r["status"] != "PASS"]
             assert len(earlier) == 86 and not failed, failed
             return (
                 f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} "
-                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} {CORE_CHANGE_NOTE} since "
                 f"{COMPRESSED_BASE}; items 1–86 PASS"
             )
 
@@ -4219,13 +4305,16 @@ class Acceptance:
             paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
             committed = git("diff", "--name-only", STUDY_FRAMES_BASE, "HEAD", "--", *paths).strip()
             pending = git("status", "--porcelain", "--", *paths).strip()
-            assert committed == "" and pending == "", (committed, pending)
+            assert sorted(committed.split()) == EXPECTED_CORE_CHANGES and pending == "", (
+                committed,
+                pending,
+            )
             earlier = [r for r in self.results if r["item"] <= 88]
             failed = [r["item"] for r in earlier if r["status"] != "PASS"]
             assert len(earlier) == 88 and not failed, failed
             return (
                 f"aegis {status['mode']} / {status['exchange']}; DailySchedule {schedule['id'][:8]} "
-                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} {CORE_CHANGE_NOTE} since "
                 f"{STUDY_FRAMES_BASE}; items 1–88 PASS"
             )
 
@@ -4266,24 +4355,7 @@ class Acceptance:
             page.mouse.up()
             page.wait_for_timeout(300)
 
-        def open_in_builder(doc_id):
-            page.locator("#nav-lab").click()
-
-            # Earlier items can leave unsaved workspace edits: opening another strategy asks first.
-            def accept(dialog):
-                dialog.accept()
-
-            page.on("dialog", accept)
-            try:
-                page.locator(f"#doc-{doc_id}").click()
-                page.wait_for_function(
-                    f"document.querySelector('#doc-{doc_id}')?.classList.contains('selected')",
-                    timeout=30_000,
-                )
-            finally:
-                page.remove_listener("dialog", accept)
-            page.wait_for_selector('.react-flow__node[data-id="entry"]', timeout=30_000)
-            page.wait_for_timeout(500)
+        open_in_builder = self.open_in_builder
 
         def item91():
             spec = self.api("strategy/default")
@@ -4392,7 +4464,8 @@ class Acceptance:
             page.locator("#builder").focus()
             page.keyboard.press("Control+z")
             ready()
-            assert "rsi" in blocks()
+            # React Flow draws the restored node a frame after the status reads Ready.
+            assert self.wait_until(lambda: "rsi" in blocks(), 10), blocks()
             self.builder_save()
             saved = self.api(f"strategies/{built['id']}")
             entry = saved["spec"]["long_side"]["entry"]
@@ -4503,13 +4576,23 @@ class Acceptance:
             before = self.api(f"strategies/{built['id']}")["strategy_hash"]
             page.locator("#phrase-input").fill("buy when vwap crosses 30 sma")
             page.locator("#phrase-input").press("Enter")
-            page.wait_for_selector("#phrase-error", timeout=30_000)
-            message = page.locator("#phrase-error").inner_text()
-            underlined = page.locator("#phrase-error u").inner_text()
-            assert "vwap" in message and underlined == "vwap", (message, underlined)
+            # Mission 14: the reader's refusal goes to the AI, which refuses too or reads the rest
+            # with "vwap" left unexpressed; either way nothing is applied without Apply.
+            page.wait_for_selector("#phrase-error, #phrase-reading", timeout=150_000)
+            if page.locator("#phrase-error").count():
+                message = page.locator("#phrase-error").inner_text().replace("\n", " | ")
+                underlined = page.locator("#phrase-error u").inner_text()
+                assert "vwap" in message and underlined == "vwap", (message, underlined)
+                outcome = f"'{message}'; underlined '{underlined}'"
+            else:
+                shown = page.locator("#phrase-reading").inner_text().replace("\n", " | ")
+                unexpressed = page.locator("#phrase-unsupported")
+                assert unexpressed.count() and "vwap" in unexpressed.inner_text().lower(), shown
+                page.locator("#phrase-cancel").click()
+                outcome = f"the AI read the rest: '{shown}'; cancelled"
             assert page.locator("#builder-save").is_disabled()
             assert self.api(f"strategies/{built['id']}")["strategy_hash"] == before
-            return f"'{message}'; underlined '{underlined}'; nothing applied, hash {before[:12]}"
+            return f"{outcome}; nothing applied, hash {before[:12]}"
 
         self.item(96, item96)
 
@@ -4528,17 +4611,210 @@ class Acceptance:
             paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
             committed = git("diff", "--name-only", BUILDER_BASE, "HEAD", "--", *paths).strip()
             pending = git("status", "--porcelain", "--", *paths).strip()
-            assert committed == "" and pending == "", (committed, pending)
+            assert sorted(committed.split()) == EXPECTED_CORE_CHANGES and pending == "", (
+                committed,
+                pending,
+            )
             earlier = [r for r in self.results if r["item"] <= 96]
             failed = [r["item"] for r in earlier if r["status"] != "PASS"]
             assert len(earlier) == 96 and not failed, failed
             return (
                 f"aegis {state['mode']} / {state['exchange']}; DailySchedule {schedule['id'][:8]} "
-                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
+                f"enabled={schedule['enabled']}; no change under {', '.join(paths)} {CORE_CHANGE_NOTE} since "
                 f"{BUILDER_BASE}; items 1–96 PASS"
             )
 
         self.item(97, item97)
+        self.ai_reading()
+
+    # -- Mission 14 items 98-102 ---------------------------------------------------------------------
+    def ai_reading(self):
+        page = self.page
+        read: dict = {}
+
+        def enter(text):
+            page.locator("#phrase-input").fill(text)
+            page.locator("#phrase-input").press("Enter")
+
+        def learned() -> list[dict]:
+            return self.api("phrases/learned")
+
+        def forget(entry):
+            gone = page.request.delete(self.base + f"api/phrases/learned/{entry['id']}")
+            assert gone.ok, gone.text()
+
+        def item98():
+            # A walk stopped between items 98 and 100 leaves what it learned: forget only that.
+            for entry in learned():
+                if entry["example"] == AI_SENTENCE:
+                    forget(entry)
+            created = self.post(
+                "strategies",
+                {"name": f"AI reading {self.stamp}", "spec": self.api("strategy/default")},
+            )
+            assert created.status == 201, created.text()
+            read["id"] = created.json()["id"]
+            page.reload()  # the Lab's list was loaded before this strategy existed (as item 93)
+            page.wait_for_selector("#chart-mount", timeout=60_000)
+            self.open_in_builder(read["id"])
+            page.locator("#reader-provider").select_option("CLAUDE")
+            started = time.perf_counter()
+            enter(AI_SENTENCE)
+            page.wait_for_selector("#phrase-thinking", timeout=5_000)
+            thinking = page.locator("#phrase-thinking span").inner_text()
+            assert thinking == "Reading with Claude…", thinking
+            page.wait_for_selector("#phrase-reading, #phrase-error", timeout=150_000)
+            seconds = round(time.perf_counter() - started, 1)
+            if page.locator("#phrase-error").count():
+                raise AssertionError(page.locator("#phrase-error").inner_text())
+            rewrite = page.locator("#phrase-rewrite").inner_text()
+            by = page.locator("#phrase-read-by").inner_text()
+            reading = page.locator("#phrase-reading .phrase-reading-text").inner_text()
+            assert rewrite.startswith("Read as: ") and by.startswith("Read by Claude"), (
+                rewrite,
+                by,
+            )
+            unexpressed = page.locator("#phrase-unsupported")
+            left = unexpressed.inner_text() if unexpressed.count() else "nothing"
+            self.timings["ai_reading_seconds"] = seconds
+            self.timings["ai_reading_by"] = by
+            page.locator("#phrase-apply").click()
+            page.wait_for_selector("#phrase-learned", timeout=30_000)
+            taught = page.locator("#phrase-learned").inner_text()
+            self.builder_save()
+            side = self.api(f"strategies/{read['id']}")["spec"]["long_side"]
+            named = {i["id"]: (i["kind"], i["length"]) for i in side["indicators"]}
+
+            def rule(r):
+                return named.get(r["left"]), r["operator"], named.get(r["right"])
+
+            assert rule(side["entry"]) == (("EMA", 9), "crosses_above", ("SMA", 30)), side["entry"]
+            assert rule(side["exit"]) == (("EMA", 9), "crosses_below", ("SMA", 30)), side["exit"]
+            return (
+                f"'Reading with Claude…', then in {seconds} s: '{rewrite}'; '{reading}'; '{by}'; "
+                f"couldn't express {left}; applied and saved ({read['id']}): entry EMA 9 crosses "
+                f"above SMA 30, exit EMA 9 crosses below SMA 30; '{taught}'"
+            )
+
+        self.item(98, item98)
+
+        def item99():
+            ours = [e for e in learned() if e["example"] == AI_SENTENCE]
+            up = [e for e in ours if "up" in e["from"].split()]
+            assert up, ours
+            read["learned"] = ours
+            page.locator("#learned-open").click()
+            page.wait_for_selector(f"#learned-{up[0]['id']}", timeout=10_000)
+            row = page.locator(f"#learned-{up[0]['id']}").inner_text().replace("\n", " | ")
+            page.locator("#learned-open").click()
+            with page.expect_response(
+                lambda r: r.url.endswith("/aegis/api/strategies/read"), timeout=30_000
+            ) as caught:
+                enter(LEARNED_SENTENCE)
+            answer = caught.value.json()
+            assert caught.value.ok and answer["read_by"] == "phrases", answer
+            assert answer.get("provenance") is None, answer
+            page.wait_for_selector("#phrase-reading", timeout=10_000)
+            by = page.locator("#phrase-read-by").inner_text()
+            assert by == "Read by the phrase reader", by
+            assert page.locator("#phrase-thinking").count() == 0
+            page.locator("#phrase-cancel").click()
+            pairs = ", ".join(e["from"] + " -> " + e["to"] for e in ours)
+            return (
+                f"learned {pairs}; listed as '{row}'; '{LEARNED_SENTENCE}' -> "
+                f"'{answer['reading']}', '{by}'"
+            )
+
+        self.item(99, item99)
+
+        def item100():
+            page.locator("#learned-open").click()
+            for entry in read["learned"]:
+                page.wait_for_selector(f"#learned-remove-{entry['id']}", timeout=10_000)
+                page.locator(f"#learned-remove-{entry['id']}").click()
+                page.wait_for_selector(f"#learned-{entry['id']}", state="detached", timeout=10_000)
+            page.locator("#learned-open").click()
+            left = {e["id"] for e in learned()}
+            assert not left & {e["id"] for e in read["learned"]}, left
+            enter(LEARNED_SENTENCE)
+            page.wait_for_selector("#phrase-thinking", timeout=5_000)
+            thinking = page.locator("#phrase-thinking span").inner_text()
+            assert thinking == "Reading with Claude…", thinking
+            page.locator("#phrase-cancel-ai").click()
+            page.wait_for_selector("#phrase-thinking", state="detached", timeout=5_000)
+            page.wait_for_timeout(500)
+            shown = page.locator("#phrase-reading, #phrase-error").count()
+            kept = page.locator("#phrase-input").input_value()
+            assert shown == 0 and kept == LEARNED_SENTENCE, (shown, kept)
+            return (
+                f"removed {len(read['learned'])} through the list; '{LEARNED_SENTENCE}' -> "
+                f"'{thinking}' again; Cancel: nothing shown, the text kept"
+            )
+
+        self.item(100, item100)
+
+        def item101():
+            before = self.api("preferences")
+            page.locator("#reader-provider").select_option("CODEX")
+            chosen = self.wait_until(
+                lambda: self.api("preferences")["reader_provider"] == "CODEX", 10
+            )
+            assert chosen, self.api("preferences")
+            page.reload()
+            page.wait_for_selector("#chart-mount", timeout=60_000)
+            self.open_in_builder(read["id"])
+            shown = self.wait_until(
+                lambda: page.locator("#reader-provider").input_value() == "CODEX", 10
+            )
+            assert shown, page.locator("#reader-provider").input_value()
+            # Back to what the operator had (item 98 chose Claude for its reading; the walk
+            # leaves the remembered provider as it found it).
+            page.locator("#reader-provider").select_option(before["reader_provider"])
+            back = self.wait_until(
+                lambda: self.api("preferences")["reader_provider"] == before["reader_provider"],
+                10,
+            )
+            after = self.api("preferences")
+            assert back and after["save_runs"] == before["save_runs"], (before, after)
+            return (
+                f"Codex saved and shown after the reload; back to {before['reader_provider']} "
+                f"as found; save mode {after['save_runs']!r} as found"
+            )
+
+        self.item(101, item101)
+
+        def item102():
+            import subprocess
+
+            def git(*args, check=True):
+                return subprocess.run(
+                    ["git", *args], cwd=ROOT, capture_output=True, text=True, check=check
+                )
+
+            state = page.request.get("http://127.0.0.1:8000/aegis/api/status").json()
+            assert state["mode"] == "human_directed" and state["exchange"] == "CLOSED", state
+            schedule = page.request.get("http://127.0.0.1:8000/triad/api/daily-schedule").json()
+            assert schedule["enabled"] is False and schedule["id"].startswith("c99fa831"), schedule
+            paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
+            committed = git("diff", "--name-only", AI_READING_BASE, "HEAD", "--", *paths).stdout
+            pending = git("status", "--porcelain", "--", *paths).stdout.strip()
+            assert sorted(committed.split()) == EXPECTED_CORE_CHANGES and pending == "", (
+                committed,
+                pending,
+            )
+            assert git("check-ignore", "-q", ".env", check=False).returncode == 0, ".env tracked"
+            earlier = [r for r in self.results if r["item"] <= 101]
+            failed = [r["item"] for r in earlier if r["status"] != "PASS"]
+            assert len(earlier) == 101 and not failed, failed
+            return (
+                f"aegis {state['mode']} / {state['exchange']}; DailySchedule {schedule['id'][:8]} "
+                f"enabled={schedule['enabled']}; since {AI_READING_BASE} Core changed only in "
+                f"Mission 14's {', '.join(p.rsplit('/', 1)[1] for p in MISSION14_CORE_FILES)} and "
+                f"main's {', '.join(p.rsplit('/', 1)[1] for p in MAIN_CORE_FILES)}, nothing under "
+                f"app/platform_host or app/products/triad; .env ignored by git; items 1–101 PASS"
+            )
+
+        self.item(102, item102)
 
     # -- Optimization Lab v2, Phase 1: plumbing -------------------------------------------------
     def lab_experiment_body(self, name: str, surface) -> dict:
@@ -5989,14 +6265,18 @@ class Acceptance:
             paths = ["app/trading_core", "app/platform_host", "app/products/triad"]
             committed = git("diff", "--name-only", LAB_BASE, "HEAD", "--", *paths).strip()
             pending = git("status", "--porcelain", "--", *paths).strip()
-            assert committed == "" and pending == "", (committed, pending)
+            assert sorted(committed.split()) == LAB_MAIN_CORE_FILES and pending == "", (
+                committed,
+                pending,
+            )
             earlier = [r for r in self.results if first <= r["item"] < first + 12]
             failed = [r["item"] for r in earlier if r["status"] != "PASS"]
             assert len(earlier) == 12 and not failed, failed
             return (
                 f"aegis {state['mode']} / {state['exchange']}; DailySchedule {schedule['id'][:8]} "
                 f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
-                f"{LAB_BASE}; Lab items {first}–{first + 11} PASS; fixtures {fixtures}{served}"
+                f"{LAB_BASE} but Mission 14's {len(LAB_MAIN_CORE_FILES)} fix-pass files merged from "
+                f"main; Lab items {first}–{first + 11} PASS; fixtures {fixtures}{served}"
             )
 
         self.item(first + 12, lab_governance)

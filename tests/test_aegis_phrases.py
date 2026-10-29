@@ -3,7 +3,7 @@ Each expected side is written out in full and validated as a `StrategySide`; not
 so unread words refuse the whole text, naming them."""
 
 import pytest
-from products.aegis.phrases import Unread, read
+from products.aegis.phrases import Unread, apply_learned, read
 from products.aegis.strategy import StrategySide, default_strategy
 
 pytestmark = pytest.mark.aegis
@@ -283,3 +283,24 @@ def test_grammar_text_names_every_kind_and_opener():
     for word in KIND_WORDS:
         assert word in grammar
     assert "stop at" in grammar and "take profit at" in grammar
+
+
+# -- the milestone review (2026-10-28) ------------------------------------------------------------
+def test_the_mission_13_table_reads_the_same_with_learned_phrases_present():
+    learned = [
+        ("crosses up", "crosses above"),
+        ("drops under", "is below"),
+        ("goes over", "is above"),
+        ("crosses back down", "crosses below"),
+    ]
+    for text, _sides, _defaults in CASES:
+        assert read(text, default_strategy(), learned=learned) == read(text, default_strategy()), (
+            text
+        )
+
+
+def test_learned_phrases_apply_leftmost_first_then_longest():
+    """Two phrases that overlap at different starts: the leftmost match wins, and among phrases
+    starting at the same place the longest."""
+    assert apply_learned("a b c d", [("a b", "X"), ("b c d", "Y")])[0] == "X c d"
+    assert apply_learned("a b c d", [("a b", "X"), ("a b c", "Y")])[0] == "Y d"

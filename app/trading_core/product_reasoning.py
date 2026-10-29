@@ -20,7 +20,8 @@ from trading_core.intelligence.routing import Requirements, Routing
 from trading_core.store import ConcurrentUpdate
 from trading_core.work import ComputeBudget, Record, State, WorkItem, WorkResult
 
-LIMIT_SECONDS = 120.0
+RUN_SECONDS = 120  # the run's own time allocation (spec §4.1: 120 seconds at most)
+LIMIT_SECONDS = float(RUN_SECONDS)  # how long the caller waits for it
 SCHEMA_CHARS = 8_000
 OBJECTIVE = (
     "Read the product's input as its instructions describe and answer with only a JSON object of "
@@ -29,7 +30,8 @@ OBJECTIVE = (
     "commands_executed, actions_taken, tests_run, claims and permission_requests empty; proposal "
     "null."
 )
-# A run keeps its lease until it ends, even after its caller stopped waiting.
+# A run keeps its lease until it ends (the runtime stops it past RUN_SECONDS), even after its
+# caller stopped waiting.
 _RUNS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="product-reasoning")
 Provider = Literal["CLAUDE", "CODEX", "GROK"]
 PROVIDERS = get_args(Provider)
@@ -49,7 +51,7 @@ def _work(product: str, provider: str | None) -> WorkItem:
         execution_permissions=("read",),
         review_required=False,
         reasoning_budget=8192,
-        compute_budget=ComputeBudget(),
+        compute_budget=ComputeBudget(timeout_seconds=RUN_SECONDS),
         acceptance_criteria=(
             "Answer only with JSON of the product's shape",
             "Never execute or claim actions",
@@ -146,6 +148,14 @@ class ProductReasoning:
             ) from exc
 
     def _run(self, product: str, request: ReasoningRequest) -> dict:
+        try:
+            return self._run_governed(product, request)
+        except ReasoningFailed:
+            raise
+        except Exception as exc:  # the store or the router before any run: Core's own failure
+            raise ReasoningFailed("core_failed", 503, "Core could not run the reading") from exc
+
+    def _run_governed(self, product: str, request: ReasoningRequest) -> dict:
         with ExitStack() as stack:
             try:
                 stack.enter_context(self.records.store.lease("core-product-reasoning-" + product))
