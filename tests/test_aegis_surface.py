@@ -402,6 +402,24 @@ def test_plan_prices_every_evaluation():
     assert timed.evaluations == timed.planned_runs * 5
 
 
+def test_a_lever_whose_blocks_fall_short_never_fits():
+    """Task 2 review fix 5: a lever's own bar count meets the block minimum. On 200 bars at
+    K = 4 (50 a block), shortening to 100 bars (25 a block) would fit the time budget, but the
+    planner refuses that plan, so the lever is offered as not fitting, as an unsampleable lever
+    is."""
+    surface = item2_surface()
+    budget = Budget(seconds=0.2)  # 228 configurations at 200 bars; 457 at 100
+    result = plan(pinned(), surface, budget, 200, 0.01, WORKERS, timeframe="1h", blocks=4)
+    assert result.mode == "sampled" and result.valid_cells == 252
+    levers = {(lever.kind, lever.parameter): lever for lever in result.levers}
+    with pytest.raises(ValueError, match="blocks: 4 blocks of 100 bars leave 25 per block"):
+        plan(pinned(), surface, budget, 100, 0.01, WORKERS, blocks=4)
+    assert levers[("shorten", None)].fits is False
+    assert levers[("shorten", None)].estimate_seconds > 0
+    assert levers[("coarser_timeframe", None)].fits is False  # 31 bars at 1D
+    assert levers[("raise_budget", None)].fits is True  # on the plan's own 200 bars
+
+
 def test_plan_names_its_price_source():
     """Review finding 5: the plan line must say whether the price was measured or guessed."""
     guessed = plan(pinned(), item2_surface(), Budget(runs=2000), BARS, KERNEL_MS_PER_BAR, WORKERS)

@@ -102,7 +102,7 @@ def workers_for(bars: int, wanted: int, free: int) -> int:
     fit = int(usable // each) if each else wanted
     if fit < 1:
         raise ValueError(
-            f"not enough free memory for the pool: one worker on {bars:,} bars needs about "
+            f"not enough free memory for the pool: one worker holding {bars:,} bars needs about "
             f"{_gb(each)} and {_gb(usable)} of the {_gb(free)} free is usable; narrow the "
             "range or close other programs"
         )
@@ -110,7 +110,9 @@ def workers_for(bars: int, wanted: int, free: int) -> int:
 
 
 def fitted_workers(bars: int, wanted: int | None = None) -> int:
-    """`wanted` (default: the configured workers) capped to what free memory holds now."""
+    """`wanted` (default: the configured workers) capped to what free memory holds now, each
+    worker holding `bars` bars: a screened experiment's range plus its blocks' prefix frames
+    (`surface.held_bars`, Lab Phase 3), whose indicator cache grows with them."""
     return workers_for(bars, wanted or default_workers(), free_memory_bytes())
 
 

@@ -87,6 +87,7 @@ from products.aegis.strategies import (
 )
 from products.aegis.strategy import IndicatorSpec, StrategySpec
 from products.aegis.study_rules import render_study_markdown
+from products.aegis.surface import held_bars
 from products.aegis.unsaved import UnsavedRuns
 from products.aegis.walkforward import WalkForwardJob, WalkForwardRequest
 from products.aegis.walkforward import plan as walkforward_plan
@@ -938,7 +939,7 @@ def experiment_plan(
             request.budget,
             len(frame),
             measured or KERNEL_MS_PER_BAR,
-            fitted_workers(len(frame)),
+            fitted_workers(held_bars(len(frame), request.blocks)),  # as the job will fit them
             request.data.timeframe,
             price_source="measured" if measured else "starting_guess",
             blocks=request.blocks,
@@ -1007,7 +1008,7 @@ def create_experiment(
             library,
             request,
             len(frame),
-            fitted_workers(len(frame)),
+            fitted_workers(held_bars(len(frame), request.blocks)),  # as the job will fit them
             request.data.timeframe,
             pinned=pinned,
             engine_build=identity.engine_build(),

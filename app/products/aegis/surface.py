@@ -517,6 +517,13 @@ def configuration_bars(bars: int, blocks: int) -> int:
     return bars + sum(end for _, end in block_bounds(bars, blocks))
 
 
+def held_bars(bars: int, blocks: int) -> int:
+    """The bars one pool worker holds: the whole range plus a copy of each screening block's
+    prefix but the last (`frame_slice` copies; the last block's prefix is the range itself),
+    ≈ 2.5 × bars at K = 4 and 4.5 × at K = 8. Its indicator cache is sized by the same count."""
+    return bars + sum(end for _, end in block_bounds(bars, blocks)[:-1])
+
+
 def _check_blocks(bars: int, blocks: int) -> None:
     """A screening block shorter than the engine's minimum could never be scored: refused."""
     if blocks and bars // blocks < MIN_BARS:
@@ -599,12 +606,13 @@ def _levers(
     ):
         g = build_grid(spec, new_surface, bars) if new_surface is not None else grid
         try:
+            _check_blocks(new_bars or bars, blocks)  # the planner would refuse its blocks
             core = _core(
                 g, new_budget or budget, new_bars or bars, ms_per_cell_bar, max_workers, blocks
             )
             fits = core["mode"] == "exhaustive"
             estimate = core["estimate_seconds"]
-        except ValueError:  # the lever leaves the grid over a budget too small to sample
+        except ValueError:  # over a budget too small to sample, or blocks under the minimum
             fits, estimate = (
                 False,
                 g.valid_count
@@ -730,6 +738,7 @@ __all__ = [
     "configuration_bars",
     "current_value",
     "effective_workers",
+    "held_bars",
     "latin_hypercube",
     "lhs_stratum",
     "plan",

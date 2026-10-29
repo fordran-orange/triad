@@ -74,6 +74,7 @@ from products.aegis.surface import (
     build_grid,
     configuration_bars,
     effective_workers,
+    held_bars,
 )
 from products.aegis.surface import plan as plan_surface
 
@@ -341,7 +342,7 @@ def _cells_table_v2(
     return pa.table(columns, schema=_cells_schema_v2(paths))
 
 
-def _block0(table: pa.Table) -> pa.Table:
+def block0_rows(table: pa.Table) -> pa.Table:
     """The whole-range evaluations of a layout-2 table (§7.3a: every ordinary reader reads block
     0); the table itself when it holds no screening block's row."""
     blocks = table.column("block")
@@ -357,7 +358,7 @@ def _legacy_projection(table: pa.Table, paths: list[str]) -> pa.Table:
     reserved set for a parameter, and GET /experiments/{id}/cells would hand a `param_key`'s
     bytes to the JSON encoder, so neither ever sees a layout-2 column."""
     schema = _cells_schema(paths)
-    return _block0(table).select(schema.names).cast(schema)
+    return block0_rows(table).select(schema.names).cast(schema)
 
 
 def _curves_table(rows: list[dict]) -> pa.Table:
@@ -504,7 +505,7 @@ class ExperimentStore:
             with lab_store.LOCKS.read(experiment_id):
                 columns = ["trial_no", "cell", "status"]
                 trials = lab_store.read_latest(self.cells_dir(experiment_id), columns)
-                return set(_block0(trials.table).column("cell").to_pylist())
+                return set(block0_rows(trials.table).column("cell").to_pylist())
         done: set[int] = set()
         for path in _readable(self.cells_dir(experiment_id)):
             done.update(pq.read_table(path, columns=["cell"]).column("cell").to_pylist())
@@ -585,11 +586,8 @@ class ExperimentStore:
 
     @staticmethod
     def _row_of(table: pa.Table | None, cell: int) -> dict:
-        """The cell's row; a table that still carries `block` is read at block 0."""
         if table is not None:
             mask = pc.equal(table.column("cell"), pa.scalar(cell, pa.int64()))
-            if "block" in table.column_names:
-                mask = pc.and_(mask, pc.equal(table.column("block"), 0))
             found = table.filter(mask)
             if len(found):
                 return found.to_pylist()[0]
@@ -851,8 +849,9 @@ class ExperimentJob:
         self.blocks = block_bounds(self.bars, document.blocks)
         self.configuration_bars = configuration_bars(self.bars, document.blocks)
         self.grid = build_grid(document.spec, document.surface, self.bars)
-        self.workers = fitted_workers(
-            self.bars, max_workers or document.workers or default_workers()
+        self.workers = fitted_workers(  # each worker holds the range and its blocks' prefixes
+            held_bars(self.bars, document.blocks),
+            max_workers or document.workers or default_workers(),
         )
         self.chunk = document.chunk_cells or CHUNK_CELLS
         self.keep_curves = document.plan["planned_runs"] <= CURVES_LIMIT
@@ -1446,6 +1445,7 @@ __all__ = [
     "ExperimentRequest",
     "ExperimentStore",
     "Schedule",
+    "block0_rows",
     "block_bounds",  # surface.py's, beside the planner that prices and refuses blocks
     "cancel_idle",
     "create",

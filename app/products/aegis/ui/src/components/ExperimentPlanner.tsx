@@ -8,7 +8,7 @@ import { OBJECTIVE_LABELS, OBJECTIVES, type ExperimentLever, type Objective } fr
 import { TIMEFRAMES, useWorkspace, type Selection, type Timeframe } from '../state/workspace';
 import { formatSeconds } from './OptimizePopover';
 
-interface Param {
+export interface Param {
   path: string;
   start: number;
   stop: number;
@@ -58,6 +58,50 @@ function midpoint(start: string, end: string): string {
   return new Date(a + (b - a) / 2).toISOString().slice(0, 10);
 }
 
+/** What the planner's fields hold; `screened` is the "Screen across periods" checkbox. */
+export interface PlannerFields {
+  name: string;
+  strategyId: string;
+  data: ExperimentBody['data'];
+  settings: ExperimentBody['settings'];
+  objective: Objective;
+  params: Param[];
+  budgetRuns: string;
+  budgetSeconds: string;
+  tolerance: number;
+  screened: boolean;
+}
+
+/** The body the plan and the start send; null until the surface has a parameter. A ticked
+ *  "Screen across periods" asks for SCREEN_BLOCKS screening blocks, an unticked one for none (0). */
+export function experimentBody(fields: PlannerFields): ExperimentBody | null {
+  if (fields.params.length === 0) return null;
+  const runs = fields.budgetRuns.trim() === '' ? null : Number(fields.budgetRuns);
+  const seconds = fields.budgetSeconds.trim() === '' ? null : Number(fields.budgetSeconds);
+  return {
+    name: fields.name,
+    strategy_id: fields.strategyId,
+    data: fields.data,
+    settings: fields.settings,
+    objective: fields.objective,
+    surface: { parameters: fields.params },
+    budget: { runs, seconds },
+    tolerance: fields.tolerance,
+    seed: 1,
+    blocks: fields.screened ? SCREEN_BLOCKS : 0,
+  };
+}
+
+/** The plan line: the surface, the estimate and its price, the evaluations of a screened plan
+ *  ("evaluations: N × 5"), and the skipped cells. */
+export function planLine(params: Param[], plan: Plan): string {
+  return (
+    `${surfaceLine({ parameters: params }, plan)} · ≈ ${formatSeconds(plan.estimate_seconds)} on ${plan.workers} workers at ${num(plan.ms_per_cell_bar * plan.bars, 1)} ms per cell (${priceLabel(plan)})` +
+    (plan.blocks ? ` · ${evaluationsLine(plan)}` : '') +
+    (plan.skipped ? ` · ${plan.skipped.toLocaleString()} skipped (${Object.keys(plan.skip_reasons).join('; ')})` : '')
+  );
+}
+
 export function ExperimentPlanner({ document, onCreated, onClose }: Props) {
   const { selection, settings } = useWorkspace();
   const offered = useMemo(() => availablePaths(document), [document]);
@@ -73,23 +117,10 @@ export function ExperimentPlanner({ document, onCreated, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
 
-  const body: ExperimentBody | null = useMemo(() => {
-    if (params.length === 0) return null;
-    const runs = budgetRuns.trim() === '' ? null : Number(budgetRuns);
-    const seconds = budgetSeconds.trim() === '' ? null : Number(budgetSeconds);
-    return {
-      name,
-      strategy_id: document.id,
-      data,
-      settings,
-      objective,
-      surface: { parameters: params },
-      budget: { runs, seconds },
-      tolerance,
-      seed: 1,
-      blocks: screened ? SCREEN_BLOCKS : 0,
-    };
-  }, [name, document.id, data, settings, objective, params, budgetRuns, budgetSeconds, tolerance, screened]);
+  const body: ExperimentBody | null = useMemo(
+    () => experimentBody({ name, strategyId: document.id, data, settings, objective, params, budgetRuns, budgetSeconds, tolerance, screened }),
+    [name, document.id, data, settings, objective, params, budgetRuns, budgetSeconds, tolerance, screened],
+  );
 
   useEffect(() => {
     if (!body) {
@@ -216,9 +247,7 @@ export function ExperimentPlanner({ document, onCreated, onClose }: Props) {
         {params.length === 0
           ? 'Add at least one parameter.'
           : plan
-            ? `${surfaceLine({ parameters: params }, plan)} · ≈ ${formatSeconds(plan.estimate_seconds)} on ${plan.workers} workers at ${num(plan.ms_per_cell_bar * plan.bars, 1)} ms per cell (${priceLabel(plan)})` +
-              (plan.blocks ? ` · ${evaluationsLine(plan)}` : '') +
-              (plan.skipped ? ` · ${plan.skipped.toLocaleString()} skipped (${Object.keys(plan.skip_reasons).join('; ')})` : '')
+            ? planLine(params, plan)
             : error
               ? ''
               : 'Planning…'}

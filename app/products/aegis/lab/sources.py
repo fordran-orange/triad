@@ -32,18 +32,21 @@ from products.aegis.experiments import (
     UNFINISHED,
     ExperimentDocument,
     ExperimentStore,
-    _block0,
     _cells_schema_v2,
+    block0_rows,
 )
 from products.aegis.lab import identity
 from products.aegis.lab.cache import LabCache
 from products.aegis.lab.index import FrameIndex, build_index
 from products.aegis.lab.policy import SHARPE_MIN_TRADES
 from products.aegis.lab.query import (
+    ALL_BLOCKS,
     BASIS_EXACT,
+    BLOCK0,
     METRIC_NAMES,
     LabFilter,
     ParameterInfo,
+    Selection,
     TrialFrame,
     _status_tallies,
     aggregated_basis,
@@ -95,11 +98,9 @@ SUMMARY_BYTES = 65_536  # and of an `exp-summary` part (counts per value and the
 # A cached aggregate matrix's size per square, its four stats' values, stats and histogram
 # included (1.3 to 1.9 KB measured, from 200 x 200 to 12 x 12 squares, every square tested).
 SQUARE_BYTES = 2048
-# The row selection in a table's and an index's key (Ruling P1): ordinary views read block 0,
-# filtered before caching; the importance task reads every screening block, under its own key.
-BLOCK0 = "block0"
-ALL_BLOCKS = "all"
-Selection = Literal["block0", "all"]
+# The row selection (`query.BLOCK0` / `ALL_BLOCKS`, Ruling P1) is in a table's and an index's
+# key: ordinary views read block 0, filtered before caching; the importance task reads every
+# screening block, under its own key.
 _TRIAL_NUMBER = re.compile(r"[0-9]{1,18}")  # below 2**63: a trial_no is an int64
 
 
@@ -315,7 +316,7 @@ def _select_rows(trials: TrialTable, selection: Selection) -> _Selected:
         return _Selected(trials, None)
     if selection != BLOCK0:
         raise ValueError(f"unknown row selection {selection!r}")
-    kept = _block0(trials.table)
+    kept = block0_rows(trials.table)
     if kept is trials.table:
         return _Selected(trials, None)
     done = _status_tallies(trials.table)[1]["evaluations_done"]
@@ -398,6 +399,7 @@ def open_experiment(
         objective=meta.objective,
         blocks=document.blocks,
         evaluations_done=selected.evaluations_done,
+        selection=selection,
     )
     return frame, handle
 
@@ -412,8 +414,13 @@ def experiment_index(
 ) -> FrameIndex:
     """The snapshot's index (index.py), built from the first request's frame on that snapshot of
     this instance of the experiment and shared by every later one, whatever columns it loads:
-    their rows are the same block-0 rows in the same order. Only a `BLOCK0` frame is indexed (an
-    `ALL_BLOCKS` frame of a screened experiment has other rows, which the index refuses)."""
+    their rows are the same block-0 rows in the same order. Only a `BLOCK0` frame is indexed: any
+    other selection is a ValueError before the cache is touched, so an every-block frame (Task 6's
+    importance task) never becomes the index every ordinary view of the snapshot reads."""
+    if frame.selection != BLOCK0:
+        raise ValueError(
+            f"the snapshot index is built from block-0 frames only, not a {frame.selection!r} frame"
+        )
     snapshot = frame.snapshot
     return cache.get(
         (

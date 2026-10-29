@@ -38,7 +38,14 @@ from products.aegis.lab.cache import LabCache
 from products.aegis.lab.query import LabFilter, _status_tallies, scope_counts
 from products.aegis.lab.sharpe import sharpe_scopes
 from products.aegis.pool import METRICS, SCOPES, Pool, pool_frame, resample_curve
-from products.aegis.surface import Parameter, Surface, apply_params
+from products.aegis.surface import (
+    Parameter,
+    Surface,
+    apply_params,
+    configuration_bars,
+    effective_workers,
+    held_bars,
+)
 from test_aegis_api import RANGE, _experiment_body
 from test_aegis_data import write_archive
 from test_aegis_experiments import (  # noqa: F401 - `world` is the shared experiments fixture
@@ -590,3 +597,87 @@ def test_block0_and_every_block_are_two_cache_entries(client, lab_cache, monkeyp
     for frame in (block0, every):
         counted = scope_counts(frame, LabFilter())
         assert (counted["completed"], counted["evaluations_done"]) == (4, 20)
+
+
+# --- Task 2 review fixes ----------------------------------------------------------------------
+
+
+def two_or_one(monkeypatch, bars: int, blocks: int) -> None:
+    """Free memory for two workers holding `bars` and one holding its screened prefix frames
+    too: the usable share sits between two of the first and two of the second."""
+    from products.aegis import pool as worker_pool
+
+    def each(held: int) -> int:
+        return worker_pool.POOL_WORKER_BYTES + held * worker_pool.POOL_BYTES_PER_BAR
+
+    free = (each(bars) + each(held_bars(bars, blocks))) / worker_pool.MEMORY_HEADROOM
+    monkeypatch.setattr(worker_pool, "free_memory_bytes", lambda: int(free))
+
+
+def test_held_bars_count_every_prefix_frame():
+    """A screened worker holds the whole range and the K - 1 shorter prefixes (`frame_slice`
+    copies them); the last block's prefix is the range itself."""
+    assert held_bars(260, 0) == 260
+    assert held_bars(260, 4) == 260 + 65 + 130 + 195
+    assert held_bars(800, 8) == 800 + sum(100 * b for b in range(1, 8))  # 4.5 x at K = 8
+
+
+def test_a_blocked_job_fits_fewer_workers(world, monkeypatch):  # noqa: F811
+    """Review fix 1: the job fits its workers to what each one holds, its prefix frames included,
+    so a screened experiment on the same range runs on fewer workers when memory is short."""
+    repository, library, document = world
+    store = exp.ExperimentStore(repository)
+    two_or_one(monkeypatch, len(ROWS), 4)
+    workers = {}
+    for blocks in (0, 4):
+        created = exp.create(
+            store,
+            library,
+            request(document, name=f"fit {blocks}", blocks=blocks),
+            bars=len(ROWS),
+            max_workers=8,
+        )
+        workers[blocks] = exp.ExperimentJob(created, ROWS, PINNED_DATA, repository).workers
+    assert workers == {0: 2, 4: 1}
+
+
+def test_the_plan_fits_workers_to_the_held_bars(client, monkeypatch):  # noqa: F811
+    """Review fix 1: the plan and create routes fit their workers to the held bars, so the plan's
+    `workers` and estimate are the ones the job will run on."""
+    c, _, _ = client
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "8")
+    bars = 780  # ONE_MINUTE
+    two_or_one(monkeypatch, bars, 4)
+    url = "/aegis/api/experiments/plan"
+    plain = c.post(url, json=_experiment_body(c, data=ONE_MINUTE)).json()
+    blocked = c.post(url, json=_experiment_body(c, data=ONE_MINUTE, blocks=4)).json()
+    assert (plain["bars"], blocked["bars"]) == (bars, bars)
+    assert (plain["workers"], blocked["workers"]) == (2, 1)
+    per_run = configuration_bars(bars, 4) * blocked["ms_per_cell_bar"] / 1000.0
+    expected = blocked["planned_runs"] * per_run / effective_workers(1)
+    assert blocked["estimate_seconds"] == pytest.approx(expected, rel=1e-12)
+    experiment_id = _finished_experiment(c, monkeypatch, name="fit", data=ONE_MINUTE, blocks=4)
+    created = c.get(f"/aegis/api/experiments/{experiment_id}").json()
+    assert created["workers"] == 1 and created["plan"]["workers"] == 1
+
+
+def test_the_snapshot_index_refuses_an_all_blocks_frame(client, lab_cache, monkeypatch):  # noqa: F811
+    """Review fix 2: a frame records its row selection, and the snapshot's index (keyed block 0)
+    is never built from an every-block frame, so it cannot poison the ordinary views."""
+    c, _, repository = client
+    experiment_id = _finished_experiment(c, monkeypatch, name="blocked", data=ONE_MINUTE, blocks=4)
+    store = exp.ExperimentStore(repository)
+    document = store.get(experiment_id)
+    every, handle = sources.open_experiment(
+        document, store, lab_cache, sources.BASE, selection=sources.ALL_BLOCKS
+    )
+    lab_store.REGISTRY.release(handle)
+    assert every.selection == sources.ALL_BLOCKS and every.table.num_rows == 20
+    with pytest.raises(ValueError, match="block-0 frames only"):
+        sources.experiment_index(lab_cache, every, document)
+    assert not [key for key in lab_cache._entries if key[0] == ("exp-index", experiment_id)]
+    _, block0 = _open(repository, lab_cache, experiment_id, sources.BASE)
+    assert block0.selection == sources.BLOCK0
+    assert sources.experiment_index(lab_cache, block0, document).rows == 4
+    response = c.post(f"{LAB}/exp:{experiment_id}/query", json={"filter": {}, "view": "counts"})
+    assert response.status_code == 200 and response.json()["scope"]["completed"] == 4

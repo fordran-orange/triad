@@ -55,6 +55,11 @@ _STATUSES = ("ok", "invalid", "failed")
 _ROW_FIELDS = ("valid", "status", "pass", "design")  # beside `cell`, None when not loaded
 _INT64_MAX = 2**63 - 1
 _BINCOUNT_SPAN = 1 << 22  # group keys below this are tallied by np.bincount (32 MB of counts)
+# A frame's row selection (Ruling P1), in its cache key and on the frame itself: ordinary views
+# read block 0; the importance task reads every screening block.
+BLOCK0 = "block0"
+ALL_BLOCKS = "all"
+Selection = Literal["block0", "all"]
 
 
 def aggregated_basis(filtered: int) -> str:
@@ -112,9 +117,10 @@ class ParameterInfo:
 class TrialFrame:
     """What one request reads: the canonical block-0 trials of one snapshot (`read_trials`'
     table, projected to the columns the view needs) and the source's counts. `blocks` is the
-    source's screening-block count K (Lab Phase 3). A table filtered to block 0 before it was
-    cached carries the snapshot's `evaluations_done` (§6.4: every block's ok evaluations, counted
-    before the filter); None when the table holds every row it counts from."""
+    source's screening-block count K (Lab Phase 3) and `selection` the rows the table holds
+    (`BLOCK0`, or `ALL_BLOCKS` for the importance task). A table filtered to block 0 before it
+    was cached carries the snapshot's `evaluations_done` (§6.4: every block's ok evaluations,
+    counted before the filter); None when the table holds every row it counts from."""
 
     source: str
     table: pa.Table
@@ -132,6 +138,7 @@ class TrialFrame:
     objective: str
     blocks: int = 0
     evaluations_done: int | None = None
+    selection: Selection = BLOCK0
 
 
 # --- columns and masks ------------------------------------------------------------------------
