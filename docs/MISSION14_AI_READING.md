@@ -261,3 +261,11 @@ the walk `docs/evidence/aegis-acceptance-20261029T035508Z.json` 102/102 PASS, no
 - Identity: every saved strategy document's hash recomputed after the walks
   (`builder_identity.py hashes`): 55 strategies, 0 changed.
 - `tools\verify.ps1` on the branch after the walks: lint and format clean; inventory core 597, triad 1,058, aegis 561; all three scopes green (core 410 passed / 187 skipped; triad 634 / 424 with 209 subtests; aegis 560 / 1); the foundation audit passed every check up to "Wrong Git branch", where it stops on a branch by design (415 s).
+
+## Merged
+
+2026-10-29, the operator's answer "merge and push": `main` fast-forwarded `042d5c9..066bf5a`
+(16 commits); `tools\verify.ps1` on `main` exit 0 (lint and format clean; inventory core 603,
+triad 1,058, aegis 572; core 413 / 190; triad 634 / 424 with 209 subtests; aegis 571 / 1; "all three
+scopes green"); pushed. The milestone QA and the whole-branch review ran on Fable 5.1 before the
+merge (above); this note was committed on Opus 5.5.
