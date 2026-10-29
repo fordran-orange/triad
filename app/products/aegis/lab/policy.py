@@ -96,3 +96,5 @@ CONVERGENCE_MAX_POINTS = 1_000
 # §9.4 / §9.6 the staged importance task: ≤ 180 s in total, the fine-grid stage within 30 s.
 TASK_BUDGET_S = 180
 FINE_STAGE_BUDGET_S = 30
+# Decision 6: a Lab task's finished results stay in memory, this many least recently used.
+TASK_RESULTS = 32

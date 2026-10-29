@@ -33,7 +33,13 @@ async def lifespan(_: FastAPI):
     if healed:
         log.warning("finished %d interrupted Recently deleted move(s): %s", len(healed), healed)
     api.warm_in_background(api.get_store())  # spec §6: first touches warm, off the request path
-    yield
+    try:
+        yield
+    finally:
+        # The Lab's task thread stops at its running task's next checkpoint and every waiting
+        # task's pinned snapshot is released; a later lifespan (a test's) builds a fresh one.
+        api.get_lab_tasks().shutdown()
+        api.get_lab_tasks.cache_clear()
 
 
 app = FastAPI(title="Aegis human-directed product", lifespan=lifespan)

@@ -256,6 +256,15 @@ class JobRunner:
             job = self._jobs.get(job_id)
             return job.kind if job is not None and job.status in UNFINISHED else None
 
+    def running_kind(self) -> str | None:
+        """The kind of the job running now (one at a time), or None: one brief hold of the lock
+        and no snapshot built (a Lab task's `sharing_cpu`, read with every status)."""
+        with self._lock:
+            for job in self._jobs.values():
+                if job.status == "running":
+                    return job.kind.name
+        return None
+
     def cancel(self, job_id: str) -> bool:
         with self._lock:
             job = self._jobs.get(job_id)

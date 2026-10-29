@@ -70,6 +70,7 @@ from products.aegis.lab.store import (
     REGISTRY,
     Counters,
     Snapshot,
+    SnapshotExpired,
     TrialTable,
     file_set,
     latest_snapshot,
@@ -331,6 +332,7 @@ def open_experiment(
     *,
     trial_no: int | None = None,
     selection: Selection = BLOCK0,
+    snapshot: Snapshot | None = None,
 ) -> tuple[TrialFrame, int]:
     """The frame of one request and its registry handle, which the caller releases when its
     answer is built. Under the experiment's read lock: the latest snapshot, read once; its file
@@ -344,13 +346,25 @@ def open_experiment(
     synthesized snapshot. `selection` picks the rows (Ruling P1): block 0 for every ordinary
     view, filtered before caching, so a screened experiment costs the cache no more than an
     unscreened one; `ALL_BLOCKS` for the importance task, cached under its own key, never the
-    block-0 table's."""
+    block-0 table's. With `snapshot`, that snapshot instead of the latest (a Lab task reads the
+    one its route pinned, `pin_experiment`, whatever the job wrote since), under the same lock,
+    registry hold and cache key, so it is cached under its own generation and watermark; one
+    whose files were reclaimed, or one ahead of the latest, is `SnapshotExpired`, never the
+    latest read in its place."""
     experiment_id = document.id
     columns = tuple(columns)
     meta = cached_meta(document, cache)
     cells_dir = store.cells_dir(experiment_id)
     with LOCKS.read(experiment_id):
-        manifest, snapshot = latest_snapshot(cells_dir)
+        manifest, latest = latest_snapshot(cells_dir)
+        if snapshot is None:
+            snapshot = latest
+        elif snapshot.generation > latest.generation or (
+            snapshot.chunk_watermark > latest.chunk_watermark
+        ):
+            raise SnapshotExpired(
+                f"{cells_dir.name}: snapshot {snapshot} is ahead of the latest, {latest}"
+            )
         handle = REGISTRY.open(experiment_id, snapshot, file_set(cells_dir, manifest, snapshot))
         try:
             if trial_no is not None:
@@ -402,6 +416,17 @@ def open_experiment(
         selection=selection,
     )
     return frame, handle
+
+
+def pin_experiment(document: ExperimentDocument, store: ExperimentStore) -> tuple[Snapshot, int]:
+    """The experiment's latest snapshot and a registry handle holding its file set, which the
+    caller releases (Phase 3 Task 3): a Lab task pins its snapshot at request time and reads it
+    later with `open_experiment(..., snapshot=)`, so no reclamation in between takes its files."""
+    cells_dir = store.cells_dir(document.id)
+    with LOCKS.read(document.id):
+        manifest, snapshot = latest_snapshot(cells_dir)
+        files = file_set(cells_dir, manifest, snapshot)
+        return snapshot, REGISTRY.open(document.id, snapshot, files)
 
 
 def column_set(columns: Sequence[str]) -> tuple[str, ...]:

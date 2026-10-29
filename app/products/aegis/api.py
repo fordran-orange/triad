@@ -58,6 +58,7 @@ from products.aegis.lab.cache import LabCache, cache_bytes_from_env
 from products.aegis.lab.index import FrameIndex
 from products.aegis.lab.policy import LOW_DISK_GB, PAGE_LIMIT, TOP_LIMIT
 from products.aegis.lab.query import LabFilter, TrialFrame
+from products.aegis.lab.tasks import LabTasks, TaskStatus
 from products.aegis.learned import LearnedPhrases
 from products.aegis.library import FOLDERS as LIBRARY_FOLDERS
 from products.aegis.library import KINDS as LIBRARY_KINDS
@@ -1312,6 +1313,22 @@ def get_lab_cache() -> LabCache:
 LAB_CACHE = Depends(get_lab_cache)
 
 
+def _sharing_cpu(runner: JobRunner) -> bool:
+    """A Lab task's `sharing_cpu`: an experiment job is running on this worker, from one brief
+    hold of the runner's lock (`running_kind`, no snapshot built)."""
+    return runner.running_kind() == "experiment"
+
+
+@lru_cache(maxsize=1)
+def get_lab_tasks() -> LabTasks:
+    """The Lab's tasks, one executor per worker (Phase 3 Task 3): one task at a time on its own
+    thread beside the job, shut down by the lifespan on exit."""
+    return LabTasks(sharing_cpu=lambda: _sharing_cpu(get_runner()))
+
+
+LAB_TASKS = Depends(get_lab_tasks)
+
+
 def _non_finite_named(value):
     """`value` with every NaN or infinite float replaced by its JSON literal's name."""
     if isinstance(value, float) and not math.isfinite(value):
@@ -1552,6 +1569,27 @@ def lab_trial(
     if detail is None:
         raise HTTPException(404, f"{ref} has no trial {trial_no}")
     return detail
+
+
+def _lab_task_of(ref: lab_sources.SourceRef, status: TaskStatus) -> bool:
+    """Whether a task's key names this source: its first item is the source's identity,
+    `("exp", id, created_at)` or `("opt", job_id, cells_done)`."""
+    identity_of = status.key[0] if status.key else None
+    return isinstance(identity_of, tuple) and tuple(identity_of[:2]) == (ref.kind, ref.id)
+
+
+@router.post("/lab/{src}/tasks/{task_id}/cancel")
+def lab_cancel_task(src: str, task_id: str, tasks: LabTasks = LAB_TASKS):
+    """Cancels one of this source's Lab tasks: a waiting one at once, a running one at its next
+    checkpoint, its finished stages kept and labelled partial. `cancelled` is false for a task
+    already finished or already cancelling; a task this source does not know is a 404."""
+    ref = _lab_source(src)
+    try:
+        if not _lab_task_of(ref, tasks.status(task_id)):
+            raise KeyError(task_id)
+        return {"cancelled": tasks.cancel(task_id)}
+    except KeyError as exc:
+        raise HTTPException(404, f"unknown task {task_id!r}") from exc
 
 
 # --- studies (Mission 8 spec §6) -------------------------------------------------------------
@@ -1965,6 +2003,7 @@ __all__ = [
     "DataReference",
     "get_cache",
     "get_lab_cache",
+    "get_lab_tasks",
     "get_repository",
     "get_runner",
     "get_store",

@@ -20,6 +20,7 @@ from products.aegis.indicators import IndicatorCache
 from products.aegis.lab import identity, sources
 from products.aegis.lab import store as lab_store_module
 from products.aegis.lab.cache import LabCache
+from products.aegis.lab.tasks import LabTasks
 from products.aegis.pool import METRICS, SCOPES
 from products.aegis.results import strategy_hash
 from products.aegis.runs import JsonRunRepository, aegis_data_root
@@ -61,9 +62,14 @@ def client(tmp_path, monkeypatch, lab_cache):
     # call would never hit and an evict in a test would reach no route's cache.
     server.app.dependency_overrides[api.get_lab_cache] = lambda: lab_cache
     monkeypatch.setattr(server, "Store", lambda **_: SimpleNamespace(list_work=list))
-    _runner(repository)  # no Lab request ever builds the worker's own runner on the real store
+    # No Lab request ever builds the worker's own runner on the real store, nor its Lab task
+    # executor: one per test reads the test's runner and is shut down when the test ends.
+    runner = _runner(repository)
+    tasks = LabTasks(sharing_cpu=lambda: api._sharing_cpu(runner))
+    server.app.dependency_overrides[api.get_lab_tasks] = lambda: tasks
     yield TestClient(server.app, raise_server_exceptions=False), store, repository
     server.app.dependency_overrides.clear()
+    tasks.shutdown()
 
 
 def _finished_experiment(c, monkeypatch, name="four cells", **overrides) -> str:
