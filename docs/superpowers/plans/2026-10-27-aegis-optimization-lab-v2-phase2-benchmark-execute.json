@@ -1,0 +1,865 @@
+{
+ "mode": "execute",
+ "host": {
+  "cpu": {
+   "name": "12th Gen Intel(R) Core(TM) i7-1255U",
+   "logical": 12
+  },
+  "ram_gb": 17.0,
+  "free_memory_gb_at_start": 3.16,
+  "os": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.10",
+  "numba": "0.68.0",
+  "numpy": "2.5.3",
+  "pyarrow": "23.0.1",
+  "engine_build": "8bef56cd67307f57afe0e464ee7b7ca3ffec7bfcd4a8d964e423cabee3307b44",
+  "git_head": "b3ffc92d206c8e8d694eba49dc5857ab5353cb5e",
+  "app_root": "C:\\Triad\\.claude\\worktrees\\zen-thompson-50e9bb\\app",
+  "workers": 10,
+  "power_throttling": {
+   "host": "never throttled",
+   "child": null
+  },
+  "curves_kept": {
+   "A": true,
+   "B": true,
+   "C": true,
+   "A100k": false
+  },
+  "measured_at": "2026-10-29T12:48:46.492991+00:00",
+  "indicators_per_side": 4,
+  "ranged_parameters": 10,
+  "bars_max": 46034,
+  "kinds": [
+   "EMA",
+   "MACD",
+   "RSI",
+   "SMA"
+  ]
+ },
+ "engine_build": "8bef56cd67307f57afe0e464ee7b7ca3ffec7bfcd4a8d964e423cabee3307b44",
+ "git_head": "b3ffc92d206c8e8d694eba49dc5857ab5353cb5e",
+ "measured_at": "2026-10-29T12:48:46.492991+00:00",
+ "cases": {
+  "A": {
+   "experiment_id": "lab-bench-a-20261029t124846z",
+   "status": "done",
+   "timeframe": "1h",
+   "range": [
+    "2024-01-01",
+    "2025-06-30"
+   ],
+   "trials": 10000,
+   "planned_runs": 10000,
+   "bars": 2603,
+   "bars_nominal": 2603,
+   "bars_drift": 0.0,
+   "free_memory_gb_at_start": 3.13,
+   "workers_expected": 10,
+   "pool_workers": 10,
+   "pool_workers_source": "sampled pool children (the most alive at once)",
+   "chunks": 51,
+   "trials_per_s": 144.731,
+   "first_chunk_s": 13.607,
+   "wall_s": 81.319,
+   "chunk_write_ms_p95": 12.29,
+   "chunk_write_ms_n": 51,
+   "compaction_s": 0.357,
+   "generations": 2,
+   "resume_read_s": {
+    "before_finalize": {
+     "s": 0.305,
+     "at_cells_done": 9067,
+     "chunk_files": 46,
+     "parts": 0
+    },
+    "after_finalize": 0.01
+   },
+   "worker_peak_mb": 155.066,
+   "pool_children": [
+    {
+     "pid": 26044,
+     "peak_working_set_mb": 154.71
+    },
+    {
+     "pid": 9780,
+     "peak_working_set_mb": 154.776
+    },
+    {
+     "pid": 27788,
+     "peak_working_set_mb": 154.874
+    },
+    {
+     "pid": 7744,
+     "peak_working_set_mb": 154.73
+    },
+    {
+     "pid": 2920,
+     "peak_working_set_mb": 154.706
+    },
+    {
+     "pid": 17804,
+     "peak_working_set_mb": 154.8
+    },
+    {
+     "pid": 25072,
+     "peak_working_set_mb": 154.403
+    },
+    {
+     "pid": 11080,
+     "peak_working_set_mb": 155.066
+    },
+    {
+     "pid": 25348,
+     "peak_working_set_mb": 155.005
+    },
+    {
+     "pid": 7816,
+     "peak_working_set_mb": 154.743
+    }
+   ],
+   "host_growth_mb": 920.498,
+   "host_working_set_mb": {
+    "before_job": 342.131,
+    "peak_during_job": 1262.629
+   },
+   "samples": 87,
+   "child_power_throttling": "system managed",
+   "invalid": 0,
+   "failed": 0,
+   "completed": 10000,
+   "progress_poll_ms_p95": 53.383,
+   "progress_polls": 108,
+   "model_ms_per_trial": 47.564,
+   "measured_worker_ms_per_trial": 69.094,
+   "measured_to_model": 1.453
+  },
+  "B": {
+   "experiment_id": "lab-bench-b-20261029t124846z",
+   "status": "done",
+   "timeframe": "15m",
+   "range": [
+    "2024-01-01",
+    "2025-06-30"
+   ],
+   "trials": 10000,
+   "planned_runs": 10000,
+   "bars": 9669,
+   "bars_nominal": 9669,
+   "bars_drift": 0.0,
+   "free_memory_gb_at_start": 3.27,
+   "workers_expected": 10,
+   "pool_workers": 10,
+   "pool_workers_source": "sampled pool children (the most alive at once)",
+   "chunks": 51,
+   "trials_per_s": 104.246,
+   "first_chunk_s": 10.524,
+   "wall_s": 104.532,
+   "chunk_write_ms_p95": 11.588,
+   "chunk_write_ms_n": 51,
+   "compaction_s": 0.324,
+   "generations": 2,
+   "resume_read_s": {
+    "before_finalize": {
+     "s": 0.31,
+     "at_cells_done": 9067,
+     "chunk_files": 46,
+     "parts": 0
+    },
+    "after_finalize": 0.024
+   },
+   "worker_peak_mb": 159.138,
+   "pool_children": [
+    {
+     "pid": 28080,
+     "peak_working_set_mb": 158.786
+    },
+    {
+     "pid": 16916,
+     "peak_working_set_mb": 159.138
+    },
+    {
+     "pid": 12152,
+     "peak_working_set_mb": 158.585
+    },
+    {
+     "pid": 2704,
+     "peak_working_set_mb": 158.896
+    },
+    {
+     "pid": 8088,
+     "peak_working_set_mb": 158.601
+    },
+    {
+     "pid": 23744,
+     "peak_working_set_mb": 158.355
+    },
+    {
+     "pid": 21120,
+     "peak_working_set_mb": 158.863
+    },
+    {
+     "pid": 11948,
+     "peak_working_set_mb": 158.855
+    },
+    {
+     "pid": 5904,
+     "peak_working_set_mb": 158.843
+    },
+    {
+     "pid": 8724,
+     "peak_working_set_mb": 158.368
+    }
+   ],
+   "host_growth_mb": 506.278,
+   "host_working_set_mb": {
+    "before_job": 410.808,
+    "peak_during_job": 917.086
+   },
+   "samples": 105,
+   "child_power_throttling": "system managed",
+   "invalid": 0,
+   "failed": 0,
+   "completed": 10000,
+   "progress_poll_ms_p95": 62.289,
+   "progress_polls": 129,
+   "model_ms_per_trial": 103.385,
+   "measured_worker_ms_per_trial": 95.927,
+   "measured_to_model": 0.928
+  },
+  "C": {
+   "experiment_id": "lab-bench-c-20261029t124846z",
+   "status": "done",
+   "timeframe": "1m",
+   "range": [
+    "2025-01-01",
+    "2025-06-30"
+   ],
+   "trials": 2000,
+   "planned_runs": 2000,
+   "bars": 46034,
+   "bars_nominal": 46034,
+   "bars_drift": 0.0,
+   "free_memory_gb_at_start": 2.47,
+   "workers_expected": 10,
+   "pool_workers": 10,
+   "pool_workers_source": "sampled pool children (the most alive at once)",
+   "chunks": 11,
+   "trials_per_s": 37.146,
+   "first_chunk_s": 13.797,
+   "wall_s": 62.254,
+   "chunk_write_ms_p95": 12.06,
+   "chunk_write_ms_n": 11,
+   "compaction_s": 0.146,
+   "generations": 1,
+   "resume_read_s": {
+    "before_finalize": {
+     "s": 0.066,
+     "at_cells_done": 1934,
+     "chunk_files": 10,
+     "parts": 0
+    },
+    "after_finalize": 0.004
+   },
+   "worker_peak_mb": 173.134,
+   "pool_children": [
+    {
+     "pid": 9188,
+     "peak_working_set_mb": 172.306
+    },
+    {
+     "pid": 28532,
+     "peak_working_set_mb": 173.134
+    },
+    {
+     "pid": 23704,
+     "peak_working_set_mb": 172.88
+    },
+    {
+     "pid": 2928,
+     "peak_working_set_mb": 173.027
+    },
+    {
+     "pid": 21932,
+     "peak_working_set_mb": 172.954
+    },
+    {
+     "pid": 27628,
+     "peak_working_set_mb": 171.786
+    },
+    {
+     "pid": 28580,
+     "peak_working_set_mb": 172.159
+    },
+    {
+     "pid": 11304,
+     "peak_working_set_mb": 172.868
+    },
+    {
+     "pid": 26328,
+     "peak_working_set_mb": 172.945
+    },
+    {
+     "pid": 15532,
+     "peak_working_set_mb": 171.549
+    }
+   ],
+   "host_growth_mb": 36.852,
+   "host_working_set_mb": {
+    "before_job": 419.123,
+    "peak_during_job": 455.975
+   },
+   "samples": 55,
+   "child_power_throttling": "system managed",
+   "invalid": 0,
+   "failed": 0,
+   "completed": 2000,
+   "progress_poll_ms_p95": 48.936,
+   "progress_polls": 67,
+   "model_ms_per_trial": 390.669,
+   "measured_worker_ms_per_trial": 269.208,
+   "measured_to_model": 0.689
+  }
+ },
+ "base": "http://127.0.0.1:8103/aegis/",
+ "data_root": "C:\\Triad\\data\\temp\\lab-scratch",
+ "workers_expected": 10,
+ "strategy_id": "lab-bench-10p-20261029t124846z",
+ "worker": {
+  "port": 8103,
+  "listener_pid": 26092,
+  "pid_file": "C:\\Triad\\.claude\\worktrees\\zen-thompson-50e9bb\\logs\\aegis-scratch.pid",
+  "pid_file_pid": 3696,
+  "power_throttling": {
+   "host": "never throttled",
+   "child": "system managed"
+  }
+ },
+ "worker_engine_build": "8bef56cd67307f57afe0e464ee7b7ca3ffec7bfcd4a8d964e423cabee3307b44",
+ "basis": "http (scratch worker)",
+ "with_queries": {
+  "source": "exp:lab-bench-a-20261029t124846z-q",
+  "queries_per_s": 1,
+  "query_set": [
+   "summary: GET lab/exp:lab-bench-a-20261029t124846z-q/summary",
+   "counts: POST lab/exp:lab-bench-a-20261029t124846z-q/query",
+   "matrix: POST lab/exp:lab-bench-a-20261029t124846z-q/query",
+   "top: POST lab/exp:lab-bench-a-20261029t124846z-q/query"
+  ],
+  "during_ms": {
+   "n": 120,
+   "p50": 131.11,
+   "p95": 475.603,
+   "max": 639.083,
+   "samples": [
+    73.411,
+    48.124,
+    17.203,
+    10.756,
+    8.935,
+    8.791,
+    16.149,
+    12.907,
+    12.61,
+    13.29,
+    13.212,
+    43.63,
+    26.009,
+    26.81,
+    26.736,
+    45.041,
+    61.687,
+    38.922,
+    75.154,
+    76.672,
+    115.233,
+    61.534,
+    131.11,
+    112.547,
+    92.774,
+    78.75,
+    130.329,
+    225.454,
+    127.92,
+    173.939,
+    197.242,
+    288.273,
+    197.358,
+    155.275,
+    197.881,
+    202.278,
+    161.023,
+    195.187,
+    284.233,
+    191.47,
+    217.89,
+    212.188,
+    249.094,
+    231.298,
+    243.23,
+    234.277,
+    291.891,
+    265.647,
+    296.12,
+    262.192,
+    344.212,
+    193.459,
+    316.812,
+    315.71,
+    384.514,
+    260.982,
+    337.748,
+    327.493,
+    371.058,
+    372.918,
+    462.478,
+    341.492,
+    248.064,
+    206.698,
+    160.735,
+    149.496,
+    98.214,
+    83.742,
+    73.927,
+    77.022,
+    100.418,
+    88.231,
+    89.588,
+    59.352,
+    83.466,
+    179.791,
+    325.94,
+    305.266,
+    351.199,
+    309.448,
+    278.47,
+    251.969,
+    475.603,
+    520.7,
+    479.955,
+    301.454,
+    424.496,
+    581.301,
+    639.083,
+    223.927,
+    457.569,
+    593.749,
+    612.498,
+    276.544,
+    330.878,
+    237.956,
+    197.034,
+    23.959,
+    44.093,
+    29.232,
+    26.177,
+    18.957,
+    37.269,
+    32.398,
+    16.691,
+    17.144,
+    51.018,
+    23.08,
+    15.663,
+    13.079,
+    29.624,
+    21.43,
+    16.368,
+    20.908,
+    29.98,
+    22.237,
+    21.338,
+    18.47,
+    27.005,
+    47.514
+   ]
+  },
+  "during_by_request": {
+   "summary": {
+    "n": 30,
+    "p50": 127.92,
+    "p95": 612.498,
+    "max": 639.083,
+    "samples": [
+     73.411,
+     8.935,
+     12.61,
+     26.009,
+     61.687,
+     115.233,
+     92.774,
+     127.92,
+     197.358,
+     161.023,
+     217.89,
+     243.23,
+     296.12,
+     316.812,
+     337.748,
+     462.478,
+     160.735,
+     73.927,
+     89.588,
+     325.94,
+     278.47,
+     479.955,
+     639.083,
+     612.498,
+     197.034,
+     26.177,
+     16.691,
+     15.663,
+     16.368,
+     21.338
+    ]
+   },
+   "counts": {
+    "n": 30,
+    "p50": 78.75,
+    "p95": 327.493,
+    "max": 341.492,
+    "samples": [
+     48.124,
+     8.791,
+     13.29,
+     26.81,
+     38.922,
+     61.534,
+     78.75,
+     173.939,
+     155.275,
+     195.187,
+     212.188,
+     234.277,
+     262.192,
+     315.71,
+     327.493,
+     341.492,
+     149.496,
+     77.022,
+     59.352,
+     305.266,
+     251.969,
+     301.454,
+     223.927,
+     276.544,
+     23.959,
+     18.957,
+     17.144,
+     13.079,
+     20.908,
+     18.47
+    ]
+   },
+   "matrix": {
+    "n": 30,
+    "p50": 130.329,
+    "p95": 457.569,
+    "max": 475.603,
+    "samples": [
+     17.203,
+     16.149,
+     13.212,
+     26.736,
+     75.154,
+     131.11,
+     130.329,
+     197.242,
+     197.881,
+     284.233,
+     249.094,
+     291.891,
+     344.212,
+     384.514,
+     371.058,
+     248.064,
+     98.214,
+     100.418,
+     83.466,
+     351.199,
+     475.603,
+     424.496,
+     457.569,
+     330.878,
+     44.093,
+     37.269,
+     51.018,
+     29.624,
+     29.98,
+     27.005
+    ]
+   },
+   "top": {
+    "n": 30,
+    "p50": 179.791,
+    "p95": 581.301,
+    "max": 593.749,
+    "samples": [
+     10.756,
+     12.907,
+     43.63,
+     45.041,
+     76.672,
+     112.547,
+     225.454,
+     288.273,
+     202.278,
+     191.47,
+     231.298,
+     265.647,
+     193.459,
+     260.982,
+     372.918,
+     206.698,
+     83.742,
+     88.231,
+     179.791,
+     309.448,
+     520.7,
+     581.301,
+     593.749,
+     237.956,
+     29.232,
+     32.398,
+     23.08,
+     21.43,
+     22.237,
+     47.514
+    ]
+   }
+  },
+  "quiet_ms": {
+   "n": 20,
+   "p50": 33.836,
+   "p95": 50.096,
+   "max": 63.658,
+   "samples": [
+    32.871,
+    21.477,
+    63.658,
+    36.527,
+    33.836,
+    17.621,
+    50.096,
+    22.006,
+    33.884,
+    19.046,
+    45.714,
+    35.57,
+    23.43,
+    15.722,
+    40.609,
+    36.377,
+    26.147,
+    16.181,
+    49.022,
+    34.913
+   ]
+  },
+  "quiet_basis": "the same requests on the same experiment once finished, the pool idle, after one warm-up cycle",
+  "quiet_by_request": {
+   "summary": {
+    "n": 5,
+    "p50": 32.871,
+    "p95": 33.884,
+    "max": 33.884,
+    "samples": [
+     32.871,
+     33.836,
+     33.884,
+     23.43,
+     26.147
+    ]
+   },
+   "counts": {
+    "n": 5,
+    "p50": 17.621,
+    "p95": 21.477,
+    "max": 21.477,
+    "samples": [
+     21.477,
+     17.621,
+     19.046,
+     15.722,
+     16.181
+    ]
+   },
+   "matrix": {
+    "n": 5,
+    "p50": 49.022,
+    "p95": 63.658,
+    "max": 63.658,
+    "samples": [
+     63.658,
+     50.096,
+     45.714,
+     40.609,
+     49.022
+    ]
+   },
+   "top": {
+    "n": 5,
+    "p50": 35.57,
+    "p95": 36.527,
+    "max": 36.527,
+    "samples": [
+     36.527,
+     22.006,
+     35.57,
+     36.377,
+     34.913
+    ]
+   }
+  },
+  "errors": [],
+  "error_count": 0,
+  "case": {
+   "experiment_id": "lab-bench-a-20261029t124846z-q",
+   "status": "done",
+   "timeframe": "1h",
+   "range": [
+    "2024-01-01",
+    "2025-06-30"
+   ],
+   "trials": 10000,
+   "planned_runs": 10000,
+   "bars": 2603,
+   "bars_nominal": 2603,
+   "bars_drift": 0.0,
+   "free_memory_gb_at_start": 3.64,
+   "workers_expected": 10,
+   "pool_workers": 10,
+   "pool_workers_source": "sampled pool children (the most alive at once)",
+   "chunks": 51,
+   "trials_per_s": 116.711,
+   "first_chunk_s": 11.382,
+   "wall_s": 95.35,
+   "chunk_write_ms_p95": 14.593,
+   "chunk_write_ms_n": 51,
+   "compaction_s": 0.333,
+   "generations": 2,
+   "resume_read_s": {
+    "before_finalize": {
+     "s": 0.387,
+     "at_cells_done": 9067,
+     "chunk_files": 46,
+     "parts": 0
+    },
+    "after_finalize": 0.014
+   },
+   "worker_peak_mb": 155.185,
+   "pool_children": [
+    {
+     "pid": 7936,
+     "peak_working_set_mb": 154.632
+    },
+    {
+     "pid": 14008,
+     "peak_working_set_mb": 154.706
+    },
+    {
+     "pid": 2136,
+     "peak_working_set_mb": 154.952
+    },
+    {
+     "pid": 25040,
+     "peak_working_set_mb": 155.128
+    },
+    {
+     "pid": 26104,
+     "peak_working_set_mb": 154.649
+    },
+    {
+     "pid": 16584,
+     "peak_working_set_mb": 154.62
+    },
+    {
+     "pid": 8380,
+     "peak_working_set_mb": 155.185
+    },
+    {
+     "pid": 12416,
+     "peak_working_set_mb": 155.062
+    },
+    {
+     "pid": 2016,
+     "peak_working_set_mb": 155.165
+    },
+    {
+     "pid": 21916,
+     "peak_working_set_mb": 154.759
+    }
+   ],
+   "host_growth_mb": 607.949,
+   "host_working_set_mb": {
+    "before_job": 415.904,
+    "peak_during_job": 1023.853
+   },
+   "samples": 96,
+   "child_power_throttling": "system managed",
+   "invalid": 0,
+   "failed": 0,
+   "completed": 10000,
+   "progress_poll_ms_p95": 63.55,
+   "progress_polls": 121,
+   "model_ms_per_trial": 47.564,
+   "measured_worker_ms_per_trial": 85.682,
+   "measured_to_model": 1.801
+  },
+  "query_throughput_ratio": 0.8064,
+  "query_p95_ratio": 9.4938
+ },
+ "evaluate": {
+  "A.trials_per_s": false,
+  "A.first_chunk_s": true,
+  "A.chunk_write_ms_p95": true,
+  "A.host_growth_mb": false,
+  "A.compaction_s": true,
+  "A.invalid": true,
+  "A.failed": true,
+  "A.worker_peak_mb": true,
+  "A.bars_drift": true,
+  "A.progress_poll_ms_p95": true,
+  "B.trials_per_s": true,
+  "B.first_chunk_s": true,
+  "B.chunk_write_ms_p95": true,
+  "B.host_growth_mb": false,
+  "B.compaction_s": true,
+  "B.invalid": true,
+  "B.failed": true,
+  "B.worker_peak_mb": true,
+  "B.bars_drift": true,
+  "B.progress_poll_ms_p95": true,
+  "C.trials_per_s": true,
+  "C.first_chunk_s": true,
+  "C.chunk_write_ms_p95": true,
+  "C.host_growth_mb": true,
+  "C.compaction_s": true,
+  "C.invalid": true,
+  "C.failed": true,
+  "C.worker_peak_mb": true,
+  "C.bars_drift": true,
+  "C.progress_poll_ms_p95": true,
+  "A100k.trials_per_s": "not run at R3",
+  "A100k.first_chunk_s": "not run at R3",
+  "A100k.chunk_write_ms_p95": "not run at R3",
+  "A100k.host_growth_mb": "not run at R3",
+  "A100k.compaction_s": "not run at R3",
+  "A100k.invalid": "not run at R3",
+  "A100k.failed": "not run at R3",
+  "A100k.worker_peak_mb": "not run at R3",
+  "A100k.bars_drift": "not run at R3",
+  "A100k.progress_poll_ms_p95": "not run at R3",
+  "query_throughput_ratio": true,
+  "query_p95_ratio": false
+ },
+ "retest_due": {
+  "engine_build_changed": false,
+  "surface_larger": false,
+  "bars_over_50k": false,
+  "new_kind": false,
+  "rate_drift_over_15pct": true,
+  "free_memory_under_2gb": false,
+  "new_host": false
+ }
+}

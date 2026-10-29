@@ -1,0 +1,388 @@
+{
+ "mode": "explore",
+ "host": {
+  "cpu": {
+   "name": "12th Gen Intel(R) Core(TM) i7-1255U",
+   "logical": 12
+  },
+  "ram_gb": 17.0,
+  "free_memory_gb_at_start": 2.7,
+  "os": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.10",
+  "numba": "0.68.0",
+  "numpy": "2.5.3",
+  "pyarrow": "23.0.1",
+  "engine_build": "8bef56cd67307f57afe0e464ee7b7ca3ffec7bfcd4a8d964e423cabee3307b44",
+  "git_head": "b3ffc92d206c8e8d694eba49dc5857ab5353cb5e",
+  "app_root": "C:\\Triad\\.claude\\worktrees\\zen-thompson-50e9bb\\app",
+  "workers": 10,
+  "power_throttling": {
+   "host": "never throttled",
+   "child": null
+  },
+  "curves_kept": {
+   "A": true,
+   "B": true,
+   "C": true,
+   "A100k": false
+  },
+  "measured_at": "2026-10-29T12:44:48.045932+00:00",
+  "indicators_per_side": 4,
+  "ranged_parameters": 10,
+  "bars_max": 46034,
+  "kinds": [
+   "EMA",
+   "MACD",
+   "RSI",
+   "SMA"
+  ]
+ },
+ "engine_build": "8bef56cd67307f57afe0e464ee7b7ca3ffec7bfcd4a8d964e423cabee3307b44",
+ "git_head": "b3ffc92d206c8e8d694eba49dc5857ab5353cb5e",
+ "measured_at": "2026-10-29T12:44:48.045932+00:00",
+ "operations": {
+  "open_cold": {
+   "basis": "http",
+   "http_ms": {
+    "n": 1,
+    "p50": 3273.056,
+    "p95": 3273.056,
+    "max": 3273.056,
+    "samples": [
+     3273.056
+    ]
+   },
+   "requests": [
+    "GET lab/exp:demo-synthetic-1m/summary",
+    "POST lab/exp:demo-synthetic-1m/query",
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "open": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 2100.59,
+    "p95": 2202.101,
+    "max": 2221.063,
+    "samples": [
+     2066.558,
+     2053.999,
+     2084.163,
+     2055.772,
+     2035.68,
+     2100.59,
+     2141.922,
+     2118.556,
+     2090.542,
+     2082.746,
+     2108.991,
+     2171.792,
+     2138.156,
+     2178.52,
+     2221.063,
+     2124.503,
+     2202.101,
+     2196.744,
+     2042.823,
+     2071.132
+    ]
+   },
+   "requests": [
+    "GET lab/exp:demo-synthetic-1m/summary",
+    "POST lab/exp:demo-synthetic-1m/query",
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "filter_heatmap": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 664.32,
+    "p95": 794.899,
+    "max": 1002.862,
+    "samples": [
+     1002.862,
+     753.725,
+     793.363,
+     794.899,
+     779.679,
+     727.255,
+     698.879,
+     664.32,
+     701.689,
+     706.113,
+     688.244,
+     637.931,
+     613.682,
+     619.63,
+     645.496,
+     641.785,
+     629.885,
+     627.048,
+     643.596,
+     626.155
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query",
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "stat_change": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 813.166,
+    "p95": 851.284,
+    "max": 986.661,
+    "samples": [
+     986.661,
+     810.683,
+     838.769,
+     813.166,
+     838.166,
+     801.196,
+     826.251,
+     821.788,
+     847.958,
+     851.284,
+     779.585,
+     782.742,
+     768.939,
+     818.43,
+     824.07,
+     801.005,
+     802.696,
+     818.968,
+     793.491,
+     789.145
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "page": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 301.476,
+    "p95": 326.503,
+    "max": 494.346,
+    "samples": [
+     494.346,
+     305.353,
+     299.859,
+     301.476,
+     293.817,
+     293.436,
+     296.702,
+     303.03,
+     303.647,
+     316.986,
+     317.925,
+     286.254,
+     306.756,
+     292.999,
+     285.159,
+     287.915,
+     326.503,
+     297.597,
+     318.64,
+     308.172
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "exact_slice": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 99.033,
+    "p95": 118.446,
+    "max": 247.839,
+    "samples": [
+     247.839,
+     97.147,
+     96.314,
+     103.881,
+     98.683,
+     98.201,
+     99.033,
+     101.851,
+     99.206,
+     96.555,
+     118.446,
+     96.504,
+     95.516,
+     100.252,
+     99.356,
+     99.35,
+     99.398,
+     99.373,
+     96.009,
+     98.336
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "parallel": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 558.951,
+    "p95": 665.336,
+    "max": 698.223,
+    "samples": [
+     698.223,
+     596.466,
+     611.388,
+     568.935,
+     539.883,
+     596.57,
+     576.237,
+     543.54,
+     544.804,
+     558.951,
+     562.881,
+     542.101,
+     665.336,
+     542.489,
+     551.186,
+     549.929,
+     559.444,
+     557.079,
+     546.43,
+     562.77
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "progress_poll": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 3.681,
+    "p95": 4.857,
+    "max": 5.112,
+    "samples": [
+     5.112,
+     4.268,
+     3.738,
+     3.553,
+     3.713,
+     4.831,
+     3.682,
+     3.578,
+     3.565,
+     4.857,
+     4.301,
+     3.674,
+     3.617,
+     4.021,
+     3.681,
+     3.298,
+     3.359,
+     3.493,
+     3.947,
+     3.587
+    ]
+   },
+   "requests": [
+    "GET experiments/demo-synthetic-1m"
+   ]
+  }
+ },
+ "basis": "http (scratch worker)",
+ "base": "http://127.0.0.1:8103/aegis/",
+ "data_root": "C:\\Triad\\data\\temp\\lab-scratch",
+ "experiment_id": "demo-synthetic-1m",
+ "trials": 1000000,
+ "parameters": 10,
+ "seed": 1,
+ "runs": 20,
+ "fixture_write_s": 59.991,
+ "page_cache": "warm (fixture just written)",
+ "cache_entries_before": 0,
+ "worker_engine_build": "8bef56cd67307f57afe0e464ee7b7ca3ffec7bfcd4a8d964e423cabee3307b44",
+ "worker": {
+  "port": 8103,
+  "listener_pid": 10548,
+  "pid_file": "C:\\Triad\\.claude\\worktrees\\zen-thompson-50e9bb\\logs\\aegis-scratch.pid",
+  "pid_file_pid": 228,
+  "power_throttling": {
+   "host": "never throttled",
+   "child": null
+  }
+ },
+ "resources": {
+  "worker_rss_delta_mb": 828.363,
+  "worker_working_set_mb": {
+   "before_first_open": 342.663,
+   "after_warm_set": 1171.026
+  },
+  "disk_mb": 333.337,
+  "compaction_1m_s": 2.491
+ },
+ "compaction": {
+  "basis": "inprocess (a proxy for the job's own compaction, which runs inside the worker under its locks)",
+  "s": 2.491,
+  "compact_s": 2.437,
+  "reclaim_s": 0.053,
+  "parts": 10,
+  "generation": 11,
+  "chunks": 50,
+  "rows_merged": 10000,
+  "reclaimed": 50,
+  "unique": 1009996
+ },
+ "storage_10k": {
+  "basis": "inprocess",
+  "compact_10k_s": 1.826,
+  "read_7cols_10k_ms": 108.49,
+  "merged_chunks_on_disk": 50,
+  "read_7cols_10k_after_reclaim_ms": 33.67,
+  "rows": 10000,
+  "columns": [
+   "long_side.indicators.ema.length",
+   "long_side.indicators.sma.length",
+   "long_side.indicators.rsi.length",
+   "long_side.indicators.macd.params.slow",
+   "combined.net_pnl",
+   "valid",
+   "cell"
+  ]
+ },
+ "compact_10k_s": 1.826,
+ "read_7cols_10k_ms": 108.49,
+ "evaluate": {
+  "open": false,
+  "open_cold": true,
+  "filter_heatmap": false,
+  "stat_change": false,
+  "page": true,
+  "exact_slice": true,
+  "parallel": true,
+  "progress_poll": true,
+  "worker_rss_delta_mb": false,
+  "disk_mb": true,
+  "compaction_1m_s": true,
+  "browser_heap_mb": "absent"
+ },
+ "retest_due": {
+  "engine_build_changed": false,
+  "surface_larger": false,
+  "bars_over_50k": false,
+  "new_kind": false,
+  "rate_drift_over_15pct": false,
+  "free_memory_under_2gb": false,
+  "new_host": false
+ }
+}
