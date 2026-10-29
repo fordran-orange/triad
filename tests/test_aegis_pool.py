@@ -137,6 +137,26 @@ def test_a_cell_whose_warm_up_exceeds_the_bars_is_an_invalid_row_not_a_failure()
     assert row["metrics"] is None and row["cell"] == 7 and row["params"] == params
 
 
+def test_init_worker_opts_the_process_out_of_power_throttling_first(monkeypatch):
+    """Lab Phase 2 Task 12, Step 0: each pool process opts out of Windows power throttling (a
+    child does not inherit its windowless worker's opt-out), first, before it holds the frame."""
+    from products.aegis import pool as worker
+
+    seen = []
+    monkeypatch.setattr(worker, "_FRAME", None)
+    monkeypatch.setattr(
+        worker, "opt_out_of_power_throttling", lambda: seen.append(worker._FRAME is None)
+    )
+    worker._init_worker(
+        [dict(r) for r in ROWS],
+        "QQQ",
+        pinned().model_dump(mode="json"),
+        {"initial_capital": 100_000, "allocation_fraction": 1},
+    )
+    assert seen == [True]  # called once, while the process held no frame yet
+    assert worker._FRAME is not None
+
+
 def test_pool_window_slice_equals_a_backtest_on_those_bars(pool):
     """Mission 8 Task 3: a window's cells run on the window's bars only, as a plain backtest of
     that slice would."""

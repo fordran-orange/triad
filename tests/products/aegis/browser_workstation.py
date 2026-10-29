@@ -199,6 +199,9 @@ LAB_PRIMARY = (  # the controls item (106) keeps inside the viewport
     "#lab-catalog-search, #lab-mode-exact, #lab-stat, #lab-square-pin, .fix-value"
 )
 LAB_BENCH_TRIALS = 12_000  # the slice's LHS budget on lab-bench-10p (§9.1b case A's range, 1h)
+# The bench fixture's wait for done: about 3x the slowest run observed on this laptop (565 s; 4 pool
+# workers fit its free memory), never the 188 trials/s premise (≈ 1 minute) it misses by 7-9x.
+LAB_BENCH_WAIT_S = 1_800
 LAB_SECONDARY = [  # the text item (106) holds to 4.5:1 against its nearest opaque background
     ".workflow-step[data-state=disabled]",
     ".not-built",
@@ -303,14 +306,40 @@ LAB_KPI_TRIALS = (  # [primary, the filtered sub line or null] of the Trials KPI
     " return [n(k.querySelector('.kpi-value')?.innerText ?? ''), sub ? n(sub[1]) : null]; })()"
 )
 LAB_LINKED = "(document.getElementById('lab-linked')?.innerText ?? '')"
+# Item 106's scroll guard: every element's scroll offsets (the catalog lists excepted) and the
+# window's, kept before the clipping checks, then the ones that moved.
+LAB_SCROLL_SNAPSHOT = (
+    "() => { window.__labScrollSnapshot = [...document.querySelectorAll('*')]"
+    ".filter((n) => !n.matches('.lab-catalog')).map((n) => [n, n.scrollTop, n.scrollLeft]);"
+    " window.__labPageScroll = [window.scrollX, window.scrollY]; }"
+)
+LAB_SCROLL_MOVED = (
+    "() => { const moved = window.__labScrollSnapshot.filter(([n, t, l]) => n.isConnected"
+    " && (n.scrollTop !== t || n.scrollLeft !== l)).map(([n, t, l]) =>"
+    " `${n.id || n.getAttribute('class') || n.tagName}: ${t},${l} -> ${n.scrollTop},${n.scrollLeft}`);"
+    " const [x, y] = window.__labPageScroll;"
+    " if (window.scrollX !== x || window.scrollY !== y)"
+    " moved.push(`window: ${x},${y} -> ${window.scrollX},${window.scrollY}`); return moved; }"
+)
+# A control inside the catalog list but outside its visible box: the list alone scrolls by the
+# overhang. Returns whether it scrolled.
+LAB_CATALOG_REVEAL = (
+    "el => { const list = el.closest('.lab-catalog'); if (!list) return false;"
+    " const r = el.getBoundingClientRect(), l = list.getBoundingClientRect();"
+    " if (r.bottom > l.bottom) list.scrollTop += Math.ceil(r.bottom - l.bottom);"
+    " else if (r.top < l.top) list.scrollTop -= Math.ceil(l.top - r.top);"
+    " else return false; return true; }"
+)
 # Installed before a timed interaction (longtask entries are not buffered): the long tasks since,
 # and the page clock the timing starts from. A previous observer is disconnected, never doubled.
+# Returns whether the browser observes `longtask` at all, so a zero count is never unobserved.
 LAB_LONGTASKS = (
-    "() => { window.__labLongObserver?.disconnect(); window.__labLongTasks = [];"
+    "() => { const supported = (PerformanceObserver.supportedEntryTypes ?? [])"
+    ".includes('longtask'); window.__labLongObserver?.disconnect(); window.__labLongTasks = [];"
     " window.__labLongObserver = new PerformanceObserver((list) =>"
     " window.__labLongTasks.push(...list.getEntries().map((e) => e.duration)));"
     " window.__labLongObserver.observe({ entryTypes: ['longtask'] });"
-    " window.__labTimedFrom = performance.now(); }"
+    " window.__labTimedFrom = performance.now(); return supported; }"
 )
 RECORDED_IDENTICAL_HASH = "cdbc9abd2238542ee299e694209241b40561f39bfdd3632f58c93350b237e360"
 MISSION5_BASE = (
@@ -4668,11 +4697,13 @@ class Acceptance:
         """The slice's experiment, made through the scratch worker's API: lab-bench-10p (§9.1b) as a
         strategy, then an experiment over its ten ranged paths (BENCH_SURFACE as plain data), budget
         12,000, seed 1, net_pnl, QQQ at case A's timeframe and range (1h, ≈ 2,603 bars), waited
-        ≤ 600 s for done and reported. Then the Gate 3 parity sample (spec:1419): the page's first
-        two trials materialized through the pinned source, each on the document's pinned bytes and
-        with every metric of its page row equal to the run's. Refuses the product root."""
+        ≤ LAB_BENCH_WAIT_S for done and reported. Then the Gate 3 parity sample (spec:1419): the
+        page's first two trials materialized through the pinned source, each on the document's
+        pinned bytes and with every `<scope>.<metric>` its page row carries equal to the run's (the
+        page view projects the combined objective and PAGE_VALUES, so a few of the 3 × 10 pairs,
+        counted in `compared`). Refuses the product root."""
         self.require_scratch_root()
-        from products.aegis.pool import METRICS  # this checkout's ten (the sys.path insert)
+        from products.aegis.pool import METRICS, SCOPES  # this checkout's (the sys.path insert)
 
         strategy = self.post(
             "strategies",
@@ -4708,11 +4739,15 @@ class Acceptance:
         exp_id = created.json()["experiment_id"]
         self.lab_fixtures["bench_started"] = exp_id
         finished = self.wait_until(
-            lambda: self.experiment(exp_id)["status"] in ("done", "failed", "cancelled"), 600, 2
+            lambda: self.experiment(exp_id)["status"] in ("done", "failed", "cancelled"),
+            LAB_BENCH_WAIT_S,
+            2,
         )
         elapsed = round(time.perf_counter() - started, 1)
         document = self.experiment(exp_id)
-        assert finished, f"{exp_id} not finished in 600 s: {document.get('progress')}"
+        assert finished, (
+            f"{exp_id} not finished in {LAB_BENCH_WAIT_S} s: {document.get('progress')}"
+        )
         assert document["status"] == "done", (document["status"], document.get("error"))
         method = (document.get("sampler") or {}).get("method")
         self.lab_fixtures["bench_sampler"] = method
@@ -4758,6 +4793,8 @@ class Acceptance:
                     "cell": row["cell"],
                     "run_id": run["run_id"],
                     "result_hash": run["result_hash"],
+                    "compared": len(compared),
+                    "compared_of": len(SCOPES) * len(METRICS),
                 }
             )
         self.lab_bench = {
@@ -4817,12 +4854,15 @@ class Acceptance:
         TRACK_A_BUDGETS_MS[budget_key]. The long-task observer is installed before the action;
         after the settle one animation frame passes (observer callbacks arrive asynchronously)
         and the long tasks since are counted (each one is > 50 ms by definition). `action` None
-        times a second view of the previous action: its start and its observer. A latency over
-        the budget raises; long tasks are a recorded finding, never a failure here."""
+        times a second view of the previous action: its start and its observer. A browser that
+        does not observe `longtask` fails the timing (a zero count must be an observed zero); a
+        latency over the budget raises; long tasks are a recorded finding, never a failure here."""
         budget = lab_benchmark.TRACK_A_BUDGETS_MS[budget_key]
         page = self.page
         if action is not None:
-            page.evaluate(LAB_LONGTASKS)
+            supported = page.evaluate(LAB_LONGTASKS)
+            self.lab_longtask_supported = supported
+            assert supported, "PerformanceObserver.supportedEntryTypes has no 'longtask'"
             action()
         page.wait_for_function(
             "() => { const settled = (" + settled_js + ");"
@@ -4953,6 +4993,7 @@ class Acceptance:
         self.lab_bench: dict = {}
         self.lab_timings: dict = {}
         self.lab_heap: dict = {}
+        self.lab_longtask_supported: bool | None = None
         page.goto(self.base)
         page.wait_for_function(
             "document.getElementById('strategy-name')?.innerText.length > 1", timeout=30_000
@@ -5219,7 +5260,6 @@ class Acceptance:
 
         def lab106():
             exp_id, opt_id = experiment_id(), job_id()
-            bench = bench_source()  # the 12,000-trial experiment, made here when no item has yet
             small: list = []
             ratios: dict[str, list] = {selector: [] for selector in LAB_SECONDARY}
             seen: list[str] = []
@@ -5235,16 +5275,13 @@ class Acceptance:
             def unclipped(w: int, h: int) -> int:
                 controls = page.locator(LAB_PRIMARY).all()
                 bad = []
+                page.evaluate(LAB_SCROLL_SNAPSHOT)
                 for control in controls:
-                    # The parameter catalog is a scroll list: an input below its fold is scrolled
-                    # into view inside the list before it is measured (the page itself never
-                    # scrolls: asserted below).
-                    if control.evaluate(
-                        "el => { const list = el.closest('.lab-catalog'); if (!list) return false;"
-                        " const r = el.getBoundingClientRect(), l = list.getBoundingClientRect();"
-                        " if (r.top >= l.top && r.bottom <= l.bottom) return false;"
-                        " el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); return true; }"
-                    ):
+                    # The parameter catalog is a designed scroll list: an input below (or above)
+                    # its fold is brought into view by scrolling that list alone, never
+                    # scrollIntoView (which would also scroll overflow-hidden ancestors such as
+                    # .optlab-main); every other element and the window must not move (below).
+                    if control.evaluate(LAB_CATALOG_REVEAL):
                         scrolled.append(control.get_attribute("data-path") or "")
                     box = control.bounding_box()
                     name = control.get_attribute("id") or control.inner_text().strip()
@@ -5261,12 +5298,13 @@ class Acceptance:
                     )
                     if not (inside and on_top):
                         bad.append((name, control.get_attribute("data-path"), box, on_top))
-                page_scroll = self.js("[window.scrollX, window.scrollY]")
+                moved = page.evaluate(LAB_SCROLL_MOVED)
                 self.js(
                     "document.querySelectorAll('.lab-catalog').forEach(l => { l.scrollTop = 0; })"
                 )
+                # A page or ancestor scroll is reported as itself, before any clipping.
+                assert not moved, f"scrolled besides the catalog list: {moved}"
                 assert len(controls) >= 18 and not bad, (len(controls), bad)
-                assert page_scroll == [0, 0], f"the page itself scrolled: {page_scroll}"
                 wide = self.js("document.documentElement.scrollWidth")
                 assert wide <= w, f"the page scrolls sideways: {wide} > {w}"
                 return len(controls)
@@ -5346,7 +5384,10 @@ class Acceptance:
                         )
                     # The 12,000-trial experiment by the keyboard: aggregate mode, the cursor onto
                     # the first square and Enter, so its panel (Pin, Send) is on screen with the
-                    # mode toggles, the stat and the catalog's ten fixed-value inputs.
+                    # mode toggles, the stat and the catalog's ten fixed-value inputs. Made here,
+                    # at the first size, after the Phase 1 states: a bench failure leaves their
+                    # checks done.
+                    bench = bench_source()
                     self.lab_open(bench)
                     page.locator("#lab-tab-heatmap").click()
                     page.locator("#lab-mode-aggregate").click()
@@ -5391,8 +5432,9 @@ class Acceptance:
             self.lab_fixtures["catalog_scrolled_into_view"] = len(scrolled)
             return (
                 "; ".join(lines)
-                + f"; {len(scrolled)} catalog inputs below the list's fold scrolled into view "
-                + "inside it before they were measured, the page never scrolled"
+                + f"; {len(scrolled)} catalog inputs beyond the list's fold brought into view by "
+                + "scrolling the catalog list alone before they were measured; no other element "
+                + "and not the window scrolled"
                 + "; every text ≥ 11 px; lowest contrast "
                 + ", ".join(f"{s} {r:.2f}" for s, r in lowest.items())
                 + "; below 4.5:1 only inside disabled controls, recorded and not asserted "
@@ -5652,8 +5694,18 @@ class Acceptance:
             matched = self.lab_counts(source, {"values": spec})["filtered"]
             assert matched == 0, (spec, matched)
             page.locator("#lab-tab-heatmap").click()
-            page.locator("#lab-mode-exact").click()
+            # From an answered aggregate matrix, so the exact click is a real change (§9.6a's
+            # exact-slice row): timed until the exact answer is the one described.
+            page.locator("#lab-mode-aggregate").click()
+            self.lab_wait(f"{LAB_HEAT_N} > 0 && {LAB_HEAT_READY}")
             heat_summary = "(document.getElementById('lab-heatmap-summary')?.innerText ?? '')"
+            exact = self.lab_timed(
+                "exact_slice",
+                lambda: page.locator("#lab-mode-exact").click(),
+                f"{heat_summary}.startsWith('0 of') && {heat_summary}.includes('squares tested')"
+                f" && {LAB_HEAT_BASIS}.includes('Tested (exact)') && {LAB_HEAT_READY}",
+                "exact_slice",
+            )
             toolbar = "(document.querySelector('.trial-toolbar')?.innerText ?? '')"
             self.lab_wait(
                 f"{heat_summary}.startsWith('0 of') && {heat_summary}.includes('squares tested')"
@@ -5683,7 +5735,9 @@ class Acceptance:
                 f"{json.dumps(spec)} off the axes {axes[0]} × {axes[1]} matches "
                 f"{matched} trials (counts view); exact: '{shown}', '{basis}', the toolbar "
                 f"{completed:,} of {completed:,} with 'Linked · 0 filters' (the slice is not a "
-                f"filter); ArrowDown + Enter: '{panel}', no trial selected; aggregate: "
+                f"filter); exact_slice {exact['ms']} ms of {exact['budget_ms']} "
+                f"({exact['longtasks_over_50ms']} long tasks, longest {exact['longest_ms']} ms) "
+                f"from the click; ArrowDown + Enter: '{panel}', no trial selected; aggregate: "
                 f"n = {self.lab_heatmap_n():,}"
             )
 
@@ -5733,12 +5787,27 @@ class Acceptance:
                 " && document.getElementById('lab-pin-A')?.dataset.pinned === ''"
                 " && document.querySelectorAll('#trial-table tr.selected').length === 0"
             )
+            # §9.6a's stat-change row: the stat picker from best to median, timed until the
+            # median matrix is in. The change renders the new key's pending state in the same
+            # (discrete-event) render as the picker's value, so `data-loading` reads 'true' until
+            # that answer lands and 'false' only after it.
+            stat = "(document.getElementById('lab-stat')?.value ?? '')"
+            changed = self.lab_timed(
+                "stat_change",
+                lambda: page.locator("#lab-stat").select_option("median"),
+                f"{stat} === 'median' && {LAB_HEAT_N} > 0 && {LAB_HEAT_READY}",
+                "stat_change",
+            )
+            page.locator("#lab-stat").select_option("best")
+            self.lab_wait(f"{stat} === 'best' && {LAB_HEAT_N} > 0 && {LAB_HEAT_READY}")
             return (
                 f"aggregate square '{square}' by ArrowDown ×2, ArrowRight, Enter: n = {k}, "
                 f"'{facts['iqr']}', a {facts['bars']}-bar histogram, 'Aggregated from tested "
                 f"(n = {k})', {facts['rows']} square trials listed; Pin and Send disabled: "
                 f"'{unrunnable}'; the key 1 pinned nothing (pin A empty, no trial in the rail, "
-                f"no table row selected)"
+                f"no table row selected); stat_change (best → median) {changed['ms']} ms of "
+                f"{changed['budget_ms']} ({changed['longtasks_over_50ms']} long tasks, longest "
+                f"{changed['longest_ms']} ms), then back to best"
             )
 
         self.item(first + 8, lab108)
@@ -6052,6 +6121,7 @@ def main(argv=None) -> int:
         "lab_scratch_size_bytes": tree_bytes(data_root)
         if data_root.resolve() != PRODUCT_ROOT.resolve()
         else None,
+        "lab_longtask_supported": getattr(acceptance, "lab_longtask_supported", None),
         "lab_timings_ms": {
             "trials": LAB_BENCH_TRIALS,
             "path": "Playwright → browser → scratch worker",
