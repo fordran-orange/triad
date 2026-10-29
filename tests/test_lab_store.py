@@ -1649,6 +1649,170 @@ def test_a_hard_delete_under_a_held_part_deletes_nothing_and_says_so(tmp_path, q
     assert not any((repository.root / ".erasing").glob("*"))
 
 
+# -- R3 QA observations O1 and O2 (2026-10-29): a refused undo still answers 409 and heals whole ---
+def refusing(monkeypatch, refuse):
+    """os.rename in runs refuses (as Windows does under a reader) whenever refuse(source, target)."""
+    from products.aegis import runs
+
+    real = os.rename
+
+    def rename(source, target):
+        if refuse(str(source), str(target)):
+            raise PermissionError(13, "held by a reader", str(source))
+        return real(source, target)
+
+    monkeypatch.setattr(runs.os, "rename", rename)
+    return lambda: monkeypatch.setattr(runs.os, "rename", real)
+
+
+def without_sidecar(contents: dict) -> dict:
+    return {k: v for k, v in contents.items() if not k.endswith(".summary.json")}
+
+
+def test_a_refused_put_back_still_answers_refused_and_heals_whole(
+    tmp_path, quick_moves, monkeypatch
+):
+    """O2: the forward move of `.curves` refused, then the put-back of `.cells` refused as well: the
+    Library answers Refused (409), never a bare PermissionError (500), and says what stays in
+    Recently deleted until the next try or a restart puts it back; the rest is put back at once."""
+    from products.aegis.library import Refused
+
+    repository, store, library, _cells_dir = compacted_experiment(tmp_path)
+    binned = str(repository.root / "trash")  # never a test folder named "trash"
+    folder = repository.root / "experiments"
+    before = attachment_contents(folder, EXPERIMENT)
+    trash = repository.root / "trash" / "experiments" / EXPERIMENT
+    restore = refusing(
+        monkeypatch,
+        lambda s, t: (
+            (s.endswith(f"{EXPERIMENT}.curves") and t.startswith(binned))
+            or (
+                s.endswith(f"{EXPERIMENT}.cells")
+                and s.startswith(binned)
+                and not t.startswith(binned)
+            )
+        ),
+    )
+    with pytest.raises(Refused, match="in use") as refused:
+        library.delete("experiment", EXPERIMENT)
+    assert f"{EXPERIMENT}.cells" in str(refused.value)  # the one piece not yet put back
+    assert sorted(p.name for p in trash.iterdir()) == [f"{EXPERIMENT}.cells", "trash.json"]
+    with lab_store.LOCKS.read(EXPERIMENT):
+        pass  # the write lock is free again
+    restore()
+    assert repository.heal_trash() == [f"experiments/{EXPERIMENT}"]
+    assert attachment_contents(folder, EXPERIMENT) == before and not trash.exists()
+    assert len(store.cells(EXPERIMENT)) == 12
+
+
+def test_a_stale_trashed_sidecar_is_never_a_clash(tmp_path, quick_moves, monkeypatch):
+    """O1: a stranding that leaves the summary sidecar in Recently deleted, then a listing that
+    rebuilds it live: the next heal drops the stale trashed copy (it is derived from the live
+    document) instead of keeping a folder that refuses every later delete as a clash."""
+    repository, _store, library, _cells_dir = compacted_experiment(tmp_path)
+    binned = str(repository.root / "trash")  # never a test folder named "trash"
+    folder = repository.root / "experiments"
+    before = attachment_contents(folder, EXPERIMENT)
+    trash = repository.root / "trash" / "experiments" / EXPERIMENT
+    restore = refusing(
+        monkeypatch,
+        lambda s, t: (
+            (s.endswith(f"{EXPERIMENT}.curves") and t.startswith(binned))
+            or (s.startswith(binned) and not t.startswith(binned))
+        ),  # every put-back refused
+    )
+    with pytest.raises(Exception, match="in use"):
+        library.delete("experiment", EXPERIMENT)
+    assert (trash / f"{EXPERIMENT}.summary.json").is_file()
+    restore()
+    assert [item["id"] for item in repository.list_experiments()] == [EXPERIMENT]  # sidecar rebuilt
+    assert (folder / f"{EXPERIMENT}.summary.json").is_file()
+    assert repository.heal_trash() == [f"experiments/{EXPERIMENT}"]
+    assert not trash.exists()
+    assert without_sidecar(attachment_contents(folder, EXPERIMENT)) == without_sidecar(before)
+    library.delete("experiment", EXPERIMENT)  # no clash: the delete goes through whole
+    library.restore("experiment", EXPERIMENT)
+    assert without_sidecar(attachment_contents(folder, EXPERIMENT)) == without_sidecar(before)
+
+
+def test_a_restore_replaces_an_orphan_live_sidecar(tmp_path):
+    """O1, restore side: a live sidecar with no live document belongs to nothing (listings would
+    show it as an item); the sidecar trashed with the document takes its place."""
+    repository, _store, library, _cells_dir = compacted_experiment(tmp_path)
+    folder = repository.root / "experiments"
+    before = attachment_contents(folder, EXPERIMENT)
+    library.delete("experiment", EXPERIMENT)
+    (folder / f"{EXPERIMENT}.summary.json").write_text('{"id": "orphan"}', encoding="utf-8")
+    library.restore("experiment", EXPERIMENT)
+    assert attachment_contents(folder, EXPERIMENT) == before
+    assert not (repository.root / "trash" / "experiments" / EXPERIMENT).exists()
+
+
+def test_heal_trash_never_raises_on_a_held_piece(tmp_path, quick_moves, monkeypatch):
+    """At worker start a held piece is skipped and logged, never an error that stops the worker;
+    the next heal finishes it."""
+    from products.aegis.library import Refused
+
+    repository, _store, library, _cells_dir = compacted_experiment(tmp_path)
+    binned = str(repository.root / "trash")  # never a test folder named "trash"
+    folder = repository.root / "experiments"
+    before = attachment_contents(folder, EXPERIMENT)
+    restore = refusing(
+        monkeypatch,
+        lambda s, t: (
+            (s.endswith(f"{EXPERIMENT}.curves") and t.startswith(binned))
+            or (
+                s.endswith(f"{EXPERIMENT}.cells")
+                and s.startswith(binned)
+                and not t.startswith(binned)
+            )
+        ),
+    )
+    with pytest.raises(Refused):
+        library.delete("experiment", EXPERIMENT)
+    assert repository.heal_trash() == []  # the put-back still refused: skipped, not raised
+    restore()
+    assert repository.heal_trash() == [f"experiments/{EXPERIMENT}"]
+    assert attachment_contents(folder, EXPERIMENT) == before
+
+
+def test_an_undone_hard_delete_is_put_back_never_erased(tmp_path, quick_moves, monkeypatch):
+    """A hard delete refused part way whose put-back is refused too: the piece left in the staging
+    folder belongs to a live experiment, so heal_trash puts it back; it erases only a staging
+    folder that holds its document (the delete got past its last move)."""
+    from products.aegis.runs import ItemBusy
+
+    repository, store, _library, _cells_dir = compacted_experiment(tmp_path)
+    folder = repository.root / "experiments"
+    before = attachment_contents(folder, EXPERIMENT)
+    restore = refusing(
+        monkeypatch,
+        lambda s, t: (
+            (s.endswith(f"{EXPERIMENT}.curves") and ".erasing" in t)
+            or (s.endswith(f"{EXPERIMENT}.cells") and ".erasing" in s)
+        ),
+    )
+    with pytest.raises(ItemBusy, match="in use"):
+        store.delete(EXPERIMENT)
+    (staging,) = (repository.root / ".erasing").iterdir()
+    assert sorted(p.name for p in staging.iterdir()) == [f"{EXPERIMENT}.cells"]
+    restore()
+    repository.heal_trash()
+    assert attachment_contents(folder, EXPERIMENT) == before  # put back, not erased
+    assert not any((repository.root / ".erasing").iterdir())
+    assert len(store.cells(EXPERIMENT)) == 12
+
+
+def test_heal_trash_erases_a_staging_folder_that_holds_its_document(tmp_path):
+    repository = JsonRunRepository(tmp_path / "aegis")
+    staging = repository.root / ".erasing" / "experiments-gone-1a2b3c4d"
+    (staging / "gone.cells").mkdir(parents=True)
+    (staging / "gone.cells" / "part-1.parquet").write_bytes(b"x")
+    (staging / "gone.json.gz").write_bytes(b"x")
+    repository.heal_trash()
+    assert not staging.exists()
+
+
 def finished_through_api(c, runner, name: str) -> str:
     """A layout-2 experiment created through `POST /experiments` (so `data_pinned` and `versions`
     are written) and run to `done`. It waits for the runner's own record too: the runner saves the

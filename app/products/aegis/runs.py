@@ -437,36 +437,58 @@ class JsonRunRepository:
 
     def _bring_back(self, folder: str, identifier: str) -> None:
         """Move a trash folder's remaining pieces back beside the live document; a piece present
-        on both sides stays where it is and keeps the folder."""
-        target, live = self._trash(folder, identifier), self._folder(folder)
+        on both sides stays where it is and keeps the folder. A trashed summary sidecar whose
+        live twin exists is dropped instead: it is derived from the live document, which a
+        listing rebuilt it from (R3 QA O1: counted as a clash, it refused every later delete)."""
+        target = self._trash(folder, identifier)
+        self._put_back(target, self._folder(folder), identifier)
+
+    def _put_back(self, holder: Path, live: Path, identifier: str) -> bool:
+        """Move `holder`'s pieces of `identifier` to `live`; True when nothing was left behind
+        (the holder is then removed)."""
         clash = False
-        for path in sorted(target.iterdir()):
+        for path in sorted(holder.iterdir()):
             if path.name == "trash.json":
                 continue
             if (live / path.name).exists():
+                if path.name == f"{identifier}.summary.json":
+                    _retry(path.unlink)  # derived: the live document's sidecar stands
+                    continue
                 clash = True
                 continue
             _move(path, live / path.name)
         if not clash:
-            shutil.rmtree(target, ignore_errors=True)
+            shutil.rmtree(holder, ignore_errors=True)
+        return not clash
 
     @staticmethod
     def _move_all(moves: list[tuple[Path, Path]], what: str) -> None:
         """Rename each (source, target) in order. When one is refused (a held file), every piece
         already moved goes back, in reverse, and ItemBusy is raised: the item is where it was,
-        whole (R3 QA D1). A put-back refused in turn leaves a stranded piece for the next move or
-        `heal_trash`, as an interrupted move always did."""
+        whole (R3 QA D1). A put-back refused in turn is skipped, the others still go back, and the
+        ItemBusy names it: it stays stranded for the next move or `heal_trash`, as an interrupted
+        move always did, and the route still answers 409 (R3 QA O2)."""
         done: list[tuple[Path, Path]] = []
         for source, target in moves:
             try:
                 _move(source, target)
             except PermissionError as exc:
+                stuck = []
                 for moved_from, moved_to in reversed(done):
-                    _move(moved_to, moved_from)
-                raise ItemBusy(
-                    f"{what}: {source.name} is in use (a file inside it is open); nothing was "
-                    "moved, try again in a moment"
-                ) from exc
+                    try:
+                        _move(moved_to, moved_from)
+                    except PermissionError:
+                        stuck.append(moved_from.name)
+                message = f"{what}: {source.name} is in use (a file inside it is open); "
+                if stuck:
+                    log.warning("%s: put-back refused for %s; healed later", what, stuck)
+                    message += (
+                        f"the move was undone except {', '.join(sorted(stuck))}, which the next "
+                        "try or the worker's restart puts back; try again in a moment"
+                    )
+                else:
+                    message += "nothing was moved, try again in a moment"
+                raise ItemBusy(message) from exc
             done.append((source, target))
 
     def move_to_trash(self, folder: str, identifier: str, meta: dict) -> None:
@@ -504,6 +526,9 @@ class JsonRunRepository:
         if document_path(live, identifier) is not None:
             raise FileExistsError(f"an item with id {identifier} exists")
         pieces = [p for p in sorted(target.iterdir()) if p.name != "trash.json" and p != document]
+        orphan = live / f"{identifier}.summary.json"  # no live document: it summarizes nothing
+        if orphan.is_file() and (target / orphan.name).is_file():
+            _retry(orphan.unlink)  # the sidecar trashed with the document takes its place
         clash = any((live / p.name).exists() for p in pieces)  # a piece already live stays put
         moves = [(document, live / document.name)]  # the document first: now the item is live
         moves += [(p, live / p.name) for p in pieces if not (live / p.name).exists()]
@@ -520,12 +545,34 @@ class JsonRunRepository:
             if not target.is_dir() or not self._stranded(folder, identifier):
                 continue
             if document_path(self._folder(folder), identifier) is not None:
-                self._bring_back(folder, identifier)
+                try:
+                    self._bring_back(folder, identifier)
+                except PermissionError:  # held: skipped, never a stop at worker start
+                    log.warning("heal_trash: %s/%s held open, healed later", folder, identifier)
+                    continue
                 healed.append(f"{folder}/{identifier}")
-        erasing = self.root / ".erasing"  # a hard delete whose erase stopped part way
-        for leftover in sorted(erasing.iterdir()) if erasing.is_dir() else []:
-            shutil.rmtree(leftover, ignore_errors=True)
+        erasing = self.root / ".erasing"
+        for staging in sorted(erasing.iterdir()) if erasing.is_dir() else []:
+            try:
+                self._heal_staging(staging)
+            except PermissionError:
+                log.warning("heal_trash: %s held open, healed later", staging.name)
         return healed
+
+    def _heal_staging(self, staging: Path) -> None:
+        """A hard delete's staging folder left behind. Holding its document, the delete got past
+        its last move: erase it. Without, the delete was undone and a put-back refused (or it
+        stopped mid-way): its pieces belong to the live item and go back, never erased."""
+        folder, _, rest = staging.name.partition("-")
+        identifier = rest.rpartition("-")[0]
+        if not folder or not identifier:
+            log.warning("heal_trash: unrecognised staging folder %s left alone", staging.name)
+            return
+        if document_path(staging, identifier) is not None:
+            _retry(lambda: shutil.rmtree(staging))
+            return
+        if not self._put_back(staging, self._folder(folder), identifier):
+            log.warning("heal_trash: %s clashes with the live item, left alone", staging.name)
 
     def list_trash(self) -> list[dict]:
         """Trashed items: every trash folder holding its document. A torn trash.json still lists,
@@ -615,7 +662,8 @@ class JsonRunRepository:
         renamed into a private staging folder first, the document last, so a held file puts every
         moved piece back and raises ItemBusy with the experiment untouched (R3 QA D2: a held file
         used to stay behind a removed document, and a new experiment taking the id read the old
-        trials). Then the staging folder is erased; leftovers are erased by `heal_trash`."""
+        trials). Then the staging folder is erased. `heal_trash` erases a leftover that holds the
+        document and puts back one that does not."""
         folder = self._folder("experiments")
         identifier = _check_id(experiment_id)
         document = document_path(folder, identifier)
@@ -629,8 +677,9 @@ class JsonRunRepository:
                 [(p, staging / p.name) for p in [*pieces, document]], f"experiments/{identifier}"
             )
         except ItemBusy:
-            shutil.rmtree(staging, ignore_errors=True)  # empty: every piece went back
-            raise
+            if not any(staging.iterdir()):
+                staging.rmdir()  # every piece went back
+            raise  # a piece whose put-back was refused stays for heal_trash to put back
         _retry(lambda: shutil.rmtree(staging))
 
     # Studies (Mission 8 spec §6): the document on the repository, each window's files under
