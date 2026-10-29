@@ -36,6 +36,7 @@ from products.aegis.lab.policy import (
     PARALLEL_MAX_BUNDLES,
     TOP_LIMIT,
 )
+from products.aegis.lab.store import snapshot_json
 from products.aegis.pool import METRICS, SCOPES
 
 if TYPE_CHECKING:
@@ -1009,9 +1010,7 @@ def envelope(
         "view": view,
         "filter_hash": filter_hash,
         "scope": scope,
-        "snapshot": None
-        if snapshot is None
-        else {"generation": snapshot.generation, "chunk_watermark": snapshot.chunk_watermark},
+        "snapshot": snapshot_json(snapshot),
         "provisional": provisional,
         "empty": empty,
         **{key: value for key, value in payload.items() if key != "empty"},

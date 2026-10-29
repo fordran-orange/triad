@@ -195,6 +195,14 @@ class Snapshot:
     chunk_watermark: int
 
 
+def snapshot_json(snapshot: Snapshot | None) -> dict | None:
+    """A snapshot as every Lab answer carries it: a view's envelope, the summary's latest and
+    a Lab task's result."""
+    if snapshot is None:
+        return None
+    return {"generation": snapshot.generation, "chunk_watermark": snapshot.chunk_watermark}
+
+
 @dataclass
 class LegacyContext:
     """What promoting a layout-1 chunk needs: the experiment's grid (`pos.<k>`) and its surface

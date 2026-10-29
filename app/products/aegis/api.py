@@ -58,7 +58,7 @@ from products.aegis.lab.cache import LabCache, cache_bytes_from_env
 from products.aegis.lab.index import FrameIndex
 from products.aegis.lab.policy import LOW_DISK_GB, PAGE_LIMIT, TOP_LIMIT
 from products.aegis.lab.query import LabFilter, TrialFrame
-from products.aegis.lab.tasks import LabTasks, TaskStatus
+from products.aegis.lab.tasks import LabTasks, task_of
 from products.aegis.learned import LearnedPhrases
 from products.aegis.library import FOLDERS as LIBRARY_FOLDERS
 from products.aegis.library import KINDS as LIBRARY_KINDS
@@ -1571,21 +1571,25 @@ def lab_trial(
     return detail
 
 
-def _lab_task_of(ref: lab_sources.SourceRef, status: TaskStatus) -> bool:
-    """Whether a task's key names this source: its first item is the source's identity,
-    `("exp", id, created_at)` or `("opt", job_id, cells_done)`."""
-    identity_of = status.key[0] if status.key else None
-    return isinstance(identity_of, tuple) and tuple(identity_of[:2]) == (ref.kind, ref.id)
-
-
 @router.post("/lab/{src}/tasks/{task_id}/cancel")
-def lab_cancel_task(src: str, task_id: str, tasks: LabTasks = LAB_TASKS):
+def lab_cancel_task(
+    src: str,
+    task_id: str,
+    tasks: LabTasks = LAB_TASKS,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
     """Cancels one of this source's Lab tasks: a waiting one at once, a running one at its next
     checkpoint, its finished stages kept and labelled partial. `cancelled` is false for a task
-    already finished or already cancelling; a task this source does not know is a 404."""
+    already finished or already cancelling. A task this source does not own is a 404: an
+    experiment owns its tasks by its whole identity (`task_of`), so one deleted and created
+    again under the same id never cancels its predecessor's; an optimization by its job id."""
     ref = _lab_source(src)
+    if ref.kind == "exp":
+        source = lab_sources.experiment_source(_experiment(experiments, ref.id))
+    else:
+        source = (ref.kind, ref.id)
     try:
-        if not _lab_task_of(ref, tasks.status(task_id)):
+        if not task_of(tasks.status(task_id).key, source):
             raise KeyError(task_id)
         return {"cancelled": tasks.cancel(task_id)}
     except KeyError as exc:

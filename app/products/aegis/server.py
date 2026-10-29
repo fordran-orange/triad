@@ -1,5 +1,6 @@
 """Aegis human-directed product host. Live exchange execution remains disabled."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,9 +37,12 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
-        # The Lab's task thread stops at its running task's next checkpoint and every waiting
-        # task's pinned snapshot is released; a later lifespan (a test's) builds a fresh one.
-        api.get_lab_tasks().shutdown()
+        # The Lab's task thread, when this worker built one, stops at its running task's next
+        # checkpoint and every waiting task's pinned snapshot is released. The join may wait for
+        # that checkpoint, so it runs off the event loop. A later lifespan (a test's) builds a
+        # fresh executor.
+        if api.get_lab_tasks.cache_info().currsize:
+            await asyncio.to_thread(api.get_lab_tasks().shutdown)
         api.get_lab_tasks.cache_clear()
 
 

@@ -8,6 +8,7 @@ Every test drives the task bodies with events, never with sleeps: a gate holds a
 test opens it, `recorded[k]` says stage k is in the task's status, and `LabTasks.wait` blocks
 until a task has finished. `WAIT_S` only bounds a hung test."""
 
+import asyncio
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,7 +22,14 @@ from products.aegis.lab import sources
 from products.aegis.lab import store as lab_store
 from products.aegis.lab.cache import LabCache
 from products.aegis.lab.store import Snapshot
-from products.aegis.lab.tasks import Cancelled, Checkpoint, LabTasks, snapshot_label
+from products.aegis.lab.tasks import (
+    Cancelled,
+    Checkpoint,
+    LabTasks,
+    snapshot_label,
+    task_key,
+    task_of,
+)
 from test_aegis_experiments import world  # noqa: F401 - the shared experiments fixture
 from test_aegis_lab_harness import scratch_lifespan  # noqa: F401 - the real lifespan, scratch root
 from test_lab_store import EXPERIMENT, NOW, hand_document, layout2_dir, rows_of, write_trials
@@ -30,13 +38,13 @@ pytestmark = pytest.mark.aegis
 
 WAIT_S = 30.0  # bounds a hung test; no outcome depends on it
 SOURCE = ("exp", "coalescing", "2026-10-29T00:00:00+00:00")
-KEY = (SOURCE, "importance", "net_pnl", "combined", 1)
+KEY = task_key(SOURCE, "importance", "net_pnl", "combined", 1)
 LAB = "/aegis/api/lab"
 
 
 def seed(n: int) -> tuple:
     """Another key of the same source: another seed."""
-    return (*KEY[:-1], n)
+    return task_key(SOURCE, "importance", "net_pnl", "combined", n)
 
 
 def snap(n: int) -> Snapshot:
@@ -266,6 +274,121 @@ def test_cancel_stops_a_body_between_stages(lab):
     assert closed.is_set() and not third.is_set()
 
 
+def test_results_are_copies(lab):
+    """A caller that labels a result it was given (Task 6's view) never changes the cache."""
+    body = lab.body("body", gates=(2,))
+    task = lab.tasks.request(KEY, "importance", 3, body, snapshot=snap(1))
+    assert body.recorded[1].wait(WAIT_S)
+    partial = lab.tasks.status(task.id).result
+    partial["label"] = "changed"
+    assert "label" not in lab.tasks.status(task.id).result
+    body.open()
+    done = lab.tasks.wait(task.id, WAIT_S)
+    cached = lab.tasks.request(KEY, "importance", 3, body, snapshot=snap(1))
+    assert cached.id == task.id
+    for given in (done.result, lab.tasks.result(KEY), cached.result):
+        given["label"], given["value"] = "changed", -1
+    for read in (lab.tasks.status(task.id).result, lab.tasks.result(KEY, snap(1))):
+        assert "label" not in read and read["value"] == 3
+
+
+class Paused(LabTasks):
+    """An executor that pauses each task between taking it from the queue and running its body:
+    the window a cancel or a shutdown can land in before the first checkpoint."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.taken, self.proceed = threading.Event(), threading.Event()
+        self.task = None
+
+    def _run(self, task, body, hold):
+        self.task = task
+        self.taken.set()
+        assert self.proceed.wait(WAIT_S)
+        super()._run(task, body, hold)
+
+
+@pytest.mark.parametrize("how", ["cancel", "shutdown"])
+def test_a_task_cancelled_before_its_body_starts_never_runs_it(how):
+    tasks = Paused()
+    body = Body("never", 3, (), [])
+    try:
+        task = tasks.request(KEY, "importance", 3, body, snapshot=snap(6), hold=fake_pin(6))
+        assert tasks.taken.wait(WAIT_S) and tasks.status(task.id).state == "running"
+        if how == "cancel":
+            assert tasks.cancel(task.id) is True
+            stopper = None
+        else:
+            stopper = threading.Thread(target=tasks.shutdown)
+            stopper.start()
+            assert tasks.task.cancel.wait(WAIT_S)  # the shutdown has asked it to stop
+        tasks.proceed.set()
+        stopped = tasks.wait(task.id, WAIT_S)
+        if stopper is not None:
+            stopper.join(WAIT_S)
+            assert not stopper.is_alive()
+        assert stopped.state == "cancelled" and stopped.stage == 0 and stopped.result is None
+        assert not body.started.is_set()
+        assert lab_store.REGISTRY.held(SOURCE[1]) == set()
+    finally:
+        tasks.proceed.set()
+        tasks.shutdown()
+
+
+def test_a_cancel_after_the_last_stage_is_done(lab):
+    """A body that passes a checkpoint after its last stage has finished: the cancel that meets
+    it there changes nothing, and the complete result is cached as done."""
+    resumed, proceed = threading.Event(), threading.Event()
+
+    def thorough(checkpoint):
+        for k in (1, 2, 3):
+            yield {"value": k}
+        resumed.set()
+        assert proceed.wait(WAIT_S)
+        checkpoint()
+
+    task = lab.tasks.request(KEY, "importance", 3, thorough, snapshot=snap(2))
+    assert resumed.wait(WAIT_S)
+    assert lab.tasks.cancel(task.id) is True
+    proceed.set()
+    done = lab.tasks.wait(task.id, WAIT_S)
+    assert done.state == "done" and done.error is None
+    assert done.result["stage"] == 3 and done.result["partial"] is False
+    assert lab.tasks.result(KEY, snap(2)) == done.result
+
+
+def test_a_task_queued_behind_a_finishing_one_reuses_its_result(lab):
+    """A request for the same key and snapshot while the running task is being cancelled
+    queues a task; when the running one still finishes (its cancel came after its last stage),
+    the queued one answers from that result instead of computing it again, and the cache holds
+    one entry for the (key, snapshot)."""
+    resumed, proceed = threading.Event(), threading.Event()
+
+    def finishing(checkpoint):
+        for k in (1, 2, 3):
+            yield {"value": k}
+        resumed.set()
+        assert proceed.wait(WAIT_S)
+        checkpoint()
+
+    first = lab.tasks.request(KEY, "importance", 3, finishing, snapshot=snap(3))
+    assert resumed.wait(WAIT_S)
+    assert lab.tasks.cancel(first.id) is True
+    spare = lab.body("spare")
+    queued = lab.tasks.request(KEY, "importance", 3, spare, snapshot=snap(3), hold=fake_pin(3))
+    assert queued.id != first.id and queued.state == "queued"
+    proceed.set()
+    done = lab.tasks.wait(first.id, WAIT_S)
+    answered = lab.tasks.wait(queued.id, WAIT_S)
+    assert done.state == answered.state == "done"
+    assert answered.result == done.result and answered.result["stage"] == 3
+    assert answered.stage == answered.stages == 3 and answered.progress == 1.0
+    assert not spare.started.is_set()
+    assert lab_store.REGISTRY.held(SOURCE[1]) == set()
+    assert sum(1 for t in lab.tasks._done.values() if t.key == KEY) == 1
+    assert lab.tasks.request(KEY, "importance", 3, spare, snapshot=snap(3)).id == first.id
+
+
 def test_snapshot_changes_coalesce(lab):
     """Review Focus 2: ten requests for ten successive snapshots while the first runs. The key
     never has more than one task running and one waiting, each request's pin replaces the
@@ -429,10 +552,27 @@ def test_shutdown_cancels_and_joins(lab):
     lab.tasks.shutdown()  # twice is harmless
 
 
-def test_lifespan_shuts_the_tasks_down(scratch_lifespan):  # noqa: F811
+def _drop_cached_executor() -> None:
+    """Shut down the worker's cached executor, if one was built, before forgetting it."""
+    if api.get_lab_tasks.cache_info().currsize:
+        api.get_lab_tasks().shutdown()
     api.get_lab_tasks.cache_clear()
+
+
+def test_lifespan_shuts_the_tasks_down(scratch_lifespan, monkeypatch):  # noqa: F811
+    """On exit the lifespan stops the executor this worker built, off the event loop (its join
+    may wait for a checkpoint), and forgets it; a worker that built none builds none to stop."""
+    _drop_cached_executor()
     spinning = threading.Event()
     threads = []
+    shut = []
+    built = []
+
+    def counted(**kwargs):
+        built.append(kwargs)
+        return LabTasks(**kwargs)
+
+    monkeypatch.setattr(api, "LabTasks", counted)
 
     def spin(checkpoint):
         threads.append(threading.current_thread())
@@ -443,40 +583,95 @@ def test_lifespan_shuts_the_tasks_down(scratch_lifespan):  # noqa: F811
 
     try:
         with TestClient(server.app):
+            pass
+        assert built == [] and api.get_lab_tasks.cache_info().currsize == 0  # none to stop
+        with TestClient(server.app):
             tasks = api.get_lab_tasks()
+            assert len(built) == 1
+            stop = tasks.shutdown
+
+            def recorded_shutdown(*args, **kwargs):
+                try:
+                    asyncio.get_running_loop()
+                    shut.append("on the event loop")
+                except RuntimeError:
+                    shut.append("off the loop")
+                stop(*args, **kwargs)
+
+            monkeypatch.setattr(tasks, "shutdown", recorded_shutdown)
             running = tasks.request(KEY, "importance", 3, spin)
             assert spinning.wait(WAIT_S)
+        assert shut == ["off the loop"]
         assert tasks.status(running.id).state == "cancelled"
         assert not threads[0].is_alive()
-        assert api.get_lab_tasks() is not tasks  # a later lifespan builds a fresh executor
+        assert api.get_lab_tasks.cache_info().currsize == 0  # a later lifespan builds afresh
     finally:
-        api.get_lab_tasks().shutdown()
-        api.get_lab_tasks.cache_clear()
+        _drop_cached_executor()
 
 
-def test_cancel_route_answers_404_for_an_unknown_task(lab):
+def test_task_keys_name_their_source():
+    """One key builder (review B5): the full source identity, then method, metric, scope and
+    seed. An experiment owns a key by its whole identity, so a recreated id is another source;
+    an optimization by its job id, whatever cells it has done since."""
+    key = task_key(SOURCE, "importance", "net_pnl", "combined", 1)
+    assert key == (SOURCE, "importance", "net_pnl", "combined", 1)
+    assert task_of(key, SOURCE)
+    assert not task_of(key, ("exp", SOURCE[1], "2026-10-01T00:00:00+00:00"))  # recreated id
+    assert not task_of(key, ("exp", "elsewhere", SOURCE[2]))
+    assert not task_of(key, ("opt", SOURCE[1]))
+    running = task_key(("opt", "job-1", 7), "importance", "net_pnl", "long", 1)
+    assert task_of(running, ("opt", "job-1")) and task_of(running, ("opt", "job-1", 9))
+    assert not task_of(running, ("opt", "job-2")) and not task_of(running, ("exp", "job-1", ""))
+    for bad in (("exp", "x"), ("run", "x", 1), ()):
+        with pytest.raises(ValueError, match="source identity"):
+            task_key(bad, "importance", "net_pnl", "combined", 1)
+
+
+def test_cancel_route_answers_404_for_an_unknown_task(lab, world):  # noqa: F811
+    """The route cancels a task of its own source only: 404 for an unknown id, another source,
+    another kind, or the task of a predecessor experiment whose id was created again."""
+    repository, _library, strategy = world
+    hand_document(repository, strategy, experiment_id=EXPERIMENT)
+    current = sources.experiment_source(exp.ExperimentStore(repository).get(EXPERIMENT))
+    predecessor = ("exp", EXPERIMENT, "2026-10-01T00:00:00+00:00")
+    assert current[2] != predecessor[2]
     server.app.dependency_overrides[api.get_lab_tasks] = lambda: lab.tasks
+    server.app.dependency_overrides[api.get_repository] = lambda: repository
     try:
         c = TestClient(server.app, raise_server_exceptions=False)
-        unknown = c.post(f"{LAB}/exp:{SOURCE[1]}/tasks/{'0' * 32}/cancel")
+        unknown = c.post(f"{LAB}/exp:{EXPERIMENT}/tasks/{'0' * 32}/cancel")
         assert unknown.status_code == 404, unknown.text
         assert "unknown task" in unknown.json()["detail"]
         blocker = lab.body("blocker", gates=(1,))
-        lab.tasks.request(KEY, "importance", 3, blocker)
+        optimization = task_key(("opt", "job-1", 7), "importance", "net_pnl", "long", 1)
+        running = lab.tasks.request(optimization, "importance", 3, blocker)
         assert blocker.started.wait(WAIT_S)
-        waiting = lab.tasks.request(seed(2), "importance", 3, lab.body("waiting"))
-        url = f"{LAB}/exp:{SOURCE[1]}/tasks/{waiting.id}/cancel"
-        # Another source's route never answers for this source's task.
-        assert c.post(f"{LAB}/exp:elsewhere/tasks/{waiting.id}/cancel").status_code == 404
-        assert c.post(f"{LAB}/opt:{SOURCE[1]}/tasks/{waiting.id}/cancel").status_code == 404
-        assert lab.tasks.status(waiting.id).state == "queued"
+        mine = lab.tasks.request(
+            task_key(current, "importance", "net_pnl", "combined", 1), "importance", 3, lab.body()
+        )
+        theirs = lab.tasks.request(
+            task_key(predecessor, "importance", "net_pnl", "combined", 1),
+            "importance",
+            3,
+            lab.body(),
+        )
+        url = f"{LAB}/exp:{EXPERIMENT}/tasks/{mine.id}/cancel"
+        assert c.post(f"{LAB}/exp:{EXPERIMENT}/tasks/{theirs.id}/cancel").status_code == 404
+        assert c.post(f"{LAB}/exp:elsewhere/tasks/{mine.id}/cancel").status_code == 404
+        assert c.post(f"{LAB}/opt:{EXPERIMENT}/tasks/{mine.id}/cancel").status_code == 404
+        assert c.post(f"{LAB}/opt:job-2/tasks/{running.id}/cancel").status_code == 404
+        assert lab.tasks.status(mine.id).state == lab.tasks.status(theirs.id).state == "queued"
         cancelled = c.post(url)
         assert cancelled.status_code == 200 and cancelled.json() == {"cancelled": True}
-        assert lab.tasks.status(waiting.id).state == "cancelled"
+        assert lab.tasks.status(mine.id).state == "cancelled"
+        assert lab.tasks.status(theirs.id).state == "queued"
         assert c.post(url).json() == {"cancelled": False}  # finished already
-        assert c.post(f"{LAB}/nonsense/tasks/{waiting.id}/cancel").status_code == 422
+        stopping = c.post(f"{LAB}/opt:job-1/tasks/{running.id}/cancel")  # whatever cells done
+        assert stopping.status_code == 200 and stopping.json() == {"cancelled": True}
+        assert c.post(f"{LAB}/nonsense/tasks/{mine.id}/cancel").status_code == 422
     finally:
         server.app.dependency_overrides.pop(api.get_lab_tasks, None)
+        server.app.dependency_overrides.pop(api.get_repository, None)
 
 
 # --- the pinned snapshot: `sources.pin_experiment` and `open_experiment(snapshot=)` ------------

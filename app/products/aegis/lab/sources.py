@@ -74,6 +74,7 @@ from products.aegis.lab.store import (
     TrialTable,
     file_set,
     latest_snapshot,
+    snapshot_json,
 )
 from products.aegis.optimize import SIDE_KEY, grid_values
 from products.aegis.pool import METRICS, SCOPES
@@ -727,10 +728,7 @@ def summary(
         )
     latest = None
     if document is not None and frame.layout == 2 and frame.snapshot is not None:
-        latest = {
-            "generation": frame.snapshot.generation,
-            "chunk_watermark": frame.snapshot.chunk_watermark,
-        }
+        latest = snapshot_json(frame.snapshot)
     exp = document is not None
     return {
         "source": frame.source,

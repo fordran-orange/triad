@@ -34,7 +34,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from products.aegis.lab.policy import TASK_RESULTS
-from products.aegis.lab.store import REGISTRY, Snapshot
+from products.aegis.lab.store import REGISTRY, Snapshot, snapshot_json
 
 log = logging.getLogger("aegis")
 
@@ -70,9 +70,9 @@ Body = Callable[[Checkpoint], Iterator[dict]]
 @dataclass(frozen=True)
 class TaskStatus:
     """One read of a task, copied under the executor's lock. `result` is the latest finished
-    stage's (with its `stage`, `stages`, `partial` and the `snapshot` the task computed on), the
-    executor's own dict: never changed once published, and read-only to the caller.
-    `sharing_cpu` is true while an experiment job is running beside a queued or running task."""
+    stage's (with its `stage`, `stages`, `partial` and the `snapshot` the task computed on), a
+    copy the caller may label without touching the cache. `sharing_cpu` is true while an
+    experiment job is running beside a queued or running task."""
 
     id: str
     key: tuple
@@ -107,11 +107,27 @@ class _Task:
     cancel: threading.Event = field(default_factory=threading.Event)
 
 
-def snapshot_json(snapshot: Snapshot | None) -> dict | None:
-    """A snapshot as every Lab answer carries it (`query.envelope`)."""
-    if snapshot is None:
-        return None
-    return {"generation": snapshot.generation, "chunk_watermark": snapshot.chunk_watermark}
+def task_key(source: tuple, method: str, metric: str, scope: str, seed: int) -> tuple:
+    """A task's coalescing key (review B5): the source's full identity, `("exp", id,
+    created_at)` (`sources.experiment_source`) or `("opt", job_id, cells_done)`
+    (`sources.optimization_source`), then the method, metric, scope and seed. No filter:
+    importance ignores it (§7.3)."""
+    if len(source) != 3 or source[0] not in ("exp", "opt"):
+        raise ValueError(f"{source!r} is not a source identity: (exp|opt, id, created/cells)")
+    return (tuple(source), method, metric, scope, seed)
+
+
+def task_of(key: tuple, source: tuple) -> bool:
+    """Whether `key` (`task_key`) is a task of `source`. An experiment owns it by its whole
+    identity, so an experiment deleted and created again under the same id never owns its
+    predecessor's tasks; an optimization by its job id alone, `("opt", job_id)` being enough,
+    since the cells it has done move while it runs."""
+    mine = key[0] if key and isinstance(key[0], tuple) and len(key[0]) == 3 else None
+    if mine is None or len(source) < 2 or mine[0] != source[0]:
+        return False
+    if mine[0] == "opt":
+        return mine[1] == source[1]
+    return mine == tuple(source)
 
 
 def snapshot_label(result: Mapping | None, current: Snapshot | None) -> str | None:
@@ -166,7 +182,8 @@ class LabTasks:
         self._waiting: dict[tuple, _Task] = {}  # the one queued task of each key
         self._running: _Task | None = None
         self._done: OrderedDict[str, _Task] = OrderedDict()  # the finished results, LRU
-        self._ended: OrderedDict[str, _Task] = OrderedDict()  # cancelled and failed, newest last
+        # Every other end, newest last: cancelled, failed, or done from another task's result.
+        self._ended: OrderedDict[str, _Task] = OrderedDict()
         self._queue: queue.Queue[str | None] = queue.Queue()  # task ids, in request order
         self._thread: threading.Thread | None = None
         self._closed = False
@@ -224,7 +241,7 @@ class LabTasks:
                 return None
             newest = max(found, key=lambda task: (_order(task.snapshot), task.order))
             self._done.move_to_end(newest.id)
-            return newest.result
+            return dict(newest.result)
 
     def cancel(self, task_id: str) -> bool:
         """A waiting task is cancelled at once and its pin released; a running one stops at its
@@ -283,10 +300,9 @@ class LabTasks:
     def _place(self, key, label, stages, fn, snapshot, hold) -> tuple[_Task, int | None]:
         """The task that answers a request and the pin it does not need (the caller releases it
         outside the lock)."""
-        for task in reversed(self._done.values()):
-            if task.key == key and task.snapshot == snapshot:
-                self._done.move_to_end(task.id)
-                return task, hold
+        done = self._cached(key, snapshot)
+        if done is not None:
+            return done, hold
         running = self._running
         if running is not None and (running.key != key or running.cancel.is_set()):
             running = None
@@ -313,6 +329,14 @@ class LabTasks:
             self._thread.start()
         return task, None
 
+    def _cached(self, key: tuple, snapshot: Snapshot | None) -> _Task | None:
+        """The finished task holding the result of (key, snapshot), marked as just used."""
+        for task in reversed(self._done.values()):
+            if task.key == key and task.snapshot == snapshot:
+                self._done.move_to_end(task.id)
+                return task
+        return None
+
     def _task(self, task_id: str) -> _Task:
         for tasks in (self._active, self._done, self._ended):
             task = tasks.get(task_id)
@@ -329,7 +353,7 @@ class LabTasks:
             stage=task.stage,
             stages=task.stages,
             progress=task.stage / task.stages,
-            result=task.result,
+            result=None if task.result is None else dict(task.result),
             error=task.error,
             started_at=task.started_at,
             finished_at=task.finished_at,
@@ -344,14 +368,17 @@ class LabTasks:
         self._end(task, "cancelled", None)
         return hold
 
-    def _end(self, task: _Task, state: State, error: str | None) -> None:
+    def _end(self, task: _Task, state: State, error: str | None, *, cached: bool = True) -> None:
+        """Record a task's end. A `done` task's result is cached, unless it answered from one
+        already there (`cached=False`): one entry per (key, snapshot); every other end is kept
+        apart, so no failure ever evicts a result."""
         task.state, task.error, task.finished_at = state, error, _now()
         self._active.pop(task.id, None)
         if self._running is task:
             self._running = None
         self._finished += 1
         task.order = self._finished
-        kept = self._done if state == "done" else self._ended
+        kept = self._done if state == "done" and cached else self._ended
         kept[task.id] = task
         while len(kept) > self.max_results:
             kept.popitem(last=False)
@@ -374,10 +401,20 @@ class LabTasks:
                 if task is None:  # cancelled while it waited
                     continue
                 del self._waiting[task.key]
-                task.state, task.started_at = "running", _now()
-                self._running = task
                 body, hold, task.body, task.hold = task.body, task.hold, None, None
-                self._lock.notify_all()
+                # Queued behind a task being cancelled that still finished on the same snapshot:
+                # its result answers this one, never computed twice.
+                done = self._cached(task.key, task.snapshot)
+                if done is not None:
+                    task.stage, task.stages, task.result = done.stage, done.stages, done.result
+                    self._end(task, "done", None, cached=False)
+                else:
+                    task.state, task.started_at = "running", _now()
+                    self._running = task
+                    self._lock.notify_all()
+            if done is not None:
+                _release(hold)
+                continue
             self._run(task, body, hold)
 
     def _run(self, task: _Task, body: Body, hold: int | None) -> None:
@@ -387,6 +424,8 @@ class LabTasks:
         state, error = "failed", "interrupted"
         stages = None
         try:
+            if task.cancel.is_set():  # cancelled or shut down before its body began
+                raise Cancelled
             stages = iter(body(Checkpoint(task.cancel)))
             for produced in stages:
                 self._record(task, produced)
@@ -398,7 +437,10 @@ class LabTasks:
                 )
             state, error = "done", None
         except Cancelled:
-            state, error = "cancelled", None
+            # A cancel that meets a checkpoint after the last stage changes nothing: the result
+            # is complete, and it is cached as done.
+            state = "done" if task.stage == task.stages else "cancelled"
+            error = None
         except Exception as exc:  # noqa: BLE001 - a failing task is reported, never raised: the thread serves the next
             state, error = "failed", f"{type(exc).__name__}: {exc}"
             log.warning("Lab task %s (%s) failed: %s", task.id, task.label, error)
