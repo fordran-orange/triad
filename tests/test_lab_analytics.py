@@ -63,21 +63,15 @@ from products.aegis.lab.analytics import (
     CoarseTerms,
     FineTerms,
     aliased,
-    assess,
-    availability,
     block_mains,
-    candidates,
     coarse,
     coarse_bins,
     coarse_floors,
     coarse_intervals,
     coarse_parts,
     cohort,
-    compare_scope,
-    conditions,
     coverage_label,
     cramers_v,
-    evidence_scope,
     fine_families,
     fine_parts,
     fine_shares,
@@ -86,9 +80,7 @@ from products.aegis.lab.analytics import (
     interaction,
     intervals,
     pair_quality,
-    statuses,
     triples_top,
-    veto,
 )
 from products.aegis.lab.policy import (
     BOOTSTRAP_B,
@@ -101,6 +93,16 @@ from products.aegis.lab.policy import (
     TRIPLE_TOP,
 )
 from products.aegis.lab.query import BLOCK0, LabFilter, matrix_view
+from products.aegis.lab.rule import (
+    assess,
+    availability,
+    candidates,
+    compare_scope,
+    conditions,
+    evidence_scope,
+    statuses,
+    veto,
+)
 from products.aegis.lab.shares import design_of, parameter_blocks
 from products.aegis.lab.tasks import Cancelled
 
@@ -507,7 +509,8 @@ def test_intervals_are_recentred_on_the_point_estimate_exactly():
 
 def test_family_floor_is_max_t_over_its_members():
     """`family` = mean + t·sd over the permutations, t the 95th percentile of each permutation's
-    largest standardized share in the family; the families never overlap."""
+    largest share in the family, each standardized leave-one-out by the null mean and SD of the
+    other permutations (Ruling P10); the families never overlap."""
     c = cohort_of(stat_frame(d=4, values=VALUES, n=1_000, seed=SEED, y=zero))
     fn = FineTerms(c.B)
     families = fine_families(4)
@@ -522,11 +525,18 @@ def test_family_floor_is_max_t_over_its_members():
     assert null.shape == (60, 9, 4)
     assert np.allclose(found.share, np.quantile(null, 0.95, axis=0))
     for name in (MAINS, INCREMENTS):
-        members = families[name]
-        mean, sd = null[:, members].mean(axis=0), null[:, members].std(axis=0, ddof=1)
-        t = np.quantile(((null[:, members] - mean) / sd).max(axis=1), 0.95)
+        members = null[:, families[name]]
+        mean, sd = members.mean(axis=0), members.std(axis=0, ddof=1)
+        others = [np.delete(members, r, axis=0) for r in range(len(members))]
+        loo = [
+            (members[r] - rest.mean(axis=0)) / rest.std(axis=0, ddof=1)
+            for r, rest in enumerate(others)
+        ]
+        t = np.quantile(np.max(loo, axis=1), 0.95)
         assert found.t[name] == pytest.approx(t)
-        assert np.allclose(found.family[members], mean + t * sd)
+        assert np.allclose(found.family[families[name]], mean + t * sd)
+        in_sample = np.quantile(((members - mean) / sd).max(axis=1), 0.95)
+        assert t > in_sample  # in-sample standardization shrinks the maxima that set t
     assert np.isnan(fine_parts(found.family)[1]).all()  # J is in no family
     with pytest.raises(ValueError, match="family"):
         floors(
@@ -692,56 +702,44 @@ def test_case01_strong_first_order(seed):
         assert found[path].proposable and found[path].failing is None
 
 
-# R3.5 finding (task-5-report.md): at 5,000 rows a noise own-direction triple increment's upper
-# bound sits ≈ 0.0042 above its point, so only 0-4 % cross θ_min and about half the noise
-# parameters clear all 21 of their triples (and their 7 fine Δ).
-FIVE_THOUSAND = {
-    1: "3 of 7 noise parameters proposable (x2, x6, x8); x3 and x7 fail condition 2 first, "
-    "x4 and x5 condition 3; noise triple increments with upper ≥ 0.01: 2.7 %",
-    2: "all 7 noise parameters proposable; no noise triple increment's upper bound reaches 0.01",
-    3: "1 of 7 noise parameters proposable (x7); x2, x4 and x8 fail condition 2 first, x3, x5 "
-    "and x6 condition 3; noise triple increments with upper ≥ 0.01: 4.1 %",
-}
-
-
-@pytest.mark.parametrize("seed", at_seeds(FIVE_THOUSAND))
-def test_case01_at_5000_rows_proposes_nothing_honestly(seed):
-    """Case 1 on §20's 5,000 rows (decision 20, review B3): a noise triple increment's null SD is
-    about √(2·48)/n, so its upper bound passes θ_min too often. No noise parameter is proposed:
-    each is `Active · not detected` with `failing` naming condition 3."""
-    _, _, result = assessed("01@5000", seed)
-    found = by_path(result)
-    for path in result.paths[1:]:
-        assert found[path].status == "Active · not detected", found[path]
-        assert not found[path].proposable
-        assert found[path].failing.startswith("not proposable: condition 3 ("), found[path]
-
-
 @pytest.mark.parametrize("seed", at_seeds())
-def test_case01_at_5000_rows_fails_on_increments_only(seed):
-    """Case 1's 5,000-row companion, guarded while its named test is a strict xfail: no noise
-    parameter is detected, and one that is not proposed fails condition 2 or 3, never 1."""
+def test_case01_at_5000_rows_proposes_nothing_honestly(seed, capsys):
+    """Case 1 on §20's 5,000 rows, the brief's companion with Ruling P11's (amended) assertion.
+    A noise own-direction increment's upper bound sits ≈ 0.004 above its point at 5,000 rows, so
+    the rule proposes a seed-dependent subset of the noise parameters, each with every bound below
+    θ_min; it never detects one. x₁ is `Active · detected` and not proposable; every noise
+    parameter not proposed is blocked by a practical bound on a pair or a triple: its `failing`
+    names condition 2 or 3. The proposable counts are printed."""
     _, _, result = assessed("01@5000", seed)
     found = by_path(result)
-    assert found[result.paths[0]].status == "Active · detected"
-    for path in result.paths[1:]:
+    first, *noise = result.paths
+    assert found[first].status == "Active · detected" and not found[first].proposable
+    for path in noise:
         s = found[path]
         assert s.status in {"Active · not detected", "Deprioritized · proposable"}, s
         assert s.proposable or re.match(r"not proposable: condition [23] \(", s.failing), s
+    proposed = sum(found[path].proposable for path in noise)
+    with capsys.disabled():
+        print(f"\ncase 1 at 5,000 rows, seed {seed}: {proposed} of {len(noise)} noise proposable")
 
 
 @pytest.mark.parametrize("seed", at_seeds())
 def test_case02_xor(seed):
     """Case 2: Y = 2·[(x₁ > m) XOR (x₂ > m)] + ε. Both mains stay within their family floor and
-    both parameters are `Investigate · interaction not ruled out`, never proposable."""
+    both parameters are `Investigate · interaction not ruled out`, never proposable; `failing`
+    names the real cause, condition 2's increment beyond the other (a non-candidate's missing
+    coarse bound never stands in for it)."""
     _, _, result = assessed("02", seed)
     found = by_path(result)
     S = fine_parts(result.fine.terms)[0]
     floor = fine_parts(result.fine.floors.family)[0]
     assert (S[:2] <= floor[:2]).all(), (S[:2], floor[:2])
-    for path in result.paths[:2]:
+    for path, other in zip(result.paths[:2], result.paths[1::-1], strict=True):
         assert found[path].status == "Investigate · interaction not ruled out", found[path]
         assert not found[path].proposable
+        assert found[path].failing.startswith(
+            f"not proposable: condition 2 (Δ beyond {other} upper"
+        ), found[path]
 
 
 @pytest.mark.parametrize("seed", at_seeds())
@@ -784,6 +782,7 @@ def test_case05_uneven_sampling(seed):
     assert flagged and all(paths[2] in names for names in flagged)
     assert not by_path(result)[paths[0]].proposable
     assert fine_parts(result.fine.hi)[2][0, 1] > THETA_MIN
+    assert any(c.startswith(f"condition 2 (Δ beyond {paths[1]}") for c in conditions(result, 0))
 
 
 @pytest.mark.parametrize("seed", at_seeds())
@@ -796,28 +795,16 @@ def test_case06_sparse_coverage(seed):
     assert last.path == result.paths[0]
     assert last.status == "Insufficient coverage · unresolved"
     assert last.label == "Insufficient coverage" and not last.proposable
-    assert f"{SPARSE_PRESENT} of {SPARSE_VALUES} values" in last.reason, last.reason
+    assert last.reason == "coverage: 8 of 40 values hold ≥ 20 rows; n = 5,000 (needs 1,200)"
     assert all(s.label == "Measured" for s in listed[:-1])
 
 
-# R3.5 finding (task-5-report.md): the coarse triple family's max-T floor at
-# COARSE_PERMUTATION_P = 50 over 3,420 own-direction increments (d = 20) is anti-conservative: on
-# pure noise some member exceeds its floor in 10 of 10 seeds at P = 50, 0 of 10 at P = 200
-# (t ≈ 4.4 against 5.0); at 5,000 rows its upper bound is then above θ_min, so rule 6 fires.
-PURE_NOISE = {
-    1: "rule 6 flags x1: own increment 0.0081 over its family floor 0.0078 (upper 0.0146); "
-    "t = 4.37, 1 of 3,420 increments over its floor",
-    2: "rule 6 flags x1 and x17 (0.0086 over 0.0073; 0.0100 over 0.0093); t = 4.46, 3 of "
-    "3,420 increments over their floor",
-    3: "rule 6 flags x8, x10, x15 and x17 (0.0075 to 0.0085 over floors 0.0074 to 0.0080); "
-    "t = 4.19, 5 of 3,420 increments over their floor",
-}
-
-
-@pytest.mark.parametrize("seed", at_seeds(PURE_NOISE))
+@pytest.mark.parametrize("seed", at_seeds())
 def test_case07_pure_noise(seed):
     """Case 7: Y = ε over 20 parameters. Every status is `Active · not detected`; the residual
-    veto is raised with its text and its warning; nothing is proposed."""
+    veto is raised with its text and its warning, and names every parameter's `failing`; nothing
+    is proposed. (Its coarse triple family holds 3,420 increments: the leave-one-out max-T floor,
+    Ruling P10, keeps them undetected at COARSE_PERMUTATION_P = 50.)"""
     _, _, result = assessed("07", seed)
     listed = statuses(result)
     assert len(listed) == D_WIDE
@@ -825,24 +812,9 @@ def test_case07_pure_noise(seed):
         (s.path, s.status, s.reason) for s in listed if s.status != "Active · not detected"
     ]
     assert result.veto == VETO_TEXT and VETO_WARNING in result.warnings
-    assert not any(s.proposable for s in listed)
-
-
-@pytest.mark.parametrize("seed", at_seeds())
-def test_case07_pure_noise_vetoes_and_proposes_nothing(seed):
-    """Case 7's other half, guarded while its named test is a strict xfail: the veto and its
-    warning are raised, nothing is proposed, nothing is detected on the fine grid, and a status
-    other than `Active · not detected` comes from the coarse triple family alone (rule 6)."""
-    _, _, result = assessed("07", seed)
-    listed = statuses(result)
-    assert result.veto == VETO_TEXT and VETO_WARNING in result.warnings
     assert result.coarse.lo > RESIDUAL_VETO
     assert not any(s.proposable for s in listed)
     assert all(s.failing == VETO_TEXT for s in listed)
-    assert {s.status for s in listed} <= {
-        "Active · not detected",
-        "Investigate · three-way effect not ruled out",
-    }
 
 
 @pytest.mark.parametrize("seed", at_seeds())
@@ -1055,7 +1027,10 @@ def test_failing_is_set_on_every_non_proposable_parameter():
                 assert s.failing == VETO_TEXT
                 kinds.add("veto")
             else:
+                named = conditions(result, result.paths.index(s.path))
+                assert s.failing == f"not proposable: {named[0]}", s
                 assert re.fullmatch(r"not proposable: condition [1-5] \(.+\)", s.failing), s
+                assert "no interval" not in s.failing, s  # every candidate's bounds were drawn
                 kinds.add("condition")
     assert kinds == {"proposable", "unavailable", "veto", "condition"}
 
@@ -1225,6 +1200,88 @@ def test_a_constant_block_is_not_measured():
         assert "not measured in block 2" in s.flags
         assert "condition 1 (not measured in block 2)" in conditions(result, i)
         assert s.failing == "not proposable: condition 1 (not measured in block 2)"
+    flat = stat_frame(d=3, values=4, n=2_000, seed=SEED, y=zero)
+    column = flat.table.schema.get_field_index("combined.net_pnl")
+    constant = flat.table.set_column(column, "combined.net_pnl", pa.array(np.ones(2_000)))
+    result = assess(cohort_of(replace(flat, table=constant)), seed=SEED, checkpoint=no_checkpoint)
+    for s in statuses(result):
+        assert s.status == "Active · not detected" and s.reason == "not measured in block 0", s
+        assert "not measured in block 0" in s.flags
+        assert s.failing == "not proposable: condition 1 (not measured in block 0)"
+
+
+def _with_fine(result, **parts):
+    """`result` with some fine-stage arrays replaced: `terms`, `hi` or `floor`, each as a function
+    of its (S, J, Δ) views of a copy."""
+    fine = result.fine
+    arrays = {"terms": fine.terms, "hi": fine.hi, "floor": fine.floors.family}
+    copies = {}
+    for name, array in arrays.items():
+        copies[name] = array.copy()
+        if name in parts:
+            parts[name](*fine_parts(copies[name]))
+    found = replace(fine.floors, family=copies["floor"])
+    return replace(result, fine=replace(fine, terms=copies["terms"], hi=copies["hi"], floors=found))
+
+
+def test_condition_2_reads_the_coarse_increment():
+    """Condition 2 reads the coarse Δ_{i|j} as well as the fine one: with case 2's fine Δ of x₁
+    below θ_min everywhere, its coarse increment beyond x₂ still fails it. x₁ is no candidate, so
+    its coarse increment is read at its point estimate, and the reason says so (no `upper`)."""
+    _, _, result = assessed("02", SEED)
+    assert 0 not in result.coarse_bounds.candidates
+
+    def quiet_row(S, J, D):
+        D[0, :] = 0.0
+
+    quiet = _with_fine(result, hi=quiet_row)
+    named = conditions(quiet, 0)
+    second = [c for c in named if c.startswith("condition 2 (")]
+    path = result.paths[1]
+    assert second and second[0].startswith(f"condition 2 (coarse Δ beyond {path} 0."), named
+    assert "upper" not in second[0]
+
+
+def test_rules_5_and_6_need_an_upper_bound_above_theta_min():
+    """`Investigate · interaction not ruled out` and `Investigate · three-way effect not ruled out`
+    need detection *and* an upper bound above θ_min: a detected increment whose upper bound is
+    below θ_min leaves the parameter `Active · not detected`. On case 1 (20,000 rows) with the
+    veto forced, so nothing is proposable, x₂ gets a detected fine Δ beyond x₃, then a detected
+    own coarse increment, each with its upper bound below and then above θ_min."""
+    _, _, base = assessed("01", SEED)
+    base = replace(base, veto=VETO_TEXT)
+    path = base.paths[1]
+    assert by_path(base)[path].status == "Active · not detected"
+    floor = fine_parts(base.fine.floors.family)[2][1, 2]
+    assert 0 < floor < THETA_MIN / 2
+
+    for upper, expected in ((THETA_MIN / 2, "Active · not detected"), (2 * THETA_MIN, None)):
+
+        def detected(S, J, D):
+            D[1, 2] = 2 * floor
+
+        def bounded(S, J, D, upper=upper):
+            D[1, 2] = upper
+
+        found = by_path(_with_fine(base, terms=detected, hi=bounded))[path]
+        assert found.status == (expected or "Investigate · interaction not ruled out"), found
+
+    trios = base.coarse.triples
+    t, position = (int(v) for v in np.argwhere(trios == 1)[0])
+    inc_floor = coarse_parts(base.coarse_null.family, len(base.paths)).increments[t, position]
+    assert 0 < inc_floor < THETA_MIN / 2
+    for upper, expected in ((THETA_MIN / 2, "Active · not detected"), (2 * THETA_MIN, None)):
+        increments = base.coarse.increments.copy()
+        increments[t, position] = 2 * inc_floor
+        inc_hi = base.coarse_bounds.inc_hi.copy()
+        inc_hi[t, position] = upper
+        tripled = replace(
+            base,
+            coarse=replace(base.coarse, increments=increments),
+            coarse_bounds=replace(base.coarse_bounds, inc_hi=inc_hi),
+        )
+        found = by_path(tripled)[path]
+        assert found.status == (expected or "Investigate · three-way effect not ruled out"), found
 
 
 def test_importance_result_serialises_to_plain_json():

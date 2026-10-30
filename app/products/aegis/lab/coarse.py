@@ -183,10 +183,23 @@ class Coarse:
     hi: float = math.nan
 
 
-def coarse(Xq: np.ndarray, Y: np.ndarray) -> Coarse:
-    """The coarse decomposition of Y over the coarse index matrix Xq (`coarse_bins`): one pass."""
+def coarse_terms(Xq: np.ndarray, terms: CoarseTerms | None = None) -> CoarseTerms:
+    """`terms`, checked against Xq's bins, or a new `CoarseTerms` for Xq: the points, the
+    bootstrap and the null of one decomposition may share one triple design (≈ 17 MB of pair keys
+    at d = 20 and 50,000 rows), built on first use and kept for the same Xq."""
+    sizes = tuple(int(s) for s in coarse_sizes(Xq))
+    if terms is None:
+        return CoarseTerms(sizes)
+    if terms.sizes != sizes:
+        raise ValueError(f"coarse terms over {terms.sizes} bins cannot read a grid of {sizes}")
+    return terms
+
+
+def coarse(Xq: np.ndarray, Y: np.ndarray, *, terms: CoarseTerms | None = None) -> Coarse:
+    """The coarse decomposition of Y over the coarse index matrix Xq (`coarse_bins`): one pass.
+    `terms` shares a triple design with the resamples (`coarse_terms`)."""
     d = Xq.shape[1]
-    fn = CoarseTerms(coarse_sizes(Xq))
+    fn = coarse_terms(Xq, terms)
     parts = coarse_parts(fn(Xq, Y), d)
     return Coarse(
         S=parts.S,
@@ -219,6 +232,7 @@ __all__ = [
     "coarse_families",
     "coarse_parts",
     "coarse_sizes",
+    "coarse_terms",
     "own_cube",
     "triple_index",
     "triples_top",
