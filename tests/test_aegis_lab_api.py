@@ -1648,17 +1648,20 @@ def test_robustness_rankings_on_an_experiment(client, monkeypatch):
     assert len(ranks["peak"]) == 4 and set(ranks["peak"]) == set(ranks["robust"])
     assert ranks["k"] == answer["constants"]["RANKING_K"] == 20
     assert ranks["pool"] == 4 and answer["constants"]["RANK_POOL"] == 300
+    assert ranks["b_max"] == answer["constants"]["RANK_B_MAX"] == 20
     assert answer["constants"]["PER_BARS"] == 1_000
     assert answer["scope"]["shown"] == 4 and answer["scope"]["filtered"] == 4
     assert answer["scope"]["basis"] == (
-        f"{EVERY_TRIAL_BASIS}; robust ranks the top 4 by peak, B reads the top 20"
+        f"{EVERY_TRIAL_BASIS}; robust ranks the top 4 by peak, B reads the top 20 (at most 20)"
     )
     assert isinstance(ranks["disagree"], bool)
-    two = _view(c, src, "robustness", k=2)["rankings"]
+    short = _view(c, src, "robustness", k=2)
+    two = short["rankings"]
     assert two["k"] == 2 and len(two["peak"]) == len(two["robust"]) == 2 and two["pool"] == 4
+    assert short["scope"]["basis"].endswith("B reads the top 2 (at most 20)")
     widest = _view(c, src, "robustness", k=500)
     assert widest["rankings"]["k"] == 300 and len(widest["rankings"]["peak"]) == 4
-    assert widest["scope"]["basis"].endswith("B reads the top 300")
+    assert widest["scope"]["basis"].endswith("B reads the top 20 (at most 20)")
     # `k`'s default is `top`'s 200: only a `k` the request sent is a list length here
     assert api.QueryRequest.model_validate({"filter": {}, "view": "robustness"}).k == 200
     page = _view(c, src, "page")
@@ -1666,7 +1669,7 @@ def test_robustness_rankings_on_an_experiment(client, monkeypatch):
     brushed = _view(c, src, "robustness", filter={"ranges": {DONCHIAN: [10, 10]}})
     assert len(brushed["rankings"]["peak"]) == 2 and brushed["scope"]["filtered"] == 2
     assert brushed["scope"]["basis"] == (
-        f"{EVERY_TRIAL_BASIS}; robust ranks the top 2 by peak, B reads the top 20"
+        f"{EVERY_TRIAL_BASIS}; robust ranks the top 2 by peak, B reads the top 20 (at most 20)"
     )
 
 

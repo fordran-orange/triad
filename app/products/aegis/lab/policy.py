@@ -1,5 +1,7 @@
 """The Lab's named constants, each with the spec value that sets it (Optimization Lab v2)."""
 
+from types import MappingProxyType
+
 # §7.2 aggregated projection: a square with fewer trials is dim and labelled `low n`; it is
 # flagged `confounded?` when another parameter's distribution inside it is this far (TVD) away.
 AGG_MIN_N = 8
@@ -86,16 +88,25 @@ PER_BARS = 1_000  # C's and D's per-unit-time statistics are per this many bars
 # The rankings' bounded compute (Ruling P18): the lists hold k rows, the k of §10's stage 2, chosen
 # from the top RANK_POOL by `peak`, so a crowd of spikes above a plateau cannot hide it. A is read
 # for the whole pool, a neighbourhood per candidate and never one per trial; B, the costly part,
-# for the top k alone. An `opt:` source has no tolerance of its own, so it reads the experiments'
-# default, labelled.
+# for the top k and at most RANK_B_MAX rows, whatever k asks. An `opt:` source has no tolerance of
+# its own, so it reads the experiments' default, labelled.
 RANKING_K = 20
 RANK_POOL = 300
+RANK_B_MAX = 20
 DEFAULT_TOLERANCE = 0.15
-# Ruling P19: the metrics whose sign is profit or loss, 0 their break-even, so `stable` never names
-# a value ≤ 0 on one. Not `max_drawdown`, `win_rate`, `trade_count` or `exposure`, which have no
-# sign; not `profit_factor`, a ratio that is positive on a loss too (it breaks even at 1).
-PNL_SIGNED_METRICS = frozenset(
-    {"net_pnl", "net_return", "cagr", "mar", "expectancy", "sharpe_trade"}
+# Ruling P19's addendum: where a metric stops losing money, so `stable` never names a value at or
+# below it. The money-signed metrics break even at 0, and `profit_factor`, a ratio positive on a
+# loss too, at 1. `max_drawdown`, `win_rate`, `trade_count` and `exposure` have no break-even.
+BREAK_EVEN = MappingProxyType(
+    {
+        "net_pnl": 0.0,
+        "net_return": 0.0,
+        "cagr": 0.0,
+        "mar": 0.0,
+        "expectancy": 0.0,
+        "sharpe_trade": 0.0,
+        "profit_factor": 1.0,
+    }
 )
 
 # §7.7 Pareto: ≤ 2,000 front points and one 64 × 64 density grid. §7.9 exact parallel mode:

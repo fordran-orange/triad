@@ -1237,6 +1237,33 @@ def test_b_runs_only_on_the_top_k_and_the_rest_sort_unresolved(monkeypatch):
     assert len(calls) == 3 + 1 and [row["ranked_by"] for row in one["ranked"]] == ["B"]
 
 
+def test_b_is_bounded_apart_from_k(monkeypatch):
+    """Whatever `k` asks, B runs on at most RANK_B_MAX rows: the lists are as long as `k` says, and
+    a row past the bound whose A is unresolved stays unresolved."""
+    frame = stat_frame(d=3, values=20, n=1_000, seed=11, y=zero)
+    axes = paths_of(3)[:2]
+    calls: list[int] = []
+    real = robustness_module._Regions.category
+
+    def counting(self, row, *args, **kwargs):
+        calls.append(row)
+        return real(self, row, *args, **kwargs)
+
+    monkeypatch.setattr(robustness_module._Regions, "category", counting)
+    bound = policy.RANK_B_MAX
+    for k in (bound + 1, 50, policy.RANK_POOL):
+        calls.clear()
+        ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=k, axes=axes)
+        assert len(calls) == bound
+        assert ranks["k"] == k == len(ranks["peak"]) and ranks["b_max"] == bound
+        # the first rows by peak read it (a trial number is its row in this frame)
+        assert [f"{frame.source}#{row}" for row in calls] == ranks["peak"][:bound]
+        assert {row["ranked_by"] for row in ranks["peak_ranked"][bound:]} == {None}
+    calls.clear()
+    rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=bound, axes=axes)
+    assert len(calls) == bound
+
+
 def _plateau_on_a_ring(plateau: float, ring: float):
     """5 x 5: a centre with its neighbours all equal, inside a ring far from them."""
 
@@ -1268,12 +1295,26 @@ def test_an_unsigned_metric_is_not_asked_to_be_positive():
     assert ranks["stable"] == _id(frame, (2, 2)) and ranks["stable_reason"] is None
 
 
-def test_every_metric_is_classified_as_signed_or_not():
+@pytest.mark.parametrize(("plateau", "named"), [(0.8, False), (1.0, False), (1.2, True)])
+def test_stable_requires_a_profit_factor_above_its_break_even(plateau, named):
+    """Positive on a loss too: a profit factor breaks even at 1, and the order stays §7.6's."""
+    frame = _plateau_on_a_ring(plateau, 0.1)
+    ranks = rankings(frame, metric="profit_factor", scope=SCOPE, tolerance=TOLERANCE, k=5)
+    assert ranks["robust"][0] == _id(frame, (2, 2))
+    if named:
+        assert ranks["stable"] == _id(frame, (2, 2)) and ranks["stable_reason"] is None
+    else:
+        assert ranks["stable"] is None
+        assert ranks["stable_reason"] == "the most robust candidate has profit_factor ≤ 1"
+
+
+def test_every_metric_has_a_break_even_or_none():
     """A metric added later has to be put on one side or the other."""
-    signed = {"net_pnl", "net_return", "cagr", "mar", "expectancy", "sharpe_trade"}
-    unsigned = {"max_drawdown", "win_rate", "profit_factor", "trade_count", "exposure"}
-    assert policy.PNL_SIGNED_METRICS == signed
-    assert signed | unsigned == set(METRIC_NAMES) and not signed & unsigned
+    money = {"net_pnl", "net_return", "cagr", "mar", "expectancy", "sharpe_trade"}
+    assert policy.BREAK_EVEN == {**dict.fromkeys(money, 0.0), "profit_factor": 1.0}
+    none = {"max_drawdown", "win_rate", "trade_count", "exposure"}
+    assert set(policy.BREAK_EVEN) | none == set(METRIC_NAMES)
+    assert not set(policy.BREAK_EVEN) & none
 
 
 def test_stable_scans_the_robust_order_for_the_first_that_qualifies():
@@ -1295,16 +1336,17 @@ def test_stable_scans_the_robust_order_for_the_first_that_qualifies():
     assert named(losing, region) == ("b", None)
     tied = entry("a", "stable local", 9.0), entry("b", "stable local", 9.0)
     lower = entry("c", "stable local", 8.0)
-    assert named(*tied, lower) == ("c", None)
-    assert named(*tied) == (None, "the most robust candidates tie on net_pnl")
+    is_tied = (None, "the most robust candidates are tied on net_pnl")
+    # the addendum's 100, 100, 99: a tie at the top names nothing, never the 99
+    assert named(*tied, lower) == is_tied
+    assert named(*tied) == is_tied
     assert named(losing) == (None, "the most robust candidate has net_pnl ≤ 0")
-    # the reason is what stopped the most robust one, whatever stopped the others after it
+    assert named(losing, entry("c", "stable local", -6.0)) == named(losing)
+    # the top is the first that qualifies: below its break-even a candidate is passed over
     tied_regions = entry("b", "stable region", 3.0), entry("c", "stable region", 3.0)
-    assert named(losing, *tied_regions) == (None, "the most robust candidate has net_pnl ≤ 0")
-    assert named(*tied, entry("c", "stable local", -1.0)) == (
-        None,
-        "the most robust candidates tie on net_pnl",
-    )
+    assert named(losing, *tied_regions) == is_tied
+    # a tie below the one that qualifies changes nothing
+    assert named(entry("z", "stable local", 10.0), *tied) == ("z", None)
     assert named(entry("a", "mixed", 9.0)) == (None, "none among the top 7 by peak")
     assert named(losing, metric="win_rate") == ("a", None)
     assert _stable_of([], metric="net_pnl", pool=0, band=0.0) == (
@@ -1318,6 +1360,8 @@ def test_constants_print_what_a_panel_reads():
     held = constants()
     assert held["PER_BARS"] == policy.PER_BARS == 1_000
     assert held["RANK_POOL"] == policy.RANK_POOL
+    assert held["RANK_B_MAX"] == policy.RANK_B_MAX == 20
+    assert held["BREAK_EVEN"] == policy.BREAK_EVEN
     strict(held)
 
 
@@ -1402,7 +1446,34 @@ def test_stable_is_null_when_ambiguous():
     ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=4)
     assert ranks["ranked"][0]["classification"] == "stable local"
     assert ranks["stable"] is None
-    assert ranks["stable_reason"] == "the most robust candidates tie on net_pnl"
+    assert ranks["stable_reason"] == "the most robust candidates are tied on net_pnl"
+
+
+def test_a_tie_at_the_top_names_nothing():
+    """100, 100, 99 on a real surface: two stable trials share the top and one stable trial sits
+    under them. It is not the most robust, so `stable` does not name it."""
+    top = {(3, 3), (3, 4)}
+
+    def value(position):
+        i, j = position
+        if not (1 <= i <= 5 and 1 <= j <= 5):
+            return 0.0
+        return 100.0 if position in top else 99.0
+
+    frame = lattice_frame(value, [7, 7])
+    ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=5)
+    assert set(ranks["robust"][:2]) == {_id(frame, position) for position in top}
+    assert ranks["ranked"][2]["classification"] == "stable local"
+    assert ranks["ranked"][2]["value"] == 99.0
+    assert ranks["stable"] is None
+    assert ranks["stable_reason"] == "the most robust candidates are tied on net_pnl"
+
+    def untied(position):
+        return 100.0 if position == (3, 3) else value(position) if position not in top else 99.0
+
+    single = lattice_frame(untied, [7, 7])
+    ranks = rankings(single, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=5)
+    assert ranks["stable"] == _id(single, (3, 3)) and ranks["stable_reason"] is None
 
 
 def test_no_spread_names_no_stable_candidate():

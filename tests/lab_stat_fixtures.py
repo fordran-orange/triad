@@ -393,6 +393,7 @@ def stack_frames(first: TrialFrame, *others: TrialFrame) -> TrialFrame:
 
 # A plateau of 25 cells and one spike far from it on an 11 x 11 grid: the spike tops the peak
 # ranking with every neighbour low, and only the plateau's interior has its neighbours within τ.
+LATTICE_METRICS = ("net_pnl", "max_drawdown", "profit_factor")  # what a hand-written trial holds
 SPIKE_SIZES = (11, 11)
 SPIKE_AT = (8, 8)
 PLATEAU_BEST_INTERIOR = (4, 4)
@@ -411,7 +412,7 @@ def lattice_frame(
 ) -> TrialFrame:
     """A frame of hand-written trials on the lattice 1..B per parameter: one trial per position
     (those in `only` when given), in position order, numbered from 0, `value(position)` its
-    `net_pnl` and `max_drawdown`. The schedule defaults to every valid cell, an exhaustive grid;
+    value of each LATTICE_METRICS. The schedule defaults to every valid cell, an exhaustive grid;
     a smaller `scheduled` makes it a sampled surface."""
     paths = paths_of(len(sizes))
     lattices = [[float(1 + i) for i in range(size)] for size in sizes]
@@ -421,7 +422,7 @@ def lattice_frame(
     rows = []
     for position in positions:
         held = value(position)
-        cell = {f"{scope}.{name}": held for scope in SCOPES for name in ("net_pnl", "max_drawdown")}
+        cell = {f"{scope}.{name}": held for scope in SCOPES for name in LATTICE_METRICS}
         row = {
             "params": {path: lattices[k][position[k]] for k, path in enumerate(paths)},
             "metrics": cell,

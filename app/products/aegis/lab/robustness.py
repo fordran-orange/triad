@@ -19,12 +19,13 @@ weighted total and no overall label exists anywhere here.
   every resolved state and the metric breaking a tie. Each lists k rows. `robust` chooses its own
   from the top RANK_POOL by `peak` of the filter, a bounded compute, so more than k spikes cannot
   hide a plateau: the whole pool reads A, a neighbourhood per candidate and never per trial, and B,
-  the costly part, runs on the top k alone; a row with no B computed sorts as unresolved. The
-  filter selects candidates only: neighbours and regions read every completed block-0 trial of the
-  snapshot, because a brush would otherwise make a tested neighbour read as untested.
-- **`stable`** names the first candidate of that order that is stable, untied and, on a metric
-  whose sign is profit or loss, above 0; `stable_reason` says why when none is. A surface with no
-  spread (τ ≤ 0) classifies nothing, as `analysis.analyse` names no plateau on one.
+  the costly part, runs on the top k and at most RANK_B_MAX rows, whatever k asks; a row with no B
+  computed sorts as unresolved. The filter selects candidates only: neighbours and regions read
+  every completed block-0 trial of the snapshot, because a brush would otherwise make a tested
+  neighbour read as untested.
+- **`stable`** names the first candidate of that order that is stable and above its metric's
+  break-even, unless another ties it; `stable_reason` says why when it names none. A surface with
+  no spread (τ ≤ 0) classifies nothing, as `analysis.analyse` names no plateau on one.
 
 Every value of A and B is oriented so higher is better (`neighbours.py`). Pure: numpy over a
 block-0 frame and plain arguments; every payload is strict JSON. The category names are the bare
@@ -43,6 +44,7 @@ import numpy as np
 from products.aegis.lab.index import FrameIndex
 from products.aegis.lab.neighbours import Neighbourhood, PositionLookup
 from products.aegis.lab.policy import (
+    BREAK_EVEN,
     DEFAULT_TOLERANCE,
     FOLD_DRAWDOWN_FACTOR,
     FOLD_MIN_TRADES,
@@ -54,7 +56,7 @@ from products.aegis.lab.policy import (
     PEAK_IQR_FACTOR,
     PER_BARS,
     PLATEAU_MIN_COVERAGE,
-    PNL_SIGNED_METRICS,
+    RANK_B_MAX,
     RANK_POOL,
     RANKING_K,
     REGION_AXES,
@@ -140,6 +142,8 @@ def constants() -> dict:
         "PER_BARS": PER_BARS,
         "RANKING_K": RANKING_K,
         "RANK_POOL": RANK_POOL,
+        "RANK_B_MAX": RANK_B_MAX,
+        "BREAK_EVEN": dict(BREAK_EVEN),
     }
 
 
@@ -699,33 +703,37 @@ def _top_rows(lookup: PositionLookup, flt: LabFilter, k: int) -> np.ndarray:
 def _stable_of(
     ordered: Sequence[Mapping], *, metric: str, pool: int, band: float
 ) -> tuple[str | None, str | None]:
-    """The candidate `stable` names and, when it names none, why (Ruling P19). `ordered` is the
-    pool in `robust`'s order: the first that is `stable local`, or `stable region` with A
-    unresolved; that no other candidate ties on the whole order but the trial number; and, on a
-    P&L-signed metric, that is above 0. The reason is what stopped the most robust of the stable
-    ones, or that there were none."""
+    """The candidate `stable` names and, when it names none, why (Ruling P19 and its addendum).
+    `ordered` is the pool in `robust`'s order. A candidate qualifies when it is `stable local`, or
+    `stable region` with A unresolved, and is above its metric's break-even, where the metric has
+    one. The first that qualifies is named, unless the next ties it on the whole order but the
+    trial number: a tie at the top names nothing, never a lesser trial under it."""
     if not ordered:
         return None, f"no trial with a defined {metric} in the filter"
     if band <= 0:
         return None, NO_SPREAD
-    reason = None
-    for place, entry in enumerate(ordered):
-        if entry["classification"] not in _STABLE:
+    even = BREAK_EVEN.get(metric)
+    stable = [place for place, entry in enumerate(ordered) if entry["classification"] in _STABLE]
+    if not stable:
+        return None, f"none among the top {pool} by peak"
+    for place in stable:
+        entry = ordered[place]
+        if even is not None and entry["value"] <= even:
             continue
-        held = entry["key"][:-1]
-        neighbours = ordered[max(place - 1, 0) : place] + ordered[place + 1 : place + 2]
-        if metric in PNL_SIGNED_METRICS and entry["value"] <= 0:
-            reason = reason or f"the most robust candidate has {metric} ≤ 0"
-        elif any(other["key"][:-1] == held for other in neighbours):
-            reason = reason or f"the most robust candidates tie on {metric}"
-        else:
-            return entry["trial_id"], None
-    return None, reason or f"none among the top {pool} by peak"
+        following = ordered[place + 1 : place + 2]
+        if following and following[0]["key"][:-1] == entry["key"][:-1]:
+            return None, f"the most robust candidates are tied on {metric}"
+        return entry["trial_id"], None
+    return None, f"the most robust candidate has {metric} ≤ {even:g}"
 
 
 def rankings_basis(ranks: Mapping) -> str:
     """What the rankings' basis line adds: how far they looked."""
-    return f"robust ranks the top {ranks['pool']} by peak, B reads the top {ranks['k']}"
+    bound = ranks["b_max"]
+    return (
+        f"robust ranks the top {ranks['pool']} by peak, "
+        f"B reads the top {min(ranks['k'], bound)} (at most {bound})"
+    )
 
 
 def rankings(
@@ -741,9 +749,10 @@ def rankings(
 ) -> dict:
     """`peak` and `robust`, side by side, `k` rows each at most and `k` bounded by RANK_POOL
     (module docstring). `pool` is how many candidates `robust` chose from, the top RANK_POOL by
-    `peak` of the filter. `disagree` is whether their first trials differ. `stable` and
-    `stable_reason` are `_stable_of`'s. `ranked` and `peak_ranked` list each ranking's trials with
-    what placed them (`ranked_by` A or B, None when neither resolved)."""
+    `peak` of the filter, and `b_max` the most that read B, the first of them. `disagree` is
+    whether their first trials differ. `stable` and `stable_reason` are `_stable_of`'s. `ranked`
+    and `peak_ranked` list each ranking's trials with what placed them (`ranked_by` A or B, None
+    when neither resolved)."""
     k = min(k, RANK_POOL)
     lookup = PositionLookup(frame, metric=metric, scope=scope, index=index)
     band = _band(lookup.values[lookup.index.completed], tolerance)
@@ -758,7 +767,7 @@ def rankings(
         trial_no = int(lookup.trial_numbers[row])
         slot = category_a(lookup.around(row), value, band, d)
         ranked_by = "A" if slot.resolved else None
-        if not slot.resolved and regions is not None and place < k:
+        if not slot.resolved and regions is not None and place < min(k, RANK_B_MAX):
             b = regions.category(row, axes, band)
             if b.resolved:
                 slot, ranked_by = b, "B"
@@ -788,6 +797,7 @@ def rankings(
         "stable_reason": stable_reason,
         "k": k,
         "pool": len(rows),
+        "b_max": RANK_B_MAX,
         "ranked": shown(ordered[:k]),
         "peak_ranked": shown(entries[:k]),
     }
