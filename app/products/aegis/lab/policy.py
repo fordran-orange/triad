@@ -82,11 +82,21 @@ FOLD_RATIO_BAND = (0.5, 2.0)
 FOLD_DRAWDOWN_FACTOR = 1.5
 STRESS_KEEP = 0.70
 STRESS_DRAWDOWN_FACTOR = 1.3
-# The rankings' bounded compute: `robust` orders the top k by `peak`, the k of §10's stage 2 (a
-# neighbourhood per candidate, never one per trial). An `opt:` source has no tolerance of its own,
-# so it reads the experiments' default, labelled.
+PER_BARS = 1_000  # C's and D's per-unit-time statistics are per this many bars
+# The rankings' bounded compute (Ruling P18): the lists hold k rows, the k of §10's stage 2, chosen
+# from the top RANK_POOL by `peak`, so a crowd of spikes above a plateau cannot hide it. A is read
+# for the whole pool, a neighbourhood per candidate and never one per trial; B, the costly part,
+# for the top k alone. An `opt:` source has no tolerance of its own, so it reads the experiments'
+# default, labelled.
 RANKING_K = 20
+RANK_POOL = 300
 DEFAULT_TOLERANCE = 0.15
+# Ruling P19: the metrics whose sign is profit or loss, 0 their break-even, so `stable` never names
+# a value ≤ 0 on one. Not `max_drawdown`, `win_rate`, `trade_count` or `exposure`, which have no
+# sign; not `profit_factor`, a ratio that is positive on a loss too (it breaks even at 1).
+PNL_SIGNED_METRICS = frozenset(
+    {"net_pnl", "net_return", "cagr", "mar", "expectancy", "sharpe_trade"}
+)
 
 # §7.7 Pareto: ≤ 2,000 front points and one 64 × 64 density grid. §7.9 exact parallel mode:
 # ≤ 5,000 lines stratified by metric decile. §7.10 convergence: the robust median per batch of

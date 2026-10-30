@@ -55,7 +55,7 @@ from products.aegis.lab.importance import (
 )
 from products.aegis.lab.index import FrameIndex, build_index
 from products.aegis.lab.neighbours import neighbourhood
-from products.aegis.lab.policy import SHARPE_MIN_TRADES
+from products.aegis.lab.policy import RANKING_K, SHARPE_MIN_TRADES
 from products.aegis.lab.query import (
     ALL_BLOCKS,
     BASIS_EXACT,
@@ -88,6 +88,7 @@ from products.aegis.lab.robustness import (
     candidate_card,
     constants,
     rankings,
+    rankings_basis,
 )
 from products.aegis.lab.store import (
     _KEPT,
@@ -1057,8 +1058,10 @@ def trial_blocks(
         REGISTRY.release(handle)
 
     def figures(block: int) -> dict:
-        row = rows.get(block) or {}
-        values = [row.get(metric_column(scope, name)) for name in _EVIDENCE_METRICS]
+        row = rows.get(block)
+        if row is None or row["status"] != "ok":
+            return {"net_pnl": None, "max_drawdown": None, "trades": 0}
+        values = [row[metric_column(scope, name)] for name in _EVIDENCE_METRICS]
         trades = int(_number(values[2]) or 0)
         return {"net_pnl": values[0], "max_drawdown": values[1], "trades": trades}
 
@@ -1085,8 +1088,10 @@ def robustness_query(
 ) -> dict:
     """POST /lab/{src}/query for the `robustness` view: with a `trial`, its candidate card, `card`;
     without, the two rankings of the filter, `rankings`. One or the other, so a card never pays for
-    a ranking's k neighbourhoods. `axes` are B's (`robustness.top_axes`), `blocks` and `full` the
-    card's (`trial_blocks`); the filter selects candidates only, as the basis line says."""
+    a ranking's neighbourhoods. `axes` are B's (`robustness.top_axes`), `blocks` and `full` the
+    card's (`trial_blocks`); the filter selects candidates only, as the basis line says, which for
+    the rankings also prints their pool. A `k` the request sent is their list length; `k`'s default
+    is the `top` view's, so without one they list RANKING_K."""
     flt = request.filter
     metric = request.metric or frame.objective
     if index is None:
@@ -1099,6 +1104,7 @@ def robustness_query(
             metric=metric,
             scope=flt.scope,
             tolerance=tolerance,
+            k=request.k if "k" in request.model_fields_set else RANKING_K,
             axes=axes,
             flt=flt,
             index=index,
@@ -1121,7 +1127,9 @@ def robustness_query(
         flt,
         1 if card is not None else len(ranks["peak"]),
         metric=metric,
-        basis=ROBUSTNESS_BASIS,
+        basis=ROBUSTNESS_BASIS
+        if card is not None
+        else f"{ROBUSTNESS_BASIS}; {rankings_basis(ranks)}",
         unique=unique,
         mask=filter_mask(frame, flt, index=index),
         index=index,

@@ -7,10 +7,12 @@ import re
 import shutil
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
 
+import pyarrow as pa
 import pytest
 from fastapi.testclient import TestClient
 from products.aegis import api, server
@@ -37,6 +39,7 @@ from test_aegis_api import (
     _wait_experiment,
 )
 from test_aegis_data import write_archive
+from test_aegis_optimize import small_strategy
 
 pytestmark = pytest.mark.aegis
 
@@ -1644,13 +1647,27 @@ def test_robustness_rankings_on_an_experiment(client, monkeypatch):
     ranks = answer["rankings"]
     assert len(ranks["peak"]) == 4 and set(ranks["peak"]) == set(ranks["robust"])
     assert ranks["k"] == answer["constants"]["RANKING_K"] == 20
+    assert ranks["pool"] == 4 and answer["constants"]["RANK_POOL"] == 300
+    assert answer["constants"]["PER_BARS"] == 1_000
     assert answer["scope"]["shown"] == 4 and answer["scope"]["filtered"] == 4
+    assert answer["scope"]["basis"] == (
+        f"{EVERY_TRIAL_BASIS}; robust ranks the top 4 by peak, B reads the top 20"
+    )
     assert isinstance(ranks["disagree"], bool)
+    two = _view(c, src, "robustness", k=2)["rankings"]
+    assert two["k"] == 2 and len(two["peak"]) == len(two["robust"]) == 2 and two["pool"] == 4
+    widest = _view(c, src, "robustness", k=500)
+    assert widest["rankings"]["k"] == 300 and len(widest["rankings"]["peak"]) == 4
+    assert widest["scope"]["basis"].endswith("B reads the top 300")
+    # `k`'s default is `top`'s 200: only a `k` the request sent is a list length here
+    assert api.QueryRequest.model_validate({"filter": {}, "view": "robustness"}).k == 200
     page = _view(c, src, "page")
     assert ranks["peak"][0] == page["rows"][0]["trial_id"]
     brushed = _view(c, src, "robustness", filter={"ranges": {DONCHIAN: [10, 10]}})
     assert len(brushed["rankings"]["peak"]) == 2 and brushed["scope"]["filtered"] == 2
-    assert brushed["scope"]["basis"] == EVERY_TRIAL_BASIS
+    assert brushed["scope"]["basis"] == (
+        f"{EVERY_TRIAL_BASIS}; robust ranks the top 2 by peak, B reads the top 20"
+    )
 
 
 def test_b_reads_the_importance_result_of_the_frames_snapshot(client, monkeypatch):
@@ -1689,13 +1706,31 @@ def test_b_reads_the_importance_result_of_the_frames_snapshot(client, monkeypatc
 
 
 def test_robustness_view_runs_on_a_real_importance_result(client, monkeypatch):
+    """A 3 x 3 grid whose trials differ, so importance measures its shares (every cell of the
+    breakout's surface has one P&L on this archive, and a share of no variance is undefined): B
+    reads them as its axes."""
     c, _, _ = client
-    experiment_id = _finished_experiment(c, monkeypatch)
+    fast, slow = "long_side.indicators.ema.length", "long_side.indicators.sma.length"
+    strategy = c.post(
+        "/aegis/api/strategies",
+        json={"name": "Crossover", "spec": small_strategy().model_dump(mode="json")},
+    ).json()
+    surface = {
+        "parameters": [
+            {"path": fast, "start": 5, "stop": 7, "step": 1},
+            {"path": slow, "start": 8, "stop": 10, "step": 1},
+        ]
+    }
+    experiment_id = _finished_experiment(
+        c, monkeypatch, name="nine cells", strategy_id=strategy["id"], surface=surface
+    )
     src = f"exp:{experiment_id}"
     done = _done(c, src)
-    assert done["importance"]["stage"] == 3
-    answer = _view(c, src, "robustness", trial=f"{src}#0")
-    assert set(answer["axes"]) <= {DONCHIAN, RSI}
+    assert done["importance"]["stage"] == 3 and done["importance"]["n"] == 9
+    answer = _view(c, src, "robustness", trial=f"{src}#4")
+    assert answer["axes"] and set(answer["axes"]) <= {fast, slow}
+    b = answer["card"]["categories"]["B"]
+    assert b["inputs"]["axes"] == answer["axes"] and b["reason"] != NO_IMPORTANCE
 
 
 def test_robustness_with_blocks_reads_the_selection_period_only(client, monkeypatch, tmp_path):
@@ -1747,6 +1782,53 @@ def test_robustness_with_blocks_reads_the_selection_period_only(client, monkeypa
     assert answer["scope"]["block"] == 0 and answer["scope"]["attempted"] == 4
     # rankings read no block row: a card reads one trial's, through the store's predicate
     assert _view(c, src, "robustness")["rankings"]["k"] == 20
+
+
+@pytest.mark.parametrize("fault", ["absent", "failed"])
+def test_a_block_without_figures_gives_the_finding_no_verdict(client, monkeypatch, tmp_path, fault):
+    """A screening block's row absent, or there but not `ok` whatever it holds: the finding reads
+    no verdict and says why, and C is what it was. Every row is given a profit, since this archive's
+    trials lose and a baseline ≤ 0 reads `not profitable` before any block is compared."""
+    c, _, _ = client
+    write_archive(tmp_path, "20260301T000000000000Z", "SPY", price=400.0, missing=290)
+    experiment_id = _finished_experiment(
+        c,
+        monkeypatch,
+        name="a block without figures",
+        data={"symbol": "SPY", "timeframe": "1m", **RANGE},
+        blocks=2,
+    )
+    src = f"exp:{experiment_id}"
+    whole = _view(c, src, "robustness", trial=f"{src}#1")["card"]
+    original = sources.open_experiment
+
+    def faulty(*args, trial_no=None, **kwargs):
+        frame, handle = original(*args, trial_no=trial_no, **kwargs)
+        if trial_no is None:
+            return frame, handle
+        table = frame.table
+        at = table.schema.get_field_index("combined.net_pnl")
+        table = table.set_column(
+            at, "combined.net_pnl", pa.array([100.0] * table.num_rows, pa.float64())
+        )
+        block = table.column("block").to_numpy()
+        if fault == "absent":
+            table = table.filter(pa.array(block != 2))
+        else:
+            words = table.column("status").to_pylist()
+            status = ["failed" if b == 2 else word for b, word in zip(block, words, strict=True)]
+            at = table.schema.get_field_index("status")
+            table = table.set_column(at, "status", pa.array(status, table.schema.field(at).type))
+        return replace(frame, table=table), handle
+
+    monkeypatch.setattr(sources, "open_experiment", faulty)
+    card = _view(c, src, "robustness", trial=f"{src}#1")["card"]
+    finding = card["findings"][0]
+    assert finding["classification"] is None
+    assert finding["reason"] == "block 2 has no defined figures"
+    assert finding["inputs"]["block_figures"][1]["net_pnl"] is None
+    assert card["categories"]["C"] == whole["categories"]["C"]
+    assert lab_store_module.REGISTRY.held(experiment_id) == set()
 
 
 def test_a_block_read_on_an_expired_snapshot_is_a_409(client, monkeypatch, tmp_path):

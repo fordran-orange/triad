@@ -11,11 +11,15 @@ import numpy as np
 import pyarrow as pa
 import pytest
 from lab_stat_fixtures import (
+    CROWDED_BEST_INTERIOR,
+    CROWDED_SPIKES,
     D_WIDE,
     PLATEAU_BEST_INTERIOR,
     PLATEAU_EDGE,
     SPIKE_AT,
+    SPIKE_SIZES,
     VALUES,
+    crowded_plateau,
     first_order,
     frame_of,
     lattice_frame,
@@ -29,6 +33,7 @@ from products.aegis import analysis
 from products.aegis import experiments as exp
 from products.aegis.lab import neighbours as neighbours_module
 from products.aegis.lab import policy, sources
+from products.aegis.lab import robustness as robustness_module
 from products.aegis.lab import store as lab_store
 from products.aegis.lab.cache import LabCache
 from products.aegis.lab.index import build_index
@@ -38,17 +43,19 @@ from products.aegis.lab.neighbours import (
     position_codes,
     position_table,
 )
-from products.aegis.lab.query import ALL_BLOCKS, LabFilter
+from products.aegis.lab.query import ALL_BLOCKS, METRIC_NAMES, LabFilter
 from products.aegis.lab.robustness import (
     BlockEvidence,
     Category,
     FoldEvidence,
     ReplayEvidence,
+    _stable_of,
     candidate_card,
     category_a,
     category_b,
     category_c,
     category_d,
+    constants,
     rankings,
     robust_key,
     tau,
@@ -65,6 +72,7 @@ TOLERANCE = 0.15
 SELECTION_ONLY = "unresolved · selection-period only"
 NO_REPLAY = "no replay yet (stage 2)"
 NO_IMPORTANCE = "importance not computed for this snapshot"
+NO_SPREAD = "no spread in the metric (τ = 0)"
 SUMMED = {"score", "total", "overall", "weighted", "sum", "rating"}
 
 
@@ -136,7 +144,7 @@ def test_fully_tested_corner_resolves():
         found = neighbourhood(frame, trial_at(frame, corner))
         assert found.m == policy.NEIGHBOUR_M_GRID
         assert (found.valid, found.tested, found.coverage) == (d, d, 1.0)
-        a = category_a(found, 50.0, 0.0, d)
+        a = category_a(found, 50.0, 1.0, d)
         assert a.resolved and a.classification == "stable local"
         assert a.inputs["required_n"] == d
 
@@ -147,8 +155,18 @@ def test_a_corner_with_a_neighbour_untested_stays_unresolved():
     frame = lattice_frame(lambda p: 50.0, [3, 3], only={corner, right, (2, 2)})
     a = Category(**card_of(frame, corner)["categories"]["A"])
     assert a.resolved is False
-    assert a.reason == "untested surroundings (coverage 0.5 of 0.5)"
+    assert a.reason == "untested surroundings (n 1 of 2)"
     assert a.inputs["n"] == 1 and a.inputs["required_n"] == 2
+
+
+def test_a_names_what_falls_short():
+    """Ruling P17: coverage passes and n falls short, so the reason says n, with the data's
+    numbers; a coverage shortfall keeps its own form, also when n is short too."""
+    short_n = category_a(hood([1.0] * 7, valid=8), 1.0, 1.0, 20)
+    assert short_n.inputs["coverage"] == 0.875 and short_n.inputs["required_n"] == 8
+    assert short_n.reason == "untested surroundings (n 7 of 8)"
+    short_both = category_a(hood([1.0] * 3, valid=8), 1.0, 1.0, 20)
+    assert short_both.reason == "untested surroundings (coverage 0.37 of 0.5)"
 
 
 def test_isolated_peak_vs_stable_local():
@@ -181,8 +199,8 @@ def test_within_tau_is_two_sided_and_inclusive():
 def test_peak_line_is_strict():
     """t > P75 + 3 x IQR, strictly: on the line it is `mixed`."""
     values = [0.0, 1.0, 2.0, 3.0, 4.0]  # P25 1, P75 3, IQR 2: the line is 9
-    assert category_a(hood(values), 9.0, 0.0, 2).classification == "mixed"
-    peak = category_a(hood(values), 9.5, 0.0, 2)
+    assert category_a(hood(values), 9.0, 0.5, 2).classification == "mixed"
+    peak = category_a(hood(values), 9.5, 0.5, 2)
     assert peak.classification == "isolated peak"
     assert peak.inputs["peak_line"] == 9.0 and peak.inputs["peak_factor"] == policy.PEAK_IQR_FACTOR
 
@@ -191,7 +209,7 @@ def test_peak_line_is_strict():
     ("tested", "resolved", "reason"),
     [
         (3, False, "untested surroundings (coverage 0.37 of 0.5)"),
-        (4, False, "untested surroundings (coverage 0.5 of 0.5)"),  # n = 4 < min(5, 8)
+        (4, False, "untested surroundings (n 4 of 5)"),  # coverage 0.5 passes, min(5, 8) not
         (5, True, None),
     ],
 )
@@ -281,7 +299,7 @@ def test_a_skipped_cell_of_a_fully_attempted_grid_is_not_valid():
     frame = lattice_frame(lambda p: 5.0, [3, 3], only=kept, valid=8)
     found = neighbourhood(frame, trial_at(frame, (1, 1)))
     assert (found.probes, found.valid, found.tested) == (4, 3, 3)
-    assert category_a(found, 5.0, 0.0, 2).classification == "stable local"
+    assert category_a(found, 5.0, 1.0, 2).classification == "stable local"
 
 
 def test_a_pending_cell_of_a_running_grid_stays_valid():
@@ -359,7 +377,8 @@ def _centred(rng, n, sizes):
 
 
 class _ReadCounter(np.ndarray):
-    """A code column that counts the elements read from it."""
+    """A code column that counts the elements read from it, by an index or by a ufunc, which is
+    what a `code == x` scan is."""
 
     read = 0
 
@@ -367,6 +386,22 @@ class _ReadCounter(np.ndarray):
         out = super().__getitem__(key)
         _ReadCounter.read += int(np.size(out))
         return out
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        counted = [x for x in inputs if isinstance(x, _ReadCounter)]
+        _ReadCounter.read += sum(x.size for x in counted)
+        plain = [x.view(np.ndarray) if isinstance(x, _ReadCounter) else x for x in inputs]
+        return getattr(ufunc, method)(*plain, **kwargs)
+
+
+def test_the_read_counter_sees_a_scan():
+    """So `test_neighbourhood_probes_by_hash` can rely on it: a whole-column comparison counts."""
+    code = np.arange(100, dtype=np.uint16).view(_ReadCounter)
+    _ReadCounter.read = 0
+    assert int((code == 3).sum()) == 1
+    assert _ReadCounter.read >= 100
+    _ReadCounter.read = 0
+    assert int(code[3]) == 3 and _ReadCounter.read == 1
 
 
 @pytest.mark.parametrize("n", [2_000, 20_000])
@@ -616,15 +651,26 @@ def test_b_resolves_at_exactly_its_minimum(kept, resolved):
     assert (b.reason is None) is resolved
 
 
-def test_b_keeps_a_value_exactly_on_the_radius():
-    """41 values 0.1 apart: 0.15 of the range is 6 steps, which float rounding would lose."""
+@pytest.mark.parametrize("offset", [1.0, 100_000.0])
+def test_b_keeps_a_value_exactly_on_the_radius(offset):
+    """41 values 0.1 apart: 0.15 of the range is 6 steps, which float rounding would lose, and more
+    so far from zero, where the rounding scales with the values and not with the reach."""
     path = paths_of(1)[0]
-    lattice = [1.0 + k * 0.1 for k in range(41)]
+    lattice = [offset + k * 0.1 for k in range(41)]
     rows = [{"params": {path: value}, "metrics": {"combined.net_pnl": 1.0}} for value in lattice]
     frame = frame_of(rows, [path])
     b = category_b(frame, 20, [path], 1.0)
     assert b.inputs["region_share"] == pytest.approx(13 / 41)
     assert b.inputs["n"] == 12
+
+
+def test_b_slack_never_reaches_the_next_value():
+    """The slack is for rounding: a value one step past the radius stays out, far from zero too."""
+    path = paths_of(1)[0]
+    lattice = [100_000.0 + k * 0.1 for k in range(21)]  # 0.3 of reach: 3 steps either side
+    rows = [{"params": {path: value}, "metrics": {"combined.net_pnl": 1.0}} for value in lattice]
+    frame = frame_of(rows, [path])
+    assert category_b(frame, 10, [path], 1.0).inputs["n"] == 6
 
 
 def test_b_without_axes_says_importance_is_not_computed():
@@ -814,6 +860,33 @@ def test_negative_and_zero_baselines_resolve_not_profitable(full_pnl):
     strict(c.inputs)
 
 
+def test_a_failed_or_absent_block_gives_no_verdict():
+    """An evaluation that produced nothing is no evidence of inconsistency: the finding gives no
+    verdict and says why, every block's figures still printed. C is exactly what it was."""
+    missing = BlockEvidence(bars=650, trades=0, net_pnl=None, max_drawdown=None)
+    alone, whole = category_c(None, BLOCKS, full=FULL)
+    assert whole.classification == "consistent" and whole.reason is None
+    c, finding = category_c(None, [BLOCKS[0], missing], full=FULL)
+    assert c == alone
+    assert finding.name == "selection-period consistency"
+    assert finding.classification is None
+    assert finding.reason == "block 2 has no defined figures"
+    assert [row["net_pnl"] for row in finding.inputs["block_figures"]] == [65.0, None]
+    _, both = category_c(None, [missing, missing], full=FULL)
+    assert both.classification is None
+    assert both.reason == "blocks 1, 2 have no defined figures"
+    with_folds, one = category_c(_folds(), [BLOCKS[0], missing], full=FULL)
+    assert with_folds == category_c(_folds(), [], full=FULL)[0]
+    assert one.classification is None
+    no_drawdown = BlockEvidence(bars=650, trades=150, net_pnl=65.0, max_drawdown=None)
+    assert category_c(None, [no_drawdown], full=FULL)[1].classification is None
+    negative = FoldEvidence(bars=1_300, trades=300, net_pnl=-1.0, max_drawdown=0.1)
+    assert category_c(None, [missing], full=negative)[1].classification == (
+        "not profitable on the full range"
+    )
+    strict(finding.to_json())
+
+
 def test_a_fold_verdict_needs_the_full_range():
     """Nothing in Phase 3 passes folds; a caller of Phase 6 that forgets `full` is a bug, never a
     lenient `consistent`."""
@@ -824,6 +897,7 @@ def test_a_fold_verdict_needs_the_full_range():
 def test_blocks_without_a_baseline_read_no_verdict():
     _, finding = category_c(None, BLOCKS)
     assert finding is not None and finding.classification is None
+    assert finding.reason == "no full-range figures"
 
 
 # --- category D --------------------------------------------------------------------------------
@@ -1017,6 +1091,32 @@ def test_every_classification_carries_its_inputs():
     assert len(seen) == 12
 
 
+def test_no_spread_classifies_nothing():
+    """Ruling P19, `analysis.analyse`'s `tau <= 0`: with no spread nothing can be told from
+    anything. A and B read unresolved; a shortfall of evidence still reads as itself."""
+    for band in (0.0, -1.0):
+        a = category_a(hood([10.0] * 4), 10.0, band, 2)
+        assert a.resolved is False and a.classification is None and a.reason == NO_SPREAD
+    flat = _region_frame()
+    card = card_of(flat, (10, 2), axes=paths_of(2)[:1])
+    assert card["tau"] == 0.0 and card["tested"] == []
+    for name in ("A", "B"):
+        assert card["categories"][name]["resolved"] is False
+        assert card["categories"][name]["reason"] == NO_SPREAD
+    assert card["categories"]["B"]["inputs"]["n"] == 34
+    short = category_a(hood([10.0] * 3, valid=6), 10.0, 0.0, 2)
+    assert short.reason == "untested surroundings (n 3 of 5)"
+    too_few = category_b(flat, trial_at(flat, (10, 2)), paths_of(2), 0.0)
+    assert too_few.reason == "too few sampled trials in the region (6 of 30)"
+
+
+def test_a_spike_on_a_flat_surface_is_not_a_peak_without_a_spread():
+    """P10 = P90 with a value that differs: the band is empty, and no peak is named from it."""
+    frame = lattice_frame(lambda p: 100.0 if p == (2, 2) else 5.0, [5, 5])
+    a = card_of(frame, (2, 2))["categories"]["A"]
+    assert a["inputs"]["tau"] == 0.0 and a["resolved"] is False and a["reason"] == NO_SPREAD
+
+
 def test_a_mixed_trial_is_within_neither_rule():
     a = category_a(hood([1.0, 10.0, 20.0, 30.0]), 40.0, 1.0, 2)
     assert a.inputs["distance"] > 1.0 and 40.0 <= a.inputs["peak_line"]
@@ -1024,7 +1124,7 @@ def test_a_mixed_trial_is_within_neither_rule():
 
 def test_max_drawdown_is_oriented():
     """Lower is better: the trial far below its neighbours' drawdown is the peak."""
-    frame = lattice_frame(lambda p: 0.01 if p == (2, 2) else 0.5, [5, 5])
+    frame = lattice_frame(lambda p: 0.01 if p == (2, 2) else 0.9 if p[0] == 4 else 0.5, [5, 5])
     card = candidate_card(
         frame,
         trial_at(frame, (2, 2)),
@@ -1055,19 +1155,170 @@ def test_rankings_shown_side_by_side():
     frame = spike_and_plateau()
     ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=20)
     assert len(ranks["peak"]) == len(ranks["robust"]) == 20
-    assert set(ranks["peak"]) == set(ranks["robust"])
     assert ranks["peak"][0] == _id(frame, SPIKE_AT)
     assert ranks["robust"][0] == _id(frame, PLATEAU_BEST_INTERIOR)
     assert ranks["disagree"] is True
     assert ranks["stable"] == _id(frame, PLATEAU_BEST_INTERIOR)
-    assert ranks["robust"][-1] == _id(frame, SPIKE_AT)
-    assert ranks["k"] == 20
+    assert ranks["stable_reason"] is None
+    assert ranks["k"] == 20 and ranks["pool"] == SPIKE_SIZES[0] * SPIKE_SIZES[1]
+    assert _id(frame, SPIKE_AT) not in ranks["robust"]  # every resolved state above it fills them
     assert [row["trial_id"] for row in ranks["ranked"]] == ranks["robust"]
+    assert [row["trial_id"] for row in ranks["peak_ranked"]] == ranks["peak"]
     best = ranks["ranked"][0]
     assert best["ranked_by"] == "A" and best["classification"] == "stable local"
-    assert ranks["ranked"][-1]["classification"] == "isolated peak"
+    assert ranks["peak_ranked"][0]["classification"] == "isolated peak"
     strict(ranks)
     _forbid_summed(ranks)
+
+
+def test_a_crowd_of_spikes_cannot_hide_a_plateau():
+    """Ruling P18's probe: 25 spikes above a 15 x 15 plateau at k = 20. Every one of the top 20 by
+    peak is a spike; the plateau is found from the pool, `disagree` says so and `stable` names it,
+    as its own card has it."""
+    frame = crowded_plateau()
+    ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=20)
+    spikes = {_id(frame, position) for position in CROWDED_SPIKES}
+    best = _id(frame, CROWDED_BEST_INTERIOR)
+    assert ranks["k"] == 20 and ranks["pool"] == policy.RANK_POOL == 300
+    assert len(ranks["peak"]) == len(ranks["robust"]) == 20
+    assert set(ranks["peak"]) <= spikes
+    assert ranks["robust"][0] == best and ranks["stable"] == best
+    assert ranks["disagree"] is True and ranks["stable_reason"] is None
+    assert card_of(frame, CROWDED_BEST_INTERIOR)["categories"]["A"]["classification"] == (
+        "stable local"
+    )
+
+
+def test_the_pool_is_stated_and_bounds_stable(monkeypatch):
+    """The same surface with a pool of the spikes alone: nothing stable among them, which is what
+    `stable_reason` says, in the pool's own words."""
+    monkeypatch.setattr(robustness_module, "RANK_POOL", 25)
+    frame = crowded_plateau()
+    ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=20)
+    assert ranks["pool"] == 25 and ranks["stable"] is None
+    assert ranks["stable_reason"] == "none among the top 25 by peak"
+    assert ranks["disagree"] is False
+
+
+def test_the_list_length_is_k_bounded_by_the_pool():
+    frame = crowded_plateau()
+    ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=2)
+    assert len(ranks["peak"]) == len(ranks["robust"]) == 2 and ranks["k"] == 2
+    assert ranks["pool"] == policy.RANK_POOL
+    widest = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=500)
+    assert widest["k"] == policy.RANK_POOL == len(widest["peak"]) == len(widest["robust"])
+    few = rankings(
+        lattice_frame(lambda p: float(p[0]), [3, 3]),
+        metric=METRIC,
+        scope=SCOPE,
+        tolerance=TOLERANCE,
+    )
+    assert few["pool"] == 9 and few["k"] == policy.RANKING_K and len(few["peak"]) == 9
+
+
+def test_b_runs_only_on_the_top_k_and_the_rest_sort_unresolved(monkeypatch):
+    """B is the costly part: of a pool whose A is unresolved, the top k by peak get it. A row
+    without a B computed is unresolved, whatever a B would have said."""
+    frame = stat_frame(d=3, values=20, n=1_000, seed=11, y=zero)
+    axes = paths_of(3)[:2]
+    calls: list[int] = []
+    real = robustness_module._Regions.category
+
+    def counting(self, row, *args, **kwargs):
+        calls.append(row)
+        return real(self, row, *args, **kwargs)
+
+    monkeypatch.setattr(robustness_module._Regions, "category", counting)
+    ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=3, axes=axes)
+    assert ranks["pool"] == policy.RANK_POOL and len(calls) == 3
+    assert [row["ranked_by"] for row in ranks["ranked"]] == ["B", "B", "B"]
+    assert {row["trial_id"] for row in ranks["ranked"]} == set(ranks["peak"])
+    one = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=1, axes=axes)
+    assert len(calls) == 3 + 1 and [row["ranked_by"] for row in one["ranked"]] == ["B"]
+
+
+def _plateau_on_a_ring(plateau: float, ring: float):
+    """5 x 5: a centre with its neighbours all equal, inside a ring far from them."""
+
+    def value(position):
+        return plateau if 1 <= position[0] <= 3 and 1 <= position[1] <= 3 else ring
+
+    return lattice_frame(value, [5, 5])
+
+
+@pytest.mark.parametrize("plateau", [-10.0, 0.0])
+def test_a_losing_plateau_is_not_named_stable(plateau):
+    """Ruling P19: §7.6's order is untouched, so the plateau still leads `robust`, but `stable`
+    never names a trial that loses money."""
+    frame = _plateau_on_a_ring(plateau, -100.0)
+    assert card_of(frame, (2, 2))["categories"]["A"]["classification"] == "stable local"
+    ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=5)
+    assert ranks["robust"][0] == _id(frame, (2, 2))
+    assert ranks["stable"] is None
+    assert ranks["stable_reason"] == "the most robust candidate has net_pnl ≤ 0"
+    profitable = _plateau_on_a_ring(10.0, 1.0)
+    ranks = rankings(profitable, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=5)
+    assert ranks["stable"] == _id(profitable, (2, 2)) and ranks["stable_reason"] is None
+
+
+def test_an_unsigned_metric_is_not_asked_to_be_positive():
+    """A drawdown's oriented value is negative by construction: `stable` still names its best."""
+    frame = _plateau_on_a_ring(0.1, 0.9)
+    ranks = rankings(frame, metric="max_drawdown", scope=SCOPE, tolerance=TOLERANCE, k=5)
+    assert ranks["stable"] == _id(frame, (2, 2)) and ranks["stable_reason"] is None
+
+
+def test_every_metric_is_classified_as_signed_or_not():
+    """A metric added later has to be put on one side or the other."""
+    signed = {"net_pnl", "net_return", "cagr", "mar", "expectancy", "sharpe_trade"}
+    unsigned = {"max_drawdown", "win_rate", "profit_factor", "trade_count", "exposure"}
+    assert policy.PNL_SIGNED_METRICS == signed
+    assert signed | unsigned == set(METRIC_NAMES) and not signed & unsigned
+
+
+def test_stable_scans_the_robust_order_for_the_first_that_qualifies():
+    """Ruling P19's three conditions, on hand-written rows in `robust`'s order."""
+
+    def entry(trial, classification, value, tie=0):
+        rank = {"stable local": 0, "stable region": 1}.get(classification, 2)
+        return {
+            "trial_id": trial,
+            "classification": classification,
+            "value": value,
+            "key": (rank, 3, 4, -value + tie, 1),
+        }
+
+    def named(*rows, metric="net_pnl"):
+        return _stable_of(list(rows), metric=metric, pool=7, band=1.0)
+
+    losing, region = entry("a", "stable local", -5.0), entry("b", "stable region", 3.0)
+    assert named(losing, region) == ("b", None)
+    tied = entry("a", "stable local", 9.0), entry("b", "stable local", 9.0)
+    lower = entry("c", "stable local", 8.0)
+    assert named(*tied, lower) == ("c", None)
+    assert named(*tied) == (None, "the most robust candidates tie on net_pnl")
+    assert named(losing) == (None, "the most robust candidate has net_pnl ≤ 0")
+    # the reason is what stopped the most robust one, whatever stopped the others after it
+    tied_regions = entry("b", "stable region", 3.0), entry("c", "stable region", 3.0)
+    assert named(losing, *tied_regions) == (None, "the most robust candidate has net_pnl ≤ 0")
+    assert named(*tied, entry("c", "stable local", -1.0)) == (
+        None,
+        "the most robust candidates tie on net_pnl",
+    )
+    assert named(entry("a", "mixed", 9.0)) == (None, "none among the top 7 by peak")
+    assert named(losing, metric="win_rate") == ("a", None)
+    assert _stable_of([], metric="net_pnl", pool=0, band=0.0) == (
+        None,
+        "no trial with a defined net_pnl in the filter",
+    )
+    assert _stable_of([losing], metric="net_pnl", pool=1, band=0.0) == (None, NO_SPREAD)
+
+
+def test_constants_print_what_a_panel_reads():
+    held = constants()
+    assert held["PER_BARS"] == policy.PER_BARS == 1_000
+    assert held["RANK_POOL"] == policy.RANK_POOL
+    strict(held)
 
 
 def test_peak_is_the_metric_alone_best_first():
@@ -1117,7 +1368,7 @@ def test_the_robust_order_is_lexicographic():
 
 
 def test_rankings_read_b_where_a_is_unresolved_and_label_it():
-    frame = stat_frame(d=3, values=20, n=2_000, seed=11, y=zero)
+    frame = stat_frame(d=3, values=20, n=1_000, seed=11, y=zero)
     axes = paths_of(3)[:2]
     ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=5, axes=axes)
     assert all(row["ranked_by"] == "B" for row in ranks["ranked"])
@@ -1130,28 +1381,44 @@ def test_rankings_read_b_where_a_is_unresolved_and_label_it():
     assert all(row["ranked_by"] is None for row in without["ranked"])
     assert all(row["reason"].startswith("untested surroundings") for row in without["ranked"])
     assert without["robust"] == without["peak"] and without["stable"] is None
+    assert without["stable_reason"] == f"none among the top {without['pool']} by peak"
 
 
 def test_stable_is_null_without_a_stable_candidate():
     """A checkerboard: nothing's neighbours are within τ of it."""
     frame = lattice_frame(lambda p: 100.0 if sum(p) % 2 else 0.0, [5, 5])
     ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=5)
-    assert ranks["stable"] is None
+    assert ranks["stable"] is None and ranks["stable_reason"] == "none among the top 25 by peak"
     assert all(row["classification"] != "stable local" for row in ranks["ranked"])
 
 
 def test_stable_is_null_when_ambiguous():
-    """A flat surface: every trial is `stable local` at the same value, so none is *the* one."""
-    frame = lattice_frame(lambda p: 5.0, [3, 3])
+    """A plateau of one value: its interior is `stable local` at the same value, none *the* one."""
+
+    def value(position):
+        return 100.0 if 1 <= position[0] <= 5 and 1 <= position[1] <= 5 else 0.0
+
+    frame = lattice_frame(value, [7, 7])
     ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=4)
     assert ranks["ranked"][0]["classification"] == "stable local"
-    assert ranks["stable"] is None and ranks["disagree"] is False
+    assert ranks["stable"] is None
+    assert ranks["stable_reason"] == "the most robust candidates tie on net_pnl"
+
+
+def test_no_spread_names_no_stable_candidate():
+    """Ruling P19: the τ = 0 surface, every value the same."""
+    frame = lattice_frame(lambda p: 5.0, [3, 3])
+    ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=4)
+    assert ranks["stable"] is None and ranks["stable_reason"] == NO_SPREAD
+    assert {row["reason"] for row in ranks["ranked"]} == {NO_SPREAD}
+    assert {row["ranked_by"] for row in ranks["ranked"]} == {None}
 
 
 def test_rankings_agree_when_the_top_is_stable():
     frame = lattice_frame(lambda p: 50.0 + 0.01 * p[0] + 0.001 * p[1], [5, 5])
-    ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE, k=1)
+    ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=1.0, k=1)
     assert ranks["peak"] == ranks["robust"] and ranks["disagree"] is False
+    assert ranks["stable"] == ranks["peak"][0]
 
 
 def test_disagree_reads_the_first_trial_alone():
@@ -1185,6 +1452,8 @@ def test_rankings_of_nothing_are_empty():
     ranks = rankings(frame, metric=METRIC, scope=SCOPE, tolerance=TOLERANCE)
     assert ranks["peak"] == ranks["robust"] == [] and ranks["ranked"] == []
     assert ranks["disagree"] is False and ranks["stable"] is None
+    assert ranks["pool"] == 0 and ranks["peak_ranked"] == []
+    assert ranks["stable_reason"] == "no trial with a defined net_pnl in the filter"
 
 
 def test_the_filter_selects_candidates_and_neighbours_read_every_trial():

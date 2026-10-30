@@ -1,5 +1,5 @@
 """The four robustness categories, the candidate card and the two rankings (Optimization Lab v2
-spec §7.6, Phase 3 Task 7; decision 12; Ruling P16).
+spec §7.6, Phase 3 Task 7; decision 12; Rulings P16 to P19).
 
 Robustness is not one number. A candidate (a tested trial) carries four categories, each resolved
 with a classification or unresolved with its reason, and each with the inputs that decided it. The
@@ -16,10 +16,15 @@ weighted total and no overall label exists anywhere here.
   result ever reaches C's predicate.
 - **The rankings.** `peak` is the metric alone, `robust` lexicographic over the resolved categories
   (A, or B where A is unresolved, labelled `ranked_by`; then C; then D), with unresolved below
-  every resolved state and the metric breaking a tie. Both cover the top k by `peak` of the filter,
-  a bounded compute: a neighbourhood per candidate, never per trial. The filter selects candidates
-  only: neighbours and regions read every completed block-0 trial of the snapshot, because a brush
-  would otherwise make a tested neighbour read as untested.
+  every resolved state and the metric breaking a tie. Each lists k rows. `robust` chooses its own
+  from the top RANK_POOL by `peak` of the filter, a bounded compute, so more than k spikes cannot
+  hide a plateau: the whole pool reads A, a neighbourhood per candidate and never per trial, and B,
+  the costly part, runs on the top k alone; a row with no B computed sorts as unresolved. The
+  filter selects candidates only: neighbours and regions read every completed block-0 trial of the
+  snapshot, because a brush would otherwise make a tested neighbour read as untested.
+- **`stable`** names the first candidate of that order that is stable, untied and, on a metric
+  whose sign is profit or loss, above 0; `stable_reason` says why when none is. A surface with no
+  spread (τ ≤ 0) classifies nothing, as `analysis.analyse` names no plateau on one.
 
 Every value of A and B is oriented so higher is better (`neighbours.py`). Pure: numpy over a
 block-0 frame and plain arguments; every payload is strict JSON. The category names are the bare
@@ -47,7 +52,10 @@ from products.aegis.lab.policy import (
     NEIGHBOUR_M_SAMPLED,
     NEIGHBOUR_R,
     PEAK_IQR_FACTOR,
+    PER_BARS,
     PLATEAU_MIN_COVERAGE,
+    PNL_SIGNED_METRICS,
+    RANK_POOL,
     RANKING_K,
     REGION_AXES,
     REGION_MIN_N,
@@ -84,6 +92,8 @@ SELECTION_ONLY = "unresolved · selection-period only"
 NO_REPLAY = "no replay yet (stage 2)"
 NO_IMPORTANCE = "importance not computed for this snapshot"
 UNDEFINED_VALUE = "undefined metric value"
+NO_SPREAD = "no spread in the metric (τ = 0)"
+NO_FULL_RANGE = "no full-range figures"
 
 SELECTION_FINDING = "selection-period consistency"
 BASE_REPLAY = "base"
@@ -94,8 +104,9 @@ EVERY_TRIAL = (
     "neighbours and regions read every completed block-0 trial of the snapshot, "
     "the filter selects candidates only"
 )
-PER_BARS = 1_000  # §7.6's per-unit-time statistics are per this many bars
-_REGION_SLACK = 1e-12  # a value exactly on the radius is inside it, whatever float rounding does
+# A value exactly on the radius is inside it: float rounding scales with the values, so the slack
+# does too, far below any lattice's step.
+_REGION_SLACK = 1e-12
 # The robust order per category: a lower rank first, and unresolved below every resolved state.
 _SLOT_RANK = {
     STABLE_LOCAL: 0,
@@ -126,7 +137,9 @@ def constants() -> dict:
         "FOLD_DRAWDOWN_FACTOR": FOLD_DRAWDOWN_FACTOR,
         "STRESS_KEEP": STRESS_KEEP,
         "STRESS_DRAWDOWN_FACTOR": STRESS_DRAWDOWN_FACTOR,
+        "PER_BARS": PER_BARS,
         "RANKING_K": RANKING_K,
+        "RANK_POOL": RANK_POOL,
     }
 
 
@@ -151,11 +164,12 @@ class Category:
 @dataclass(frozen=True)
 class Finding:
     """An informational result shown beside a category, which it never changes. `classification`
-    is None when there is no baseline to compare with."""
+    is None when the evidence cannot give a verdict, and `reason` says why."""
 
     name: str
     classification: str | None
     inputs: dict
+    reason: str | None = None
 
     def to_json(self) -> dict:
         return asdict(self)
@@ -253,7 +267,9 @@ def category_a(nb: Neighbourhood, value: float | None, tau: float, d: int) -> Ca
     """§7.6's A. Resolved at coverage ≥ PLATEAU_MIN_COVERAGE and n ≥ min(2d + 1, |valid|), so a
     fully tested grid corner resolves: `stable local` when P25 is within τ of the value (either
     side), else `isolated peak` above P75 + 3 × IQR, else `mixed`. Below either condition it is
-    `untested surroundings`, never a peak and never stable. `value` is oriented like `nb`."""
+    `untested surroundings` naming the one that fell short (Ruling P17), never a peak and never
+    stable; with enough evidence at τ ≤ 0 it reads `no spread in the metric`, since nothing can be
+    told from anything (Ruling P19). `value` is oriented like `nb`."""
     required = min(2 * d + 1, nb.valid)
     held = _defined(value)
     peak_line = None if nb.p75 is None else nb.p75 + PEAK_IQR_FACTOR * nb.iqr
@@ -286,10 +302,14 @@ def category_a(nb: Neighbourhood, value: float | None, tau: float, d: int) -> Ca
 
     if held is None:
         return unresolved(UNDEFINED_VALUE)
-    if nb.coverage < PLATEAU_MIN_COVERAGE or nb.tested < required or not nb.tested:
+    if nb.coverage < PLATEAU_MIN_COVERAGE or not nb.tested:
         return unresolved(
             f"untested surroundings (coverage {_floor_2(nb.coverage)} of {PLATEAU_MIN_COVERAGE})"
         )
+    if nb.tested < required:
+        return unresolved(f"untested surroundings (n {nb.tested} of {required})")
+    if tau <= 0:
+        return unresolved(NO_SPREAD)
     if distance <= tau:
         classification = STABLE_LOCAL
     elif held > peak_line:
@@ -326,13 +346,14 @@ class _Regions:
         lookup = self.lookup
         axis = _axis(lookup.frame, path)
         centre = float(lookup.frame.table.column(path)[row].as_py())
-        reach = REGION_RADIUS * (axis[-1] - axis[0]) * (1.0 + _REGION_SLACK)
+        reach = REGION_RADIUS * (axis[-1] - axis[0]) + _REGION_SLACK * np.abs(axis).max()
         return np.flatnonzero(np.abs(axis - centre) <= reach)
 
     def category(self, row: int, axes: Sequence[str], tau: float) -> Category:
         """§7.6's B at `row` (module docstring). Resolved at n ≥ REGION_MIN_N: `stable region`
-        when the region's P25 is within τ of the value (either side), else `unstable region`.
-        The density is the region's trials over what a uniform draw would put in it."""
+        when the region's P25 is within τ of the value (either side), else `unstable region`; at
+        τ ≤ 0 it reads `no spread in the metric` (Ruling P19). The density is the region's trials
+        over what a uniform draw would put in it."""
         lookup = self.lookup
         axes = list(axes)[:REGION_AXES]
         value = lookup.value_at(row)
@@ -404,6 +425,8 @@ class _Regions:
             )
         if n < REGION_MIN_N:
             return unresolved(f"too few sampled trials in the region ({n} of {REGION_MIN_N})")
+        if tau <= 0:
+            return unresolved(NO_SPREAD)
         classification = STABLE_REGION if inputs["distance"] <= tau else UNSTABLE_REGION
         return Category("B", True, classification, None, inputs)
 
@@ -473,12 +496,33 @@ def _consistency(periods: Sequence[_Evidence], full: _Evidence) -> str:
     return CONSISTENT if all(_within(period, full) for period in periods) else INCONSISTENT
 
 
+def _without_figures(blocks: Sequence[BlockEvidence]) -> str | None:
+    """Why these blocks cannot be compared: the ones whose evaluation produced no figures (failed,
+    or absent); None when each has them."""
+    missing = [
+        str(b)
+        for b, block in enumerate(blocks, 1)
+        if block.per_unit() is None or _defined(block.max_drawdown) is None
+    ]
+    if not missing:
+        return None
+    if len(missing) == 1:
+        return f"block {missing[0]} has no defined figures"
+    return f"blocks {', '.join(missing)} have no defined figures"
+
+
 def _selection_finding(blocks: Sequence[BlockEvidence], full: _Evidence | None) -> Finding:
-    """The blocks' diagnostic, with the folds' arithmetic: never read by C's predicate."""
+    """The blocks' diagnostic, with the folds' arithmetic: never read by C's predicate. An
+    evaluation that produced nothing is no evidence of inconsistency, so without a baseline, or
+    with a positive one and a block without figures, it gives no verdict and says why; a baseline
+    ≤ 0 needs no block to read `not profitable`."""
     base = None if full is None else full.per_unit()
+    reason = NO_FULL_RANGE if base is None else None
+    if base is not None and base > 0:
+        reason = _without_figures(blocks)
     return Finding(
         SELECTION_FINDING,
-        None if base is None else _consistency(blocks, full),
+        None if reason else _consistency(blocks, full),
         {
             "full": None if full is None else full.figures(),
             "block_figures": [
@@ -487,6 +531,7 @@ def _selection_finding(blocks: Sequence[BlockEvidence], full: _Evidence | None) 
             "ratio_band": list(FOLD_RATIO_BAND),
             "drawdown_factor": FOLD_DRAWDOWN_FACTOR,
         },
+        reason,
     )
 
 
@@ -651,6 +696,38 @@ def _top_rows(lookup: PositionLookup, flt: LabFilter, k: int) -> np.ndarray:
     return rows[np.isfinite(lookup.values[rows])]
 
 
+def _stable_of(
+    ordered: Sequence[Mapping], *, metric: str, pool: int, band: float
+) -> tuple[str | None, str | None]:
+    """The candidate `stable` names and, when it names none, why (Ruling P19). `ordered` is the
+    pool in `robust`'s order: the first that is `stable local`, or `stable region` with A
+    unresolved; that no other candidate ties on the whole order but the trial number; and, on a
+    P&L-signed metric, that is above 0. The reason is what stopped the most robust of the stable
+    ones, or that there were none."""
+    if not ordered:
+        return None, f"no trial with a defined {metric} in the filter"
+    if band <= 0:
+        return None, NO_SPREAD
+    reason = None
+    for place, entry in enumerate(ordered):
+        if entry["classification"] not in _STABLE:
+            continue
+        held = entry["key"][:-1]
+        neighbours = ordered[max(place - 1, 0) : place] + ordered[place + 1 : place + 2]
+        if metric in PNL_SIGNED_METRICS and entry["value"] <= 0:
+            reason = reason or f"the most robust candidate has {metric} ≤ 0"
+        elif any(other["key"][:-1] == held for other in neighbours):
+            reason = reason or f"the most robust candidates tie on {metric}"
+        else:
+            return entry["trial_id"], None
+    return None, reason or f"none among the top {pool} by peak"
+
+
+def rankings_basis(ranks: Mapping) -> str:
+    """What the rankings' basis line adds: how far they looked."""
+    return f"robust ranks the top {ranks['pool']} by peak, B reads the top {ranks['k']}"
+
+
 def rankings(
     frame: TrialFrame,
     *,
@@ -662,25 +739,26 @@ def rankings(
     flt: LabFilter | None = None,
     index: FrameIndex | None = None,
 ) -> dict:
-    """`peak` and `robust`, side by side over the top `k` by `peak` of the filter (module
-    docstring). `disagree` is whether their first trials differ. `stable` is `robust`'s first
-    trial when it is `stable local`, or `stable region` with A unresolved, and no other candidate
-    ties it on the whole order but the trial number; otherwise None. `ranked` lists `robust`'s
-    trials with what ranked them (`ranked_by` A or B, None when neither resolved)."""
+    """`peak` and `robust`, side by side, `k` rows each at most and `k` bounded by RANK_POOL
+    (module docstring). `pool` is how many candidates `robust` chose from, the top RANK_POOL by
+    `peak` of the filter. `disagree` is whether their first trials differ. `stable` and
+    `stable_reason` are `_stable_of`'s. `ranked` and `peak_ranked` list each ranking's trials with
+    what placed them (`ranked_by` A or B, None when neither resolved)."""
+    k = min(k, RANK_POOL)
     lookup = PositionLookup(frame, metric=metric, scope=scope, index=index)
     band = _band(lookup.values[lookup.index.completed], tolerance)
     regions = _Regions(lookup) if axes else None
     d = len(frame.parameters)
     c_state, _ = category_c(None, [])  # decision 12: no folds or replays in Phase 3
     d_state = category_d(None)
-    rows = _top_rows(lookup, flt or LabFilter(scope=scope), k).tolist()
+    rows = _top_rows(lookup, flt or LabFilter(scope=scope), RANK_POOL).tolist()
     entries = []
-    for row in rows:  # a loop over at most k candidates
+    for place, row in enumerate(rows):  # a loop over at most RANK_POOL candidates
         value = float(lookup.values[row])
         trial_no = int(lookup.trial_numbers[row])
         slot = category_a(lookup.around(row), value, band, d)
         ranked_by = "A" if slot.resolved else None
-        if not slot.resolved and regions is not None:
+        if not slot.resolved and regions is not None and place < k:
             b = regions.category(row, axes, band)
             if b.resolved:
                 slot, ranked_by = b, "B"
@@ -694,22 +772,24 @@ def rankings(
                 "reason": slot.reason,
             }
         )
-    peak = [entry["trial_id"] for entry in entries]
     ordered = sorted(entries, key=lambda entry: entry["key"])
-    robust = [entry["trial_id"] for entry in ordered]
-    stable = None
-    if ordered and ordered[0]["classification"] in _STABLE:
-        tied = len(ordered) > 1 and ordered[0]["key"][:-1] == ordered[1]["key"][:-1]
-        stable = None if tied else robust[0]
+    stable, stable_reason = _stable_of(ordered, metric=metric, pool=len(rows), band=band)
+
+    def shown(listed: list[dict]) -> list[dict]:
+        return [{name: held for name, held in entry.items() if name != "key"} for entry in listed]
+
+    peak = [entry["trial_id"] for entry in entries[:k]]
+    robust = [entry["trial_id"] for entry in ordered[:k]]
     return {
         "peak": peak,
         "robust": robust,
         "disagree": bool(peak) and peak[0] != robust[0],
         "stable": stable,
+        "stable_reason": stable_reason,
         "k": k,
-        "ranked": [
-            {name: value for name, value in entry.items() if name != "key"} for entry in ordered
-        ],
+        "pool": len(rows),
+        "ranked": shown(ordered[:k]),
+        "peak_ranked": shown(entries[:k]),
     }
 
 
@@ -719,6 +799,7 @@ __all__ = [
     "NO_BLOCKS_OR_FOLDS",
     "NO_IMPORTANCE",
     "NO_REPLAY",
+    "NO_SPREAD",
     "SELECTION_FINDING",
     "SELECTION_ONLY",
     "UNDEFINED_VALUE",
@@ -734,6 +815,7 @@ __all__ = [
     "category_d",
     "constants",
     "rankings",
+    "rankings_basis",
     "robust_key",
     "tau",
     "top_axes",

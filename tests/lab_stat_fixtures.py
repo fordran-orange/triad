@@ -456,6 +456,26 @@ def spike_and_plateau() -> TrialFrame:
     return lattice_frame(spike_value, SPIKE_SIZES)
 
 
+# More spikes than a ranking lists above a plateau (Ruling P18): 25 isolated spikes top the
+# peak ranking, and the 15 x 15 plateau under them is only found from the wider pool.
+CROWDED_SIZES = (41, 41)
+CROWDED_BEST_INTERIOR = (15, 15)
+CROWDED_SPIKES = tuple(itertools.product(range(22, 39, 4), repeat=2))
+
+
+def crowded_value(position: tuple[int, ...]) -> float:
+    i, j = position
+    if position in CROWDED_SPIKES:
+        return 200.0 + i + 0.01 * j
+    if 2 <= i <= 16 and 2 <= j <= 16:
+        return 100.0 + 0.1 * i + 0.01 * j
+    return 10.0 + 0.001 * i + 0.0001 * j
+
+
+def crowded_plateau() -> TrialFrame:
+    return lattice_frame(crowded_value, CROWDED_SIZES)
+
+
 def trial_at(frame: TrialFrame, position: tuple[int, ...]) -> int:
     """The trial number at a lattice position (the frame's `pos.<k>`)."""
     table = frame.table
