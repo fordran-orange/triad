@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { errorMessage } from '../api/client';
-import { profitKind } from '../components/Heatmap';
-import { DASH, money, num, pct } from '../format';
-import { PERCENT_OBJECTIVES, type LabEnvelope, type Objective } from '../results';
+import { DASH, pct } from '../format';
+import type { LabEnvelope } from '../results';
 import { KPI_LABELS, KPI_ORDER, type KpiKey } from './labKpiLabels';
-import { kpiTrialsText, SHARPE } from './labQuery';
+import { kpiTrialsText } from './labQuery';
 import { useLab } from './labState';
 import { activeFilterCount, filterHash } from './labStore';
+import { lossTone, objectiveText } from './metricRules';
 import { LabError } from './NotBuilt';
 import type { LabQueryData, Stamped } from './useLabQuery';
 
@@ -20,26 +20,6 @@ interface Kpi {
 }
 
 const count = (n: number) => n.toLocaleString('en-US');
-
-/** An objective's value as the reports print it: money for P&L and expectancy, a percentage for the shares, two
- *  decimals for the ratios and the trade Sharpe, whole trades. */
-export function objectiveText(objective: string, value: number | null): string {
-  if (value === null) return DASH;
-  if (PERCENT_OBJECTIVES.has(objective as Objective)) return pct(value);
-  if (objective === 'net_pnl' || objective === 'expectancy') return money(value);
-  if (objective === SHARPE) return num(value, 2);
-  return num(value, objective === 'trade_count' ? 0 : 2);
-}
-
-/** The Heatmap's profit sign (`profitKind`): below break-even loses money and shows red, above it gains, break-even
- *  itself is neutral; profit factor breaks even at 1, the other money-signed objectives at 0. */
-export function lossTone(objective: string, value: number | null): 'loss' | 'gain' | undefined {
-  if (value === null) return undefined;
-  const kind = profitKind(objective);
-  if (!kind) return undefined;
-  const even = kind === 'ratio' ? 1 : 0;
-  return value < even ? 'loss' : value > even ? 'gain' : undefined;
-}
 
 const dash = (key: KpiKey, title: string): Kpi => ({ key, value: DASH, title });
 

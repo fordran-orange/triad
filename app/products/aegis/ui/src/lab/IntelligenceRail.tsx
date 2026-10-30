@@ -10,7 +10,7 @@ import { valueText } from './labHeatmapModel';
 import { lowN, SHARPE, SHARPE_LABEL } from './labQuery';
 import { useLab } from './labState';
 import { sourceText, type PinSlot } from './labStore';
-import { lossTone } from './LabKpiStrip';
+import { lossTone } from './metricRules';
 import { LabError } from './NotBuilt';
 import type { LabQueryData } from './useLabQuery';
 import { currentMatrix, type LoadedSource, type TrialRow } from './useLabSource';

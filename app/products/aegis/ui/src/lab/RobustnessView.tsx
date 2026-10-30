@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { errorMessage } from '../api/client';
 import type { LabEnvelope, LabRobustness } from '../results';
+import { trialLabel } from './candidateModel';
 import { isCandidateCard, answered, panelLabel } from './labQuery';
 import { useLab } from './labState';
 import { filterHash } from './labStore';
@@ -59,7 +60,7 @@ function List({ id, title, hint, rows, selected, onPick }: { id: string; title: 
 
 export function RobustnessView({ data }: { data: LabQueryData }) {
   const lab = useLab();
-  const pick = usePickTrial(data);
+  const { pick, failure: pickFailure } = usePickTrial(data);
   const { loaded, query, tick } = data;
   const source = loaded ? `${loaded.kind}:${loaded.id}` : null;
   const metric = lab.metric;
@@ -72,7 +73,8 @@ export function RobustnessView({ data }: { data: LabQueryData }) {
   const seq = useRef(0);
   const asked = useRef<string | null>(null);
   useEffect(() => {
-    const mark = viewKey === null ? null : `${viewKey}|${tick}|${retry}`;
+    // The importance finishing is a reason to ask again: B's axes are the finished importance's.
+    const mark = viewKey === null ? null : `${viewKey}|${tick}|${retry}|${data.importanceDone}`;
     if (mark !== null && asked.current === mark) return; // React's development double-run of the same ask
     asked.current = mark;
     const mine = ++seq.current;
@@ -93,7 +95,7 @@ export function RobustnessView({ data }: { data: LabQueryData }) {
       });
     // The key stands for the source, the metric and the filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewKey, tick, retry]);
+  }, [viewKey, tick, retry, data.importanceDone]);
   const current = answer !== null && answer.key === viewKey ? answer : null;
   const shown = answered(current, answer, source);
   const error = failure !== null && failure.key === viewKey ? failure.message : null;
@@ -126,6 +128,7 @@ export function RobustnessView({ data }: { data: LabQueryData }) {
         )}
       </div>
       {error !== null && <LabError message={`Robustness unavailable: ${error}`} onRetry={() => setRetry((n) => n + 1)} />}
+      {pickFailure !== null && <LabError id="lab-robustness-pick-error" message={`${trialLabel(pickFailure.id)}: its row is unavailable (${pickFailure.message}); the selection and its four categories stand`} onRetry={() => pick(pickFailure.id)} />}
       {envelope !== null && envelope.empty !== null && <div className="lab-empty">{envelope.empty}</div>}
       {rankings !== null && envelope !== null && summary !== null && (
         <>
@@ -135,8 +138,11 @@ export function RobustnessView({ data }: { data: LabQueryData }) {
                 {summary.agreement}
               </div>
             )}
-            <div id="lab-robustness-stable" data-trial={summary.stableId ?? ''}>
-              {summary.stable}
+            <div className="robustness-stable">
+              <span id="lab-robustness-stable-lead">{summary.stableLead}</span>{' '}
+              <span id="lab-robustness-stable" data-trial={summary.stableId ?? ''}>
+                {summary.stable}
+              </span>
             </div>
             <div className="sub" id="lab-robustness-tolerance">
               {toleranceLine(envelope.tolerance, envelope.tolerance_label)} · {metricName(askedMetric)}

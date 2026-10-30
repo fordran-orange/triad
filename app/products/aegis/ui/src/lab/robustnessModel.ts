@@ -5,9 +5,9 @@
 // cell with a lower value can rank above a higher unresolved one, so the value is always printed beside it.
 // `RobustnessView` only draws what this returns.
 import type { LabRankedEntry, LabRankings } from '../results';
-import { orientationOf, realValue, trialLabel } from './candidateModel';
-import { lossTone, objectiveText } from './LabKpiStrip';
+import { realValue, trialLabel } from './candidateModel';
 import { stableEntry } from './labQuery';
+import { lossTone, objectiveText, orientationOf } from './metricRules';
 
 export type ClassTone = 'stable' | 'mixed' | 'weak' | 'unresolved';
 
@@ -67,7 +67,10 @@ export interface RobustSummary {
   disagree: boolean;
   /** Whether the first of each list is one trial, said in a sentence; empty with nothing to rank. */
   agreement: string;
-  /** The stable candidate, or why there is none (the server's `stable_reason` verbatim). */
+  /** What leads the stable line, kept apart from it: `Stable candidate:`, `No stable candidate:`, or `No stable candidate` when
+   *  the server gave no reason. */
+  stableLead: string;
+  /** The stable candidate (its trial, classification and value), or the server's `stable_reason` alone and verbatim. */
   stable: string;
   /** The stable candidate's id, null when there is none. */
   stableId: string | null;
@@ -81,17 +84,22 @@ export function robustSummary(rankings: LabRankings, metric: string): RobustSumm
   let agreement = '';
   if (peak !== undefined && robust !== undefined)
     agreement = rankings.disagree ? `Peak and robust disagree: the peak is ${trialLabel(peak)}, the most robust is ${trialLabel(robust)}.` : `Peak and robust agree on ${trialLabel(robust)}.`;
+  let stableLead: string;
   let stable: string;
-  if (rankings.stable === null) stable = rankings.stable_reason === null ? 'No stable candidate' : `No stable candidate: ${rankings.stable_reason}`;
-  else {
+  if (rankings.stable === null) {
+    // The reason stands alone, exactly as the worker wrote it: its lead is another element's text.
+    stableLead = rankings.stable_reason === null ? 'No stable candidate' : 'No stable candidate:';
+    stable = rankings.stable_reason ?? '';
+  } else {
+    stableLead = 'Stable candidate:';
     const found = stableEntry(rankings);
-    if (found === null) stable = `Stable candidate: ${trialLabel(rankings.stable)} (outside the rows listed)`;
+    if (found === null) stable = `${trialLabel(rankings.stable)} (outside the rows listed)`;
     else {
       const shown = row(found, 0, metric, rankings.stable);
-      stable = `Stable candidate: ${shown.trialLabel} · ${shown.classification} · ${shown.valueText}`;
+      stable = `${shown.trialLabel} · ${shown.classification} · ${shown.valueText}`;
     }
   }
-  return { disagree: rankings.disagree, agreement, stable, stableId: rankings.stable };
+  return { disagree: rankings.disagree, agreement, stableLead, stable, stableId: rankings.stable };
 }
 
 /** B's axes, or that B is not run for want of a finished importance result. */

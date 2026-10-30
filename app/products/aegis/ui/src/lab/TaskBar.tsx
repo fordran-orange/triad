@@ -8,6 +8,7 @@ export function TaskBar({
   id,
   task,
   cancelling,
+  rerunning,
   error,
   onCancel,
   onRerun,
@@ -15,6 +16,8 @@ export function TaskBar({
   id: string;
   task: LabTask | null;
   cancelling: boolean;
+  /** The Run again ask is on its way: the button waits for its answer. */
+  rerunning: boolean;
   error: string | null;
   onCancel: () => void;
   onRerun: () => void;
@@ -29,8 +32,8 @@ export function TaskBar({
         </button>
       )}
       {canRerun(task) && (
-        <button type="button" className="btn lab-task-btn" id={`${id}-rerun`} title="computes the importance again; nothing else ever restarts a stopped task" onClick={onRerun}>
-          Run again
+        <button type="button" className="btn lab-task-btn" id={`${id}-rerun`} disabled={rerunning} title="computes the importance again; nothing else ever restarts a stopped task" onClick={onRerun}>
+          {rerunning ? 'Starting…' : 'Run again'}
         </button>
       )}
       {error !== null && <span className="lab-error-text">Cancel failed: {error}</span>}

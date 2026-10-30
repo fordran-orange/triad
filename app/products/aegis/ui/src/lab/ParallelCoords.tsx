@@ -12,7 +12,7 @@ import type { LabEnvelope, LabParallel } from '../results';
 import type { CatalogEntry } from './catalog';
 import { AXIS_COLOUR, Brush1D, CHART_FONT, hairline, LABEL_COLOUR, linearScale, observeResize, paintInFrames, setupCanvas, strokeLine, type Scale } from './charts/canvas';
 import { valueText, type Tone } from './labHeatmapModel';
-import { objectiveText } from './LabKpiStrip';
+import { objectiveText } from './metricRules';
 import { answered, panelLabel } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
 import { filterHash, type PinSlot } from './labStore';

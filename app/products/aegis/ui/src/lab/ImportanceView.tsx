@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import type { LabImportance } from '../results';
 import { AXIS_COLOUR, drawWhisker, linearScale, setupCanvas } from './charts/canvas';
 import { axisMax, availabilityText, caveatOf, constantsLine, importanceRows, partialLabel, sampleLine, stateNotice, type ImportanceRow, type RowMarks } from './importanceModel';
-import { metricName } from './labHeatmapModel';
+import { metricName } from './metricRules';
 import { displayShare, panelLabel } from './labQuery';
 import { axisLabel } from './parallelBundles';
 import { LabError } from './NotBuilt';
@@ -71,11 +71,13 @@ function paintMarks(canvas: HTMLCanvasElement, marks: RowMarks, max: number): vo
 function Marks({ row, max }: { row: ImportanceRow; max: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const marks = row.marks;
+  // Every number of the marks, not the row's text: the text rounds to 0.1 %, and two answers can differ below that.
+  const marksKey = marks === null ? '' : JSON.stringify(marks);
   useEffect(() => {
     if (canvas.current !== null && marks !== null) paintMarks(canvas.current, marks, max);
-    // The row's text carries every number of its marks.
+    // The key stands for the marks' numbers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [row.text, max]);
+  }, [marksKey, max]);
   if (marks === null) return <span className="importance-marks importance-unmeasured" aria-hidden="true" />;
   return <canvas className="importance-marks" ref={canvas} role="img" aria-label={`${axisLabel(row.path)}: ${row.text}`} title={row.text} />;
 }
@@ -142,8 +144,8 @@ export function ImportanceView({ data, children }: { data: LabQueryData; childre
           </span>
         )}
       </div>
-      <TaskBar id="lab-importance-task" task={current?.envelope.task ?? null} cancelling={task.cancelling} error={task.stopError} onCancel={() => void task.cancel()} onRerun={task.runAgain} />
-      {error !== null && <LabError message={`Importance unavailable: ${error}`} onRetry={task.retry} />}
+      <TaskBar id="lab-importance-task" task={current?.envelope.task ?? null} cancelling={task.cancelling} rerunning={task.rerunning} error={task.stopError} onCancel={() => void task.cancel()} onRerun={task.runAgain} />
+      {error !== null && <LabError message={`Importance unavailable: ${error}${task.pollStopped !== null ? ` · ${task.pollStopped}` : ''}`} onRetry={task.retry} />}
       {notice !== null && (
         <div className="lab-empty" id="lab-importance-notice" data-kind={notice.kind}>
           {notice.text}

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { LabCandidateCard, LabTrial, LabTrialMetrics } from '../results';
 import { candidateCard, categoryA, categoryB, categoryC, categoryD } from './analyticsFixtures';
-import { candidateCardModel, coverageText, orientationOf, realQuartiles, realValue, rowFromTrial, trialLabel, type CardModel, type CategoryView } from './candidateModel';
-import { objectiveText } from './LabKpiStrip';
+import { candidateCardModel, coverageText, realQuartiles, realValue, rowFromTrial, trialLabel, type CardModel, type CategoryView } from './candidateModel';
+import { objectiveText } from './metricRules';
 
 const input = (view: CategoryView, label: string) => view.inputs.find((i) => i.label === label)?.text;
 const category = (model: CardModel, name: 'A' | 'B' | 'C' | 'D') => model.categories.find((c) => c.name === name)!;
@@ -237,10 +237,6 @@ describe('a negated metric prints in real units (orientation −1)', () => {
     expect(realQuartiles(-1, null, -0.1)).toEqual({ p25: 0.1, p75: null });
   });
 
-  it('only max drawdown is oriented the other way', () => {
-    expect(orientationOf('max_drawdown')).toBe(-1);
-    for (const metric of ['net_pnl', 'mar', 'trade_count', 'profit_factor', 'sharpe_trade']) expect(orientationOf(metric)).toBe(1);
-  });
 });
 
 describe('the header of the card', () => {

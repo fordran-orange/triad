@@ -22,7 +22,7 @@ import type { TrialRow } from './useLabSource';
  *  annualized, and never alone. */
 export const SHARPE = 'sharpe_trade';
 export const SHARPE_LABEL = 'trade Sharpe · per trade · not annualized';
-export const SHARPE_TITLE = `${SHARPE_LABEL} · temporal consistency: Phase 3`;
+export const SHARPE_TITLE = `${SHARPE_LABEL} · temporal consistency: category C of the candidate card`;
 export const NOT_RECORDED = 'data provenance not recorded';
 
 type QueryState = Pick<LabState, 'filter' | 'axes' | 'mode' | 'stat' | 'metric'>;

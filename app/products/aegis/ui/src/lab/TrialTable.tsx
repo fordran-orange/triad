@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type 
 import { errorMessage } from '../api/client';
 import { DASH } from '../format';
 import type { LabEnvelope, LabPage, LabRow } from '../results';
-import { lossTone, objectiveText } from './LabKpiStrip';
+import { lossTone, objectiveText } from './metricRules';
 import { defaultSort, emptyTableText, expRowFromLab, optPath, optRowFromLab, pageKey, panelLabel, SHARPE, SHARPE_TITLE, tableValueColumns, undefinedLast } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
 import { sourceText, type PinSlot } from './labStore';

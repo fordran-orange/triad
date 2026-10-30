@@ -77,3 +77,50 @@ export function taskLine(task: LabTask, now: number): string {
   if (isActive(task) && task.sharing_cpu) parts.push(SHARING);
   return parts.join(' · ');
 }
+
+// --- what the panels share of one importance analysis beyond one tab ---------------------------------------------------
+
+/** How many importance tasks have been seen finished, and which one was counted last. The Robustness tab and the rail's
+ *  candidate card read B from the finished importance, so each asks again when this count moves: a result that appeared
+ *  after they asked is what they were missing. */
+export interface DoneCounter {
+  count: number;
+  id: string | null;
+}
+
+export const NO_DONE: DoneCounter = { count: 0, id: null };
+
+/** The counter after one more look at the computing task: a task seen `done` counts once, and every later look at the same
+ *  done task counts nothing (the same counter object comes back, so a state update that changes nothing renders nothing).
+ *  A task run again has a new id and counts in its turn; one that is queued, running, cancelled or failed delivers no
+ *  result of its own, and a view that requested no task (null) has nothing to count. */
+export function noteDone(counter: DoneCounter, task: LabTask | null): DoneCounter {
+  if (task === null || task.state !== 'done' || task.id === counter.id) return counter;
+  return { count: counter.count + 1, id: task.id };
+}
+
+/** The task a background watch follows: the analysis of one source, metric and side scope (its coalescing key's parts the
+ *  Lab chooses). A tab that was left while the task still ran hands it over, so its finishing is seen. */
+export interface TaskWatch {
+  source: string;
+  metric: string;
+  scope: string;
+}
+
+/** Whether the watch is of the task the Lab is looking at now. A watch asks the importance view with the Lab's own metric
+ *  and scope, so it may continue only while they are the watch's: asking under another would request another task. */
+export function sameWatch(watch: TaskWatch | null, now: TaskWatch | null): boolean {
+  return watch !== null && now !== null && watch.source === now.source && watch.metric === now.metric && watch.scope === now.scope;
+}
+
+/** Whether a Cancel the operator asked is still pending: it named one task under one view key, and holds while that task
+ *  still reads queued or running under that key. A new key (another source, metric or filter) or another task ends it. */
+export function cancelPending(asked: { key: string; id: string } | null, key: string | null, task: LabTask | null): boolean {
+  return asked !== null && key !== null && asked.key === key && task !== null && task.id === asked.id && isActive(task);
+}
+
+/** What a failed poll adds to its error: that the polling stopped while the task the last answer showed may still run.
+ *  Null with no error, or when that task had already stopped. */
+export function pollStopped(error: string | null, task: LabTask | null): string | null {
+  return error !== null && isActive(task) ? 'polling has stopped and the task may still be running: Retry asks again' : null;
+}

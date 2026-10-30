@@ -1,5 +1,10 @@
 import { DASH } from '../format';
 import { heatTemplate } from '../layout';
+import { profitKind, type ProfitKind } from '../lab/metricRules';
+
+// The profit sign moved to the Lab's pure metric rules (one place for what loses money); these keep every importer working.
+export { profitKind };
+export type { ProfitKind };
 
 export interface HeatmapProps {
   title: string;
@@ -25,18 +30,6 @@ export interface HeatmapProps {
   counts?: ReadonlyArray<ReadonlyArray<number>> | null;
   /** Draw the squares no trial tested hatched (needs `counts`): an untested square is never filled. */
   hatchUntested?: boolean;
-}
-
-/** 'sign': below 0 loses money (net P&L, return, CAGR, MAR, expectancy, the trade Sharpe); 'ratio': below 1
- *  loses money (profit factor); null: the metric has no profit sign. The server's `BREAK_EVEN` (lab/policy.py) names
- *  the same metrics at the same values. */
-export type ProfitKind = 'sign' | 'ratio' | null;
-
-const SIGNED = new Set(['net_pnl', 'net_return', 'cagr', 'mar', 'expectancy', 'sharpe_trade']);
-
-export function profitKind(metric: string): ProfitKind {
-  if (SIGNED.has(metric)) return 'sign';
-  return metric === 'profit_factor' ? 'ratio' : null;
 }
 
 export type Tone = 'empty' | 'hot' | 'gain' | 'mid' | 'cool' | 'loss';
@@ -103,8 +96,8 @@ export function testedCounts(matrices: Partial<Record<string, Partial<Record<str
   return grid.map((row) => row.map((value) => (value !== null && Number.isFinite(value) ? 1 : 0)));
 }
 
-/** The legend the dock's basis line carries (spec §5.1): what a square's look means. The robust plateau overlay
- *  arrives with Phase 3's robustness estimators. */
+/** The legend the dock's basis line carries (spec §5.1): what a square's look means. The dock draws no robust plateau
+ *  overlay: the estimators arrived in Phase 3 as the Lab's Robustness (A–D) tab and the candidate card. */
 export function HeatLegend() {
   return (
     <span className="heat-legend">
@@ -123,9 +116,9 @@ export function HeatLegend() {
         Selected
       </span>
       {' · '}
-      <span className="heat-key muted" title="the robustness estimators arrive in Phase 3">
+      <span className="heat-key muted" title="the dock draws no robust plateau: the Lab's Robustness (A–D) tab shows how a trial's surroundings hold up">
         <i className="swatch plateau" />
-        Robust plateau (Phase 3)
+        Robust plateau (Lab only)
       </span>
     </span>
   );

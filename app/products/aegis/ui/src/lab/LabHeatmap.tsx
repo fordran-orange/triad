@@ -9,7 +9,7 @@ import { errorMessage } from '../api/client';
 import { DASH } from '../format';
 import type { LabEnvelope, LabMatrix, LabPage, LabSquareStats } from '../results';
 import { CHART_FONT, drawAxes, fitText, hatchPattern, HitGrid, LABEL_COLOUR, linearScale, observeResize, ordinalScale, outlineRect, paintInFrames, setupCanvas } from './charts/canvas';
-import { objectiveText } from './LabKpiStrip';
+import { objectiveText } from './metricRules';
 import {
   cursorDims,
   HEAT_MARGIN,

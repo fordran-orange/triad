@@ -66,8 +66,9 @@ export function CandidateCard({ data, trialId }: { data: LabQueryData; trialId: 
   const lab = useLab();
   const { query, tick } = data;
   // The card does not depend on the filter, but an answer that lands after the filter moved is discarded by `query`, and
-  // the key moving is what asks again. B reads the finished importance, which the Importance tab may just have finished:
-  // switching tabs asks again, and so does every refresh while the source runs.
+  // the key moving is what asks again. B reads the finished importance: the count of importance tasks seen finished is part of
+  // the mark, so the card asks again when one finishes (in the Importance tab, or in the background after it was left), and
+  // so does every refresh while the source runs.
   const viewKey = [trialId, lab.metric, filterHash(lab.filter)].join('|');
   const [retry, setRetry] = useState(0);
   const [answer, setAnswer] = useState<Answer | null>(null);
@@ -75,7 +76,7 @@ export function CandidateCard({ data, trialId }: { data: LabQueryData; trialId: 
   const seq = useRef(0);
   const asked = useRef<string | null>(null);
   useEffect(() => {
-    const mark = `${viewKey}|${tick}|${retry}|${lab.tab}`;
+    const mark = `${viewKey}|${tick}|${retry}|${data.importanceDone}`;
     if (asked.current === mark) return; // React's development double-run of the same ask
     asked.current = mark;
     const mine = ++seq.current;
@@ -92,7 +93,7 @@ export function CandidateCard({ data, trialId }: { data: LabQueryData; trialId: 
       });
     // The key stands for the trial, the metric and the filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewKey, tick, retry, lab.tab]);
+  }, [viewKey, tick, retry, data.importanceDone]);
   const current = answer !== null && answer.key === viewKey ? answer : null;
   const shown = answered(current, answer, trialId);
   const error = failure !== null && failure.key === viewKey ? failure.message : null;

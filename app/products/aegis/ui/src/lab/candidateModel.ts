@@ -1,19 +1,13 @@
 // The candidate card's decisions (spec §7.6), nothing React and nothing drawn: a tested trial's four robustness
 // categories as the rail prints them, side by side and never summed, each tested or unknown with its classification or
 // its reason verbatim and the inputs that decided it. `CandidateCard` only renders what this returns. The orientation
-// helpers at the top are the Robustness tab's and the Pareto panel's too: the worker sends A's and B's numbers and the
+// helpers at the top are the Robustness tab's too: the worker sends A's and B's numbers and the
 // rankings' values ORIENTED (higher is better, so `max_drawdown` is negated) and everything printed is converted back.
 import { DASH, num, pct } from '../format';
 import type { LabCandidateCard, LabCategoryName, LabFigures, LabFinding, LabNumber, LabTrial } from '../results';
-import { lossTone, objectiveText } from './LabKpiStrip';
 import type { LabScope } from './labStore';
+import { lossTone, objectiveText } from './metricRules';
 import type { TrialRow } from './useLabSource';
-
-/** Which way a metric reads: `max_drawdown` is the one metric where lower is better (the worker's `LOWER_IS_BETTER`).
- *  The card carries its own `orientation`; the rankings do not, so they read the asked metric's. */
-export function orientationOf(metric: string): 1 | -1 {
-  return metric === 'max_drawdown' ? -1 : 1;
-}
 
 /** An oriented value in the metric's real units (`orientation * value`); never negative zero, an undefined value stays
  *  undefined. */

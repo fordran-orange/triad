@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { rankings } from './analyticsFixtures';
-import { objectiveText } from './LabKpiStrip';
+import { objectiveText } from './metricRules';
 import { axesLine, classTone, rankingRows, robustSummary, toleranceLine } from './robustnessModel';
 
 describe('rankingRows (the peak list and the robust list, side by side)', () => {
@@ -96,27 +96,32 @@ describe('robustSummary (the disagreement named, the stable candidate, or why th
 
   it('names the stable candidate with its classification and value', () => {
     const s = robustSummary(rankings(), 'mar');
-    expect(s.stable).toBe(`Stable candidate: trial 710 · stable local · ${objectiveText('mar', 5.9)}`);
+    expect(s.stableLead).toBe('Stable candidate:');
+    expect(s.stable).toBe(`trial 710 · stable local · ${objectiveText('mar', 5.9)}`);
     expect(s.stableId).toBe('exp:e1#710');
   });
 
-  it('prints the stable reason verbatim when there is no stable candidate', () => {
+  it('holds the stable reason alone and verbatim when there is no stable candidate: the lead is another element’s text', () => {
     const reason = 'the most robust candidates are tied on net_pnl';
     const s = robustSummary(rankings({ stable: null, stable_reason: reason }), 'net_pnl');
-    expect(s.stable).toBe(`No stable candidate: ${reason}`);
+    expect(s.stableLead).toBe('No stable candidate:');
+    expect(s.stable).toBe(reason); // an exact-text check on the element passes
     expect(s.stableId).toBeNull();
-    expect(robustSummary(rankings({ stable: null, stable_reason: null }), 'net_pnl').stable).toBe('No stable candidate');
+    const bare = robustSummary(rankings({ stable: null, stable_reason: null }), 'net_pnl');
+    expect(bare.stableLead).toBe('No stable candidate');
+    expect(bare.stable).toBe('');
   });
 
   it('tolerates a stable candidate chosen from the pool but outside the rows listed', () => {
     const s = robustSummary(rankings({ stable: 'exp:e1#999', ranked: [], peak_ranked: [] }), 'mar');
-    expect(s.stable).toBe('Stable candidate: trial 999 (outside the rows listed)');
+    expect(s.stableLead).toBe('Stable candidate:');
+    expect(s.stable).toBe('trial 999 (outside the rows listed)');
     expect(s.stableId).toBe('exp:e1#999');
   });
 
   it('finds a stable candidate that is listed among the peak rows alone', () => {
     const peakOnly = rankings({ ranked: [], stable: 'exp:e1#710' });
-    expect(robustSummary(peakOnly, 'mar').stable).toBe(`Stable candidate: trial 710 · stable local · ${objectiveText('mar', 5.9)}`);
+    expect(robustSummary(peakOnly, 'mar').stable).toBe(`trial 710 · stable local · ${objectiveText('mar', 5.9)}`);
   });
 
   it('prints the stable candidate’s value in real units', () => {

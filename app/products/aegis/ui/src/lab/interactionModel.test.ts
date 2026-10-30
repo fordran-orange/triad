@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { IMPORTANCE_CONSTANTS, interactions, pair, PATHS } from './analyticsFixtures';
-import { hoverText, intensity, interactionModel, matrixLayout, matrixSummary, truncatedNotice, unresolvedText } from './interactionModel';
+import { hoverText, intensity, interactionModel, jBasisLine, matrixLayout, matrixSummary, squareLook, truncatedNotice, unresolvedText } from './interactionModel';
 
 describe('the matrix of J', () => {
   const view = interactions();
@@ -123,5 +123,49 @@ describe('matrixLayout (the width sets the square, the height follows)', () => {
   it('a canvas too narrow for the margins, or no parameters, has no square and never a NaN', () => {
     expect(matrixLayout(100, 4).cell).toBe(0);
     expect(matrixLayout(500, 0)).toEqual({ x0: 130, y0: 118, cell: 0, height: 128 });
+  });
+});
+
+describe('squareLook (only an unresolved pair is hatched)', () => {
+  const nullJ = { value: null, lo: null, hi: null };
+
+  it('hatches an unresolved pair, whatever its J', () => {
+    const m = interactionModel(interactions({ pairs: [pair(0, 1, { unresolved: true, coverage: 0.1 }), pair(0, 2, { unresolved: true, coverage: 0.1, J: nullJ })], total_pairs: 3, unresolved_pairs: 2 }))!;
+    expect(squareLook(m.cells[0][1], m.maxJ)).toEqual({ kind: 'hatch' });
+    expect(squareLook(m.cells[0][2], m.maxJ)).toEqual({ kind: 'hatch' });
+  });
+
+  it('draws a resolved pair whose J is undefined as an outline: not hatched, and not in the unresolved list either', () => {
+    const m = interactionModel(interactions({ pairs: [pair(0, 1, { J: nullJ }), pair(0, 2)], total_pairs: 3, unresolved_pairs: 0 }))!;
+    expect(squareLook(m.cells[0][1], m.maxJ)).toEqual({ kind: 'outline' });
+    expect(squareLook(m.cells[1][0], m.maxJ)).toEqual({ kind: 'outline' }); // both sides of the diagonal
+    expect(m.unresolved).toEqual([]);
+    expect(m.maxJ).toBeGreaterThan(0); // the undefined J is not a 0 that drags the scale
+  });
+
+  it('shades a resolved pair by its J, and outlines the diagonal and a pair the worker did not send', () => {
+    const m = interactionModel(interactions({ pairs: [pair(0, 1), pair(0, 2, { J: { value: 0.1, lo: 0.08, hi: 0.12 } })], total_pairs: 3, unresolved_pairs: 0 }))!;
+    expect(squareLook(m.cells[0][1], m.maxJ)).toEqual({ kind: 'shade', t: 1 });
+    expect(squareLook(m.cells[0][2], m.maxJ)).toEqual({ kind: 'shade', t: 0.5 });
+    expect(squareLook(m.cells[1][2], m.maxJ)).toEqual({ kind: 'outline' }); // (1, 2) was not sent
+    expect(squareLook(m.cells[0][0], m.maxJ)).toEqual({ kind: 'outline' }); // the diagonal
+  });
+
+  it('an undefined J reads as a dash on hover, never a number', () => {
+    const m = interactionModel(interactions({ pairs: [pair(0, 1, { J: { value: null, lo: null, hi: null } })], total_pairs: 1, unresolved_pairs: 0 }))!;
+    expect(hoverText(m.cells[0][1]!, IMPORTANCE_CONSTANTS)).toContain('J — no interval');
+  });
+});
+
+describe('jBasisLine (what J is a share of)', () => {
+  it('names the metric and the scope the answer was computed for, and the seed', () => {
+    const v = interactions();
+    expect(jBasisLine(v)).toBe('J is a share of the variance of Net P&L · combined scope · seed 1');
+    const other = interactions({ computed: { ...v.computed!, metric: 'max_drawdown', scope: 'long', seed: 7 } });
+    expect(jBasisLine(other)).toBe('J is a share of the variance of Max drawdown · long scope · seed 7');
+  });
+
+  it('says nothing before the first stage was delivered', () => {
+    expect(jBasisLine(interactions({ computed: null, pairs: [], total_pairs: 0, unresolved_pairs: 0, constants: null }))).toBe('');
   });
 });

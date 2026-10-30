@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { pareto } from './analyticsFixtures';
-import { objectiveText } from './LabKpiStrip';
+import { objectiveText } from './metricRules';
 import {
   axisTitle,
   densityRects,
   directionText,
-  losesMoney,
   objectiveOptions,
   paretoBasis,
   paretoCounts,
@@ -63,17 +62,6 @@ describe('reading direction and losses', () => {
     expect(axisTitle('max_drawdown', -1)).toContain('lower is better');
     expect(axisTitle('net_pnl', 1)).toContain('higher is better');
     expect(axisTitle('net_pnl', 1)).toContain('Net P&L');
-  });
-
-  it('a value below break-even loses money: zero is neutral, a drawdown has no break-even', () => {
-    expect(losesMoney('net_pnl', -0.01)).toBe(true);
-    expect(losesMoney('net_pnl', 0)).toBe(false);
-    expect(losesMoney('mar', -1)).toBe(true);
-    expect(losesMoney('profit_factor', 0.99)).toBe(true);
-    expect(losesMoney('profit_factor', 1)).toBe(false);
-    expect(losesMoney('max_drawdown', 0.9)).toBe(false);
-    expect(losesMoney('trade_count', 0)).toBe(false);
-    expect(losesMoney('net_pnl', null)).toBe(false);
   });
 
   it('a front point is a loss when any money-signed objective is below break-even, never otherwise', () => {

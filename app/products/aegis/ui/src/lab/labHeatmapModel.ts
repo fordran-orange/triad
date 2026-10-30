@@ -4,8 +4,8 @@
 // selection resolves to, and the grid's geometry on the canvas. LabHeatmap only draws what this returns.
 import { cells, profitKind } from '../components/Heatmap';
 import { compactMoney } from '../layout';
-import { OBJECTIVE_LABELS, PERCENT_OBJECTIVES, type LabMatrix, type LabSnapshot, type LabSquareStats, type Objective } from '../results';
-import { panelLabel, SHARPE, SHARPE_LABEL } from './labQuery';
+import { PERCENT_OBJECTIVES, type LabMatrix, type LabSnapshot, type LabSquareStats, type Objective } from '../results';
+import { panelLabel } from './labQuery';
 import type { LabAction, LabMode, SquareSelection } from './labStore';
 
 export type Tone = ReturnType<typeof cells>[number][number]['tone'];
@@ -173,8 +173,5 @@ export function squareLabel(metric: string, v: number): string {
   return v.toFixed(2);
 }
 
-/** A metric as the panels name it: the objective's label, the trade Sharpe with its qualifiers. */
-export function metricName(metric: string): string {
-  if (metric === SHARPE) return SHARPE_LABEL;
-  return (OBJECTIVE_LABELS as Record<string, string>)[metric] ?? metric;
-}
+// A metric as the panels name it lives with the other metric rules (pure, no component): re-exported for the heatmap.
+export { metricName } from './metricRules';

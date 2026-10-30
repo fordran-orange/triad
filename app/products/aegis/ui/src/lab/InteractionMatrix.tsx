@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import type { LabInteractions } from '../results';
 import { CHART_FONT, fitText, HitGrid, hatchPattern, LABEL_COLOUR, observeResize, outlineRect, setupCanvas } from './charts/canvas';
-import { hoverText, intensity, interactionModel, matrixLayout, matrixSummary, truncatedNotice, unresolvedText, type InteractionModel } from './interactionModel';
+import { hoverText, interactionModel, jBasisLine, matrixLayout, matrixSummary, squareLook, truncatedNotice, unresolvedText, type InteractionModel } from './interactionModel';
 import { displayShare, panelLabel } from './labQuery';
 import { axisLabel } from './parallelBundles';
 import { LabError } from './NotBuilt';
@@ -52,15 +52,16 @@ function paint(canvas: HTMLCanvasElement, width: number, height: number, model: 
       const x = L.x0 + c * cell;
       const y = L.y0 + r * cell;
       const at = model.cells[r][c];
-      if (at === null) {
-        // The diagonal, or a pair the worker did not send: an outline, never a value.
+      const look = squareLook(at, model.maxJ);
+      if (at === null || look.kind === 'outline') {
+        // The diagonal, a pair the worker did not send, or a resolved pair with no J: an outline, never a value and never the
+        // hatch of low coverage.
         ctx.strokeStyle = HATCH_STRIPE;
         ctx.lineWidth = 1;
         ctx.strokeRect(x + 0.5, y + 0.5, cell - gap - 1, cell - gap - 1);
         continue;
       }
-      const t = intensity(at, model.maxJ);
-      ctx.fillStyle = t === null ? hatch : `rgba(${SHADE[0]}, ${SHADE[1]}, ${SHADE[2]}, ${0.12 + 0.78 * t})`;
+      ctx.fillStyle = look.kind === 'hatch' ? hatch : `rgba(${SHADE[0]}, ${SHADE[1]}, ${SHADE[2]}, ${0.12 + 0.78 * look.t})`;
       ctx.fillRect(x, y, cell - gap, cell - gap);
       if (at.pair.unbalanced) {
         const k = Math.max(3, Math.min(8, cell / 3));
@@ -78,9 +79,9 @@ function paint(canvas: HTMLCanvasElement, width: number, height: number, model: 
         ctx.arc(x + cell - gap - 4, y + cell - gap - 4, 2, 0, Math.PI * 2);
         ctx.fill();
       }
-      if (t !== null && cell >= 30) {
+      if (look.kind === 'shade' && cell >= 30) {
         ctx.font = CHART_FONT;
-        ctx.fillStyle = t > 0.55 ? '#071018' : '#d8e5ef';
+        ctx.fillStyle = look.t > 0.55 ? '#071018' : '#d8e5ef';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         fitText(ctx, `${Math.round(displayShare(at.pair.J.value ?? 0) * 100)}%`, x + (cell - gap) / 2, y + (cell - gap) / 2, cell - 4);
@@ -147,8 +148,8 @@ export function InteractionMatrix({ data }: { data: LabQueryData }) {
           </span>
         )}
       </div>
-      <TaskBar id="lab-interactions-task" task={current?.envelope.task ?? null} cancelling={task.cancelling} error={task.stopError} onCancel={() => void task.cancel()} onRerun={task.runAgain} />
-      {error !== null && <LabError message={`Interactions unavailable: ${error}`} onRetry={task.retry} />}
+      <TaskBar id="lab-interactions-task" task={current?.envelope.task ?? null} cancelling={task.cancelling} rerunning={task.rerunning} error={task.stopError} onCancel={() => void task.cancel()} onRerun={task.runAgain} />
+      {error !== null && <LabError message={`Interactions unavailable: ${error}${task.pollStopped !== null ? ` · ${task.pollStopped}` : ''}`} onRetry={task.retry} />}
       {notice !== null && (
         <div className="lab-empty" id="lab-interactions-notice" data-kind={notice.kind}>
           {notice.text}
@@ -157,6 +158,11 @@ export function InteractionMatrix({ data }: { data: LabQueryData }) {
       {truncated !== null && (
         <div className="notice" id="lab-interactions-truncated">
           {truncated}
+        </div>
+      )}
+      {view !== null && jBasisLine(view) !== '' && (
+        <div className="sub" id="lab-interactions-metric">
+          {jBasisLine(view)}
         </div>
       )}
       {model !== null && view !== null && view.constants !== null && (

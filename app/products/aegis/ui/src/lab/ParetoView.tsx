@@ -10,14 +10,15 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { errorMessage } from '../api/client';
 import type { LabEnvelope, LabPareto } from '../results';
 import { AXIS_COLOUR, CHART_FONT, drawAxes, LABEL_COLOUR, niceTicks, observeResize, ScatterHit, setupCanvas } from './charts/canvas';
+import { trialLabel } from './candidateModel';
 import { squareLabel } from './labHeatmapModel';
+import { breakEven, metricName } from './metricRules';
 import { answered, metricList } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
 import { filterHash } from './labStore';
 import { LabError } from './NotBuilt';
 import {
   axisTitle,
-  breakEven,
   densityRects,
   objectiveOptions,
   paretoBasis,
@@ -32,7 +33,6 @@ import {
   type ParetoScales,
   type PlotPoint,
 } from './paretoModel';
-import { metricName } from './labHeatmapModel';
 import type { LabQueryData, Stamped } from './useLabQuery';
 import { usePickTrial } from './usePickTrial';
 
@@ -140,7 +140,7 @@ function paintMarks(canvas: HTMLCanvasElement | null, w: number, h: number, poin
 export function ParetoView({ data }: { data: LabQueryData }) {
   const lab = useLab();
   const dispatch = useLabDispatch();
-  const pick = usePickTrial(data);
+  const { pick, failure: pickFailure } = usePickTrial(data);
   const { loaded, query, tick } = data;
   const source = loaded ? `${loaded.kind}:${loaded.id}` : null;
   const available = useMemo(() => metricList(loaded?.kind ?? 'exp', data.summary), [loaded?.kind, data.summary]);
@@ -298,6 +298,7 @@ export function ParetoView({ data }: { data: LabQueryData }) {
         </div>
       )}
       {error !== null && <LabError message={`Pareto front unavailable: ${error}`} onRetry={() => setRetry((n) => n + 1)} />}
+      {pickFailure !== null && <LabError id="lab-pareto-pick-error" message={`${trialLabel(pickFailure.id)}: its row is unavailable (${pickFailure.message}); the selection and its four categories stand`} onRetry={() => pick(pickFailure.id)} />}
       {view !== null && view.empty !== null && <div className="lab-empty">{view.empty}</div>}
       <div className="lab-pareto-plot" ref={wrap}>
         <canvas id="lab-pareto-canvas" ref={base} role="img" aria-label={view === null ? '' : paretoSummary(view)} />

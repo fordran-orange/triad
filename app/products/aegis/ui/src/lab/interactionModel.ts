@@ -7,6 +7,7 @@ import { DASH, pct } from '../format';
 import type { LabImportanceConstants, LabInteractionPair, LabInteractions, LabIncrement } from '../results';
 import { coverageText } from './candidateModel';
 import { displayShare } from './labQuery';
+import { metricName } from './metricRules';
 
 /** The pair a square shows and which of its two increments the square's row reads: `D_ij` for the pair's first parameter
  *  as the row (what it adds beyond the second), `D_ji` for the second. */
@@ -61,6 +62,18 @@ export function intensity(cell: PairCell | null, maxJ: number): number | null {
   return maxJ > 0 ? Math.min(1, displayShare(cell.pair.J.value) / maxJ) : 0;
 }
 
+/** What a square looks like: hatched only when its pair is unresolved (coverage under the constant), shaded by J when the pair
+ *  is resolved and has a J, and an outline otherwise: the diagonal, a pair the worker did not send, and a resolved pair whose
+ *  J is undefined (hatching it would call it low coverage, and it is not in the unresolved list). */
+export type SquareLook = { kind: 'hatch' } | { kind: 'outline' } | { kind: 'shade'; t: number };
+
+export function squareLook(cell: PairCell | null, maxJ: number): SquareLook {
+  if (cell === null) return { kind: 'outline' };
+  if (cell.pair.unresolved) return { kind: 'hatch' };
+  const t = intensity(cell, maxJ);
+  return t === null ? { kind: 'outline' } : { kind: 'shade', t };
+}
+
 const share = (v: number | null) => (v === null ? DASH : pct(displayShare(v), 1));
 const span = (v: { lo: number | null; hi: number | null }) => (v.lo === null || v.hi === null ? 'no interval' : `[${share(v.lo)}–${share(v.hi)}]`);
 
@@ -92,6 +105,13 @@ export function hoverText(cell: PairCell, constants: LabImportanceConstants): st
 /** An unresolved pair's line under the matrix: the pair and its coverage against the constant of the response. */
 export function unresolvedText(pair: LabInteractionPair, constants: LabImportanceConstants): string {
   return `${pair.pair[0]} × ${pair.pair[1]} · coverage ${coverageText(pair.coverage)} (needs ${constants.PAIR_MIN_COVERAGE})`;
+}
+
+/** What the matrix's shares are shares of: the metric and scope the answer was computed for (not the one now in view) and its
+ *  seed; empty before the first stage was delivered. */
+export function jBasisLine(view: LabInteractions): string {
+  const c = view.computed;
+  return c === null ? '' : `J is a share of the variance of ${metricName(c.metric)} · ${c.scope} scope · seed ${c.seed}`;
 }
 
 /** `truncated: the first n of N pairs are shown` when the worker cut the list; null otherwise. */

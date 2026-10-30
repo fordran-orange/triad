@@ -4,14 +4,11 @@
 // and `density` are in REAL values (a drawdown is the drawdown itself): `orientation` is for reading direction and for
 // sizing a third objective, never for placing a point. A chart never implies data that was not tested, so nothing here
 // joins the front into a line or fills a bin that holds no trial.
-import type { ProfitKind } from '../components/Heatmap';
-import { profitKind } from '../components/Heatmap';
 import type { LabPareto, LabSnapshot } from '../results';
-import { linearScale, type Scale } from './charts/canvas';
 import { trialLabel } from './candidateModel';
-import { metricName } from './labHeatmapModel';
+import { linearScale, type Scale } from './charts/canvas';
 import { panelLabel } from './labQuery';
-import { objectiveText } from './LabKpiStrip';
+import { breakEven, losesMoney, metricName, objectiveText } from './metricRules';
 
 /** The pickers: two required objectives and an optional third (§7.7). The worker's own `OBJECTIVES_MIN` / `MAX` ride on
  *  every response; the number of pickers is the layout of the panel. */
@@ -59,19 +56,6 @@ export const directionText = (orientation: 1 | -1) => (orientation === 1 ? 'high
 /** An axis title: the metric and which way is better. */
 export function axisTitle(metric: string, orientation: 1 | -1): string {
   return `${metricName(metric)} · ${directionText(orientation)}`;
-}
-
-/** Where a metric stops losing money: 0, or 1 for a ratio such as the profit factor; null for a metric with no profit sign. */
-export function breakEven(metric: string): number | null {
-  const kind: ProfitKind = profitKind(metric);
-  return kind === null ? null : kind === 'ratio' ? 1 : 0;
-}
-
-/** Whether `value` of `metric` loses money: strictly below its break-even (break-even itself is neutral); a metric with no
- *  profit sign, such as a drawdown, never does. */
-export function losesMoney(metric: string, value: number | null): boolean {
-  const even = breakEven(metric);
-  return even !== null && value !== null && value < even;
 }
 
 /** A front point is a loss when any money-signed objective of it is below break-even, whatever its rank: a losing value is
