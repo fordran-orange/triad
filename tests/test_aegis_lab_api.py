@@ -946,12 +946,14 @@ def test_interactions_and_triples_views_answer_from_the_task(client, monkeypatch
     assert pairs["task"] == importance["task"] and pairs["view"] == "interactions"
     assert [p["pair"] for p in pairs["pairs"]] == [[DONCHIAN, RSI]]
     assert pairs["total_pairs"] == 1 and pairs["scope"]["shown"] == 1
+    assert pairs["truncated"] is False and "bounded" not in pairs
     assert pairs["computed"]["stage"] == 3 and pairs["computed"]["seed"] == 1
     assert pairs["constants"] == importance["importance"]["constants"]
     assert pairs["scope"]["basis"] == importance["scope"]["basis"]
     triples = _view(c, src, "triples")
     assert triples["task"] == importance["task"] and triples["triples"] == []
     assert triples["total_triples"] == 0 and triples["scope"]["shown"] == 0
+    assert triples["bounded"] is True and "truncated" not in triples
 
 
 def test_basis_counts_the_scheduled_uniform_configurations(client, monkeypatch):

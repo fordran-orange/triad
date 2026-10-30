@@ -1008,6 +1008,34 @@ def test_stale_then_rescreen_refreshes_evidence():
     assert compare_scope(current, moved) == "stale: data identity changed"
 
 
+def test_compare_scope_reads_the_snapshot_by_its_watermark():
+    """The rule the task cache and the label read: snapshots of one chunk watermark are one
+    evidence (compaction leaves its canonical rows as they were), so a bare compaction reads
+    `current`, either way round, though the scope still records its whole snapshot. A new chunk
+    reads `stale: snapshot changed`, with or without a compaction, and so does a source without
+    snapshots against one with them. Other fields are read as ever."""
+    frame, c, _ = assessed("09-child", SEED)
+    document = scope_document(frame)
+    computed = evidence_scope(document, c)
+    assert computed["snapshot"] == {"generation": 0, "chunk_watermark": 0}
+    compacted = evidence_scope(
+        document, cohort_of(replace(frame, snapshot=lab_store.Snapshot(1, 0)))
+    )
+    assert compacted["snapshot"] == {"generation": 1, "chunk_watermark": 0}
+    assert compare_scope(computed, compacted) == "current"
+    assert compare_scope(compacted, computed) == "current"
+    for later in (lab_store.Snapshot(0, 1), lab_store.Snapshot(1, 1)):
+        chunk = evidence_scope(document, cohort_of(replace(frame, snapshot=later)))
+        assert compare_scope(computed, chunk) == "stale: snapshot changed"
+        assert compare_scope(compacted, chunk) == "stale: snapshot changed"
+    none = {**computed, "snapshot": None}
+    assert compare_scope(none, dict(none)) == "current"
+    assert compare_scope(none, computed) == "stale: snapshot changed"
+    assert compare_scope(computed, none) == "stale: snapshot changed"
+    revised = evidence_scope(scope_document(frame, revision=2), c)
+    assert compare_scope(compacted, revised) == "stale: sampler changed"
+
+
 def test_recentred_r_interval_contains_one_on_pure_noise():
     """Pure noise at d = 20: the residual's re-centred interval contains 1 (decision 19), and the
     coarse terms are unclamped (some noise shares are negative), so R is not biased down."""
@@ -1485,12 +1513,12 @@ def test_interactions_view_lists_every_pair():
     larger = [max(p["D_ij"]["value"], p["D_ji"]["value"]) for p in resolved]
     assert larger == sorted(larger, reverse=True)
     assert payload["constants"] == first["constants"]
-    assert payload["bounded"] is False  # every pair sent
+    assert payload["truncated"] is False  # every pair sent
     assert interactions_payload(None) == {
         "pairs": [],
         "total_pairs": 0,
         "unresolved_pairs": 0,
-        "bounded": False,
+        "truncated": False,
         "constants": None,
     }
 
@@ -1550,9 +1578,11 @@ def test_importance_view_leaves_the_triples_to_the_triples_view():
     assert importance_module.importance_payload(None) is None
 
 
-def test_interactions_view_is_bounded(monkeypatch):
+def test_interactions_view_is_truncated_at_its_bound(monkeypatch):
     """The response bound holds whatever d is: the first INTERACTIONS_MAX_PAIRS pairs in the
-    view's order, the unresolved going first, and `total_pairs` still counts them all."""
+    view's order, the unresolved going first, `total_pairs` still counting them all and
+    `truncated` saying the list was cut; a list that exactly fits the bound is not cut. `truncated`
+    is the pair list's own word: `triples` keeps `bounded`, which says stage 3's intervals exist."""
     values = [12, 12, 12] + [3] * 7
     first, *_ = staged(stat_frame(d=10, values=values, n=400, seed=SEED, y=first_order))
     whole = interactions_payload(first)["pairs"]
@@ -1561,7 +1591,13 @@ def test_interactions_view_is_bounded(monkeypatch):
     assert payload["pairs"] == whole[:40] and payload["total_pairs"] == 45
     assert not any(pair["unresolved"] for pair in payload["pairs"])
     assert payload["unresolved_pairs"] == 3
-    assert payload["bounded"] is True  # the list was cut, and says so
+    assert payload["truncated"] is True and "bounded" not in payload
+    monkeypatch.setattr(importance_module, "INTERACTIONS_MAX_PAIRS", 45)
+    exact = interactions_payload(first)
+    assert exact["pairs"] == whole and exact["truncated"] is False
+    monkeypatch.setattr(importance_module, "INTERACTIONS_MAX_PAIRS", 44)
+    cut = interactions_payload(first)
+    assert cut["pairs"] == whole[:44] and cut["truncated"] is True
     assert first["constants"]["INTERACTIONS_MAX_PAIRS"] == 190
 
 

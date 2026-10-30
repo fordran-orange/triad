@@ -211,7 +211,7 @@ def interactions_payload(result: dict | None) -> dict:
     (no interval: it is display only, no rule reads it), coverage, balance and `unresolved`
     (coverage under PAIR_MIN_COVERAGE). Resolved pairs first, by their larger increment, the one
     the rules read; the unresolved last, by `max(S_i upper, S_j upper)` descending, then lowest
-    coverage. At most INTERACTIONS_MAX_PAIRS are sent, in that order: `bounded` says the list was
+    coverage. At most INTERACTIONS_MAX_PAIRS are sent, in that order: `truncated` says the list was
     cut and `total_pairs` counts them all. A surface holds at most MAX_PARAMETERS = 10 parameters,
     so only an optimization grid with single-value axes can reach it (a single value multiplies
     its cells by one)."""
@@ -220,7 +220,7 @@ def interactions_payload(result: dict | None) -> dict:
             "pairs": [],
             "total_pairs": 0,
             "unresolved_pairs": 0,
-            "bounded": False,
+            "truncated": False,
             "constants": None,
         }
     paths, fine = result["paths"], result["fine"]
@@ -254,7 +254,7 @@ def interactions_payload(result: dict | None) -> dict:
         "pairs": (resolved + unresolved)[:INTERACTIONS_MAX_PAIRS],
         "total_pairs": total,
         "unresolved_pairs": len(unresolved),
-        "bounded": total > INTERACTIONS_MAX_PAIRS,
+        "truncated": total > INTERACTIONS_MAX_PAIRS,
         "constants": result["constants"],
     }
 

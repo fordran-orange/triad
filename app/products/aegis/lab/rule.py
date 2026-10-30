@@ -13,7 +13,8 @@ and the evidence scope, over `analytics`' statistics.
   failing condition is named, its coarse terms are read at their point estimates; a missing bound
   never names a condition the parameter would pass.
 - **The evidence scope** (§7.4a, §8.5): what a result's evidence holds for, and `stale: <field>
-  changed` when the current scope differs.
+  changed` when the current scope differs. Its snapshot is compared by its chunk watermark, as the
+  Lab tasks' cache and label compare it: a bare compaction leaves the rows as they were.
 
 Phase 3 recommends: nothing here persists or changes a status (condition 6, the operator's
 confirmation, is Phase 4). Dependencies run rule → analytics → coarse and shares.
@@ -805,11 +806,19 @@ def evidence_scope(document: Any, cohort: Cohort) -> dict:
     }
 
 
+def _compared(field: str, scope: Mapping) -> Any:
+    """A scope's field as `compare_scope` reads it: the snapshot by its chunk watermark (module
+    docstring), every other field as it is."""
+    value = scope.get(field)
+    return value["chunk_watermark"] if field == "snapshot" and value is not None else value
+
+
 def compare_scope(evidence: Mapping, current: Mapping) -> str:
     """`current` when the evidence's scope is the current one, else `stale: <field> changed`, the
-    first differing field in SCOPE_FIELDS' order (case 9: `stale: ranges changed`)."""
+    first differing field in SCOPE_FIELDS' order (case 9: `stale: ranges changed`). A bare
+    compaction reads `current`; a new chunk `stale: snapshot changed`."""
     for field in SCOPE_FIELDS:
-        if evidence.get(field) != current.get(field):
+        if _compared(field, evidence) != _compared(field, current):
             return f"stale: {_SCOPE_NAMES.get(field, field)} changed"
     return "current"
 
