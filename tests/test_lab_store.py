@@ -2011,3 +2011,49 @@ def test_canonical_skips_the_take_on_identity_order(monkeypatch):
     backwards = table([(3, 0, 0), (1, 0, 0)])  # in no order: sorted
     canonical, _ = lab_store._canonical(backwards)
     assert canonical.column("trial_no").to_pylist() == [1, 3] and "Table" in taken
+
+
+def test_compaction_keeps_the_canonical_rows_at_its_watermark(tmp_path):
+    """What Lab Phase 3 Task 6's ruling rests on (two snapshots of one watermark are one evidence):
+    merging a watermark's chunks leaves its canonical rows as they were, in every column and in
+    order, whatever the chunks hold: a screening block's rows, a retried attempt, a copy of a
+    (trial_no, block, attempt) with other metrics (the first read wins, before and after), and an
+    unreadable chunk, read by neither. A reclaim then changes nothing, and a compaction with
+    nothing new is no generation at all."""
+    changed = {**trial_row(3), "metrics": metrics_of(9)}
+    chunks = [
+        [*rows_of(range(4)), trial_row(0, block=1), trial_row(1, block=1)],
+        rows_of(range(4, 6)),
+        [changed, trial_row(5, attempt=1, metrics=metrics_of(10))],
+        [trial_row(0, attempt=1, block=1, metrics=metrics_of(11)), *rows_of(range(6, 8))],
+    ]
+    cells_dir = layout2_dir(tmp_path, chunks)
+    write_trials(cells_dir, 4, rows_of(range(8, 10)))
+    (cells_dir / "000001.parquet").write_bytes(b"x")  # torn after it landed: trials 4 and 5 gone
+    _, before_at = lab_store.latest_snapshot(cells_dir)
+    assert before_at == lab_store.Snapshot(0, 4)
+    before = lab_store.read_trials(cells_dir, before_at)
+    assert before.duplicates == 1
+
+    def rows(trials):
+        return repr(trials.table.to_pylist())  # repr: NaN and null compare as they read
+
+    manifest = lab_store.compact(cells_dir, now=NOW)
+    _, after_at = lab_store.latest_snapshot(cells_dir)
+    assert after_at == lab_store.Snapshot(1, 4) and manifest.chunk_watermark == 4
+    after = lab_store.read_trials(cells_dir, after_at)
+    assert after.table.schema.names == before.table.schema.names
+    assert rows(after) == rows(before) and after.duplicates == before.duplicates
+    assert rows(lab_store.read_trials(cells_dir, before_at)) == rows(before)
+    table = after.table.to_pylist()
+    three = next(row for row in table if row["trial_no"] == 3)
+    assert three["combined.net_pnl"] == metrics_of(3)["combined"]["net_pnl"]  # the first read
+    five = next(row for row in table if row["trial_no"] == 5)
+    assert five["attempt"] == 1  # the torn chunk's attempt 0 is gone, the retry stands
+    retried = next(row for row in table if (row["trial_no"], row["block"]) == (0, 1))
+    assert retried["attempt"] == 1
+    assert 4 not in {row["trial_no"] for row in table}
+    lab_store.reclaim(cells_dir, now=NOW + 601)
+    assert rows(lab_store.read_trials(cells_dir, after_at)) == rows(before)
+    assert lab_store.compact(cells_dir, now=NOW + 602).generation == 1  # nothing new
+    assert lab_store.latest_snapshot(cells_dir)[1] == after_at

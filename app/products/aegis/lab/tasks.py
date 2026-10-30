@@ -18,6 +18,14 @@ for a newer snapshot replaces the waiting one, never queues behind it, since a r
 experiment's snapshot changes with every chunk and a 2 s poll would otherwise queue a 180 s task
 per chunk. Finished results stay in memory, at most `TASK_RESULTS` least recently used, and a
 restart loses them (decision 6).
+
+**Evidence.** Two snapshots of one chunk watermark are one snapshot here, for the cache, for
+coalescing and for the label: compaction merges a watermark's chunks into a part and leaves their
+canonical rows as they were, so a generation bump alone neither recomputes nor reads as stale.
+
+**Stopping.** A cancel acts on the key, since on a running experiment a key has a running task and
+a newer one waiting and a view can name only one of them. A key's stop stands apart from the
+results, outlasting their eviction, until a request that may restart clears it (Ruling P13).
 """
 
 from __future__ import annotations
@@ -33,7 +41,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Literal
 
-from products.aegis.lab.policy import TASK_RESULTS
+from products.aegis.lab.policy import TASK_RESULTS, TASK_STOPPED_KEYS
 from products.aegis.lab.store import REGISTRY, Snapshot, snapshot_json
 
 log = logging.getLogger("aegis")
@@ -152,11 +160,14 @@ def status_json(status: TaskStatus | None) -> dict | None:
 def snapshot_label(result: Mapping | None, current: Snapshot | None) -> str | None:
     """`snapshot X · current Y` for a result computed on a snapshot the source has moved on from,
     each named `g<generation> c<chunk watermark>`, so a view never shows it as current. None when
-    it is the current one, when nothing was computed, or for a source without snapshots (an `opt:`
-    source's cells done are in its key instead)."""
+    it is the current one (a generation bump alone moves no evidence: module docstring), when
+    nothing was computed, or for a source without snapshots (an `opt:` source's cells done are in
+    its key instead)."""
     computed = None if result is None else result.get("snapshot")
     shown = snapshot_json(current)
-    if computed is None or shown is None or computed == shown:
+    if computed is None or shown is None:
+        return None
+    if computed["chunk_watermark"] == shown["chunk_watermark"]:
         return None
     return f"snapshot {_name(computed)} · current {_name(shown)}"
 
@@ -165,11 +176,10 @@ def _name(snapshot: Mapping) -> str:
     return f"g{snapshot['generation']} c{snapshot['chunk_watermark']}"
 
 
-def _order(snapshot: Snapshot | None) -> tuple[int, int]:
-    """Snapshots in the order a source takes them (generation and watermark only grow)."""
-    if snapshot is None:
-        return (-1, -1)
-    return (snapshot.generation, snapshot.chunk_watermark)
+def _evidence(snapshot: Snapshot | None) -> int:
+    """A snapshot's place among a source's evidence, which its watermark alone decides (module
+    docstring): equal for one evidence, greater for newer (a watermark only grows)."""
+    return -1 if snapshot is None else snapshot.chunk_watermark
 
 
 def _now() -> str:
@@ -199,6 +209,8 @@ class LabTasks:
         self._lock = threading.Condition(threading.Lock())
         self._active: dict[str, _Task] = {}  # queued and running, by id
         self._waiting: dict[tuple, _Task] = {}  # the one queued task of each key
+        # The keys a poll must not restart, each with the task it answers; oldest first.
+        self._stops: OrderedDict[tuple, _Task] = OrderedDict()
         self._running: _Task | None = None
         self._done: OrderedDict[str, _Task] = OrderedDict()  # the finished results, LRU
         # Every other end, newest last: cancelled, failed, or done from another task's result.
@@ -230,10 +242,11 @@ class LabTasks:
         it ends, and a request that needs none (joined, cached, replaced, refused, kept) releases
         it.
 
-        With `keep_stopped` (Ruling P13: a view's poll) a key whose newest task failed, was
-        cancelled or is being cancelled answers that task instead, whatever the snapshot: a poll
-        never restarts what the user cancelled or what failed. It is decided here, under the one
-        lock that places a task, so a cancel arriving while a poll loads its frame still holds."""
+        With `keep_stopped` (Ruling P13: a view's poll) a stopped key answers its stopped task
+        instead, whatever the snapshot: a poll never restarts what the user cancelled or what
+        failed. It is decided here, under the one lock that places a task, so a cancel arriving
+        while a poll loads its frame still holds. Without it the request clears the key's stop:
+        it is the user asking again."""
         placed = None
         try:
             if stages < 1:
@@ -241,10 +254,11 @@ class LabTasks:
             with self._lock:
                 if self._closed:
                     raise RuntimeError("the Lab tasks are shut down")
-                stopped = self._stopped(key) if keep_stopped else None
+                stopped = self._stops.get(key) if keep_stopped else None
                 if stopped is not None:
                     placed = (stopped, hold)
                 else:
+                    self._stops.pop(key, None)
                     placed = self._place(key, label, stages, fn, snapshot, hold)
                 status = self._status_of(placed[0])
         finally:
@@ -260,46 +274,54 @@ class LabTasks:
         return self._with_cpu(status)
 
     def result(self, key: tuple, snapshot: Snapshot | None = None) -> dict | None:
-        """The newest finished result of `key` (Ruling P2), or its result at `snapshot` when one
-        is given; None when there is none, even while a task for it computes."""
+        """The newest finished result of `key` (Ruling P2), or its result at `snapshot`'s evidence
+        when one is given; None when there is none, even while a task for it computes."""
         with self._lock:
             found = [
                 task
                 for task in self._done.values()
-                if task.key == key and (snapshot is None or task.snapshot == snapshot)
+                if task.key == key
+                and (snapshot is None or _evidence(task.snapshot) == _evidence(snapshot))
             ]
             if not found:
                 return None
-            newest = max(found, key=lambda task: (_order(task.snapshot), task.order))
+            newest = max(found, key=lambda task: (_evidence(task.snapshot), task.order))
             self._done.move_to_end(newest.id)
             return dict(newest.result)
 
-    def latest(self, key: tuple) -> TaskStatus | None:
-        """The newest task of `key` in any state, the last one requested (Ruling P13); None when
-        this executor knows none of that key (any more). A waiting task cancelled while an older
-        one of its key runs stays the newest after that one finishes."""
+    def computing(self, key: tuple) -> TaskStatus | None:
+        """The task a view's line names for `key` (Ruling P14): the one running, never the newer
+        one waiting behind it; else the one waiting; else the one its stop answers, else its
+        newest, in any state; None when this executor knows none of that key (any more). Reads the
+        runner for a live task, so never under an experiment's read lock."""
         with self._lock:
-            newest = self._newest(key)
-            if newest is None:
+            task = self._running
+            if task is None or task.key != key:
+                task = self._waiting.get(key) or self._stops.get(key) or self._newest(key)
+            if task is None:
                 return None
-            status = self._status_of(newest)
+            status = self._status_of(task)
         return self._with_cpu(status)
 
     def cancel(self, task_id: str) -> bool:
-        """A waiting task is cancelled at once and its pin released; a running one stops at its
-        next checkpoint, its finished stages kept. False for a task finished or already
-        cancelling; KeyError for an unknown id."""
-        spare = None
+        """Stop the task's key, whichever of its tasks `task_id` names (module docstring): its
+        waiting task is dropped at once and its pin released, its running one stops at its next
+        checkpoint, its finished stages kept, and the key stays stopped until a request that may
+        restart clears it. False when the key has nothing live left to stop; KeyError for an
+        unknown id."""
         with self._lock:
-            task = self._task(task_id)
-            if task.state == "queued":
-                spare = self._drop(task)
-                cancelled = True
-            elif task.state == "running" and not task.cancel.is_set():
-                task.cancel.set()
-                cancelled = True
-            else:
-                cancelled = False
+            key = self._task(task_id).key
+            running = self._running
+            if running is not None and running.key != key:
+                running = None
+            waiting = self._waiting.get(key)
+            spare = None if waiting is None else self._drop(waiting)
+            stops_running = running is not None and not running.cancel.is_set()
+            if stops_running:
+                running.cancel.set()
+            cancelled = stops_running or waiting is not None
+            if cancelled:  # the one that computed answers, not the waiter dropped after it
+                self._stop(running if running is not None else waiting)
         _release(spare)
         return cancelled
 
@@ -343,20 +365,18 @@ class LabTasks:
         """The last task requested for `key`, in any state."""
         found = [
             task
-            for tasks in (self._active, self._done, self._ended)
+            for tasks in (self._active, self._done, self._ended, self._stops)
             for task in tasks.values()
             if task.key == key
         ]
         return max(found, key=lambda task: task.requested) if found else None
 
-    def _stopped(self, key: tuple) -> _Task | None:
-        """The key's newest task when it failed, was cancelled or is being cancelled (it stays
-        `running` until its next checkpoint); a cancel after the last stage is simply `done`."""
-        newest = self._newest(key)
-        if newest is None:
-            return None
-        cancelling = newest.state == "running" and newest.cancel.is_set()
-        return newest if cancelling or newest.state in ("failed", "cancelled") else None
+    def _stop(self, task: _Task) -> None:
+        """Stop `task`'s key, answered by `task`, the oldest stop forgotten beyond its bound."""
+        self._stops[task.key] = task
+        self._stops.move_to_end(task.key)
+        while len(self._stops) > TASK_STOPPED_KEYS:
+            self._stops.popitem(last=False)
 
     def _place(self, key, label, stages, fn, snapshot, hold) -> tuple[_Task, int | None]:
         """The task that answers a request and the pin it does not need (the caller releases it
@@ -367,17 +387,17 @@ class LabTasks:
         running = self._running
         if running is not None and (running.key != key or running.cancel.is_set()):
             running = None
-        if running is not None and running.snapshot == snapshot:
+        if running is not None and _evidence(running.snapshot) == _evidence(snapshot):
             return running, hold
         waiting = self._waiting.get(key)
         if waiting is not None:
-            if _order(snapshot) <= _order(waiting.snapshot):
+            if _evidence(snapshot) <= _evidence(waiting.snapshot):
                 return waiting, hold
             spare = waiting.hold
             waiting.label, waiting.stages, waiting.body = label, stages, fn
             waiting.snapshot, waiting.hold = snapshot, hold
             return waiting, spare
-        if running is not None and _order(snapshot) < _order(running.snapshot):
+        if running is not None and _evidence(snapshot) < _evidence(running.snapshot):
             return running, hold
         self._requested += 1
         task = _Task(
@@ -394,9 +414,10 @@ class LabTasks:
         return task, None
 
     def _cached(self, key: tuple, snapshot: Snapshot | None) -> _Task | None:
-        """The finished task holding the result of (key, snapshot), marked as just used."""
+        """The finished task holding the result of (key, snapshot's evidence), marked as just
+        used."""
         for task in reversed(self._done.values()):
-            if task.key == key and task.snapshot == snapshot:
+            if task.key == key and _evidence(task.snapshot) == _evidence(snapshot):
                 self._done.move_to_end(task.id)
                 return task
         return None
@@ -405,6 +426,9 @@ class LabTasks:
         for tasks in (self._active, self._done, self._ended):
             task = tasks.get(task_id)
             if task is not None:
+                return task
+        for task in self._stops.values():  # readable as long as its stop stands
+            if task.id == task_id:
                 return task
         raise KeyError(task_id)
 
@@ -435,7 +459,9 @@ class LabTasks:
     def _end(self, task: _Task, state: State, error: str | None, *, cached: bool = True) -> None:
         """Record a task's end. A `done` task's result is cached, unless it answered from one
         already there (`cached=False`): one entry per (key, snapshot); every other end is kept
-        apart, so no failure ever evicts a result."""
+        apart, so no failure ever evicts a result. A failure or a cancel stops its key when it is
+        the key's newest task: a newer one waiting still runs, and a rerun's task is not undone by
+        the end of the task it replaced."""
         task.state, task.error, task.finished_at = state, error, _now()
         self._active.pop(task.id, None)
         if self._running is task:
@@ -446,6 +472,8 @@ class LabTasks:
         kept[task.id] = task
         while len(kept) > self.max_results:
             kept.popitem(last=False)
+        if state in ("failed", "cancelled") and self._newest(task.key) is task:
+            self._stop(task)
         self._lock.notify_all()
 
     def _with_cpu(self, status: TaskStatus) -> TaskStatus:

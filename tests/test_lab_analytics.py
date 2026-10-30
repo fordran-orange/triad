@@ -15,6 +15,7 @@ import itertools
 import json
 import math
 import re
+import time
 from dataclasses import replace
 from types import MappingProxyType
 
@@ -1443,9 +1444,10 @@ def test_without_blocks_the_period_uncertainty_is_not_measured():
 
 
 def test_interactions_view_lists_every_pair():
-    """Every pair of d = 10, 45 of them: J, both increments and I with their intervals, floors,
-    coverage and balance. Resolved pairs first, by their larger increment; the unresolved ones
-    (coverage under PAIR_MIN_COVERAGE) last, by max(S_i upper, S_j upper), then lowest coverage."""
+    """Every pair of d = 10, 45 of them: J and both increments with their intervals, the
+    increments' floors, I (display-only, Task 4's interface: no interval), coverage and balance.
+    Resolved pairs first, by their larger increment; the unresolved ones (coverage under
+    PAIR_MIN_COVERAGE) last, by max(S_i upper, S_j upper), then lowest coverage."""
     values = [12, 12, 12] + [3] * 7
     first, *_ = staged(stat_frame(d=10, values=values, n=400, seed=SEED, y=first_order))
     payload = interactions_payload(first)
@@ -1468,6 +1470,7 @@ def test_interactions_view_lists_every_pair():
             assert (entry["lo"], entry["hi"]) == (fine["lo"]["D"][a][b], fine["hi"]["D"][a][b])
             assert entry["floor"] == fine["floor"]["D"][a][b]
             assert entry["detected"] == (fine["D"][a][b] > fine["floor"]["D"][a][b])
+        assert pair["I"] == fine["I"][i][j]
         assert pair["I"] == pytest.approx(fine["J"][i][j] - fine["S"][i] - fine["S"][j])
         assert pair["coverage"] == first["pair_coverage"][i][j]
         assert pair["balance"] == first["pair_balance"][i][j]
@@ -1482,10 +1485,12 @@ def test_interactions_view_lists_every_pair():
     larger = [max(p["D_ij"]["value"], p["D_ji"]["value"]) for p in resolved]
     assert larger == sorted(larger, reverse=True)
     assert payload["constants"] == first["constants"]
+    assert payload["bounded"] is False  # every pair sent
     assert interactions_payload(None) == {
         "pairs": [],
         "total_pairs": 0,
         "unresolved_pairs": 0,
+        "bounded": False,
         "constants": None,
     }
 
@@ -1556,3 +1561,14 @@ def test_interactions_view_is_bounded(monkeypatch):
     assert payload["pairs"] == whole[:40] and payload["total_pairs"] == 45
     assert not any(pair["unresolved"] for pair in payload["pairs"])
     assert payload["unresolved_pairs"] == 3
+    assert payload["bounded"] is True  # the list was cut, and says so
+    assert first["constants"]["INTERACTIONS_MAX_PAIRS"] == 190
+
+
+def test_elapsed_counts_from_the_start_it_is_given():
+    """A body passes the clock it started before it opened its frame; without one the stages start
+    their own."""
+    frame = stat_frame(d=3, values=4, n=400, seed=SEED, y=first_order)
+    earlier = time.perf_counter() - 100.0
+    assert all(s["elapsed_s"] >= 100.0 for s in staged(frame, started=earlier))
+    assert all(s["elapsed_s"] < 100.0 for s in staged(frame))

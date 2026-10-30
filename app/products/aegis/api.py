@@ -14,6 +14,7 @@ import shutil
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -1403,6 +1404,19 @@ def _lab_refused(exc: Exception) -> HTTPException:
     return HTTPException(422, str(exc.args[0]) if exc.args else str(exc))
 
 
+@dataclass
+class _TaskPin:
+    """The snapshot `_lab_experiment` pinned for a Lab task and its registry hold, which stays
+    `_lab_experiment`'s to release until the caller takes it for `LabTasks.request`."""
+
+    snapshot: lab_store.Snapshot | None = None
+    hold: int | None = None
+
+    def take(self) -> int | None:
+        hold, self.hold = self.hold, None
+        return hold
+
+
 @contextmanager
 def _lab_experiment(
     experiment_id: str,
@@ -1410,28 +1424,44 @@ def _lab_experiment(
     cache: LabCache,
     columns_of,
     trial_no: int | None = None,
+    pin: _TaskPin | None = None,
 ):
     """One `exp:` request's document, metadata and frame: the document and the files read under
     the experiment's read lock, the latest snapshot registered for the request's life and
     released once its answer is built. With `trial_no`, the frame holds that trial's rows only.
-    A snapshot whose files are gone is a 409, never a 500."""
+    With `pin`, the frame is read at a snapshot pinned for a Lab task, so the answer's `snapshot`
+    is the one its task was requested at. The caller's body runs outside the lock, where a Lab
+    task must be requested: a status of a live task reads the runner, whose lock the job holds
+    while it takes this write lock (`finalize` compacts). A snapshot whose files are gone is a
+    409, never a 500."""
+    handle = None
     try:
-        with lab_store.LOCKS.read(experiment_id):
-            document = _experiment(experiments, experiment_id)
-            meta = lab_sources.cached_meta(document, cache)
-            try:
-                columns = columns_of(meta)
-            except (KeyError, ValueError) as exc:
-                raise _lab_refused(exc) from exc
-            frame, handle = lab_sources.open_experiment(
-                document, experiments, cache, columns, trial_no=trial_no
-            )
-    except lab_store.SnapshotExpired as exc:
-        raise HTTPException(409, "snapshot expired") from exc
-    try:
+        try:
+            with lab_store.LOCKS.read(experiment_id):
+                document = _experiment(experiments, experiment_id)
+                meta = lab_sources.cached_meta(document, cache)
+                try:
+                    columns = columns_of(meta)
+                except (KeyError, ValueError) as exc:
+                    raise _lab_refused(exc) from exc
+                if pin is not None:
+                    pin.snapshot, pin.hold = lab_sources.pin_experiment(document, experiments)
+                frame, handle = lab_sources.open_experiment(
+                    document,
+                    experiments,
+                    cache,
+                    columns,
+                    trial_no=trial_no,
+                    snapshot=None if pin is None else pin.snapshot,
+                )
+        except lab_store.SnapshotExpired as exc:
+            raise HTTPException(409, "snapshot expired") from exc
         yield document, meta, frame
     finally:
-        lab_store.REGISTRY.release(handle)
+        if handle is not None:
+            lab_store.REGISTRY.release(handle)
+        if pin is not None and pin.hold is not None:
+            lab_store.REGISTRY.release(pin.take())
 
 
 def _lab_optimization(
@@ -1481,16 +1511,18 @@ def _lab_task_answer(
     request: QueryRequest,
     tasks: LabTasks,
     key: tuple,
-    task: TaskStatus,
+    placed: TaskStatus,
     unique: int | None = None,
 ) -> dict:
-    """A task view's answer from the task's own latest stage (a cancelled one's stages stay
-    readable, labelled partial), else the key's newest finished result, of whichever snapshot."""
-    result = task.result if task.result is not None else tasks.result(key)
-    try:
-        return lab_sources.task_query(frame, request, task=task, result=result, unique=unique)
-    except (KeyError, ValueError) as exc:
-        raise _lab_refused(exc) from exc
+    """A task view's answer (Ruling P14): the key's newest `done` result, of whichever snapshot
+    (`task_query` labels it `snapshot X · current Y`), else the computing task's delivered stage,
+    a cancelled or failed task's included, else null. The line names the computing task, never
+    the waiter behind it (`placed`, what the request placed, only if the key's tasks were
+    evicted meanwhile)."""
+    task = tasks.computing(key) or placed
+    done = tasks.result(key)
+    result = done if done is not None else task.result
+    return lab_sources.task_query(frame, request, task=task, result=result, unique=unique)
 
 
 def _lab_task_optimization(
@@ -1519,45 +1551,29 @@ def _lab_task_experiment(
     cache: LabCache,
     tasks: LabTasks,
 ) -> dict:
-    """A task view of an `exp:` source. Under the experiment's read lock: the document, the latest
-    snapshot pinned for the task, and the frame the scope is counted on, at that same snapshot, so
-    the answer's `snapshot` is the one a task was requested at. The task is requested and answered
-    outside the lock, and must be: a status of a live task reads the runner, whose lock the job
-    holds while it takes this experiment's write lock (`finalize` compacts). `request` takes the
-    pin over, releasing it whenever the task needs none; without `rerun`, a task that failed or
-    was cancelled stays as it is (Ruling P13). A snapshot whose files are gone is a 409, never a
-    500."""
-    hold = None
-    try:
-        with lab_store.LOCKS.read(experiment_id):
-            document = _experiment(experiments, experiment_id)
-            meta = lab_sources.cached_meta(document, cache)
-            try:
-                columns = lab_sources.COLUMNS_FOR(
-                    request.view, request, meta.parameters, meta.objective
-                )
-            except (KeyError, ValueError) as exc:
-                raise _lab_refused(exc) from exc
-            metric, scope = request.metric or meta.objective, request.filter.scope
-            source = lab_sources.experiment_source(document)
-            key = importance_key(source, metric, scope, request.seed)
-            pinned, hold = lab_sources.pin_experiment(document, experiments)
-            frame, handle = lab_sources.open_experiment(
-                document, experiments, cache, columns, snapshot=pinned
-            )
-    except BaseException as exc:
-        if hold is not None:
-            lab_store.REGISTRY.release(hold)
-        if isinstance(exc, lab_store.SnapshotExpired):
-            raise HTTPException(409, "snapshot expired") from exc
-        raise
-    try:
+    """A task view of an `exp:` source: its frame at the snapshot pinned for its task, which is
+    requested and answered outside the read lock (`_lab_experiment`). `request` takes the pin
+    over, releasing it whenever the task needs none; without `rerun`, a stopped key stays stopped
+    (Ruling P13)."""
+
+    def columns_of(meta) -> tuple[str, ...]:
+        return lab_sources.COLUMNS_FOR(request.view, request, meta.parameters, meta.objective)
+
+    pin = _TaskPin()
+    with _lab_experiment(experiment_id, experiments, cache, columns_of, pin=pin) as (
+        document,
+        meta,
+        frame,
+    ):
+        metric, scope = request.metric or meta.objective, request.filter.scope
+        source = lab_sources.experiment_source(document)
+        key = importance_key(source, metric, scope, request.seed)
         body = lab_sources.experiment_importance(
             document,
             experiments,
             cache,
-            columns,
-            snapshot=pinned,
+            columns_of(meta),
+            snapshot=pin.snapshot,
             metric=metric,
             scope=scope,
             seed=request.seed,
@@ -1567,14 +1583,12 @@ def _lab_task_experiment(
             METHOD,
             STAGES,
             body,
-            snapshot=pinned,
-            hold=hold,
+            snapshot=pin.snapshot,
+            hold=pin.take(),
             keep_stopped=not request.rerun,
         )
         unique = lab_sources.experiment_unique(cache, frame, document)
         return _lab_task_answer(frame, request, tasks, key, task, unique)
-    finally:
-        lab_store.REGISTRY.release(handle)
 
 
 @router.get("/lab/build")

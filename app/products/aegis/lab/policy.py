@@ -99,3 +99,6 @@ TASK_BUDGET_S = 180
 FINE_STAGE_BUDGET_S = 30
 # Decision 6: a Lab task's finished results stay in memory, this many least recently used.
 TASK_RESULTS = 32
+# Ruling P13: the keys a poll must not restart, the oldest forgotten beyond this many. Apart from
+# the results, so no eviction restarts what the user stopped; each holds its delivered stage.
+TASK_STOPPED_KEYS = 32

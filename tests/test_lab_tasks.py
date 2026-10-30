@@ -10,6 +10,7 @@ until a task has finished. `WAIT_S` only bounds a hung test."""
 
 import asyncio
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +21,7 @@ from products.aegis import experiments as exp
 from products.aegis.jobs import JobRunner
 from products.aegis.lab import sources
 from products.aegis.lab import store as lab_store
+from products.aegis.lab import tasks as tasks_module
 from products.aegis.lab.cache import LabCache
 from products.aegis.lab.importance import importance_basis, importance_key
 from products.aegis.lab.store import Snapshot
@@ -792,46 +794,227 @@ def test_a_task_reads_the_snapshot_it_pinned(world, tmp_path, lab):  # noqa: F81
 # --- Phase 3 Task 6: the newest task of a key, and the real importance body -------------------
 
 
-def test_latest_is_the_newest_task_of_a_key(lab):
-    """`latest(key)` (Ruling P13) is the key's newest task in any state, the last one requested:
-    queued, running, cancelled, failed or done; None for a key the executor knows no task of. A
-    waiting task cancelled while an older one of its key runs stays the newest after that one
-    finishes."""
-    assert lab.tasks.latest(KEY) is None
+def test_computing_names_the_task_a_view_shows(lab):
+    """`computing(key)` (Ruling P14) is the task a view's line names: the one running, never the
+    newer one waiting behind it; else the one waiting; else the key's newest, whatever its state;
+    None for a key the executor knows no task of."""
+    assert lab.tasks.computing(KEY) is None
+    first_body = lab.body("first", gates=(2,))
+    first = lab.tasks.request(KEY, "importance", 3, first_body, snapshot=snap(1))
+    assert first_body.recorded[1].wait(WAIT_S)
+    second_body = lab.body("second", gates=(1,))
+    second = lab.tasks.request(KEY, "importance", 3, second_body, snapshot=snap(2))
+    assert second.id != first.id and second.state == "queued"
+    named = lab.tasks.computing(KEY)
+    assert (named.id, named.state, named.result["stage"]) == (first.id, "running", 1)
+    first_body.open()
+    assert lab.tasks.wait(first.id, WAIT_S).state == "done"
+    assert second_body.started.wait(WAIT_S)
+    assert lab.tasks.computing(KEY).id == second.id
+    second_body.open()
+    assert lab.tasks.wait(second.id, WAIT_S).state == "done"
+    newest = lab.tasks.computing(KEY)
+    assert (newest.id, newest.state, newest.result["value"]) == (second.id, "done", 3)
+    assert lab.tasks.computing(seed(2)) is None
     blocker = lab.body("blocker", gates=(1,))
     lab.tasks.request(seed(9), "importance", 3, blocker)
     assert blocker.started.wait(WAIT_S)
-    first = lab.tasks.request(KEY, "importance", 3, lab.body("first"), snapshot=snap(1))
-    assert lab.tasks.latest(KEY).id == first.id and lab.tasks.latest(KEY).state == "queued"
-    assert lab.tasks.cancel(first.id)
-    cancelled = lab.tasks.latest(KEY)
-    assert (cancelled.id, cancelled.state) == (first.id, "cancelled")
-    second = lab.tasks.request(KEY, "importance", 3, lab.body("second"), snapshot=snap(2))
-    assert second.id != first.id and lab.tasks.latest(KEY).id == second.id
-    blocker.open()
-    assert lab.tasks.wait(second.id, WAIT_S).state == "done"
-    newest = lab.tasks.latest(KEY)
-    assert (newest.id, newest.state, newest.result["value"]) == (second.id, "done", 3)
-    assert lab.tasks.latest(seed(2)) is None
+    waiting = lab.tasks.request(seed(3), "importance", 3, lab.body("waiting"))
+    named = lab.tasks.computing(seed(3))
+    assert (named.id, named.state) == (waiting.id, "queued")
+
+
+@pytest.mark.parametrize("called_with", ["running", "waiting"])
+def test_cancel_acts_on_the_key(lab, called_with):
+    """Review fix 1: on a running experiment a key's running task has a newer one waiting, and a
+    view can name only one of them. A cancel with either id stops the key: the waiting one is
+    dropped at once with its pin, the running one stops at its next checkpoint with the stages it
+    delivered, the waiting one's body never runs and polls stay stopped until the user asks again.
+    Another key is untouched."""
+    running_body = lab.body("running", gates=(2,))
+    running = lab.tasks.request(
+        KEY, "importance", 3, running_body, snapshot=snap(1), hold=fake_pin(1)
+    )
+    assert running_body.recorded[1].wait(WAIT_S)
+    waiting_body = lab.body("waiting")
+    waiting = lab.tasks.request(
+        KEY, "importance", 3, waiting_body, snapshot=snap(2), hold=fake_pin(2)
+    )
+    other = lab.tasks.request(seed(2), "importance", 3, lab.body("other"))
+    assert waiting.id != running.id
+    chosen = running if called_with == "running" else waiting
+    assert lab.tasks.cancel(chosen.id) is True
+    assert lab.tasks.status(waiting.id).state == "cancelled"
+    assert lab.tasks.status(other.id).state == "queued"
+    assert lab_store.REGISTRY.held(SOURCE[1]) == {Path("000001.parquet")}  # the waiter's released
+    assert lab.tasks.cancel(chosen.id) is False  # nothing live is left to stop
+    assert lab.tasks.computing(KEY).id == running.id
+    unrun = lab.body("unrun")
+    kept = lab.tasks.request(
+        KEY, "importance", 3, unrun, snapshot=snap(3), hold=fake_pin(3), keep_stopped=True
+    )
+    assert (kept.id, kept.state) == (running.id, "running")
+    assert lab_store.REGISTRY.held(SOURCE[1]) == {Path("000001.parquet")}
+    running_body.open()
+    stopped = lab.tasks.wait(running.id, WAIT_S)
+    assert stopped.state == "cancelled" and stopped.result["stage"] == 1
+    assert not waiting_body.started.is_set() and not unrun.started.is_set()
+    assert lab_store.REGISTRY.held(SOURCE[1]) == set()
+    named = lab.tasks.computing(KEY)  # the one that computed, not the waiter dropped after it
+    assert (named.id, named.state, named.result["stage"]) == (running.id, "cancelled", 1)
+    assert (
+        lab.tasks.request(KEY, "x", 3, unrun, snapshot=snap(3), keep_stopped=True).id == running.id
+    )
+    assert lab.tasks.wait(other.id, WAIT_S).state == "done"
+    again = lab.tasks.request(KEY, "importance", 3, lab.body("again"), snapshot=snap(3))
+    assert again.id not in (running.id, waiting.id)
+    assert lab.tasks.wait(again.id, WAIT_S).state == "done"
+    assert lab.tasks.request(KEY, "x", 3, unrun, snapshot=snap(3), keep_stopped=True).id == again.id
+
+
+def test_a_failure_stops_a_key_only_as_its_newest_task(lab):
+    """A task that fails with a newer one waiting does not stop the key: the newer one runs, and
+    only its own failure stands. A rerun clears the stop, and a task still stopping when the
+    rerun's task is placed cannot put it back."""
 
     def failing(checkpoint):
         raise ValueError("no finite net_pnl")
         yield
 
-    failed = lab.tasks.request(seed(3), "importance", 3, failing)
-    lab.tasks.wait(failed.id, WAIT_S)
-    assert lab.tasks.latest(seed(3)).state == "failed"
-    # A running task and a newer waiting one of its key: the waiting one is cancelled, the
-    # running one then finishes; the cancelled one stays the newest.
-    running_body = lab.body("running", gates=(1,))
-    running = lab.tasks.request(seed(4), "importance", 3, running_body, snapshot=snap(3))
-    assert running_body.started.wait(WAIT_S)
-    waiting = lab.tasks.request(seed(4), "importance", 3, lab.body("waiting"), snapshot=snap(4))
-    assert waiting.id != running.id and lab.tasks.cancel(waiting.id)
-    running_body.open()
-    assert lab.tasks.wait(running.id, WAIT_S).state == "done"
-    assert lab.tasks.latest(seed(4)).id == waiting.id
-    assert lab.tasks.latest(seed(4)).state == "cancelled"
+    gate, started = threading.Event(), threading.Event()
+
+    def held_failing(checkpoint):
+        started.set()
+        assert gate.wait(WAIT_S)
+        raise ValueError("no finite net_pnl")
+        yield
+
+    first = lab.tasks.request(KEY, "importance", 3, held_failing, snapshot=snap(1))
+    assert started.wait(WAIT_S)
+    newer_body = lab.body("newer")
+    newer = lab.tasks.request(KEY, "importance", 3, newer_body, snapshot=snap(2))
+    gate.set()
+    assert lab.tasks.wait(first.id, WAIT_S).state == "failed"
+    assert lab.tasks.wait(newer.id, WAIT_S).state == "done" and newer_body.started.is_set()
+    answered = lab.tasks.request(KEY, "x", 3, lab.body(), snapshot=snap(2), keep_stopped=True)
+    assert answered.id == newer.id  # the failure did not stop the key
+    latest = lab.tasks.request(seed(2), "importance", 3, failing)
+    assert lab.tasks.wait(latest.id, WAIT_S).state == "failed"
+    assert lab.tasks.request(seed(2), "x", 3, lab.body(), keep_stopped=True).id == latest.id
+    # A rerun while the cancelled task still stops: that task's end does not stop the key again.
+    stopping_body = lab.body("stopping", gates=(1,))
+    stopping = lab.tasks.request(seed(3), "importance", 3, stopping_body)
+    assert stopping_body.started.wait(WAIT_S)
+    assert lab.tasks.cancel(stopping.id)
+    rerun_body = lab.body("rerun", gates=(1,))
+    rerun = lab.tasks.request(seed(3), "importance", 3, rerun_body)
+    assert rerun.id != stopping.id
+    stopping_body.open()
+    assert lab.tasks.wait(stopping.id, WAIT_S).state == "cancelled"
+    assert rerun_body.started.wait(WAIT_S)
+    joined = lab.tasks.request(seed(3), "x", 3, lab.body(), keep_stopped=True)
+    assert joined.id == rerun.id and joined.state == "running"
+    rerun_body.open()
+    assert lab.tasks.wait(rerun.id, WAIT_S).state == "done"
+
+
+def test_a_stopped_key_outlasts_eviction():
+    """Review fix 4: P13 is not a cache entry. At `max_results = 2` a key's failure is evicted by
+    three later ones and is still answered, by a poll and by id, its stages readable; only a
+    request that may restart clears it."""
+    lab = Lab(max_results=2)
+    try:
+
+        def failing(checkpoint):
+            yield {"value": 1}
+            raise ValueError("no finite net_pnl")
+
+        first = lab.tasks.request(KEY, "importance", 3, failing)
+        assert lab.tasks.wait(first.id, WAIT_S).state == "failed"
+        for n in (2, 3, 4):
+            assert (
+                lab.tasks.wait(
+                    lab.tasks.request(seed(n), "importance", 3, failing).id, WAIT_S
+                ).state
+                == "failed"
+            )
+        assert first.id not in lab.tasks._ended
+        unrun = lab.body("unrun")
+        kept = lab.tasks.request(KEY, "x", 3, unrun, keep_stopped=True)
+        assert (kept.id, kept.state, kept.result["value"]) == (first.id, "failed", 1)
+        assert "no finite net_pnl" in kept.error
+        assert lab.tasks.status(first.id).state == "failed"
+        assert lab.tasks.computing(KEY).id == first.id
+        again = lab.tasks.request(KEY, "importance", 3, lab.body("again"))
+        assert again.id != first.id and lab.tasks.wait(again.id, WAIT_S).state == "done"
+        assert lab.tasks.request(KEY, "x", 3, unrun, keep_stopped=True).id == again.id
+        assert not unrun.started.is_set()
+    finally:
+        lab.close()
+
+
+def test_stopped_keys_are_bounded(monkeypatch):
+    """The stopped keys are bounded by a named constant, the oldest forgotten: a poll of that key
+    requests again, while a newer one still stands."""
+    assert tasks_module.TASK_STOPPED_KEYS == 32
+    monkeypatch.setattr(tasks_module, "TASK_STOPPED_KEYS", 2)
+    lab = Lab()
+    try:
+
+        def failing(checkpoint):
+            raise ValueError("no finite net_pnl")
+            yield
+
+        ended = {
+            n: lab.tasks.wait(lab.tasks.request(seed(n), "x", 3, failing).id, WAIT_S)
+            for n in (1, 2, 3)
+        }
+        assert len(lab.tasks._stops) == 2
+        assert lab.tasks.request(seed(3), "x", 3, lab.body(), keep_stopped=True).id == ended[3].id
+        restarted = lab.tasks.request(seed(1), "x", 3, lab.body(), keep_stopped=True)
+        assert restarted.id != ended[1].id
+        assert lab.tasks.wait(restarted.id, WAIT_S).state == "done"
+    finally:
+        lab.close()
+
+
+def test_a_generation_bump_is_the_same_evidence(lab):
+    """Review fix 11: snapshots of one chunk watermark hold the same rows (compaction merges
+    them, `test_compaction_keeps_the_canonical_rows_at_its_watermark`), so for the cache, for
+    coalescing and for the label they are one snapshot: a newer generation joins the running or
+    waiting task, answers from a finished one and reads no label."""
+    body = lab.body("running", gates=(1,))
+    running = lab.tasks.request(
+        KEY, "importance", 3, body, snapshot=Snapshot(0, 5), hold=fake_pin(5)
+    )
+    assert body.started.wait(WAIT_S)
+    unrun = lab.body("unrun")
+    joined = lab.tasks.request(
+        KEY, "importance", 3, unrun, snapshot=Snapshot(1, 5), hold=fake_pin(7)
+    )
+    assert joined.id == running.id
+    assert lab_store.REGISTRY.held(SOURCE[1]) == {Path("000005.parquet")}
+    waiting_body = lab.body("waiting")
+    waiting = lab.tasks.request(
+        KEY, "importance", 3, waiting_body, snapshot=Snapshot(1, 6), hold=fake_pin(6)
+    )
+    assert waiting.id != running.id
+    kept = lab.tasks.request(KEY, "importance", 3, unrun, snapshot=Snapshot(2, 6), hold=fake_pin(8))
+    assert kept.id == waiting.id  # neither its body nor its pin replaced
+    assert lab_store.REGISTRY.held(SOURCE[1]) == {Path("000005.parquet"), Path("000006.parquet")}
+    body.open()
+    done = lab.tasks.wait(running.id, WAIT_S)
+    newest = lab.tasks.wait(waiting.id, WAIT_S)
+    assert done.state == newest.state == "done" and waiting_body.started.is_set()
+    assert not unrun.started.is_set()
+    assert lab.tasks.request(KEY, "x", 3, unrun, snapshot=Snapshot(9, 5)).id == running.id
+    assert lab.tasks.result(KEY, Snapshot(9, 5)) == done.result
+    assert lab.tasks.result(KEY, Snapshot(9, 6)) == newest.result
+    assert lab.tasks.result(KEY, Snapshot(9, 7)) is None
+    assert done.result["snapshot"] == {"generation": 0, "chunk_watermark": 5}
+    assert snapshot_label(done.result, Snapshot(9, 5)) is None
+    assert snapshot_label(done.result, Snapshot(1, 6)) == "snapshot g0 c5 · current g1 c6"
+    assert lab_store.REGISTRY.held(SOURCE[1]) == set()
 
 
 def test_importance_task_never_starts_a_pool(world, tmp_path, lab, monkeypatch):  # noqa: F811
@@ -873,10 +1056,10 @@ def test_importance_task_never_starts_a_pool(world, tmp_path, lab, monkeypatch):
 
 
 def test_keep_stopped_answers_a_failed_or_cancelled_task(lab):
-    """Ruling P13 at the one lock that places a task: `keep_stopped` answers the key's newest task
-    when it failed, was cancelled or is being cancelled, whatever the snapshot, its body never
-    run and the request's pin released; without it the same request restarts. A key whose newest
-    task is live or done requests as ever."""
+    """Ruling P13 at the one lock that places a task: `keep_stopped` answers the key's stopped
+    task (it failed, was cancelled, is being cancelled, or finished with a cancel it met after its
+    last stage), whatever the snapshot, its body never run and the request's pin released; without
+    it the same request restarts. A key whose newest task is live or done requests as ever."""
     blocker = lab.body("blocker", gates=(1,))
     lab.tasks.request(seed(9), "importance", 3, blocker)
     assert blocker.started.wait(WAIT_S)
@@ -888,7 +1071,7 @@ def test_keep_stopped_answers_a_failed_or_cancelled_task(lab):
     )
     assert (kept.id, kept.state) == (first.id, "cancelled")
     assert lab_store.REGISTRY.held(SOURCE[1]) == set()
-    assert lab.tasks.latest(KEY).id == first.id  # nothing was placed
+    assert lab.tasks.computing(KEY).id == first.id  # nothing was placed
     restarted = lab.tasks.request(KEY, "importance", 3, lab.body("again"), snapshot=snap(2))
     assert restarted.id != first.id and restarted.state == "queued"
     live = lab.tasks.request(KEY, "x", 3, lab.body(), snapshot=snap(2), keep_stopped=True)
@@ -916,8 +1099,8 @@ def test_keep_stopped_answers_a_failed_or_cancelled_task(lab):
     assert (pending.id, pending.state) == (stopping.id, "running")
     stopping_body.open()
     assert lab.tasks.wait(stopping.id, WAIT_S).state == "cancelled"
-    # A cancel after the last stage changes nothing: the task is `done`, not stopped, so a newer
-    # snapshot requests as ever.
+    # Review fix 5: a cancel after the last stage leaves a complete `done` result, but the user
+    # asked to stop: the next chunk's poll starts nothing, and only a rerun requests again.
     finished, proceed = threading.Event(), threading.Event()
 
     def thorough(checkpoint):
@@ -931,9 +1114,13 @@ def test_keep_stopped_answers_a_failed_or_cancelled_task(lab):
     assert lab.tasks.cancel(late.id)
     proceed.set()
     assert lab.tasks.wait(late.id, WAIT_S).state == "done"
-    next_one = lab.tasks.request(
-        seed(5), "x", 1, lab.body(stages=1), snapshot=snap(2), keep_stopped=True
+    kept_late = lab.tasks.request(
+        seed(5), "x", 1, unrun, snapshot=snap(2), hold=fake_pin(2), keep_stopped=True
     )
+    assert (kept_late.id, kept_late.state) == (late.id, "done")
+    assert lab_store.REGISTRY.held(SOURCE[1]) == set()
+    assert lab.tasks.result(seed(5))["value"] == 1  # its result stays readable
+    next_one = lab.tasks.request(seed(5), "x", 1, lab.body(stages=1), snapshot=snap(2))
     assert next_one.id != late.id
     assert lab.tasks.wait(next_one.id, WAIT_S).state == "done"
     assert unrun.started.is_set() is False
@@ -1031,3 +1218,66 @@ def test_importance_before_the_first_chunk_finishes_on_no_rows(world, tmp_path, 
     assert done.result["availability"]["reason"] == "no uniform rows of the current space"
     assert importance_basis(done.result).startswith("computed on 0 uniform trials of ")
     assert lab_store.REGISTRY.held(EXPERIMENT) == set()
+
+
+def test_a_compaction_with_no_new_chunk_recomputes_nothing(world, tmp_path, lab):  # noqa: F811
+    """Review fix 11 on a real store: a compaction with no new chunk bumps the generation alone.
+    The poll that follows joins the finished task, reads no label, and the stages computed at the
+    new generation are the old ones, whose rows they are."""
+    store, document, cells_dir = _experiment(
+        world, tmp_path, [rows_of(range(6)), rows_of(range(6, 12))]
+    )
+    cache = LabCache()
+    first = _importance_of(document, store, lab, cache=cache)
+    assert first.state == "done", first.error
+    assert first.result["snapshot"] == {"generation": 0, "chunk_watermark": 1}
+    manifest = lab_store.compact(cells_dir, now=NOW)
+    assert manifest.generation == 1
+    meta = sources.experiment_meta(document)
+    request = api.QueryRequest.model_validate({"filter": {}, "view": "importance"})
+    columns = sources.COLUMNS_FOR("importance", request, meta.parameters, meta.objective)
+    pinned, hold = sources.pin_experiment(document, store)
+    assert pinned == Snapshot(1, 1)
+    unrun = lab.body("unrun")
+    key = importance_key(sources.experiment_source(document), "net_pnl", "combined", 1)
+    again = lab.tasks.request(key, "importance", 3, unrun, snapshot=pinned, hold=hold)
+    assert again.id == first.id and again.state == "done"
+    assert snapshot_label(first.result, pinned) is None
+    assert lab_store.REGISTRY.held(EXPERIMENT) == set()
+    frame, handle = sources.open_experiment(document, store, cache, columns, snapshot=pinned)
+    lab_store.REGISTRY.release(handle)
+    assert frame.snapshot == pinned
+    *_, last = sources.importance_stages(
+        frame,
+        metric="net_pnl",
+        scope="combined",
+        seed=1,
+        checkpoint=lambda: None,
+        scheduled=sources.scheduled_uniform(document),
+    )
+    moved = ("snapshot", "elapsed_s")
+    assert {k: v for k, v in last.items() if k not in moved} == {
+        k: v for k, v in first.result.items() if k not in moved
+    }
+
+
+def test_the_clock_starts_before_the_frame_opens(world, tmp_path, lab, monkeypatch):  # noqa: F811
+    """Review fix 6: `elapsed_s` counts from the body's start, the frame's load included, so stage
+    3's figure is the whole task's (Task 12 reads it)."""
+    store, document, _ = _experiment(world, tmp_path, [rows_of(range(12))])
+    opened, started = [], []
+    real_open, real_stages = sources.open_experiment, sources.importance_stages
+
+    def opening(*args, **kwargs):
+        opened.append(time.perf_counter())
+        return real_open(*args, **kwargs)
+
+    def stages(frame, **kwargs):
+        started.append(kwargs["started"])
+        yield from real_stages(frame, **kwargs)
+
+    monkeypatch.setattr(sources, "open_experiment", opening)
+    monkeypatch.setattr(sources, "importance_stages", stages)
+    done = _importance_of(document, store, lab)
+    assert done.state == "done", done.error
+    assert len(opened) == len(started) == 1 and started[0] <= opened[0]

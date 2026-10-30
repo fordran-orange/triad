@@ -20,6 +20,7 @@ from products.aegis.indicators import IndicatorCache
 from products.aegis.lab import identity, sources
 from products.aegis.lab import store as lab_store_module
 from products.aegis.lab.cache import LabCache
+from products.aegis.lab.importance import importance_key
 from products.aegis.lab.tasks import LabTasks, task_key
 from products.aegis.pool import METRICS, SCOPES
 from products.aegis.results import strategy_hash
@@ -1094,7 +1095,8 @@ def test_importance_beside_a_running_experiment(client, monkeypatch):
     """While the experiment runs, the basis line names the attempted configurations beside the
     scheduled N. Once the source moves on, a poll queues the new snapshot's task and shows the
     newest finished result labelled `snapshot X · current Y`; cancelling that task keeps the
-    result and the label, and no poll restarts it."""
+    result and the label, and no poll restarts it. Ruling P14: when a rerun's task has delivered
+    its first stage, the view still answers the done result, and its line names that task."""
     monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
     monkeypatch.setattr(experiments_module, "CHUNK_CELLS", 2)
     c, _, repository = client
@@ -1156,7 +1158,26 @@ def test_importance_beside_a_running_experiment(client, monkeypatch):
         assert again["task"]["id"] == moved["task"]["id"]
         assert again["task"]["state"] == "cancelled"
         assert again["importance"] == computed and again["snapshot_label"] == label
+    delivered, proceed = threading.Event(), threading.Event()
+    real = sources.importance_stages
+
+    def held(frame, **kwargs):
+        stages = real(frame, **kwargs)
+        yield next(stages)
+        delivered.set()
+        assert proceed.wait(WAIT_S)
+        yield from stages
+
+    monkeypatch.setattr(sources, "importance_stages", held)
     whole = _view(c, src, rerun=True)
+    try:
+        assert delivered.wait(WAIT_S)
+        computing = _view(c, src)
+        assert computing["task"]["id"] == whole["task"]["id"]
+        assert computing["task"]["state"] == "running" and computing["task"]["stage"] == 1
+        assert computing["importance"] == computed and computing["snapshot_label"] == label
+    finally:
+        proceed.set()
     assert tasks.wait(whole["task"]["id"], WAIT_S).state == "done"
     current = _view(c, src)
     assert current["importance"]["n"] == current["importance"]["N"] == 4
@@ -1317,3 +1338,163 @@ def test_a_failed_importance_on_an_optimization_is_not_restarted(client, monkeyp
     assert rerun["task"]["id"] != first["task"]["id"]
     assert tasks.wait(rerun["task"]["id"], WAIT_S).state == "done"
     assert _view(c, src, **long)["importance"]["stage"] == 3
+
+
+def _held_experiment(c, gate_of: threading.Event, repository, name: str = "held") -> str:
+    """An experiment of two chunks of two, its job held after the first: the job's next chunk
+    arrives once the test sets `gate_of`."""
+    _runner(repository, after_unit=lambda done: gate_of.wait(WAIT_S))
+    created = c.post("/aegis/api/experiments", json=_experiment_body(c, name=name))
+    assert created.status_code == 202, created.text
+    experiment_id = created.json()["experiment_id"]
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        held = c.get(f"/aegis/api/experiments/{experiment_id}").json()
+        if held["status"] == "running" and held["progress"]["cells_done"] == 2:
+            return experiment_id
+        time.sleep(0.05)
+    raise AssertionError("the experiment never reached its held unit")
+
+
+def test_cancel_stops_the_key_of_a_running_experiment(client, monkeypatch):
+    """Review fixes 1 and 2, the normal state of a running experiment. T1 is held after stage 1
+    and a new chunk arrives, so a poll queues T2. Ruling P14: no done result yet, so the view shows
+    T1's stage 1 (labelled, its snapshot being older), and its line names T1. A cancel through the
+    route stops the key: T1 stops, T2 never runs, its delivered stage stays readable, and polls
+    stay stopped until `rerun`."""
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    monkeypatch.setattr(experiments_module, "CHUNK_CELLS", 2)
+    c, _, repository = client
+    tasks = _tasks()
+    gate, delivered, proceed = threading.Event(), threading.Event(), threading.Event()
+    computed = []
+    real = sources.importance_stages
+
+    def held(frame, **kwargs):
+        computed.append(frame.snapshot)
+        stages = real(frame, **kwargs)
+        yield next(stages)
+        delivered.set()
+        assert proceed.wait(WAIT_S)
+        yield from stages
+
+    monkeypatch.setattr(sources, "importance_stages", held)
+    placed = []
+    original = tasks.request
+
+    def recording(*args, **kwargs):
+        placed.append(original(*args, **kwargs))
+        return placed[-1]
+
+    monkeypatch.setattr(tasks, "request", recording)
+    try:
+        experiment_id = _held_experiment(c, gate, repository)
+        src = f"exp:{experiment_id}"
+        first = _view(c, src)
+        assert delivered.wait(WAIT_S)
+    finally:
+        gate.set()
+    try:
+        finished = _wait_experiment(c, experiment_id, ("done", "failed"))
+        assert finished["status"] == "done", finished.get("error")
+        moved = _view(c, src)
+        waiter = placed[-1]
+        assert waiter.id != first["task"]["id"]
+        assert tasks.status(waiter.id).state == "queued"
+        assert moved["task"]["id"] == first["task"]["id"]  # the computing task, not the waiter
+        assert moved["task"]["state"] == "running" and moved["task"]["stage"] == 1
+        stage = moved["importance"]
+        assert stage["stage"] == 1 and stage["partial"] is True
+        was, now = stage["snapshot"], moved["snapshot"]
+        assert was == {"generation": 0, "chunk_watermark": 0} and now["chunk_watermark"] == 1
+        label = f"snapshot g0 c0 · current g{now['generation']} c{now['chunk_watermark']}"
+        assert moved["snapshot_label"] == label
+        cancel = c.post(f"{LAB}/{src}/tasks/{moved['task']['id']}/cancel")
+        assert cancel.json() == {"cancelled": True}
+        assert tasks.status(waiter.id).state == "cancelled"  # dropped at once
+    finally:
+        proceed.set()
+    assert tasks.wait(first["task"]["id"], WAIT_S).state == "cancelled"
+    assert len(computed) == 1  # T2's body never ran
+    for _ in range(2):
+        stopped = _view(c, src)
+        assert stopped["task"]["id"] == first["task"]["id"]
+        assert stopped["task"]["state"] == "cancelled"
+        assert stopped["importance"]["stage"] == 1 and stopped["snapshot_label"] == label
+    assert len(computed) == 1 and lab_store_module.REGISTRY.held(experiment_id) == set()
+    rerun = _view(c, src, rerun=True)
+    assert rerun["task"]["id"] not in (first["task"]["id"], waiter.id)
+    assert tasks.wait(rerun["task"]["id"], WAIT_S).state == "done"
+    whole = _view(c, src)
+    assert whole["importance"]["stage"] == 3 and whole["snapshot_label"] is None
+    assert whole["importance"]["n"] == 4
+
+
+def test_a_compaction_with_no_new_chunk_moves_nothing(client, monkeypatch):
+    """Review fix 11: a generation bump alone requests no new task, leaves the answer's stage and
+    reads no `snapshot X · current Y`; the envelope's own `snapshot` is the current one."""
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    monkeypatch.setattr(experiments_module, "CHUNK_CELLS", 2)
+    c, _, repository = client
+    gate = threading.Event()
+    try:
+        experiment_id = _held_experiment(c, gate, repository)
+        src = f"exp:{experiment_id}"
+        before = _done(c, src)
+        assert before["snapshot"] == {"generation": 0, "chunk_watermark": 0}
+        store = experiments_module.ExperimentStore(repository)
+        manifest = lab_store_module.compact(store.cells_dir(experiment_id), now=time.time())
+        assert manifest.generation == 1
+        after = _view(c, src)
+        assert after["snapshot"] == {"generation": 1, "chunk_watermark": 0}
+        assert after["task"] == before["task"] and after["importance"] == before["importance"]
+        assert after["snapshot_label"] is None
+    finally:
+        gate.set()
+    finished = _wait_experiment(c, experiment_id, ("done", "failed"))
+    assert finished["status"] == "done", finished.get("error")
+
+
+@pytest.mark.parametrize("at", ["pin", "read"])
+def test_a_task_view_answers_409_for_an_expired_snapshot(client, monkeypatch, at):
+    """A snapshot whose files are gone is a 409, whichever read finds it; the pin taken before it
+    is released and no task is requested."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    tasks = _tasks()
+    requested = []
+    original = tasks.request
+
+    def recording(key, *args, **kwargs):
+        requested.append(key)
+        return original(key, *args, **kwargs)
+
+    monkeypatch.setattr(tasks, "request", recording)
+
+    def raiser(*args, **kwargs):
+        raise lab_store_module.SnapshotExpired("part-1.parquet of generation 1 is gone")
+
+    if at == "pin":
+        monkeypatch.setattr(sources, "pin_experiment", raiser)
+    else:  # before any Lab request: a cached table would answer without a read
+        monkeypatch.setattr(lab_store_module, "read_trials", raiser)
+    for view in ("importance", "interactions", "triples"):
+        response = c.post(f"{LAB}/exp:{experiment_id}/query", json={"filter": {}, "view": view})
+        assert response.status_code == 409, response.text
+        assert response.json() == {"detail": "snapshot expired"}
+        assert lab_store_module.REGISTRY.held(experiment_id) == set()
+    assert requested == []
+
+
+def test_a_malformed_stage_is_a_bug_not_a_refusal(client, monkeypatch):
+    """A 422 is a request's refusal. A stored stage the view cannot read is the server's bug, and
+    answers as one."""
+    c, _, repository = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    document = experiments_module.ExperimentStore(repository).get(experiment_id)
+    key = importance_key(sources.experiment_source(document), "net_pnl", "combined", 1)
+    tasks = _tasks()
+    task = tasks.request(key, "importance", 3, lambda checkpoint: iter([{}] * 3))
+    assert tasks.wait(task.id, WAIT_S).state == "done"
+    response = c.post(f"{LAB}/exp:{experiment_id}/query", json={"filter": {}, "view": "importance"})
+    assert response.status_code == 500, response.text

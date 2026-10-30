@@ -27,13 +27,14 @@ import time
 from collections.abc import Iterator
 
 from products.aegis.lab.analytics import Checkpoint, cohort
-from products.aegis.lab.policy import (
-    INTERACTIONS_MAX_PAIRS,
-    PAIR_BALANCE_TVD,
-    PAIR_MIN_COVERAGE,
-)
+from products.aegis.lab.policy import INTERACTIONS_MAX_PAIRS
 from products.aegis.lab.query import TrialFrame
-from products.aegis.lab.rule import ImportanceResult, assess_stages
+from products.aegis.lab.rule import (
+    ImportanceResult,
+    assess_stages,
+    pair_unbalanced,
+    pair_unresolved,
+)
 from products.aegis.lab.tasks import task_key
 
 METHOD = "importance"  # a task's method in its key, and its label
@@ -130,15 +131,18 @@ def importance_stages(
     seed: int,
     checkpoint: Checkpoint,
     scheduled: int | None = None,
+    started: float | None = None,
 ) -> Iterator[dict]:
     """The three stages of importance on `frame`, each a plain-JSON dict as it finishes (module
     docstring). `checkpoint` runs between resamples and between stages, where a cancelled task
-    stops. `elapsed_s` is the seconds since this body began, the cohort included: stage 1's is the
-    fine stage's time, stage 3's the whole task's (the budgets `lab_benchmark.py analytics`
-    measures). `scheduled` is N: an experiment's body passes its document's first pass, which
-    its frame's `scheduled` (refinement included) is not; the default is the frame's, which is
-    right for an optimization's grid and for a frame of uniform rows alone."""
-    started = time.perf_counter()
+    stops. `elapsed_s` is the seconds since `started` (a `time.perf_counter()` the task's body took
+    before it opened its frame; without one, now), so stage 1's is the time to the fine stage's
+    result and stage 3's the whole task's (the budgets `lab_benchmark.py analytics` measures).
+    `scheduled` is N: an experiment's body passes its document's first pass, which its frame's
+    `scheduled` (refinement included) is not; the default is the frame's, which is right for an
+    optimization's grid and for a frame of uniform rows alone."""
+    if started is None:
+        started = time.perf_counter()
     found = cohort(frame, metric=metric, scope=scope, seed=seed)
     checkpoint()
     total = frame.scheduled if scheduled is None else scheduled
@@ -197,12 +201,6 @@ def _increment(fine: dict, a: int, b: int) -> dict:
     }
 
 
-def _difference(whole: float | None, *parts: float | None) -> float | None:
-    if whole is None or None in parts:
-        return None
-    return whole - sum(parts)
-
-
 def _largest(*values: float | None) -> float:
     """The largest of `values` that is defined, for a sort; `-inf` when none is."""
     return max((value for value in values if value is not None), default=-math.inf)
@@ -210,16 +208,23 @@ def _largest(*values: float | None) -> float:
 
 def interactions_payload(result: dict | None) -> dict:
     """Every pair on the fine grid (§7.4): `J`, `Δ_{i|j}` (`D_ij`), `Δ_{j|i}` (`D_ji`), `I`
-    (no interval: no rule reads it), coverage, balance and `unresolved` (coverage under
-    PAIR_MIN_COVERAGE). Resolved pairs first, by their larger increment, the one the rules read;
-    the unresolved last, by `max(S_i upper, S_j upper)` descending, then lowest coverage. At most
-    INTERACTIONS_MAX_PAIRS are sent, in that order, `total_pairs` counting them all: a surface
-    holds at most MAX_PARAMETERS = 10 parameters, so only an optimization grid with single-value
-    axes can reach it (a single value multiplies its cells by one)."""
+    (no interval: it is display only, no rule reads it), coverage, balance and `unresolved`
+    (coverage under PAIR_MIN_COVERAGE). Resolved pairs first, by their larger increment, the one
+    the rules read; the unresolved last, by `max(S_i upper, S_j upper)` descending, then lowest
+    coverage. At most INTERACTIONS_MAX_PAIRS are sent, in that order: `bounded` says the list was
+    cut and `total_pairs` counts them all. A surface holds at most MAX_PARAMETERS = 10 parameters,
+    so only an optimization grid with single-value axes can reach it (a single value multiplies
+    its cells by one)."""
     if result is None:
-        return {"pairs": [], "total_pairs": 0, "unresolved_pairs": 0, "constants": None}
+        return {
+            "pairs": [],
+            "total_pairs": 0,
+            "unresolved_pairs": 0,
+            "bounded": False,
+            "constants": None,
+        }
     paths, fine = result["paths"], result["fine"]
-    S, upper = fine["S"], fine["hi"]["S"]
+    upper = fine["hi"]["S"]
     resolved, unresolved = [], []
     for i, j in itertools.combinations(range(len(paths)), 2):
         coverage, balance = result["pair_coverage"][i][j], result["pair_balance"][i][j]
@@ -233,21 +238,23 @@ def interactions_payload(result: dict | None) -> dict:
             },
             "D_ij": _increment(fine, i, j),
             "D_ji": _increment(fine, j, i),
-            "I": _difference(fine["J"][i][j], S[i], S[j]),
+            "I": fine["I"][i][j],
             "coverage": coverage,
             "balance": balance,
-            "unbalanced": balance is not None and balance > PAIR_BALANCE_TVD,
-            "unresolved": coverage < PAIR_MIN_COVERAGE,
+            "unbalanced": balance is not None and pair_unbalanced(balance),
+            "unresolved": pair_unresolved(coverage),
         }
         (unresolved if pair["unresolved"] else resolved).append(pair)
     resolved.sort(key=lambda p: -_largest(p["D_ij"]["value"], p["D_ji"]["value"]))
     unresolved.sort(
         key=lambda p: (-_largest(upper[p["index"][0]], upper[p["index"][1]]), p["coverage"])
     )
+    total = len(resolved) + len(unresolved)
     return {
         "pairs": (resolved + unresolved)[:INTERACTIONS_MAX_PAIRS],
-        "total_pairs": len(resolved) + len(unresolved),
+        "total_pairs": total,
         "unresolved_pairs": len(unresolved),
+        "bounded": total > INTERACTIONS_MAX_PAIRS,
         "constants": result["constants"],
     }
 

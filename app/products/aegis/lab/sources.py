@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal
@@ -529,9 +530,11 @@ def experiment_importance(
     experiment has only block 0, so it shares the route's block-0 table), computed with no lock
     held (`open_experiment` has released its read lock by then) and its handle released in a
     `finally`, whatever ends the task. The pin itself is the executor's (`LabTasks.request`'s
-    `hold`). Building the body reads nothing, so it cannot refuse between pin and request."""
+    `hold`). Building the body reads nothing, so it cannot refuse between pin and request. Its
+    clock starts before the frame opens, so stage 3's `elapsed_s` is the whole task's."""
 
     def body(checkpoint) -> Iterator[dict]:
+        started = time.perf_counter()
         frame, handle = open_experiment(
             document,
             store,
@@ -548,6 +551,7 @@ def experiment_importance(
                 seed=seed,
                 checkpoint=checkpoint,
                 scheduled=scheduled_uniform(document),
+                started=started,
             )
         finally:
             REGISTRY.release(handle)

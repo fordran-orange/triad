@@ -67,6 +67,7 @@ from products.aegis.lab.policy import (
     IMPORTANCE_MIN_N_FACTOR,
     IMPORTANCE_MIN_PER_VALUE,
     IMPORTANCE_ROWS,
+    INTERACTIONS_MAX_PAIRS,
     INTERVAL,
     PAIR_BALANCE_TVD,
     PAIR_MIN_COVERAGE,
@@ -77,7 +78,7 @@ from products.aegis.lab.policy import (
     THETA_MIN,
     TRIPLE_TOP,
 )
-from products.aegis.lab.shares import fine_parts
+from products.aegis.lab.shares import fine_parts, interaction
 
 # --- availability and the veto (§7.3, §7.4; decisions 15 and 16) --------------------------------
 
@@ -192,6 +193,7 @@ CONSTANTS = MappingProxyType(
         "IMPORTANCE_MIN_PER_VALUE": IMPORTANCE_MIN_PER_VALUE,
         "IMPORTANCE_ROWS": IMPORTANCE_ROWS,
         "TRIPLE_TOP": TRIPLE_TOP,
+        "INTERACTIONS_MAX_PAIRS": INTERACTIONS_MAX_PAIRS,
     }
 )
 
@@ -259,6 +261,7 @@ class ImportanceResult:
         d = len(self.paths)
         fine = self.fine
         names = ("S", "J", "D")
+        S, J, _ = fine_parts(fine.terms)
         floor_S, _, floor_D = fine_parts(fine.floors.family)
         tick_S, _, tick_D = fine_parts(fine.floors.share)
         coarse_json = None
@@ -306,6 +309,7 @@ class ImportanceResult:
                 "aliased": self.aliased_pairs,
                 "fine": {
                     **dict(zip(names, fine_parts(fine.terms), strict=True)),
+                    "I": interaction(S, J),  # display only: no rule reads it, so no interval
                     "lo": dict(zip(names, fine_parts(fine.lo), strict=True)),
                     "hi": dict(zip(names, fine_parts(fine.hi), strict=True)),
                     "floor": {"S": floor_S, "D": floor_D},
@@ -540,6 +544,16 @@ def _condition1(ev: _Evidence, i: int, point: bool) -> str | None:
     return None
 
 
+def pair_unresolved(coverage: float) -> bool:
+    """§7.4: a pair covering under PAIR_MIN_COVERAGE of its value grid is unresolved."""
+    return not coverage >= PAIR_MIN_COVERAGE
+
+
+def pair_unbalanced(balance: float) -> bool:
+    """§7.4: a pair's cells this far (TVD) from uniform are flagged."""
+    return balance > PAIR_BALANCE_TVD
+
+
 def _condition2(ev: _Evidence, i: int, point: bool) -> str | None:
     """§7.4a condition 2: for every other j, the pair measured (coverage, balance) and both the
     fine and the coarse Δ_{i|j} below θ_min."""
@@ -548,10 +562,10 @@ def _condition2(ev: _Evidence, i: int, point: bool) -> str | None:
         if j == i:
             continue
         other = r.paths[j]
-        if not r.coverage[i, j] >= PAIR_MIN_COVERAGE:
+        if pair_unresolved(r.coverage[i, j]):
             covered = r.coverage[i, j]
             return f"pair with {other} unresolved: coverage {covered:.2f} < {PAIR_MIN_COVERAGE:g}"
-        if r.balance[i, j] > PAIR_BALANCE_TVD:
+        if pair_unbalanced(r.balance[i, j]):
             tvd = r.balance[i, j]
             return f"pair with {other} unbalanced: TVD {tvd:.2f} > {PAIR_BALANCE_TVD:g}"
         checks = (
@@ -830,6 +844,8 @@ __all__ = [
     "evidence_scope",
     "importance_result",
     "missingness_note",
+    "pair_unbalanced",
+    "pair_unresolved",
     "statuses",
     "veto",
 ]
