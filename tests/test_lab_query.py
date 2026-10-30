@@ -1491,8 +1491,8 @@ def test_pos_codes_equal_positions(monkeypatch):
 
 def test_index_size_counts_each_array():
     """The cache sizes an index by its own arrays: the mask, each parameter's codes at their own
-    width (uint32 for a lattice over 65,535 values) and ORDERS_KEPT int32 orders, the codes not
-    held yet at the width they will take."""
+    width (uint32 for a lattice over 65,535 values), ORDERS_KEPT int32 orders and the position
+    table, the codes not held yet at the width they will take."""
     from products.aegis.lab import index as lab_index
 
     wide, narrow = "long_side.indicators.wide.length", "short_side.indicators.narrow.length"
@@ -1503,7 +1503,7 @@ def test_index_size_counts_each_array():
     frame = frame_of(rows, (wide, narrow), values={wide: [float(v) for v in range(70_000)]})
     index = build_index(frame)
     assert index.codes[wide].dtype == np.uint32 and index.codes[narrow].dtype == np.uint16
-    orders = 4 * 300 * lab_index.ORDERS_KEPT
+    orders = (4 * lab_index.ORDERS_KEPT + lab_index.POSITION_ROW_BYTES) * 300
     held = index.completed.nbytes + index.codes[wide].nbytes + index.codes[narrow].nbytes
     assert index.nbytes(frame.parameters) == held + orders == 300 + 1_200 + 600 + orders
     partial = build_index(replace(frame, table=frame.table.drop_columns([wide])))

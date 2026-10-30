@@ -82,6 +82,11 @@ FOLD_RATIO_BAND = (0.5, 2.0)
 FOLD_DRAWDOWN_FACTOR = 1.5
 STRESS_KEEP = 0.70
 STRESS_DRAWDOWN_FACTOR = 1.3
+# The rankings' bounded compute: `robust` orders the top k by `peak`, the k of §10's stage 2 (a
+# neighbourhood per candidate, never one per trial). An `opt:` source has no tolerance of its own,
+# so it reads the experiments' default, labelled.
+RANKING_K = 20
+DEFAULT_TOLERANCE = 0.15
 
 # §7.7 Pareto: ≤ 2,000 front points and one 64 × 64 density grid. §7.9 exact parallel mode:
 # ≤ 5,000 lines stratified by metric decile. §7.10 convergence: the robust median per batch of

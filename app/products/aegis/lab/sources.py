@@ -16,7 +16,9 @@ its source's identity, so a stat change answers from it and one source never mee
 
 The importance task's three views (`TASK_VIEWS`, Phase 3 Task 6) answer from a Lab task instead of
 computing in the request: `experiment_importance` and `optimization_importance` are the task's
-body, and `task_query` builds their answers from the stage the route chose.
+body, and `task_query` builds their answers from the stage the route chose. The `robustness` view
+(Phase 3 Task 7) reads a finished stage and never requests a task: `robustness_query` answers it,
+over the importance axes the route read and a card's block rows (`trial_blocks`).
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ from products.aegis.experiments import (
     ExperimentStore,
     _cells_schema_v2,
     block0_rows,
+    block_bounds,
 )
 from products.aegis.lab import identity
 from products.aegis.lab.cache import LabCache
@@ -51,6 +54,7 @@ from products.aegis.lab.importance import (
     triples_payload,
 )
 from products.aegis.lab.index import FrameIndex, build_index
+from products.aegis.lab.neighbours import neighbourhood
 from products.aegis.lab.policy import SHARPE_MIN_TRADES
 from products.aegis.lab.query import (
     ALL_BLOCKS,
@@ -76,6 +80,14 @@ from products.aegis.lab.query import (
     tested_per_value,
     top_view,
     undefined_mask,
+)
+from products.aegis.lab.robustness import (
+    EVERY_TRIAL,
+    BlockEvidence,
+    FoldEvidence,
+    candidate_card,
+    constants,
+    rankings,
 )
 from products.aegis.lab.store import (
     _KEPT,
@@ -110,15 +122,20 @@ VIEWS = (
     "importance",
     "interactions",
     "triples",
+    "neighbourhood",
+    "robustness",
 )
-INDEXED_VIEWS = ("counts", "matrix", "page", "marginals")  # the views that read the index
+INDEXED_VIEWS = ("counts", "matrix", "page", "marginals", "neighbourhood")  # they read the index
 TASK_VIEWS = ("importance", "interactions", "triples")  # answered from the importance task
 # A page row's `values` beside the objective (the page's metric columns, §9.3).
 PAGE_VALUES = ("net_pnl", "max_drawdown", "trade_count", "exposure", "sharpe_trade")
 _REQUIRED = {
     "matrix": ("rows", "cols", "metric"),
     "square_trials": ("rows", "cols", "row_value", "col_value"),
+    "neighbourhood": ("trial",),
 }
+# The two robustness views' basis: what is exact, and which rows their evidence reads.
+ROBUSTNESS_BASIS = f"{BASIS_EXACT}; {EVERY_TRIAL}"
 OPT_FINAL = ("done", "cancelled", "failed", "lost")  # an optimization no longer changing
 META_BYTES = 4096  # the nominal size of an `exp-meta` entry (Task 7's cache rule)
 UNIQUE_BYTES = 64  # and of an `exp-unique` count
@@ -130,6 +147,7 @@ SQUARE_BYTES = 2048
 # key: ordinary views read block 0, filtered before caching; the importance task reads every
 # screening block, under its own key.
 _TRIAL_NUMBER = re.compile(r"[0-9]{1,18}")  # below 2**63: a trial_no is an int64
+_EVIDENCE_METRICS = ("net_pnl", "max_drawdown", "trade_count")  # what C's evidence reads of a row
 
 
 @dataclass(frozen=True)
@@ -314,6 +332,11 @@ def COLUMNS_FOR(
         columns.append(metric_column(scope, metric))
     elif view in TASK_VIEWS:  # the cohort's rows (a legacy source's design comes from its pass)
         columns += ["design", "pass", *paths, metric_column(scope, metric)]
+    elif view in ("neighbourhood", "robustness"):
+        # Every parameter's stored position beside its values, which `index.codes_for` checks it
+        # against; B reads the design. A card's block rows are read apart (`trial_blocks`).
+        columns += ["design", "pass", *paths, *(f"pos.{k}" for k in range(len(paths)))]
+        columns.append(metric_column(scope, metric))
     else:  # parallel
         chosen = paths if request.axes is None else request.axes
         columns += [parameter(path) for path in chosen]
@@ -977,6 +1000,16 @@ def run_query(
             limit=request.limit,
         )
         counted = scope(len(payload["rows"]))
+    elif view == "neighbourhood":
+        found = neighbourhood(
+            frame, requested_trial(frame, request), metric=metric, scope=flt.scope, index=index
+        )
+        payload = {
+            "trial_id": request.trial,
+            "neighbourhood": found.to_json(),
+            "constants": constants(),
+        }
+        counted = scope(found.tested, ROBUSTNESS_BASIS)
     else:
         raise ValueError(f"unknown view {view!r}")
     return envelope(
@@ -986,6 +1019,155 @@ def run_query(
         filter_hash=request.filter_hash,
         snapshot=frame.snapshot,
         provisional=frame.provisional,
+    )
+
+
+def requested_trial(frame: TrialFrame, request: Any) -> int:
+    """The trial number of a request's `trial` on this frame's source; ValueError otherwise."""
+    return trial_number(parse_source(frame.source), request.trial)
+
+
+def trial_blocks(
+    document: ExperimentDocument,
+    store: ExperimentStore,
+    cache: LabCache,
+    frame: TrialFrame,
+    trial_no: int,
+    scope: str,
+) -> tuple[list[BlockEvidence], FoldEvidence | None]:
+    """A candidate's screening evaluations and its full range's figures, for category C's finding:
+    its rows of every block at the frame's snapshot, through the store's predicate (never cached),
+    each over its own bars (`block_bounds`). Nothing is read at K = 0. A block without a row, or
+    not `ok`, is one with undefined figures."""
+    if not document.blocks:
+        return [], None
+    columns = (*BASE, *(metric_column(scope, name) for name in _EVIDENCE_METRICS))
+    held, handle = open_experiment(
+        document,
+        store,
+        cache,
+        columns,
+        trial_no=trial_no,
+        selection=ALL_BLOCKS,
+        snapshot=frame.snapshot,
+    )
+    try:
+        rows = {row["block"]: row for row in held.table.to_pylist()}
+    finally:
+        REGISTRY.release(handle)
+
+    def figures(block: int) -> dict:
+        row = rows.get(block) or {}
+        values = [row.get(metric_column(scope, name)) for name in _EVIDENCE_METRICS]
+        trades = int(_number(values[2]) or 0)
+        return {"net_pnl": values[0], "max_drawdown": values[1], "trades": trades}
+
+    bars = int(document.plan["bars"])
+    bounds = block_bounds(bars, document.blocks)
+    blocks = [
+        BlockEvidence(bars=end - start, **figures(block))
+        for block, (start, end) in enumerate(bounds, 1)
+    ]
+    return blocks, FoldEvidence(bars=bars, **figures(0))
+
+
+def robustness_query(
+    frame: TrialFrame,
+    request: Any,
+    *,
+    tolerance: float,
+    tolerance_label: str | None = None,
+    axes: Sequence[str] = (),
+    blocks: Sequence[BlockEvidence] = (),
+    full: FoldEvidence | None = None,
+    unique: int | None = None,
+    index: FrameIndex | None = None,
+) -> dict:
+    """POST /lab/{src}/query for the `robustness` view: with a `trial`, its candidate card, `card`;
+    without, the two rankings of the filter, `rankings`. One or the other, so a card never pays for
+    a ranking's k neighbourhoods. `axes` are B's (`robustness.top_axes`), `blocks` and `full` the
+    card's (`trial_blocks`); the filter selects candidates only, as the basis line says."""
+    flt = request.filter
+    metric = request.metric or frame.objective
+    if index is None:
+        index = build_index(frame)
+    axes = list(axes)
+    card = ranks = None
+    if request.trial is None:
+        ranks = rankings(
+            frame,
+            metric=metric,
+            scope=flt.scope,
+            tolerance=tolerance,
+            axes=axes,
+            flt=flt,
+            index=index,
+        )
+    else:
+        card = candidate_card(
+            frame,
+            requested_trial(frame, request),
+            metric=metric,
+            scope=flt.scope,
+            tolerance=tolerance,
+            axes=axes,
+            blocks=blocks,
+            full=full,
+            tolerance_label=tolerance_label,
+            index=index,
+        )
+    counted = scope_counts(
+        frame,
+        flt,
+        1 if card is not None else len(ranks["peak"]),
+        metric=metric,
+        basis=ROBUSTNESS_BASIS,
+        unique=unique,
+        mask=filter_mask(frame, flt, index=index),
+        index=index,
+    )
+    return envelope(
+        "robustness",
+        {
+            "card": card,
+            "rankings": ranks,
+            "tolerance": tolerance,
+            "tolerance_label": tolerance_label,
+            "axes": axes,
+            "constants": constants(),
+        },
+        counted,
+        filter_hash=request.filter_hash,
+        snapshot=frame.snapshot,
+        provisional=frame.provisional,
+    )
+
+
+def experiment_robustness(
+    document: ExperimentDocument,
+    store: ExperimentStore,
+    cache: LabCache,
+    frame: TrialFrame,
+    request: Any,
+    *,
+    axes: Sequence[str],
+) -> dict:
+    """The `robustness` view of an experiment: its own tolerance, and a card's block rows."""
+    blocks: list[BlockEvidence] = []
+    full = None
+    if request.trial is not None:
+        blocks, full = trial_blocks(
+            document, store, cache, frame, requested_trial(frame, request), request.filter.scope
+        )
+    return robustness_query(
+        frame,
+        request,
+        tolerance=document.tolerance,
+        axes=axes,
+        blocks=blocks,
+        full=full,
+        unique=experiment_unique(cache, frame, document),
+        index=experiment_index(cache, frame, document),
     )
 
 
@@ -1086,6 +1268,7 @@ __all__ = [
     "BLOCK0",
     "COLUMNS_FOR",
     "INDEXED_VIEWS",
+    "ROBUSTNESS_BASIS",
     "TASK_VIEWS",
     "ExperimentMeta",
     "SourceRef",
@@ -1096,6 +1279,7 @@ __all__ = [
     "experiment_importance",
     "experiment_index",
     "experiment_meta",
+    "experiment_robustness",
     "experiment_source",
     "experiment_unique",
     "matrix_payload_key",
@@ -1106,10 +1290,13 @@ __all__ = [
     "optimization_source",
     "parse_source",
     "project",
+    "requested_trial",
+    "robustness_query",
     "run_query",
     "scheduled_uniform",
     "summary",
     "task_query",
+    "trial_blocks",
     "trial_detail",
     "trial_number",
 ]

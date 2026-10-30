@@ -10,8 +10,9 @@ tuned per assertion: a case that does not hold at them is a finding (R3.5), neve
 from __future__ import annotations
 
 import hashlib
+import itertools
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import replace
 
 import numpy as np
@@ -21,7 +22,7 @@ from products.aegis.lab import identity
 from products.aegis.lab import store as lab_store
 from products.aegis.lab.query import ALL_BLOCKS, BLOCK0, METRIC_NAMES, TrialFrame
 from products.aegis.pool import SCOPES
-from test_lab_query import parameter_of
+from test_lab_query import frame_of, parameter_of
 
 # --- the generator constants (decision 17) ----------------------------------------------------
 
@@ -386,3 +387,79 @@ def stack_frames(first: TrialFrame, *others: TrialFrame) -> TrialFrame:
         budget_total=scheduled,
         scheduled=scheduled,
     )
+
+
+# --- hand-written lattices for the robustness tests (Task 7) ----------------------------------
+
+# A plateau of 25 cells and one spike far from it on an 11 x 11 grid: the spike tops the peak
+# ranking with every neighbour low, and only the plateau's interior has its neighbours within τ.
+SPIKE_SIZES = (11, 11)
+SPIKE_AT = (8, 8)
+PLATEAU_BEST_INTERIOR = (4, 4)
+PLATEAU_EDGE = (5, 3)
+
+
+def lattice_frame(
+    value: Callable[[tuple[int, ...]], float | None],
+    sizes: list[int] | tuple[int, ...],
+    *,
+    only: Collection[tuple[int, ...]] | None = None,
+    status: Callable[[tuple[int, ...]], str] | None = None,
+    pass_of: Callable[[tuple[int, ...]], str] | None = None,
+    scheduled: int | None = None,
+    valid: int | None = None,
+) -> TrialFrame:
+    """A frame of hand-written trials on the lattice 1..B per parameter: one trial per position
+    (those in `only` when given), in position order, numbered from 0, `value(position)` its
+    `net_pnl` and `max_drawdown`. The schedule defaults to every valid cell, an exhaustive grid;
+    a smaller `scheduled` makes it a sampled surface."""
+    paths = paths_of(len(sizes))
+    lattices = [[float(1 + i) for i in range(size)] for size in sizes]
+    positions = list(itertools.product(*(range(size) for size in sizes)))
+    if only is not None:
+        positions = [position for position in positions if position in only]
+    rows = []
+    for position in positions:
+        held = value(position)
+        cell = {f"{scope}.{name}": held for scope in SCOPES for name in ("net_pnl", "max_drawdown")}
+        row = {
+            "params": {path: lattices[k][position[k]] for k, path in enumerate(paths)},
+            "metrics": cell,
+        }
+        if status is not None:
+            row["status"] = status(position)
+        if pass_of is not None:
+            row["pass"] = pass_of(position)
+        rows.append(row)
+    space = math.prod(sizes)
+    total = space if valid is None else valid
+    return frame_of(
+        rows,
+        paths,
+        values=dict(zip(paths, lattices, strict=True)),
+        valid=total,
+        scheduled=total if scheduled is None else scheduled,
+    )
+
+
+def spike_value(position: tuple[int, ...]) -> float:
+    """The spike-and-plateau surface: every value distinct, so no ranking ties."""
+    i, j = position
+    if position == SPIKE_AT:
+        return 150.0
+    if 1 <= i <= 5 and 1 <= j <= 5:
+        return 100.0 + 0.1 * i + 0.01 * j
+    return 10.0 + 0.1 * i + 0.01 * j
+
+
+def spike_and_plateau() -> TrialFrame:
+    return lattice_frame(spike_value, SPIKE_SIZES)
+
+
+def trial_at(frame: TrialFrame, position: tuple[int, ...]) -> int:
+    """The trial number at a lattice position (the frame's `pos.<k>`)."""
+    table = frame.table
+    mask = np.ones(table.num_rows, dtype=bool)
+    for k, at in enumerate(position):
+        mask &= table.column(f"pos.{k}").to_numpy() == at
+    return int(table.column("trial_no").to_numpy()[mask][0])

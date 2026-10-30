@@ -529,8 +529,8 @@ class LabTasks:
                 )
             state, error = "done", None
         except Cancelled:
-            # A cancel that meets a checkpoint after the last stage changes nothing: the result
-            # is complete, and it is cached as done.
+            # A cancel that meets a checkpoint after the last stage does not undo the result: it
+            # is complete and cached as done, while the cancel has still stopped the key.
             state = "done" if task.stage == task.stages else "cancelled"
             error = None
         except Exception as exc:  # noqa: BLE001 - a failing task is reported, never raised: the thread serves the next

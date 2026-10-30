@@ -6,7 +6,9 @@ otherwise recompute, derived once and shared by every view and every projection 
   off it, so `codes == len(lattice)` is the `-1` of `query._positions`;
 - `order(metric_column, descending)`: the stable order of the whole frame by one column, ties by
   trial number, undefined values last, which a view restricts to its filtered rows instead of
-  sorting them again.
+  sorting them again;
+- `derived(name, build)`: what a view derives once from all of the above (`neighbours`' position
+  table, POSITION_ROW_BYTES a row), so its sort is not repeated per request.
 
 Every frame of one experiment instance, snapshot and row selection holds the same canonical rows
 in the same order, so an index built from one projection serves the others: a part it lacks (a
@@ -18,8 +20,9 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 import numpy as np
 import pyarrow as pa
@@ -37,7 +40,9 @@ from products.aegis.lab.query import (
 
 CHECKED_ROWS = PART_ROW_GROUP  # a stored `pos.<k>` is trusted once it equals `_positions` here
 ORDERS_KEPT = 4  # orders memoized per index, least recently used out (each 4 bytes a row)
+POSITION_ROW_BYTES = 12  # `neighbours`' position table: an int64 hash and an int32 row per row
 _UINT16_MAX = 65_535  # a lattice of up to this many values codes as uint16, its "off" included
+T = TypeVar("T")
 
 
 @dataclass(frozen=True, eq=False)
@@ -52,6 +57,7 @@ class FrameIndex:
     _orders: OrderedDict[tuple[str, bool], np.ndarray] = field(
         default_factory=OrderedDict, repr=False
     )
+    _derived: dict[str, object] = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @property
@@ -114,11 +120,23 @@ class FrameIndex:
         rank = np.cumsum(inside, dtype=np.int64) - 1
         return rank[rows[:defined]]
 
+    def derived(self, name: str, build: Callable[[], T]) -> T:
+        """`build()`'s result under `name`, built by the first caller outside the lock (two racing
+        callers build the same thing, and the first one in is kept) and shared after that."""
+        with self._lock:
+            held = self._derived.get(name)
+        if held is not None:
+            return held
+        built = build()
+        with self._lock:
+            return self._derived.setdefault(name, built)
+
     def nbytes(self, parameters: Sequence[ParameterInfo]) -> int:
         """The index's size once filled (the cache's size of it): each array it holds at its own
-        size, the codes of a parameter it does not hold yet at the width they will take, and
-        ORDERS_KEPT int32 orders."""
+        size, the codes of a parameter it does not hold yet at the width they will take,
+        ORDERS_KEPT int32 orders and the position table."""
         size = self.completed.nbytes + ORDERS_KEPT * self.rows * np.dtype(np.int32).itemsize
+        size += POSITION_ROW_BYTES * self.rows
         for parameter in parameters:
             held = self.codes.get(parameter.path)
             if held is not None:
@@ -177,4 +195,4 @@ def build_index(frame: TrialFrame) -> FrameIndex:
     return index
 
 
-__all__ = ["CHECKED_ROWS", "ORDERS_KEPT", "FrameIndex", "build_index"]
+__all__ = ["CHECKED_ROWS", "ORDERS_KEPT", "POSITION_ROW_BYTES", "FrameIndex", "build_index"]

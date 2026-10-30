@@ -2,6 +2,7 @@
 sources. Real experiments and optimizations run through the API on the synthetic 52-bar archive;
 the Lab cache is one instance per test, so a test can evict and inspect it."""
 
+import json
 import re
 import shutil
 import threading
@@ -303,6 +304,25 @@ def test_query_loads_projected_columns_only(client, lab_cache, monkeypatch):
         allowed = sources.COLUMNS_FOR(view, request, meta.parameters, meta.objective)
         assert set(allowed) == task_columns
         assert len(recorded) == before + 1 and set(recorded[-1]) == task_columns, view
+    # Phase 3 Task 7: the two robustness views load BASE, design, pass, every parameter with its
+    # stored position (`index.codes_for` checks one against the other) and the metric column, one
+    # read each; a K = 0 experiment's card reads no block rows.
+    hood_columns = {*task_columns, "pos.0", "pos.1"}
+    trial = f"exp:{experiment_id}#0"
+    for query in (
+        {"view": "neighbourhood", "trial": trial},
+        {"view": "robustness"},
+        {"view": "robustness", "trial": trial},
+    ):
+        lab_cache.evict((("exp", experiment_id),))
+        before = len(recorded)
+        body = {**base, **query}
+        response = c.post(url, json=body)
+        assert response.status_code == 200, (query, response.text)
+        request = api.QueryRequest.model_validate(body)
+        allowed = sources.COLUMNS_FOR(query["view"], request, meta.parameters, meta.objective)
+        assert set(allowed) == hood_columns
+        assert len(recorded) == before + 1 and set(recorded[-1]) == hood_columns, query
 
 
 def test_trial_no_round_trips_with_a_warmup_skip(client, monkeypatch):
@@ -1500,3 +1520,286 @@ def test_a_malformed_stage_is_a_bug_not_a_refusal(client, monkeypatch):
     assert tasks.wait(task.id, WAIT_S).state == "done"
     response = c.post(f"{LAB}/exp:{experiment_id}/query", json={"filter": {}, "view": "importance"})
     assert response.status_code == 500, response.text
+
+
+# --- Phase 3 Task 7: the neighbourhood and robustness views --------------------------------------
+
+SELECTION_ONLY = "unresolved · selection-period only"
+NO_IMPORTANCE = "importance not computed for this snapshot"
+NO_REPLAY = "no replay yet (stage 2)"
+EVERY_TRIAL_BASIS = (
+    "Tested (exact); neighbours and regions read every completed block-0 trial of the snapshot, "
+    "the filter selects candidates only"
+)
+
+
+def _strict_json(response):
+    """The body parsed with a NaN or an Infinity refused: every Lab payload is strict JSON."""
+
+    def refuse(literal):
+        raise AssertionError(f"{literal} in a Lab payload")
+
+    return json.loads(response.text, parse_constant=refuse)
+
+
+def _no_task_is_touched(monkeypatch) -> None:
+    """These views read a finished result and nothing else: a live task's status reads the
+    runner, which `finalize` holds while it waits for the write lock."""
+    tasks = _tasks()
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a robustness view touched a live task")
+
+    for name in ("request", "status", "computing", "cancel"):
+        monkeypatch.setattr(tasks, name, refuse)
+
+
+def test_neighbourhood_view_on_an_experiment(client, monkeypatch):
+    """A 2 x 2 grid: trial 0's neighbours are trials 1 and 2, the diagonal is not one. A filter
+    leaves its neighbours alone, says so on its basis line, and still counts the scope."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    trial = f"{src}#0"
+    response = c.post(
+        f"{LAB}/{src}/query",
+        json={"filter": {}, "view": "neighbourhood", "trial": trial, "filter_hash": "cafe0001"},
+    )
+    assert response.status_code == 200, response.text
+    answer = _strict_json(response)
+    assert answer["view"] == "neighbourhood" and answer["filter_hash"] == "cafe0001"
+    assert answer["trial_id"] == trial and answer["empty"] is None
+    assert answer["snapshot"] == {"generation": 1, "chunk_watermark": 1}
+    assert answer["provisional"] is False
+    found = answer["neighbourhood"]
+    assert found["trial_no"] == 0 and found["trials"] == [1, 2]
+    assert (found["probes"], found["valid"], found["tested"]) == (2, 2, 2)
+    assert found["coverage"] == 1.0 and found["m"] == 1 and found["r"] == 1
+    assert len(found["values"]) == 2 and found["iqr"] == found["p75"] - found["p25"]
+    assert answer["constants"]["NEIGHBOUR_M_GRID"] == 1
+    assert answer["scope"]["shown"] == 2 and answer["scope"]["basis"] == EVERY_TRIAL_BASIS
+    brushed = _view(c, src, "neighbourhood", trial=trial, filter={"ranges": {DONCHIAN: [10, 10]}})
+    assert brushed["neighbourhood"]["trials"] == [1, 2]
+    assert brushed["scope"]["filtered"] == 2
+
+
+def test_the_robustness_views_refuse_a_bad_trial(client, monkeypatch):
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    url = f"{LAB}/{src}/query"
+    missing = c.post(url, json={"filter": {}, "view": "neighbourhood"})
+    assert missing.status_code == 422 and "needs trial" in missing.json()["detail"]
+    for view in ("neighbourhood", "robustness"):
+        for trial, says in (
+            (f"{src}#99", "no trial 99"),
+            ("exp:another#0", "is not a trial of"),
+            (f"{src}#x", "is not a trial number"),
+        ):
+            refused = c.post(url, json={"filter": {}, "view": view, "trial": trial})
+            assert refused.status_code == 422, (view, trial, refused.text)
+            assert says in refused.json()["detail"]
+    assert lab_store_module.REGISTRY.held(experiment_id) == set()
+
+
+def test_robustness_card_on_an_experiment_without_blocks(client, monkeypatch):
+    """Ruling P16: K = 0 reads §7.6's `no blocks or folds`; the tolerance is the document's; no
+    importance has run, so B says so; and nothing here requests or reads a live task."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch, tolerance=0.2)
+    src = f"exp:{experiment_id}"
+    _no_task_is_touched(monkeypatch)
+    response = c.post(
+        f"{LAB}/{src}/query",
+        json={"filter": {}, "view": "robustness", "trial": f"{src}#3", "filter_hash": "cafe0002"},
+    )
+    assert response.status_code == 200, response.text
+    answer = _strict_json(response)
+    assert answer["view"] == "robustness" and answer["filter_hash"] == "cafe0002"
+    assert answer["rankings"] is None and answer["scope"]["shown"] == 1
+    assert answer["scope"]["basis"] == EVERY_TRIAL_BASIS
+    assert answer["tolerance"] == 0.2 and answer["tolerance_label"] is None
+    assert answer["axes"] == [] and answer["constants"]["REGION_MIN_N"] == 30
+    card = answer["card"]
+    assert card["trial_id"] == f"{src}#3" and card["tolerance"] == 0.2
+    categories = card["categories"]
+    assert categories["A"]["inputs"]["valid_basis"] == "frame"
+    assert categories["A"]["inputs"]["valid"] == 2
+    assert categories["B"]["reason"] == NO_IMPORTANCE
+    assert categories["C"]["reason"] == "no blocks or folds"
+    assert categories["D"]["reason"] == NO_REPLAY
+    assert card["findings"] == []
+    assert lab_store_module.REGISTRY.held(experiment_id) == set()
+
+
+def test_robustness_rankings_on_an_experiment(client, monkeypatch):
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    _no_task_is_touched(monkeypatch)
+    response = c.post(f"{LAB}/{src}/query", json={"filter": {}, "view": "robustness"})
+    assert response.status_code == 200, response.text
+    answer = _strict_json(response)
+    assert answer["card"] is None
+    ranks = answer["rankings"]
+    assert len(ranks["peak"]) == 4 and set(ranks["peak"]) == set(ranks["robust"])
+    assert ranks["k"] == answer["constants"]["RANKING_K"] == 20
+    assert answer["scope"]["shown"] == 4 and answer["scope"]["filtered"] == 4
+    assert isinstance(ranks["disagree"], bool)
+    page = _view(c, src, "page")
+    assert ranks["peak"][0] == page["rows"][0]["trial_id"]
+    brushed = _view(c, src, "robustness", filter={"ranges": {DONCHIAN: [10, 10]}})
+    assert len(brushed["rankings"]["peak"]) == 2 and brushed["scope"]["filtered"] == 2
+    assert brushed["scope"]["basis"] == EVERY_TRIAL_BASIS
+
+
+def test_b_reads_the_importance_result_of_the_frames_snapshot(client, monkeypatch):
+    """B's axes are the finished importance result's top shares at this snapshot and this seed. A
+    result of an older chunk, another seed or none at all leaves B `importance not computed`,
+    and the view never requests a task."""
+    c, _, repository = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    document = experiments_module.ExperimentStore(repository).get(experiment_id)
+    key = importance_key(sources.experiment_source(document), "net_pnl", "combined", 1)
+    tasks = _tasks()
+    stage = {"paths": [DONCHIAN, RSI], "fine": {"S": [0.2, 0.7]}}
+
+    def body(checkpoint):
+        return iter([stage] * 3)
+
+    def card(**extra):
+        return _view(c, src, "robustness", trial=f"{src}#0", **extra)
+
+    # the snapshot before the last chunk: the same key, older evidence
+    old = tasks.request(key, "importance", 3, body, snapshot=lab_store_module.Snapshot(1, 0))
+    assert tasks.wait(old.id, WAIT_S).state == "done"
+    assert tasks.result(key) is not None
+    stale = card()
+    assert stale["axes"] == []
+    assert stale["card"]["categories"]["B"]["reason"] == NO_IMPORTANCE
+    current = tasks.request(key, "importance", 3, body, snapshot=lab_store_module.Snapshot(1, 1))
+    assert tasks.wait(current.id, WAIT_S).state == "done"
+    answer = card()
+    assert answer["axes"] == [RSI, DONCHIAN]
+    b = answer["card"]["categories"]["B"]
+    assert b["inputs"]["axes"] == [RSI, DONCHIAN]
+    assert b["reason"].startswith("too few sampled trials in the region (")
+    assert card(seed=2)["axes"] == []
+
+
+def test_robustness_view_runs_on_a_real_importance_result(client, monkeypatch):
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    done = _done(c, src)
+    assert done["importance"]["stage"] == 3
+    answer = _view(c, src, "robustness", trial=f"{src}#0")
+    assert set(answer["axes"]) <= {DONCHIAN, RSI}
+
+
+def test_robustness_with_blocks_reads_the_selection_period_only(client, monkeypatch, tmp_path):
+    """Ruling P16: with blocks and no folds C is `unresolved · selection-period only`, and the
+    separate finding carries each block's figures: its row's metrics over its own bars."""
+    c, _, repository = client
+    write_archive(tmp_path, "20260301T000000000000Z", "SPY", price=400.0, missing=290)
+    experiment_id = _finished_experiment(
+        c,
+        monkeypatch,
+        name="screened card",
+        data={"symbol": "SPY", "timeframe": "1m", **RANGE},
+        blocks=2,
+    )
+    src = f"exp:{experiment_id}"
+    _no_task_is_touched(monkeypatch)
+    answer = _view(c, src, "robustness", trial=f"{src}#1")
+    card = answer["card"]
+    c_category = card["categories"]["C"]
+    assert c_category["resolved"] is False and c_category["reason"] == SELECTION_ONLY
+    assert c_category["inputs"]["blocks"] == 2
+    assert card["categories"]["D"]["reason"] == NO_REPLAY
+    assert [finding["name"] for finding in card["findings"]] == ["selection-period consistency"]
+    assert card["findings"][0]["classification"] in (
+        "consistent",
+        "inconsistent",
+        "not profitable on the full range",
+    )
+    store = experiments_module.ExperimentStore(repository)
+    document = store.get(experiment_id)
+    rows = store.trials(
+        experiment_id,
+        ["combined.net_pnl", "combined.max_drawdown", "combined.trade_count"],
+        trial_no=1,
+    ).table.to_pylist()
+    by_block = {row["block"]: row for row in rows}
+    bars = document.plan["bars"]
+    bounds = experiments_module.block_bounds(bars, 2)
+    finding = card["findings"][0]["inputs"]
+    assert finding["full"]["bars"] == bars
+    assert finding["full"]["net_pnl"] == by_block[0]["combined.net_pnl"]
+    for b, figures in enumerate(finding["block_figures"], 1):
+        assert figures["block"] == b
+        assert figures["bars"] == bounds[b - 1][1] - bounds[b - 1][0]
+        assert figures["net_pnl"] == by_block[b]["combined.net_pnl"]
+        assert figures["max_drawdown"] == by_block[b]["combined.max_drawdown"]
+        assert figures["trades"] == by_block[b]["combined.trade_count"]
+    assert lab_store_module.REGISTRY.held(experiment_id) == set()
+    assert answer["scope"]["block"] == 0 and answer["scope"]["attempted"] == 4
+    # rankings read no block row: a card reads one trial's, through the store's predicate
+    assert _view(c, src, "robustness")["rankings"]["k"] == 20
+
+
+def test_a_block_read_on_an_expired_snapshot_is_a_409(client, monkeypatch, tmp_path):
+    c, _, _ = client
+    write_archive(tmp_path, "20260301T000000000000Z", "SPY", price=400.0, missing=290)
+    experiment_id = _finished_experiment(
+        c,
+        monkeypatch,
+        name="expired card",
+        data={"symbol": "SPY", "timeframe": "1m", **RANGE},
+        blocks=2,
+    )
+    src = f"exp:{experiment_id}"
+    original = sources.open_experiment
+
+    def expiring(*args, trial_no=None, **kwargs):
+        if trial_no is not None:
+            raise lab_store_module.SnapshotExpired("part-1.parquet of generation 1 is gone")
+        return original(*args, trial_no=trial_no, **kwargs)
+
+    monkeypatch.setattr(sources, "open_experiment", expiring)
+    response = c.post(
+        f"{LAB}/{src}/query", json={"filter": {}, "view": "robustness", "trial": f"{src}#0"}
+    )
+    assert response.status_code == 409 and response.json() == {"detail": "snapshot expired"}
+    assert lab_store_module.REGISTRY.held(experiment_id) == set()
+
+
+def test_robustness_on_an_optimization_uses_the_default_tolerance(client):
+    """An `opt:` source has no tolerance of its own: 0.15, labelled. Its side is its scope, its
+    neighbours are its grid's, and B reads the finished importance of those cells."""
+    c, _, _ = client
+    job_id = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    done = _wait(c, job_id, "done")
+    src = f"opt:{job_id}"
+    long_side = {"filter": {"scope": "long"}}
+    found = _view(c, src, "neighbourhood", trial=f"{src}#4", **long_side)["neighbourhood"]
+    assert (found["tested"], found["valid"], found["m"]) == (4, 4, 1)
+    answer = _view(c, src, "robustness", trial=f"{src}#4", **long_side)
+    assert answer["tolerance"] == 0.15
+    assert answer["tolerance_label"] == "default tolerance 0.15"
+    card = answer["card"]
+    assert card["tolerance_label"] == "default tolerance 0.15" and card["scope"] == "long"
+    assert card["categories"]["A"]["resolved"] is True
+    assert card["categories"]["B"]["reason"] == NO_IMPORTANCE
+    assert card["categories"]["C"]["reason"] == "no blocks or folds"
+    assert answer["snapshot"] is None
+    ranks = _view(c, src, "robustness", **long_side)["rankings"]
+    assert len(ranks["peak"]) == 9
+    _done(c, src, **long_side)
+    fast, slow = f"long_side.{done['fast_path']}", f"long_side.{done['slow_path']}"
+    computed = _view(c, src, "robustness", trial=f"{src}#4", **long_side)
+    assert set(computed["axes"]) <= {fast, slow}
+    assert computed["axes"]
+    refused = c.post(f"{LAB}/{src}/query", json={"filter": {}, "view": "robustness"})
+    assert refused.status_code == 422  # an optimizer source has one side

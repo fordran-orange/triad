@@ -58,8 +58,9 @@ from products.aegis.lab import store as lab_store
 from products.aegis.lab.cache import LabCache, cache_bytes_from_env
 from products.aegis.lab.importance import METHOD, RUNNING_OPTIMIZATION, STAGES, importance_key
 from products.aegis.lab.index import FrameIndex
-from products.aegis.lab.policy import LOW_DISK_GB, PAGE_LIMIT, TOP_LIMIT
+from products.aegis.lab.policy import DEFAULT_TOLERANCE, LOW_DISK_GB, PAGE_LIMIT, TOP_LIMIT
 from products.aegis.lab.query import LabFilter, TrialFrame
+from products.aegis.lab.robustness import DEFAULT_TOLERANCE_LABEL, top_axes
 from products.aegis.lab.tasks import LabTasks, TaskStatus, task_of
 from products.aegis.learned import LearnedPhrases
 from products.aegis.library import FOLDERS as LIBRARY_FOLDERS
@@ -1347,7 +1348,8 @@ class QueryRequest(BaseModel):
     arguments (a matrix needs rows, cols and metric; a square's trials its two values). `seed`
     and `rerun` are the importance task's: its resamples' seed, in the task's key and every
     answer, and the user's own "run again" after a task failed or was cancelled, which a poll
-    never does by itself."""
+    never does by itself. `trial` is a trial id, `<src>#<n>`: the `neighbourhood` view's trial and
+    the `robustness` view's candidate (without one, that view answers the rankings)."""
 
     model_config = ConfigDict(extra="forbid")
     filter: LabFilter
@@ -1362,6 +1364,8 @@ class QueryRequest(BaseModel):
         "importance",
         "interactions",
         "triples",
+        "neighbourhood",
+        "robustness",
     ]
     filter_hash: str | None = None
     rows: str | None = None
@@ -1381,6 +1385,7 @@ class QueryRequest(BaseModel):
     col_value: float | None = None
     seed: int = Field(1, ge=0)  # numpy's seed sequences refuse a negative entropy
     rerun: bool = False
+    trial: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -1591,6 +1596,63 @@ def _lab_task_experiment(
         return _lab_task_answer(frame, request, tasks, key, task, unique)
 
 
+def _lab_robustness_optimization(
+    job_id: str, request: QueryRequest, runner: JobRunner, tasks: LabTasks
+) -> dict:
+    """The `robustness` view of an `opt:` source: no tolerance of its own, so the default, labelled.
+    B reads the finished importance of exactly these cells (its key carries their count), and
+    nothing here requests a task."""
+    status, frame = _lab_optimization(runner, job_id, request.view, request)
+    metric, scope = request.metric or frame.objective, request.filter.scope
+    key = importance_key(
+        lab_sources.optimization_source(status, frame), metric, scope, request.seed
+    )
+    try:
+        return lab_sources.robustness_query(
+            frame,
+            request,
+            tolerance=DEFAULT_TOLERANCE,
+            tolerance_label=DEFAULT_TOLERANCE_LABEL,
+            axes=top_axes(tasks.result(key)),
+        )
+    except (KeyError, ValueError) as exc:
+        raise _lab_refused(exc) from exc
+
+
+def _lab_robustness_experiment(
+    experiment_id: str,
+    request: QueryRequest,
+    experiments: experiments_module.ExperimentStore,
+    cache: LabCache,
+    tasks: LabTasks,
+) -> dict:
+    """The `robustness` view of an `exp:` source (Ruling P15): B's axes are the finished importance
+    result at the frame's snapshot, or none. `LabTasks.result` is the one read of the executor
+    here, outside the read lock in any case: a live task's status reads the runner, whose lock the
+    job holds while it takes this write lock. A snapshot whose files went while a card read its
+    block rows is the same 409 as any other."""
+
+    def columns_of(meta) -> tuple[str, ...]:
+        return lab_sources.COLUMNS_FOR(request.view, request, meta.parameters, meta.objective)
+
+    with _lab_experiment(experiment_id, experiments, cache, columns_of) as (document, meta, frame):
+        metric, scope = request.metric or meta.objective, request.filter.scope
+        key = importance_key(lab_sources.experiment_source(document), metric, scope, request.seed)
+        try:
+            return lab_sources.experiment_robustness(
+                document,
+                experiments,
+                cache,
+                frame,
+                request,
+                axes=top_axes(tasks.result(key, frame.snapshot)),
+            )
+        except lab_store.SnapshotExpired as exc:
+            raise HTTPException(409, "snapshot expired") from exc
+        except (KeyError, ValueError) as exc:
+            raise _lab_refused(exc) from exc
+
+
 @router.get("/lab/build")
 def lab_build(cache: LabCache = LAB_CACHE):
     """The worker's engine build and versions, its code and data roots, the Lab cache and the
@@ -1648,6 +1710,10 @@ def lab_query(
         if ref.kind == "opt":
             return _lab_task_optimization(ref.id, request, runner, tasks)
         return _lab_task_experiment(ref.id, request, experiments, cache, tasks)
+    if request.view == "robustness":
+        if ref.kind == "opt":
+            return _lab_robustness_optimization(ref.id, request, runner, tasks)
+        return _lab_robustness_experiment(ref.id, request, experiments, cache, tasks)
     if ref.kind == "opt":
         status, frame = _lab_optimization(runner, ref.id, request.view, request)
         identity_of = lab_sources.optimization_source(status, frame)
@@ -1715,11 +1781,13 @@ def lab_cancel_task(
     tasks: LabTasks = LAB_TASKS,
     experiments: experiments_module.ExperimentStore = EXPERIMENTS,
 ):
-    """Cancels one of this source's Lab tasks: a waiting one at once, a running one at its next
-    checkpoint, its finished stages kept and labelled partial. `cancelled` is false for a task
-    already finished or already cancelling. A task this source does not own is a 404: an
-    experiment owns its tasks by its whole identity (`task_of`), so one deleted and created
-    again under the same id never cancels its predecessor's; an optimization by its job id."""
+    """Stops the analysis one of this source's Lab tasks belongs to: `task_id` names its key,
+    whichever of its tasks it is. The key's waiting task is dropped at once and its running one
+    stops at its next checkpoint, its finished stages kept and labelled partial; a finished task's
+    id still stops the key's live tasks, and answers true. `cancelled` is false only when the key
+    has nothing live left to stop. A task this source does not own is a 404: an experiment owns
+    its tasks by its whole identity (`task_of`), so one deleted and created again under the same
+    id never cancels its predecessor's; an optimization by its job id."""
     ref = _lab_source(src)
     if ref.kind == "exp":
         source = lab_sources.experiment_source(_experiment(experiments, ref.id))
