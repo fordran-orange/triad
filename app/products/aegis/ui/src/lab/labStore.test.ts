@@ -29,6 +29,7 @@ describe('initialLabState', () => {
     expect(initialLabState.source).toBeNull();
     expect(initialLabState.sourceError).toBeNull();
     expect(initialLabState.view).toBe('trials');
+    expect(initialLabState.tab).toBe('heatmap');
     expect(initialLabState.mode).toBe('exact');
     expect(initialLabState.stat).toBe('best');
     expect(initialLabState.metric).toBe('net_pnl');
@@ -521,5 +522,42 @@ describe('aggregate squares carry their defining filter (Task 10)', () => {
     const next = labReducer(initialLabState, { type: 'SELECT_SQUARE', x: 2, y: 1, axes, values: [6, 25] });
     expect(next.selected).toEqual({ square: { x: 2, y: 1, axes, values: [6, 25] } });
     expect(Object.keys((next.selected as { square: SquareSelection }).square)).toEqual(['x', 'y', 'axes', 'values']);
+  });
+});
+
+describe('labReducer SET_TAB (the centre tab is store state, so any view can open another)', () => {
+  const analysisTabs = ['heatmap', 'interactions', 'parallel', 'pareto', 'importance', 'robustness'] as const;
+
+  it('SET_TAB sets the tab and keeps the filter, the selection and the pins', () => {
+    const before = state({
+      source: EXP,
+      view: 'trials',
+      filter: filter({ ranges: { a: [1, 2] }, values: { b: 3 }, scope: 'long', pass: ['p'], status: ['ok'] }),
+      axes: ['a', 'b'],
+      selected: { trials: ['exp:e1#4'] },
+      pins: { A: 'exp:e1#4', C: 'exp:e1#9' },
+      cursor: { r: 2, c: 1 },
+      maximized: true,
+    });
+    const next = labReducer(before, { type: 'SET_TAB', tab: 'robustness' });
+    expect(next).toEqual({ ...before, tab: 'robustness' });
+    expect(next.filter).toBe(before.filter);
+    expect(next.selected).toBe(before.selected);
+    expect(next.pins).toBe(before.pins);
+    expect(before.tab).toBe('heatmap'); // the previous state is left alone
+  });
+
+  it('SET_TAB keeps a selected square too, and can open every analysis tab', () => {
+    const axes: [string, string] = ['a', 'b'];
+    const before = state({ selected: { square: { x: 1, y: 0, axes, values: [5, 6] } } });
+    for (const tab of analysisTabs) expect(labReducer(before, { type: 'SET_TAB', tab })).toEqual({ ...before, tab });
+  });
+
+  it('SET_VIEW, OPEN_SOURCE and the escape key leave the tab where it was', () => {
+    const before = state({ tab: 'pareto', filter: filter({ ranges: { a: [1, 2] } }), maximized: true });
+    expect(labReducer(before, { type: 'SET_VIEW', view: 'variables' }).tab).toBe('pareto');
+    expect(labReducer(before, { type: 'OPEN_SOURCE', source: EXP }).tab).toBe('pareto');
+    expect(labReducer(before, { type: 'ESCAPE' }).tab).toBe('pareto');
+    expect(labReducer(labReducer(before, { type: 'ESCAPE' }), { type: 'ESCAPE' }).tab).toBe('pareto');
   });
 });

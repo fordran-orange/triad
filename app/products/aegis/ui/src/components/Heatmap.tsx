@@ -27,11 +27,12 @@ export interface HeatmapProps {
   hatchUntested?: boolean;
 }
 
-/** 'sign': below 0 loses money (net P&L, return, CAGR, MAR, expectancy); 'ratio': below 1
- *  loses money (profit factor); null: the metric has no profit sign. */
+/** 'sign': below 0 loses money (net P&L, return, CAGR, MAR, expectancy, the trade Sharpe); 'ratio': below 1
+ *  loses money (profit factor); null: the metric has no profit sign. The server's `BREAK_EVEN` (lab/policy.py) names
+ *  the same metrics at the same values. */
 export type ProfitKind = 'sign' | 'ratio' | null;
 
-const SIGNED = new Set(['net_pnl', 'net_return', 'cagr', 'mar', 'expectancy']);
+const SIGNED = new Set(['net_pnl', 'net_return', 'cagr', 'mar', 'expectancy', 'sharpe_trade']);
 
 export function profitKind(metric: string): ProfitKind {
   if (SIGNED.has(metric)) return 'sign';

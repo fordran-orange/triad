@@ -16,6 +16,9 @@ export function sourceText(source: LabSource): string {
 }
 
 export type LabView = 'monitor' | 'trials' | 'families' | 'variables' | 'walkforward' | 'lineage' | 'compare';
+/** The analysis tab of the trials view's centre panel. It lives in the store (Phase 3), so any view can open another
+ *  and a trip to another sub-view and back finds the tab where it was left. */
+export type LabTab = 'heatmap' | 'interactions' | 'parallel' | 'pareto' | 'importance' | 'robustness';
 export type LabScope = 'combined' | 'long' | 'short';
 export type LabMode = 'exact' | 'aggregate';
 export type LabStat = 'best' | 'median' | 'mean' | 'worst';
@@ -41,6 +44,7 @@ export interface LabState {
   source: LabSource | null;
   sourceError: string | null;
   view: LabView;
+  tab: LabTab;
   filter: LabFilter;
   axes: [string, string] | null;
   mode: LabMode;
@@ -57,6 +61,7 @@ export type LabAction =
   | { type: 'OPEN_SOURCE'; source: LabSource; axes?: [string, string]; metric?: string }
   | { type: 'SOURCE_FAILED'; message: string }
   | { type: 'SET_VIEW'; view: LabView }
+  | { type: 'SET_TAB'; tab: LabTab }
   | { type: 'SET_AXES'; axes: [string, string] }
   | { type: 'SET_MODE'; mode: LabMode }
   | { type: 'SET_STAT'; stat: LabStat }
@@ -84,6 +89,7 @@ export const initialLabState: LabState = {
   source: null,
   sourceError: null,
   view: 'trials',
+  tab: 'heatmap',
   filter: emptyFilter(),
   axes: null,
   mode: 'exact',
@@ -124,6 +130,8 @@ export function labReducer(state: LabState, action: LabAction): LabState {
       return { ...state, source: null, sourceError: action.message };
     case 'SET_VIEW':
       return { ...state, view: action.view };
+    case 'SET_TAB':
+      return { ...state, tab: action.tab }; // the filter, the selection and the pins are the Lab's, not the tab's
     case 'SET_AXES':
       return { ...state, axes: action.axes };
     case 'SET_MODE':

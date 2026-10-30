@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ExperimentDocument } from '../contracts';
 import { IntelligenceRail } from './IntelligenceRail';
-import { LabCenter, type LabTab } from './LabCenter';
+import { LabCenter } from './LabCenter';
 import { LabContextBar } from './LabContextBar';
 import { cursorDims } from './labHeatmapModel';
 import { LabKpiStrip } from './LabKpiStrip';
@@ -34,7 +34,6 @@ export function OptLabPage() {
   const lab = useLab();
   const dispatch = useLabDispatch();
   const data = useLabQuery();
-  const [tab, setTab] = useState<LabTab>('heatmap');
   const [sort, setSort] = useState<TrialSort>(METRIC_ORDER);
   const memory = useRef({ key: '', top: 0 });
   const key = lab.source ? sourceText(lab.source) : null;
@@ -47,7 +46,7 @@ export function OptLabPage() {
   // the same key check its heatmap uses.
   const job = currentMatrix(data);
   const shown = loaded?.kind === 'exp' ? expMatrix.envelope : job.notice === null ? job.matrix : null;
-  const onKeyDown = useLabKeys(lab.view === 'trials' && tab === 'heatmap' ? cursorDims(shown) : null);
+  const onKeyDown = useLabKeys(lab.view === 'trials' && lab.tab === 'heatmap' ? cursorDims(shown) : null);
   const list = useMemo(() => (loaded ? sourceFamilies(loaded) : null), [loaded]);
 
   const select = (row: TrialRow) => {
@@ -64,7 +63,7 @@ export function OptLabPage() {
     body = (
       <div className={'lab-body' + (lab.maximized ? ' maximized' : '')}>
         {!lab.maximized && <ParameterCatalog list={list} mode="controls" loading={data.loading} />}
-        <LabCenter data={data} tab={tab} onTab={setTab} sort={sort} onSort={setSort} onSelect={select} memory={memory} />
+        <LabCenter data={data} sort={sort} onSort={setSort} onSelect={select} memory={memory} />
       </div>
     );
   } else if (lab.view === 'variables') {

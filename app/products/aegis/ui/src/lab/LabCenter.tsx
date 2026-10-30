@@ -6,13 +6,12 @@ import { METRIC_LABELS, type AxisMatrix, type Metric } from '../results';
 import { cursorDims, selectSquareAction } from './labHeatmapModel';
 import { LabHeatmap } from './LabHeatmap';
 import { useLab, useLabDispatch } from './labState';
+import type { LabTab } from './labStore';
 import { NotBuilt } from './NotBuilt';
 import { ParallelCoords } from './ParallelCoords';
 import { TrialTable, type ScrollMemory, type TrialSort } from './TrialTable';
 import type { LabQueryData } from './useLabQuery';
 import { currentMatrix, type LabData, type TrialRow } from './useLabSource';
-
-export type LabTab = 'heatmap' | 'interactions' | 'parallel' | 'pareto' | 'importance' | 'robustness';
 
 export const LAB_TABS: Array<{ tab: LabTab; label: string }> = [
   { tab: 'heatmap', label: 'Heatmap' },
@@ -137,16 +136,12 @@ function Importance({ data }: { data: LabData }) {
 /** The centre of Trial Lab: the six analysis tabs over the trials table. */
 export function LabCenter({
   data,
-  tab,
-  onTab,
   sort,
   onSort,
   onSelect,
   memory,
 }: {
   data: LabQueryData;
-  tab: LabTab;
-  onTab: (tab: LabTab) => void;
   sort: TrialSort;
   onSort: (sort: TrialSort) => void;
   onSelect: (row: TrialRow) => void;
@@ -154,6 +149,7 @@ export function LabCenter({
 }) {
   const lab = useLab();
   const dispatch = useLabDispatch();
+  const { tab } = lab;
   const { loaded, loading } = data;
   const kind = loaded?.kind ?? lab.source?.kind ?? null;
   const none = <div className="lab-empty">{loading ? 'Loading…' : 'No source open: choose one in the context bar.'}</div>;
@@ -195,7 +191,7 @@ export function LabCenter({
             className={'tab lab-tab' + (tab === t.tab ? ' active' : '')}
             aria-selected={tab === t.tab}
             aria-controls="lab-panel"
-            onClick={() => onTab(t.tab)}
+            onClick={() => dispatch({ type: 'SET_TAB', tab: t.tab })}
           >
             {t.label}
           </button>

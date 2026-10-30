@@ -1,16 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { SHARPE_MIN_TRADES } from '../contracts';
-import { METRICS, OBJECTIVES, type LabRow, type LabSummary } from '../results';
+import {
+  METRICS,
+  OBJECTIVES,
+  type LabCandidateCard,
+  type LabCategoryA,
+  type LabCategoryB,
+  type LabCategoryC,
+  type LabCategoryD,
+  type LabRankings,
+  type LabRobustness,
+  type LabRobustnessConstants,
+  type LabRow,
+  type LabSummary,
+} from '../results';
 import { cellIndex, filterHash, initialLabState, type LabFilter, type LabScope, type LabState } from './labStore';
 import {
   datasetLabel,
   defaultSort,
+  displayShare,
   dockChipText,
   emptyTableText,
   exactFixed,
   expMatrixKey,
   failedSource,
   handOverBody,
+  isCandidateCard,
   isCurrentHash,
   kpiTrialsText,
   lowN,
@@ -21,7 +36,9 @@ import {
   pageKey,
   panelLabel,
   queryBody,
+  SHARPE,
   snapshotLabel,
+  stableEntry,
   statusLabel,
   tableValueColumns,
   undefinedLast,
@@ -376,5 +393,185 @@ describe('a grid job above CELLS_SENT: the dock list is the best cells re-ordere
       values: { 'combined.net_pnl': 9 },
       valid: null,
     });
+  });
+});
+
+// --- Phase 3: the request bodies of the analytics views, and the helpers their panels share -----------------------
+
+describe('the Phase 3 requests (queryBody and optBody)', () => {
+  it('optBody prefixes axes and leaves objectives bare', () => {
+    // The worker reads `objectives` as metric names in the filter's scope: a prefixed one answers 422.
+    const sent = queryBody(state(), 'pareto', { objectives: ['net_pnl', 'max_drawdown'], axes: ['indicators.ema.length', 'indicators.sma.length'] });
+    const body = optBody(sent, 'long');
+    expect(body.objectives).toEqual(['net_pnl', 'max_drawdown']);
+    expect(body.axes).toEqual(['long_side.indicators.ema.length', 'long_side.indicators.sma.length']);
+    expect(body.filter.scope).toBe('long');
+    expect(sent.objectives).toEqual(['net_pnl', 'max_drawdown']); // the input is left alone
+  });
+
+  it('optBody leaves a trial id, the seed, k, the parallel mode and rerun as the panel sent them', () => {
+    const sent = queryBody(state(), 'robustness', { trial: 'opt:j1#4', seed: 7, k: 12, parallel_mode: 'sample', rerun: true });
+    expect(optBody(sent, 'short')).toMatchObject({ trial: 'opt:j1#4', seed: 7, k: 12, parallel_mode: 'sample', rerun: true });
+  });
+
+  it('queryBody carries the new arguments, and sends none of them unless a panel asks', () => {
+    const body = queryBody(state(), 'importance', { seed: 3, rerun: true });
+    expect(body).toMatchObject({ view: 'importance', seed: 3, rerun: true });
+    const plain = queryBody(state(), 'importance');
+    for (const name of ['seed', 'rerun', 'trial', 'objectives', 'parallel_mode', 'k'] as const) expect(name in plain).toBe(false);
+    expect(queryBody(state(), 'parallel', { parallel_mode: 'sample', axes: ['a', 'b'], k: 500 })).toMatchObject({ parallel_mode: 'sample', axes: ['a', 'b'], k: 500 });
+    expect(queryBody(state(), 'neighbourhood', { trial: 'exp:e1#9' }).trial).toBe('exp:e1#9');
+  });
+
+  it("a poll never asks for a rerun: only the panel's Run again sets it", () => {
+    const poll = queryBody(state({ metric: 'net_pnl' }), 'interactions', { seed: 1 });
+    expect(poll.rerun).toBeUndefined();
+    expect(optBody(poll, 'long').rerun).toBeUndefined();
+  });
+
+  it('pareto ranks trials by its objectives, so the trade Sharpe is never sent as its default metric', () => {
+    const sharpe = state({ metric: SHARPE });
+    expect(queryBody(sharpe, 'pareto', { objectives: ['net_pnl', 'max_drawdown'] }).metric).toBeUndefined();
+    expect(queryBody(state({ metric: 'mar' }), 'pareto', { objectives: ['net_pnl', 'max_drawdown'] }).metric).toBe('mar');
+    // The views that read the metric in view still send the trade Sharpe when that is the metric.
+    for (const view of ['importance', 'robustness', 'convergence', 'parallel'] as const) expect(queryBody(sharpe, view).metric).toBe(SHARPE);
+    for (const view of ['page', 'top'] as const) expect(queryBody(sharpe, view).metric).toBeUndefined();
+  });
+});
+
+describe('displayShare (a share is shown at 0 or above; the stored value stays as the server sent it)', () => {
+  it('clamps a negative share at 0 and leaves the rest', () => {
+    expect(displayShare(-0.004)).toBe(0);
+    expect(Object.is(displayShare(-0), 0)).toBe(true);
+    expect(displayShare(0)).toBe(0);
+    expect(displayShare(0.0123)).toBe(0.0123);
+    expect(displayShare(1.07)).toBe(1.07); // a share above 1 is not clamped
+  });
+
+  it('keeps an undefined share undefined: null is never shown as 0', () => {
+    expect(displayShare(null)).toBeNull();
+  });
+
+  it('does not change what it was given', () => {
+    const shares = Object.freeze([-0.01, 0.2]);
+    expect(shares.map((share) => displayShare(share))).toEqual([0, 0.2]);
+    expect(shares).toEqual([-0.01, 0.2]);
+  });
+});
+
+describe('robustness answers one of two exclusive shapes', () => {
+  const CONSTANTS: LabRobustnessConstants = {
+    PLATEAU_MIN_COVERAGE: 0.5,
+    NEIGHBOUR_R: 1,
+    NEIGHBOUR_M_GRID: 1,
+    NEIGHBOUR_M_SAMPLED: 2,
+    PEAK_IQR_FACTOR: 3,
+    REGION_RADIUS: 0.15,
+    REGION_AXES: 6,
+    REGION_MIN_N: 30,
+    FOLDS_MIN: 3,
+    FOLD_MIN_TRADES: 30,
+    FOLD_RATIO_BAND: [0.5, 2],
+    FOLD_DRAWDOWN_FACTOR: 1.5,
+    STRESS_KEEP: 0.7,
+    STRESS_DRAWDOWN_FACTOR: 1.3,
+    PER_BARS: 1000,
+    RANKING_K: 20,
+    RANK_POOL: 300,
+    RANK_B_MAX: 20,
+    BREAK_EVEN: { net_pnl: 0, sharpe_trade: 0, profit_factor: 1 },
+  };
+  const A: LabCategoryA = {
+    name: 'A',
+    resolved: true,
+    classification: 'stable local',
+    reason: null,
+    inputs: {
+      n: 7, valid: 7, tested: 7, undefined: 0, coverage: 1, min_coverage: 0.5, required_n: 7, r: 1, m: 1, probes: 7, valid_basis: 'frame',
+      p25: 1.39, p75: 1.73, iqr: 0.34, tau: 0.69, value: 1.26, distance: 0.13, peak_factor: 3, peak_line: 2.74, orientation: 1,
+    },
+  };
+  const B: LabCategoryB = {
+    name: 'B',
+    resolved: false,
+    classification: null,
+    reason: 'importance not computed for this snapshot',
+    inputs: {
+      axes: [], radius: 0.15, n: 0, min_n: 30, population: null, region_share: null, density: null, adaptive_excluded: 0, undefined: 0,
+      p25: null, p75: null, iqr: null, tau: 0.69, value: 1.26, distance: null, orientation: 1,
+    },
+  };
+  const C: LabCategoryC = {
+    name: 'C',
+    resolved: false,
+    classification: null,
+    reason: 'no blocks or folds',
+    inputs: { folds: 0, folds_min: 3, fold_min_trades: 30, ratio_band: [0.5, 2], drawdown_factor: 1.5, blocks: 0 },
+  };
+  const D: LabCategoryD = {
+    name: 'D',
+    resolved: false,
+    classification: null,
+    reason: 'no replay yet (stage 2)',
+    inputs: { scenarios: [], stress_keep: 0.7, drawdown_factor: 1.3, base: null, stressed: null, ratio: null },
+  };
+  const card: LabCandidateCard = {
+    trial_id: 'exp:e1#5',
+    trial_no: 5,
+    metric: 'net_pnl',
+    scope: 'combined',
+    value: 1.26,
+    orientation: 1,
+    tolerance: 0.15,
+    tolerance_label: null,
+    tau: 0.69,
+    categories: { A, B, C, D },
+    tested: ['A'],
+    unknown: ['B', 'C', 'D'],
+    findings: [],
+  };
+  const rankings: LabRankings = {
+    peak: ['exp:e1#223', 'exp:e1#710'],
+    robust: ['exp:e1#710', 'exp:e1#223'],
+    disagree: true,
+    stable: 'exp:e1#710',
+    stable_reason: null,
+    k: 20,
+    pool: 300,
+    b_max: 20,
+    ranked: [
+      { trial_id: 'exp:e1#710', value: 5.9, ranked_by: 'A', classification: 'stable local', reason: null },
+      { trial_id: 'exp:e1#223', value: 6.7, ranked_by: null, classification: null, reason: 'untested surroundings (n 3 of 7)' },
+    ],
+    peak_ranked: [
+      { trial_id: 'exp:e1#223', value: 6.7, ranked_by: null, classification: null, reason: 'untested surroundings (n 3 of 7)' },
+      { trial_id: 'exp:e1#710', value: 5.9, ranked_by: 'A', classification: 'stable local', reason: null },
+    ],
+  };
+  const common = { tolerance: 0.15, tolerance_label: null, axes: [], constants: CONSTANTS };
+  const cardAnswer: LabRobustness = { ...common, card, rankings: null };
+  const rankingsAnswer: LabRobustness = { ...common, card: null, rankings };
+
+  // Reading the other shape's field after the guard is a compile error, so the build checks the narrowing too.
+  const read = (answer: LabRobustness) => (isCandidateCard(answer) ? `card of ${answer.card.trial_id}` : `rankings of ${answer.rankings.k}`);
+
+  it('isCandidateCard is true for a trial asked for and false for the rankings', () => {
+    expect(isCandidateCard(cardAnswer)).toBe(true);
+    expect(isCandidateCard(rankingsAnswer)).toBe(false);
+  });
+
+  it('narrows to the field the answer carries', () => {
+    expect(read(cardAnswer)).toBe('card of exp:e1#5');
+    expect(read(rankingsAnswer)).toBe('rankings of 20');
+  });
+
+  it('stableEntry finds the stable candidate in either list, and tolerates one that is in neither', () => {
+    expect(stableEntry(rankings)?.trial_id).toBe('exp:e1#710');
+    // `stable` is chosen from the whole pool: it may sit past the k rows listed, or among the peak rows alone.
+    const peakOnly: LabRankings = { ...rankings, ranked: rankings.ranked.slice(1), stable: 'exp:e1#710', peak_ranked: [rankings.peak_ranked[1]] };
+    expect(stableEntry(peakOnly)?.trial_id).toBe('exp:e1#710');
+    const outside: LabRankings = { ...rankings, ranked: [], peak_ranked: [], stable: 'exp:e1#999' };
+    expect(stableEntry(outside)).toBeNull();
+    expect(stableEntry({ ...rankings, stable: null, stable_reason: 'none among the top 300 by peak' })).toBeNull();
   });
 });

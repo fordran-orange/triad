@@ -12,6 +12,7 @@ import type {
   JobStatus,
   JobSummary,
   LabBuild,
+  LabCancelled,
   LabEnvelope,
   LabQueryBody,
   LabSummary,
@@ -381,4 +382,7 @@ export const api = {
   labQuery: <T>(src: string, body: LabQueryBody) => request<LabEnvelope<T>>(`${lab(src)}/query`, post(body)),
   labTrial: (src: string, trialId: string) => request<LabTrial>(`${lab(src)}/trials/${encodeURIComponent(trialId)}`),
   labBuild: () => request<LabBuild>('/lab/build'),
+  // Stops the analysis one of this source's Lab tasks belongs to (Phase 3): `taskId` names its key, whichever of its
+  // tasks it is; a task the source does not own is a 404.
+  labCancelTask: (src: string, taskId: string) => request<LabCancelled>(`${lab(src)}/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
 };

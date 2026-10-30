@@ -2,7 +2,19 @@
 // and nothing fetched. Every decision the panels make about a request body, a stale answer, a label or a column
 // list lives here, so it runs under vitest in node.
 import { SHARPE_MIN_TRADES } from '../contracts';
-import { METRICS, OBJECTIVES, type LabQueryBody, type LabQueryView, type LabRow, type LabSnapshot, type LabSummary } from '../results';
+import {
+  METRICS,
+  OBJECTIVES,
+  type LabQueryBody,
+  type LabQueryView,
+  type LabRankedEntry,
+  type LabRankings,
+  type LabRobustness,
+  type LabRobustnessCard,
+  type LabRow,
+  type LabSnapshot,
+  type LabSummary,
+} from '../results';
 import { filterHash, parseSource, type LabFilter, type LabScope, type LabState, type SquareSelection } from './labStore';
 import type { TrialRow } from './useLabSource';
 
@@ -16,8 +28,9 @@ export const NOT_RECORDED = 'data provenance not recorded';
 type QueryState = Pick<LabState, 'filter' | 'axes' | 'mode' | 'stat' | 'metric'>;
 
 /** The views that rank trials: their default order is the metric's column, so the trade Sharpe is never sent as
- *  their default metric (§7.12: the default sort of every candidate view stays the experiment's own objective). */
-const RANKED: ReadonlySet<LabQueryView> = new Set<LabQueryView>(['page', 'top']);
+ *  their default metric (§7.12: the default sort of every candidate view stays the experiment's own objective). The
+ *  `pareto` view is one: its front is of the objectives it is sent, and no metric in view chooses the trials. */
+const RANKED: ReadonlySet<LabQueryView> = new Set<LabQueryView>(['page', 'top', 'pareto']);
 
 /** The body of one query from the store: the filter, the view, the matrix's axes, metric, mode and stat, then
  *  `extra` (a page's window and sort, a matrix's slice). `filter_hash` is always the store filter's, so the answer
@@ -213,7 +226,10 @@ export function optPath(path: string, side: 'long' | 'short'): string {
 }
 
 /** A body for an `opt:` source: the job's side as the scope (the worker refuses any other: `an optimizer source
- *  has one side`) and every parameter path prefixed with it; `filter_hash` stays the store filter's. */
+ *  has one side`) and every parameter path prefixed with it; `filter_hash` stays the store filter's. Only paths are
+ *  prefixed: a Pareto `objectives` entry is a metric name, read in the scope, and stays bare (the worker answers 422
+ *  on a prefixed one); a `trial` id already carries its source, and the seed, `k`, the parallel mode and `rerun` are
+ *  not paths. */
 export function optBody(body: LabQueryBody, side: 'long' | 'short'): LabQueryBody {
   const keyed = <T>(record: Record<string, T>) => Object.fromEntries(Object.entries(record).map(([path, v]) => [optPath(path, side), v]));
   const out: LabQueryBody = { ...body, filter: { ...body.filter, scope: side, ranges: keyed(body.filter.ranges), values: keyed(body.filter.values) } };
@@ -265,4 +281,30 @@ export function failedSource(sourceError: string | null): string | null {
   const end = sourceError.indexOf(': ');
   const text = end < 0 ? sourceError : sourceError.slice(0, end);
   return parseSource(text) === null ? null : text;
+}
+
+// --- Phase 3's views: what their panels share --------------------------------------------------------------------
+
+/** A share as it is shown: at 0 or above. The server sends the adjusted shares unclamped, so a parameter with no
+ *  effect can read slightly below 0; the stored value stays as sent and only the display clamps. An undefined share
+ *  (null) stays undefined, never 0, and a share above 1 is not clamped. */
+export function displayShare(share: number): number;
+export function displayShare(share: number | null): number | null;
+export function displayShare(share: number | null): number | null {
+  return share === null ? null : Math.max(0, share);
+}
+
+/** The `robustness` view answers a `candidate_card` when the request sent a `trial` and `rankings` when it did not,
+ *  never both: this tells them apart and narrows to the field the answer carries. */
+export function isCandidateCard(answer: LabRobustness): answer is LabRobustnessCard {
+  return answer.card !== null;
+}
+
+/** The rankings' row for the trial `stable` names. `stable` is chosen from the whole pool, so it may sit past the
+ *  `k` rows `ranked` lists: it is looked up there and among the peak rows, and null when it is in neither (or when
+ *  `stable` names none, and `stable_reason` says why). */
+export function stableEntry(rankings: LabRankings): LabRankedEntry | null {
+  if (rankings.stable === null) return null;
+  const find = (entries: readonly LabRankedEntry[]) => entries.find((entry) => entry.trial_id === rankings.stable);
+  return find(rankings.ranked) ?? find(rankings.peak_ranked) ?? null;
 }

@@ -56,6 +56,12 @@ describe('losing money is red, always (operator, 2026-10-19)', () => {
     expect(profitKind('profit_factor')).toBe('ratio');
     expect(['max_drawdown', 'trade_count', 'win_rate', 'exposure'].map(profitKind)).toEqual([null, null, null, null]);
   });
+
+  it("the trade Sharpe's sign is money too: below 0 it is red, as the server's BREAK_EVEN (lab/policy.py) has it", () => {
+    // A layout-2 experiment offers `sharpe_trade` in the Lab's metric selector, so its heatmap and bundles reach profitKind.
+    expect(profitKind('sharpe_trade')).toBe('sign');
+    expect(cells([5], [8, 9, 10], [[-0.4, 0, 0.8]], false, profitKind('sharpe_trade'))[0].map((c) => c.tone)).toEqual(['loss', 'mid', 'hot']);
+  });
 });
 
 describe('the dock overlays (Task 10): n badges and hatched untested squares', () => {
