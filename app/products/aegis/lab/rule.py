@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
@@ -396,29 +396,43 @@ def importance_result(
     )
 
 
-def assess(cohort: Cohort, *, seed: int, checkpoint: Checkpoint) -> ImportanceResult:
-    """Every stage of the rule on `cohort`, in Task 6's order: the fine grid, the per-block mains
-    and the coarse point estimates, then the coarse bootstrap for R and the candidates (§7.4,
-    `candidates`) and the coarse null. The three coarse steps share one triple design, and the
-    final result the staged one's cohort-level facts."""
+def assess_stages(
+    cohort: Cohort, *, seed: int, checkpoint: Checkpoint
+) -> Iterator[ImportanceResult]:
+    """The rule on `cohort` stage by stage (§9.4), each result whole for the stages run so far:
+    1, the fine grid; 2, adding the per-block mains and the coarse point estimates; 3, adding the
+    coarse bootstrap for R and the candidates (§7.4, `candidates`) and the coarse null. The three
+    coarse steps share one triple design, and every later result the first's cohort-level facts.
+    `checkpoint` runs between stages as well as between resamples: a K = 0 stage 2 has none."""
     fine = fine_stage(cohort, seed=seed, checkpoint=checkpoint)
+    first = importance_result(cohort, fine=fine)
+    yield first
+    checkpoint()
     blocks = block_mains(cohort, seed=seed, checkpoint=checkpoint)
     Xq = coarse_bins(cohort.X, cohort.B)
     terms = coarse_terms(Xq)
     points = coarse(Xq, cohort.Y, terms=terms)
-    staged = importance_result(cohort, fine=fine, blocks=blocks, coarse=points)
-    chosen = candidates(staged)
+    second = importance_result(cohort, fine=fine, blocks=blocks, coarse=points, previous=first)
+    yield second
+    checkpoint()
+    chosen = candidates(second)
     bounds = coarse_intervals(Xq, cohort.Y, chosen, seed=seed, checkpoint=checkpoint, terms=terms)
     null = coarse_floors(Xq, cohort.Y, seed=seed, checkpoint=checkpoint, terms=terms)
-    return importance_result(
+    yield importance_result(
         cohort,
         fine=fine,
         blocks=blocks,
         coarse=points,
         coarse_bounds=bounds,
         coarse_null=null,
-        previous=staged,
+        previous=second,
     )
+
+
+def assess(cohort: Cohort, *, seed: int, checkpoint: Checkpoint) -> ImportanceResult:
+    """Every stage of the rule on `cohort`: the last of `assess_stages`."""
+    *_, final = assess_stages(cohort, seed=seed, checkpoint=checkpoint)
+    return final
 
 
 # --- the recommended statuses (§7.4a, §8.4; decision 21) ----------------------------------------
@@ -808,6 +822,7 @@ __all__ = [
     "ImportanceResult",
     "ParameterStatus",
     "assess",
+    "assess_stages",
     "availability",
     "candidates",
     "compare_scope",

@@ -54,6 +54,7 @@ from lab_stat_fixtures import (
     xor_pair,
     zero,
 )
+from products.aegis.lab import importance as importance_module
 from products.aegis.lab import store as lab_store
 from products.aegis.lab.analytics import (
     INCREMENTS,
@@ -82,11 +83,18 @@ from products.aegis.lab.analytics import (
     pair_quality,
     triples_top,
 )
+from products.aegis.lab.importance import (
+    importance_basis,
+    importance_stages,
+    interactions_payload,
+    triples_payload,
+)
 from products.aegis.lab.policy import (
     BOOTSTRAP_B,
     COARSE_BOOTSTRAP_B,
     COARSE_PERMUTATION_P,
     IMPORTANCE_ROWS,
+    PAIR_MIN_COVERAGE,
     PERMUTATION_P,
     RESIDUAL_VETO,
     THETA_MIN,
@@ -1303,3 +1311,248 @@ def test_triples_top_ranks_by_the_largest_own_increment():
     top = triples_top(result.coarse)
     assert top[0] == (0, 1, 2) and len(top) == TRIPLE_TOP
     assert triples_top(result.coarse, k=3) == top[:3]
+
+
+# --- Task 6: the staged importance task and its views' payloads ---------------------------------
+
+# What a stage adds to `ImportanceResult.to_json()` (and `N`, which it re-reads as the scheduled
+# uniform configurations).
+STAGE_KEYS = {
+    "stage",
+    "stages",
+    "partial",
+    "elapsed_s",
+    "N",
+    "attempted",
+    "block_range",
+    "uncertainty",
+    "caveat",
+}
+
+
+def staged(frame, *, seed=SEED, checkpoint=no_checkpoint, **kwargs):
+    """Every stage `importance_stages` yields on `frame`, in order."""
+    return list(
+        importance_stages(
+            frame, metric=METRIC, scope=SCOPE, seed=seed, checkpoint=checkpoint, **kwargs
+        )
+    )
+
+
+def test_importance_stages_arrive_in_order():
+    """The three stages (§9.4), each whole for the stages run so far and partial until the last:
+    1, the fine mains and pairs; 2, adding the per-block mains (with the block range) and the
+    coarse point estimates; 3, adding the coarse bootstrap (R's interval, the candidates' bounds)
+    and the coarse null. Every stage carries the counts, the seed, the snapshot, the constants and
+    the three uncertainties; the last is `assess`'s result."""
+    frame = stat_frame(
+        d=4, values=4, n=600, seed=SEED, y=first_order, blocks={1: first_order, 2: zero}
+    )
+    stages = staged(frame)
+    assert [s["stage"] for s in stages] == [1, 2, 3]
+    assert [s["partial"] for s in stages] == [True, True, False]
+    assert all(s["stages"] == 3 and s["seed"] == SEED for s in stages)
+    assert all(s["snapshot"] == {"generation": 0, "chunk_watermark": 0} for s in stages)
+    assert all(s["n"] == s["N"] == s["attempted"] == 600 and s["K"] == 2 for s in stages)
+    assert all(s["constants"]["THETA_MIN"] == THETA_MIN for s in stages)
+    assert all(len(s["statuses"]) == 4 and s["availability"] is not None for s in stages)
+    json.dumps(stages, allow_nan=False)  # plain JSON throughout
+    first, second, third = stages
+    assert first["fine"] == second["fine"] == third["fine"]  # computed once, in stage 1
+    assert first["blocks"] is None and first["coarse"] is None and first["block_range"] is None
+    assert first["uncertainty"]["period"] == "pending: 2 screening blocks, measured in stage 2"
+    assert sorted(second["blocks"]) == ["1", "2"] and second["coarse"]["R"] is not None
+    assert second["coarse_bounds"] is None and second["coarse_null"] is None
+    assert second["coarse"]["lo"] is None  # R has no interval before stage 3
+    assert second["uncertainty"]["period"] == "block range over 2 screening blocks"
+    for k, found in enumerate(second["block_range"]):
+        shares = [second["blocks"][b]["S"][k] for b in ("1", "2")]
+        assert found == [min(shares), max(shares)]
+    assert third["coarse"]["lo"] is not None and third["coarse"]["hi"] is not None
+    assert third["coarse_bounds"]["R_lo"] == third["coarse"]["lo"]
+    assert third["coarse_null"] is not None and third["block_range"] == second["block_range"]
+    final = assess(cohort_of(frame), seed=SEED, checkpoint=no_checkpoint).to_json()
+    assert {k: v for k, v in third.items() if k not in STAGE_KEYS} == {
+        k: v for k, v in final.items() if k != "N"
+    }
+    assert third["uncertainty"]["design"] == "interval: sampling of trials, this data"
+    assert third["caveat"].startswith("conditional on these ranges, this data, this sampler")
+
+
+def test_stage_results_carry_their_timings():
+    """Each stage's dict carries `elapsed_s`, the seconds since the task's body began (the cohort
+    included), so stage 1's is the fine stage's time and stage 3's the whole task's. The budgets
+    (FINE_STAGE_BUDGET_S, TASK_BUDGET_S) are measured by `lab_benchmark.py analytics` (Task 12),
+    never asserted here."""
+    stages = staged(stat_frame(d=3, values=4, n=400, seed=SEED, y=first_order))
+    elapsed = [s["elapsed_s"] for s in stages]
+    assert all(isinstance(value, float) and value >= 0.0 for value in elapsed)
+    assert elapsed == sorted(elapsed)
+
+
+def test_importance_stages_stop_at_a_checkpoint():
+    """The stages pass the task's checkpoint between resamples: a cancel stops the computation
+    inside a stage, after the stages already delivered."""
+    calls = []
+    cancelled = []
+
+    def checkpoint():
+        calls.append(1)
+        if cancelled:
+            raise Cancelled
+
+    stages = importance_stages(
+        stat_frame(d=3, values=4, n=400, seed=SEED, y=first_order),
+        metric=METRIC,
+        scope=SCOPE,
+        seed=SEED,
+        checkpoint=checkpoint,
+    )
+    assert next(stages)["stage"] == 1
+    assert len(calls) >= BOOTSTRAP_B + PERMUTATION_P
+    cancelled.append(True)
+    with pytest.raises(Cancelled):
+        next(stages)
+
+
+def test_basis_line_names_n_and_the_scheduled_n():
+    """The basis line: n uniform trials used of N scheduled, with the attempted count beside N
+    while they differ (a run in progress), excluded adaptive rows and the ignored filter."""
+    frame = stat_frame(d=3, values=4, n=400, seed=SEED, y=first_order)
+    *_, last = staged(frame, scheduled=1_000)
+    assert (last["n"], last["N"], last["attempted"]) == (400, 1_000, 400)
+    assert importance_basis(last) == (
+        "computed on 400 uniform trials of 1,000 (400 attempted); adaptive rows excluded; "
+        "ignores the active filter"
+    )
+    *_, whole = staged(frame)
+    assert whole["N"] == frame.scheduled == 400
+    assert importance_basis(whole) == (
+        "computed on 400 uniform trials of 400; adaptive rows excluded; ignores the active filter"
+    )
+    assert importance_basis(None) == "importance not computed yet; ignores the active filter"
+
+
+def test_without_blocks_the_period_uncertainty_is_not_measured():
+    """K = 0 (an optimization grid, an experiment without screening blocks): every stage says the
+    period uncertainty is `not measured: no screening blocks` and has no block range."""
+    stages = staged(stat_frame(d=3, values=4, n=400, seed=SEED, y=first_order))
+    for stage in stages:
+        assert stage["uncertainty"]["period"] == "not measured: no screening blocks"
+        assert stage["block_range"] is None and stage["K"] == 0
+
+
+def test_interactions_view_lists_every_pair():
+    """Every pair of d = 10, 45 of them: J, both increments and I with their intervals, floors,
+    coverage and balance. Resolved pairs first, by their larger increment; the unresolved ones
+    (coverage under PAIR_MIN_COVERAGE) last, by max(S_i upper, S_j upper), then lowest coverage."""
+    values = [12, 12, 12] + [3] * 7
+    first, *_ = staged(stat_frame(d=10, values=values, n=400, seed=SEED, y=first_order))
+    payload = interactions_payload(first)
+    pairs = payload["pairs"]
+    assert len(pairs) == payload["total_pairs"] == 45
+    assert sorted(tuple(p["index"]) for p in pairs) == list(itertools.combinations(range(10), 2))
+    paths = first["paths"]
+    fine = first["fine"]
+    for pair in pairs:
+        i, j = pair["index"]
+        assert pair["pair"] == [paths[i], paths[j]]
+        assert pair["J"] == {
+            "value": fine["J"][i][j],
+            "lo": fine["lo"]["J"][i][j],
+            "hi": fine["hi"]["J"][i][j],
+        }
+        for name, (a, b) in (("D_ij", (i, j)), ("D_ji", (j, i))):
+            entry = pair[name]
+            assert entry["value"] == fine["D"][a][b]
+            assert (entry["lo"], entry["hi"]) == (fine["lo"]["D"][a][b], fine["hi"]["D"][a][b])
+            assert entry["floor"] == fine["floor"]["D"][a][b]
+            assert entry["detected"] == (fine["D"][a][b] > fine["floor"]["D"][a][b])
+        assert pair["I"] == pytest.approx(fine["J"][i][j] - fine["S"][i] - fine["S"][j])
+        assert pair["coverage"] == first["pair_coverage"][i][j]
+        assert pair["balance"] == first["pair_balance"][i][j]
+        assert pair["unresolved"] == (pair["coverage"] < PAIR_MIN_COVERAGE)
+    unresolved = [p for p in pairs if p["unresolved"]]
+    assert payload["unresolved_pairs"] == len(unresolved) == 3  # the three 12-value pairs
+    assert pairs[-3:] == unresolved  # last
+    upper = fine["hi"]["S"]
+    keys = [(-max(upper[p["index"][0]], upper[p["index"][1]]), p["coverage"]) for p in unresolved]
+    assert keys == sorted(keys)
+    resolved = pairs[:-3]
+    larger = [max(p["D_ij"]["value"], p["D_ji"]["value"]) for p in resolved]
+    assert larger == sorted(larger, reverse=True)
+    assert payload["constants"] == first["constants"]
+    assert interactions_payload(None) == {
+        "pairs": [],
+        "total_pairs": 0,
+        "unresolved_pairs": 0,
+        "constants": None,
+    }
+
+
+def test_triples_view_tops_twenty_with_their_intervals():
+    """The top TRIPLE_TOP triples by Δ^c, each with its three own-direction increments; a bound
+    where the coarse bootstrap gave one (a candidate's triple, stage 3), null elsewhere, and the
+    coarse null's floor. Before stage 2 there are none."""
+    _, _, result = assessed("03", SEED)
+    final = result.to_json()
+    payload = triples_payload(final)
+    triples = payload["triples"]
+    assert len(triples) == TRIPLE_TOP and payload["total_triples"] == math.comb(D, 3)
+    assert [tuple(t["index"]) for t in triples] == [tuple(t) for t in final["triples_top"]]
+    assert triples[0]["index"] == [0, 1, 2] and triples[0]["triple"] == list(result.paths[:3])
+    at = {tuple(t): k for k, t in enumerate(final["coarse"]["triples"])}
+    candidates_held = set(final["coarse_bounds"]["candidates"])
+    bounded = 0
+    for triple in triples:
+        t = at[tuple(triple["index"])]
+        assert triple["T"] == final["coarse"]["T"][t]
+        values = [entry["value"] for entry in triple["increments"]]
+        assert values == final["coarse"]["increments"][t]
+        assert triple["delta"] == max(values)
+        for p, entry in enumerate(triple["increments"]):
+            assert entry["own"] == result.paths[triple["index"][p]]
+            assert entry["hi"] == final["coarse_bounds"]["inc_hi"][t][p]
+            assert entry["floor"] == final["coarse_null"]["increments"][t][p]
+        held = candidates_held.intersection(triple["index"])
+        assert all(e["hi"] is not None for e in triple["increments"]) == bool(held)
+        bounded += bool(held)
+    assert payload["bounded"] is True and bounded > 0
+    points = triples_payload({**final, "coarse_bounds": None, "coarse_null": None})
+    assert all(
+        e["lo"] is None and e["hi"] is None and e["floor"] is None
+        for t in points["triples"]
+        for e in t["increments"]
+    )
+    assert points["bounded"] is False
+    assert triples_payload({**final, "coarse": None, "triples_top": []})["triples"] == []
+    assert triples_payload(None) == {"triples": [], "total_triples": 0, "bounded": False}
+
+
+def test_importance_view_leaves_the_triples_to_the_triples_view():
+    """The importance view sends the latest stage without its triple-level arrays (1,140 triples
+    at d = 20; the triples view sends the top TRIPLE_TOP), building new dicts: the stage it read
+    is unchanged."""
+    _, _, result = assessed("03", SEED)
+    final = result.to_json()
+    before = json.dumps(final, sort_keys=True)
+    sent = importance_module.importance_payload(final)
+    assert set(sent["coarse"]) == {"S", "J", "D", "R", "lo", "hi"}
+    assert "inc_lo" not in sent["coarse_bounds"] and "inc_hi" not in sent["coarse_bounds"]
+    assert sent["coarse_null"] == {"t": final["coarse_null"]["t"]}
+    assert sent["triples_top"] == final["triples_top"] and sent["fine"] == final["fine"]
+    assert json.dumps(final, sort_keys=True) == before
+    assert importance_module.importance_payload(None) is None
+
+
+def test_interactions_view_is_bounded(monkeypatch):
+    """The response bound holds whatever d is: the first INTERACTIONS_MAX_PAIRS pairs in the
+    view's order, the unresolved going first, and `total_pairs` still counts them all."""
+    values = [12, 12, 12] + [3] * 7
+    first, *_ = staged(stat_frame(d=10, values=values, n=400, seed=SEED, y=first_order))
+    whole = interactions_payload(first)["pairs"]
+    monkeypatch.setattr(importance_module, "INTERACTIONS_MAX_PAIRS", 40)
+    payload = interactions_payload(first)
+    assert payload["pairs"] == whole[:40] and payload["total_pairs"] == 45
+    assert not any(pair["unresolved"] for pair in payload["pairs"])
+    assert payload["unresolved_pairs"] == 3

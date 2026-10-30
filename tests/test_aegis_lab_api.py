@@ -20,12 +20,13 @@ from products.aegis.indicators import IndicatorCache
 from products.aegis.lab import identity, sources
 from products.aegis.lab import store as lab_store_module
 from products.aegis.lab.cache import LabCache
-from products.aegis.lab.tasks import LabTasks
+from products.aegis.lab.tasks import LabTasks, task_key
 from products.aegis.pool import METRICS, SCOPES
 from products.aegis.results import strategy_hash
 from products.aegis.runs import JsonRunRepository, aegis_data_root
 from products.aegis.surface import apply_params
 from test_aegis_api import (
+    RANGE,
     NoCore,
     _experiment_body,
     _optimize_payload,
@@ -285,6 +286,22 @@ def test_query_loads_projected_columns_only(client, lab_cache, monkeypatch):
     )
     assert c.post(url, json=page).status_code == 200
     assert len(recorded) == 13 and one_trial[-1] == (None, 4)
+    # Phase 3 Task 6: the importance task's three views load BASE, design, pass, every parameter
+    # and the metric column of the scope, whatever the filter names; the task reads the route's
+    # table (a K = 0 experiment's every-block rows are its block-0 rows), so one read each.
+    tasks = _tasks()
+    task_columns = {*sources.BASE, "design", "pass", DONCHIAN, RSI, "combined.net_pnl"}
+    for view in ("importance", "interactions", "triples"):
+        lab_cache.evict((("exp", experiment_id),))
+        before = len(recorded)
+        body = {**base, "view": view}
+        response = c.post(url, json=body)
+        assert response.status_code == 200, (view, response.text)
+        assert tasks.wait(response.json()["task"]["id"], WAIT_S).state == "done"
+        request = api.QueryRequest.model_validate(body)
+        allowed = sources.COLUMNS_FOR(view, request, meta.parameters, meta.objective)
+        assert set(allowed) == task_columns
+        assert len(recorded) == before + 1 and set(recorded[-1]) == task_columns, view
 
 
 def test_trial_no_round_trips_with_a_warmup_skip(client, monkeypatch):
@@ -821,3 +838,482 @@ def test_index_only_for_the_views_that_read_it(client, lab_cache, monkeypatch):
         assert response.status_code == 200, (body, response.text)
     assert c.get(f"{LAB}/exp:{experiment_id}/summary").status_code == 200
     assert built == ["index"] * 5
+
+
+# --- Phase 3 Task 6: the staged importance task and the importance, interactions, triples views --
+
+WAIT_S = 30.0  # bounds a hung task; no outcome depends on it
+TASK_FIELDS = {
+    "id",
+    "label",
+    "state",
+    "stage",
+    "stages",
+    "progress",
+    "error",
+    "started_at",
+    "finished_at",
+    "sharing_cpu",
+}
+RUNNING_OPTIMIZATION = "importance is available when the optimization finishes"
+
+
+def _tasks() -> LabTasks:
+    """The test's Lab task executor: the `client` fixture's override."""
+    return server.app.dependency_overrides[api.get_lab_tasks]()
+
+
+def _view(c, src: str, view: str = "importance", **body) -> dict:
+    """One answer of a task view, the filter empty unless `body` gives one."""
+    response = c.post(f"{LAB}/{src}/query", json={"filter": {}, "view": view, **body})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _done(c, src: str, **body) -> dict:
+    """The importance view once its task is done (waiting on the executor, never sleeping)."""
+    first = _view(c, src, **body)
+    finished = _tasks().wait(first["task"]["id"], WAIT_S)
+    assert finished.state == "done", finished.error
+    return _view(c, src, **body)
+
+
+def test_importance_view_starts_then_answers(client, monkeypatch):
+    """The first poll requests the task (queued, or running or done if it is quick) and answers
+    with no result yet; a later poll is `done` with stage 3, the basis line naming n of N, and
+    the triple-level arrays left to the triples view. Another seed is another task."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    first = _view(c, src)
+    task = first["task"]
+    assert set(task) == TASK_FIELDS and HEX32.fullmatch(task["id"])
+    assert task["state"] in ("queued", "running", "done") and task["label"] == "importance"
+    assert task["stages"] == 3 and first["view"] == "importance" and first["reason"] is None
+    assert first["snapshot"] == {"generation": 1, "chunk_watermark": 1}
+    assert _tasks().wait(task["id"], WAIT_S).state == "done"
+    later = _view(c, src)
+    assert later["task"]["id"] == task["id"] and later["task"]["state"] == "done"
+    assert later["task"]["progress"] == 1.0 and later["task"]["finished_at"]
+    importance = later["importance"]
+    assert importance["stage"] == importance["stages"] == 3 and importance["partial"] is False
+    assert importance["seed"] == 1 and importance["snapshot"] == later["snapshot"]
+    assert importance["paths"] == [DONCHIAN, RSI] and importance["metric"] == "net_pnl"
+    assert importance["n"] == importance["N"] == importance["attempted"] == 4
+    assert isinstance(importance["elapsed_s"], float)
+    assert importance["uncertainty"]["period"] == "not measured: no screening blocks"
+    assert [s["label"] for s in importance["statuses"]] == ["Insufficient coverage"] * 2
+    assert importance["constants"]["THETA_MIN"] == 0.01
+    assert "triples" not in importance["coarse"] and later["snapshot_label"] is None
+    scope = later["scope"]
+    assert scope["basis"] == (
+        "computed on 4 uniform trials of 4; adaptive rows excluded; ignores the active filter"
+    )
+    assert scope["completed"] == scope["filtered"] == 4 and scope["shown"] == 0
+    other = _view(c, src, seed=2)
+    assert other["task"]["id"] != task["id"]
+    assert _tasks().wait(other["task"]["id"], WAIT_S).result["seed"] == 2
+    refused = c.post(f"{LAB}/{src}/query", json={"filter": {}, "view": "importance", "seed": -1})
+    assert refused.status_code == 422
+
+
+def test_importance_ignores_the_filter(client, monkeypatch):
+    """Importance reads the unfiltered uniform rows (§7.3): the same answer, scope included, with
+    and without `filter.ranges`, for each of the three views."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    plain = _done(c, src)
+    narrowed = {"ranges": {RSI: [7, 7]}, "pass": ["grid"]}
+    assert _view(c, src, filter=narrowed) == plain
+    assert plain["scope"]["filters_active"] == 0 and plain["scope"]["filtered"] == 4
+    for view in ("interactions", "triples"):
+        assert _view(c, src, view, filter=narrowed) == _view(c, src, view)
+    unknown = {"ranges": {"long_side.indicators.nope.length": [1, 2]}}
+    refused = c.post(f"{LAB}/{src}/query", json={"filter": unknown, "view": "importance"})
+    assert refused.status_code == 422 and "unknown path" in refused.json()["detail"]
+
+
+def test_interactions_and_triples_views_answer_from_the_task(client, monkeypatch):
+    """`interactions` and `triples` answer from the importance task's latest stage (the same
+    task: no second computation): the experiment's one pair, and no triple at d = 2."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    importance = _done(c, src)
+    pairs = _view(c, src, "interactions")
+    assert pairs["task"] == importance["task"] and pairs["view"] == "interactions"
+    assert [p["pair"] for p in pairs["pairs"]] == [[DONCHIAN, RSI]]
+    assert pairs["total_pairs"] == 1 and pairs["scope"]["shown"] == 1
+    assert pairs["computed"]["stage"] == 3 and pairs["computed"]["seed"] == 1
+    assert pairs["constants"] == importance["importance"]["constants"]
+    assert pairs["scope"]["basis"] == importance["scope"]["basis"]
+    triples = _view(c, src, "triples")
+    assert triples["task"] == importance["task"] and triples["triples"] == []
+    assert triples["total_triples"] == 0 and triples["scope"]["shown"] == 0
+
+
+def test_basis_counts_the_scheduled_uniform_configurations(client, monkeypatch):
+    """N is the experiment's scheduled uniform configurations, its first pass: every valid cell
+    when exhaustive; when sampled, the cells its Latin hypercube drew, or before the draw the
+    planned first pass (refinement rows are adaptive)."""
+    c, _, repository = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    document = experiments_module.ExperimentStore(repository).get(experiment_id)
+    assert document.plan["mode"] == "exhaustive" and sources.scheduled_uniform(document) == 4
+    sampled = {**document.plan, "mode": "sampled", "first_pass": 3, "refinement": 1}
+    planned = document.model_copy(update={"plan": sampled, "first_pass_cells": None})
+    assert sources.scheduled_uniform(planned) == 3
+    drawn = planned.model_copy(update={"first_pass_cells": [0, 2], "refinement_cells": [1]})
+    assert sources.scheduled_uniform(drawn) == 2
+
+
+def test_importance_on_an_optimization_grid(client):
+    """Review Focus 5: a finished `opt:` grid job gets importance on its exhaustive grid, every
+    cell a uniform trial and N its kept cells, with the period uncertainty `not measured: no
+    screening blocks` and no snapshot."""
+    c, _, _ = client
+    job_id = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    done = _wait(c, job_id, "done")
+    src = f"opt:{job_id}"
+    answer = _done(c, src, filter={"scope": "long"})
+    importance = answer["importance"]
+    assert importance["uncertainty"]["period"] == "not measured: no screening blocks"
+    assert importance["K"] == 0 and importance["block_range"] is None
+    assert importance["n"] == importance["N"] == done["total_cells"] == 9
+    assert importance["scope"] == "long" and importance["metric"] == "net_pnl"
+    assert importance["stage"] == 3 and importance["snapshot"] is None
+    assert answer["snapshot"] is None and answer["provisional"] is False
+    assert answer["scope"]["basis"] == (
+        "computed on 9 uniform trials of 9; adaptive rows excluded; ignores the active filter"
+    )
+    fast, slow = f"long_side.{done['fast_path']}", f"long_side.{done['slow_path']}"
+    assert importance["paths"] == [fast, slow]
+    pairs = _view(c, src, "interactions", filter={"scope": "long"})
+    assert [p["pair"] for p in pairs["pairs"]] == [[fast, slow]]
+    combined = c.post(f"{LAB}/{src}/query", json={"filter": {}, "view": "importance"})
+    assert combined.status_code == 422  # an optimizer source has one side
+
+
+def test_importance_waits_for_a_running_optimization(client, monkeypatch):
+    """A running optimization's identity carries its cells done, so every poll would key a new
+    task: no task is requested until it finishes; each view answers no task, no result and the
+    reason. Once it is done the importance task runs."""
+    c, _, repository = client
+    gate = threading.Event()
+    _runner(repository, after_unit=lambda done: gate.wait(WAIT_S))
+    tasks = _tasks()
+    requested = []
+    original = tasks.request
+
+    def recording(key, *args, **kwargs):
+        requested.append(key)
+        return original(key, *args, **kwargs)
+
+    monkeypatch.setattr(tasks, "request", recording)
+    long = {"filter": {"scope": "long"}}
+    try:
+        job_id = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+        src = f"opt:{job_id}"
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            job = c.get(f"/aegis/api/optimize/{job_id}").json()
+            if job["status"] == "running" and job["progress"]["done"] >= 1:
+                break
+            time.sleep(0.02)
+        else:
+            raise AssertionError("the optimization never reached its held unit")
+        for view in ("importance", "importance", "interactions", "triples"):
+            answer = _view(c, src, view, **long)
+            assert answer["task"] is None and answer["reason"] == RUNNING_OPTIMIZATION, view
+            assert answer["provisional"] is True
+        assert answer["triples"] == [] and answer["computed"] is None
+        assert _view(c, src, **long)["importance"] is None
+        assert _view(c, src, rerun=True, **long)["task"] is None  # not even when asked again
+        assert requested == []
+    finally:
+        gate.set()
+    done = _wait(c, job_id, "done")
+    answer = _done(c, src, **long)
+    assert answer["reason"] is None and answer["importance"]["N"] == done["total_cells"]
+    assert len(set(requested)) == 1 and requested[0][0] == ("opt", job_id, done["total_cells"])
+
+
+@pytest.mark.parametrize("how", ["cancel", "fail"])
+def test_a_cancelled_or_failed_importance_is_never_restarted_by_a_poll(client, monkeypatch, how):
+    """Ruling P13: once the key's newest task was cancelled or failed, polls answer that task and
+    request nothing, whatever the executor does meanwhile; only `rerun` requests again."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    tasks = _tasks()
+    real = sources.importance_stages
+    if how == "cancel":  # held behind another task, then cancelled through the route
+        gate, started = threading.Event(), threading.Event()
+
+        def blocker(checkpoint):
+            started.set()
+            assert gate.wait(WAIT_S)
+            checkpoint()
+            yield {}
+
+        other = task_key(("opt", "blocker", 0), "importance", "net_pnl", "long", 1)
+        tasks.request(other, "blocker", 1, blocker)
+        assert started.wait(WAIT_S)
+        first = _view(c, src)
+        assert first["task"]["state"] == "queued"
+        cancel = c.post(f"{LAB}/{src}/tasks/{first['task']['id']}/cancel")
+        assert cancel.json() == {"cancelled": True}
+        gate.set()
+    else:
+
+        def failing(*args, **kwargs):
+            raise ValueError("no finite net_pnl")
+            yield
+
+        monkeypatch.setattr(sources, "importance_stages", failing)
+        first = _view(c, src)
+        assert tasks.wait(first["task"]["id"], WAIT_S).state == "failed"
+        monkeypatch.setattr(sources, "importance_stages", real)
+    ended = "cancelled" if how == "cancel" else "failed"
+    for _ in range(2):
+        again = _view(c, src)
+        assert again["task"]["id"] == first["task"]["id"] and again["task"]["state"] == ended
+        assert again["importance"] is None
+        assert _view(c, src, "interactions")["task"]["id"] == first["task"]["id"]
+    if how == "fail":
+        assert "no finite net_pnl" in again["task"]["error"]
+    rerun = _view(c, src, rerun=True)
+    assert rerun["task"]["id"] != first["task"]["id"]
+    assert tasks.wait(rerun["task"]["id"], WAIT_S).state == "done"
+    after = _view(c, src)
+    assert after["task"]["id"] == rerun["task"]["id"] and after["importance"]["stage"] == 3
+
+
+def test_importance_beside_a_running_experiment(client, monkeypatch):
+    """While the experiment runs, the basis line names the attempted configurations beside the
+    scheduled N. Once the source moves on, a poll queues the new snapshot's task and shows the
+    newest finished result labelled `snapshot X · current Y`; cancelling that task keeps the
+    result and the label, and no poll restarts it."""
+    monkeypatch.setenv("AEGIS_POOL_WORKERS", "2")
+    monkeypatch.setattr(experiments_module, "CHUNK_CELLS", 2)
+    c, _, repository = client
+    gate, stop, started = threading.Event(), threading.Event(), threading.Event()
+    _runner(repository, after_unit=lambda done: gate.wait(WAIT_S))
+    tasks = _tasks()
+    try:
+        created = c.post("/aegis/api/experiments", json=_experiment_body(c, name="held"))
+        assert created.status_code == 202, created.text
+        experiment_id = created.json()["experiment_id"]
+        src = f"exp:{experiment_id}"
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:  # the first unit of two cells is committed, then held
+            held = c.get(f"/aegis/api/experiments/{experiment_id}").json()
+            if held["status"] == "running" and held["progress"]["cells_done"] == 2:
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("the experiment never reached its held unit")
+        running = _done(c, src)
+        computed = running["importance"]
+        assert running["provisional"] is True
+        assert (computed["n"], computed["attempted"], computed["N"]) == (2, 2, 4)
+        assert running["scope"]["basis"] == (
+            "computed on 2 uniform trials of 4 (2 attempted); adaptive rows excluded; "
+            "ignores the active filter"
+        )
+
+        def blocker(checkpoint):
+            started.set()
+            assert stop.wait(WAIT_S)
+            checkpoint()
+            yield {}
+
+        tasks.request(task_key(("opt", "blocker", 0), "x", "net_pnl", "long", 1), "x", 1, blocker)
+        assert started.wait(WAIT_S)
+    finally:
+        gate.set()
+    try:
+        finished = _wait_experiment(c, experiment_id, ("done", "failed"))
+        assert finished["status"] == "done", finished.get("error")
+        moved = _view(c, src)
+        assert moved["task"]["id"] != running["task"]["id"]
+        assert moved["task"]["state"] == "queued"
+        assert moved["importance"] == computed  # the newest finished result, not current
+        was, now = computed["snapshot"], moved["snapshot"]
+        assert was != now
+        label = (
+            f"snapshot g{was['generation']} c{was['chunk_watermark']} · "
+            f"current g{now['generation']} c{now['chunk_watermark']}"
+        )
+        assert moved["snapshot_label"] == label
+        cancel = c.post(f"{LAB}/{src}/tasks/{moved['task']['id']}/cancel")
+        assert cancel.json() == {"cancelled": True}
+    finally:
+        stop.set()
+    for _ in range(2):
+        again = _view(c, src)
+        assert again["task"]["id"] == moved["task"]["id"]
+        assert again["task"]["state"] == "cancelled"
+        assert again["importance"] == computed and again["snapshot_label"] == label
+    whole = _view(c, src, rerun=True)
+    assert tasks.wait(whole["task"]["id"], WAIT_S).state == "done"
+    current = _view(c, src)
+    assert current["importance"]["n"] == current["importance"]["N"] == 4
+    assert current["snapshot_label"] is None
+
+
+def test_a_task_view_never_waits_for_the_runner_under_the_read_lock(client, monkeypatch):
+    """The job holds the runner's lock while it takes the experiment's write lock (`finalize`
+    compacts), so a route that waited for the runner under the read lock could deadlock with it:
+    every read of `sharing_cpu` during a task view happens outside the read lock, the newest task
+    still queued or running."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    reads, under_the_lock = [], []
+
+    def probe(runner) -> bool:
+        reads.append(1)
+        if threading.get_ident() in lab_store_module.LOCKS._lock(experiment_id).readers:
+            under_the_lock.append(1)
+        return False
+
+    monkeypatch.setattr(api, "_sharing_cpu", probe)
+    tasks = _tasks()
+    gate, started = threading.Event(), threading.Event()
+
+    def blocker(checkpoint):
+        started.set()
+        assert gate.wait(WAIT_S)
+        checkpoint()
+        yield {}
+
+    tasks.request(task_key(("opt", "blocker", 0), "x", "net_pnl", "long", 1), "x", 1, blocker)
+    assert started.wait(WAIT_S)
+    try:
+        for _ in range(2):  # the second finds its key's newest task live
+            assert _view(c, src)["task"]["state"] == "queued"
+        assert reads and under_the_lock == []
+    finally:
+        gate.set()
+
+
+def test_a_cancelled_task_keeps_its_stages_readable(client, monkeypatch):
+    """Review Focus 3, with the real stages: cancelled in the middle of stage 3, the stages
+    delivered stay readable and partial, no half-computed interval shows, its frame's handle and
+    its pin are released, polls never restart it and `rerun` computes the whole again."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    tasks = _tasks()
+    delivered, cancelled = threading.Event(), threading.Event()
+    real = sources.importance_stages
+
+    def held(frame, **kwargs):
+        stages = real(frame, **kwargs)
+        yield next(stages)
+        yield next(stages)
+        delivered.set()  # the executor asked for more: stage 2 is in the task's status
+        assert cancelled.wait(WAIT_S)
+        yield from stages  # its next checkpoint stops it
+
+    monkeypatch.setattr(sources, "importance_stages", held)
+    first = _view(c, src)
+    assert delivered.wait(WAIT_S)
+    running = _view(c, src)
+    assert running["task"]["id"] == first["task"]["id"]
+    assert running["task"]["state"] == "running" and running["task"]["stage"] == 2
+    assert running["importance"]["stage"] == 2 and running["importance"]["partial"] is True
+    cancel = c.post(f"{LAB}/{src}/tasks/{first['task']['id']}/cancel")
+    assert cancel.json() == {"cancelled": True}
+    stopping = _view(c, src)  # before its next checkpoint: still running, and never restarted
+    assert stopping["task"]["id"] == first["task"]["id"] and stopping["task"]["state"] == "running"
+    cancelled.set()
+    assert tasks.wait(first["task"]["id"], WAIT_S).state == "cancelled"
+    assert lab_store_module.REGISTRY.held(experiment_id) == set()
+    monkeypatch.setattr(sources, "importance_stages", real)
+    for _ in range(2):
+        again = _view(c, src)
+        assert again["task"]["id"] == first["task"]["id"]
+        assert again["task"]["state"] == "cancelled" and again["task"]["stage"] == 2
+        kept = again["importance"]
+        assert kept["stage"] == 2 and kept["partial"] is True
+        assert kept["coarse_bounds"] is None and kept["coarse"]["lo"] is None
+    pairs = _view(c, src, "interactions")
+    assert pairs["computed"]["stage"] == 2 and pairs["computed"]["partial"] is True
+    assert pairs["total_pairs"] == 1
+    rerun = _view(c, src, rerun=True)
+    assert rerun["task"]["id"] != first["task"]["id"]
+    assert tasks.wait(rerun["task"]["id"], WAIT_S).state == "done"
+    assert _view(c, src)["importance"]["stage"] == 3
+
+
+def test_importance_reads_every_block_of_a_screened_experiment(
+    client, lab_cache, monkeypatch, tmp_path
+):
+    """A task view starts the task whichever view asks first. On a screened experiment the task
+    reads every block under its own cache entry, the route's scope stays block 0's and the
+    snapshot's ordinary views are untouched; the answer echoes the filter hash and no handle is
+    left behind."""
+    c, _, _ = client
+    write_archive(tmp_path, "20260301T000000000000Z", "SPY", price=400.0, missing=290)
+    experiment_id = _finished_experiment(
+        c,
+        monkeypatch,
+        name="screened",
+        data={"symbol": "SPY", "timeframe": "1m", **RANGE},
+        blocks=2,
+    )
+    src = f"exp:{experiment_id}"
+    first = _view(c, src, "triples", filter_hash="cafe0001")
+    assert first["filter_hash"] == "cafe0001" and first["task"]["label"] == "importance"
+    assert first["computed"] is None and first["triples"] == []
+    assert first["scope"]["basis"] == "importance not computed yet; ignores the active filter"
+    assert _tasks().wait(first["task"]["id"], WAIT_S).state == "done"
+    answer = _view(c, src, filter_hash="cafe0002")
+    assert answer["filter_hash"] == "cafe0002" and answer["task"]["id"] == first["task"]["id"]
+    importance = answer["importance"]
+    assert importance["K"] == 2 and sorted(importance["blocks"]) == ["1", "2"]
+    assert importance["n"] == importance["N"] == importance["attempted"] == 4
+    assert importance["uncertainty"]["period"] == "block range over 2 screening blocks"
+    for k, found in enumerate(importance["block_range"]):  # None where no block measured it
+        shares = [importance["blocks"][b]["S"][k] for b in ("1", "2")]
+        measured = [share for share in shares if share is not None]
+        assert found == ([min(measured), max(measured)] if measured else None)
+    scope = answer["scope"]
+    assert scope["block"] == 0 and scope["attempted"] == 4 and scope["evaluations_done"] == 12
+    selections = {key[4] for key in lab_cache._entries if key[0] == ("exp", experiment_id)}
+    assert selections == {sources.BLOCK0, sources.ALL_BLOCKS}
+    counts = c.post(f"{LAB}/{src}/query", json={"filter": {}, "view": "counts"}).json()
+    assert counts["scope"]["attempted"] == 4 and counts["scope"]["filtered"] == 4
+    assert lab_store_module.REGISTRY.held(experiment_id) == set()
+
+
+def test_a_failed_importance_on_an_optimization_is_not_restarted(client, monkeypatch):
+    """Ruling P13 on an `opt:` source: a finished job's identity is stable, so its failed task
+    stands through polls until `rerun`."""
+    c, _, _ = client
+    job_id = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    _wait(c, job_id, "done")
+    src = f"opt:{job_id}"
+    long = {"filter": {"scope": "long"}}
+    tasks = _tasks()
+    real = sources.importance_stages
+
+    def failing(*args, **kwargs):
+        raise ValueError("no finite net_pnl")
+        yield
+
+    monkeypatch.setattr(sources, "importance_stages", failing)
+    first = _view(c, src, **long)
+    assert tasks.wait(first["task"]["id"], WAIT_S).state == "failed"
+    monkeypatch.setattr(sources, "importance_stages", real)
+    for _ in range(2):
+        again = _view(c, src, **long)
+        assert again["task"]["id"] == first["task"]["id"] and again["task"]["state"] == "failed"
+        assert "no finite net_pnl" in again["task"]["error"] and again["importance"] is None
+    rerun = _view(c, src, rerun=True, **long)
+    assert rerun["task"]["id"] != first["task"]["id"]
+    assert tasks.wait(rerun["task"]["id"], WAIT_S).state == "done"
+    assert _view(c, src, **long)["importance"]["stage"] == 3

@@ -13,6 +13,10 @@ What a snapshot fixes is cached beside its tables (Phase 3 Task 0): one table pe
 row selection, whatever order a view asks for its columns in; the snapshot's `FrameIndex`; the
 summary's counts per value and headline; and each aggregate matrix with its four stats, keyed by
 its source's identity, so a stat change answers from it and one source never meets another's.
+
+The importance task's three views (`TASK_VIEWS`, Phase 3 Task 6) answer from a Lab task instead of
+computing in the request: `experiment_importance` and `optimization_importance` are the task's
+body, and `task_query` builds their answers from the stage the route chose.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal
 
@@ -37,6 +41,14 @@ from products.aegis.experiments import (
 )
 from products.aegis.lab import identity
 from products.aegis.lab.cache import LabCache
+from products.aegis.lab.importance import (
+    computed_of,
+    importance_basis,
+    importance_payload,
+    importance_stages,
+    interactions_payload,
+    triples_payload,
+)
 from products.aegis.lab.index import FrameIndex, build_index
 from products.aegis.lab.policy import SHARPE_MIN_TRADES
 from products.aegis.lab.query import (
@@ -76,6 +88,7 @@ from products.aegis.lab.store import (
     latest_snapshot,
     snapshot_json,
 )
+from products.aegis.lab.tasks import Body, TaskStatus, snapshot_label, status_json
 from products.aegis.optimize import SIDE_KEY, grid_values
 from products.aegis.pool import METRICS, SCOPES
 from products.aegis.runs import _check_id
@@ -85,8 +98,20 @@ from products.aegis.surface import _whole_number, resolve_path
 # Every view reads these: the trial, its block and status (completed = ok in block 0) and its
 # configuration (`unique` counts distinct keys).
 BASE = ("trial_no", "block", "status", "param_key")
-VIEWS = ("counts", "matrix", "page", "top", "marginals", "parallel", "square_trials")
+VIEWS = (
+    "counts",
+    "matrix",
+    "page",
+    "top",
+    "marginals",
+    "parallel",
+    "square_trials",
+    "importance",
+    "interactions",
+    "triples",
+)
 INDEXED_VIEWS = ("counts", "matrix", "page", "marginals")  # the views that read the index
+TASK_VIEWS = ("importance", "interactions", "triples")  # answered from the importance task
 # A page row's `values` beside the objective (the page's metric columns, §9.3).
 PAGE_VALUES = ("net_pnl", "max_drawdown", "trade_count", "exposure", "sharpe_trade")
 _REQUIRED = {
@@ -231,7 +256,7 @@ def COLUMNS_FOR(
 ) -> tuple[str, ...]:
     """The columns one request loads (§9.2: projected, never the whole row set): `BASE`, every
     path the filter names (and `pass` / `design` when it names a pass), then the view's own.
-    `request` is a `QueryRequest` for the seven query views and None for `summary` and `trial`
+    `request` is a `QueryRequest` for the query views and None for `summary` and `trial`
     (the trial route's one row: every metric of every scope). `side` is an optimizer source's
     side, whose metric columns its summary reads. A path that is not a parameter, a metric that
     does not exist or a missing view argument is a ValueError; an unknown sort a KeyError."""
@@ -286,6 +311,8 @@ def COLUMNS_FOR(
         chosen = paths if request.paths is None else request.paths
         columns += [parameter(path) for path in chosen]
         columns.append(metric_column(scope, metric))
+    elif view in TASK_VIEWS:  # the cohort's rows (a legacy source's design comes from its pass)
+        columns += ["design", "pass", *paths, metric_column(scope, metric)]
     else:  # parallel
         chosen = paths if request.axes is None else request.axes
         columns += [parameter(path) for path in chosen]
@@ -471,6 +498,73 @@ def optimization_source(status: dict, frame: TrialFrame) -> tuple:
     """The identity a cached answer of an optimization carries: the job and the cells done that
     its frame holds (one frozen copy of them, which a running job only appends to)."""
     return ("opt", status["job_id"], frame.table.num_rows)
+
+
+def scheduled_uniform(document: ExperimentDocument) -> int:
+    """The uniform configurations an experiment schedules, the N of the importance basis line
+    (§7.3): its first pass, every valid cell when exhaustive; when sampled, the cells its Latin
+    hypercube drew, which may be fewer than planned, or before the draw the planned first pass.
+    Refinement rows are adaptive and never counted."""
+    plan = document.plan
+    if plan["mode"] == "exhaustive":
+        return int(plan["valid_cells"])
+    if document.first_pass_cells is not None:
+        return len(document.first_pass_cells)
+    return int(plan["first_pass"])
+
+
+def experiment_importance(
+    document: ExperimentDocument,
+    store: ExperimentStore,
+    cache: LabCache,
+    columns: Sequence[str],
+    *,
+    snapshot: Snapshot,
+    metric: str,
+    scope: str,
+    seed: int,
+) -> Body:
+    """The importance task's body on an experiment (§9.4): when the task runs, its own frame at
+    the `snapshot` its route pinned, every screening block's rows (`ALL_BLOCKS`; a K = 0
+    experiment has only block 0, so it shares the route's block-0 table), computed with no lock
+    held (`open_experiment` has released its read lock by then) and its handle released in a
+    `finally`, whatever ends the task. The pin itself is the executor's (`LabTasks.request`'s
+    `hold`). Building the body reads nothing, so it cannot refuse between pin and request."""
+
+    def body(checkpoint) -> Iterator[dict]:
+        frame, handle = open_experiment(
+            document,
+            store,
+            cache,
+            columns,
+            selection=ALL_BLOCKS if document.blocks else BLOCK0,
+            snapshot=snapshot,
+        )
+        try:
+            yield from importance_stages(
+                frame,
+                metric=metric,
+                scope=scope,
+                seed=seed,
+                checkpoint=checkpoint,
+                scheduled=scheduled_uniform(document),
+            )
+        finally:
+            REGISTRY.release(handle)
+
+    return body
+
+
+def optimization_importance(frame: TrialFrame, *, metric: str, scope: str, seed: int) -> Body:
+    """The importance task's body on a finished optimization: its one `opt_frame` copy, in memory
+    (no lock, no handle), N its grid's scheduled cells (the frame's `scheduled`)."""
+
+    def body(checkpoint) -> Iterator[dict]:
+        yield from importance_stages(
+            frame, metric=metric, scope=scope, seed=seed, checkpoint=checkpoint
+        )
+
+    return body
 
 
 def canonical_filter(flt: LabFilter) -> str:
@@ -891,6 +985,54 @@ def run_query(
     )
 
 
+def task_query(
+    frame: TrialFrame,
+    request: Any,
+    *,
+    task: TaskStatus | None,
+    result: dict | None,
+    reason: str | None = None,
+    unique: int | None = None,
+) -> dict:
+    """POST /lab/{src}/query for `TASK_VIEWS`: the view of `result`, the importance task's stage
+    the route chose, beside `task`, its status (None: no task was requested, and `reason` says
+    why) and `snapshot_label` when `result` is of a snapshot the source has moved on from. The
+    filter is ignored (§7.3): the scope is the unfiltered one of the request's side, so a filter
+    changes nothing in the answer. The basis line is `importance_basis`'s."""
+    view = request.view
+    if view == "importance":
+        payload, shown = {"importance": importance_payload(result)}, 0
+    elif view == "interactions":
+        payload = {"computed": computed_of(result), **interactions_payload(result)}
+        shown = len(payload["pairs"])
+    elif view == "triples":
+        payload = {"computed": computed_of(result), **triples_payload(result)}
+        shown = len(payload["triples"])
+    else:
+        raise ValueError(f"{view!r} is not a view of the importance task")
+    counted = scope_counts(
+        frame,
+        LabFilter(scope=request.filter.scope),
+        shown,
+        metric=request.metric or frame.objective,
+        basis=importance_basis(result),
+        unique=unique,
+    )
+    return envelope(
+        view,
+        {
+            "task": status_json(task),
+            "reason": reason,
+            "snapshot_label": snapshot_label(result, frame.snapshot),
+            **payload,
+        },
+        counted,
+        filter_hash=request.filter_hash,
+        snapshot=frame.snapshot,
+        provisional=frame.provisional,
+    )
+
+
 def trial_detail(frame: TrialFrame, trial_no: int, trial_identity: dict) -> dict | None:
     """GET /lab/{src}/trials/{trial}: the canonical block-0 row of one trial number (None when the
     table has none), every scope's metrics with the trade Sharpe and its `low_n` flag (fewer than
@@ -940,12 +1082,14 @@ __all__ = [
     "BLOCK0",
     "COLUMNS_FOR",
     "INDEXED_VIEWS",
+    "TASK_VIEWS",
     "ExperimentMeta",
     "SourceRef",
     "cached_meta",
     "canonical_filter",
     "column_set",
     "experiment_identity",
+    "experiment_importance",
     "experiment_index",
     "experiment_meta",
     "experiment_source",
@@ -954,11 +1098,14 @@ __all__ = [
     "open_experiment",
     "opt_frame",
     "optimization_identity",
+    "optimization_importance",
     "optimization_source",
     "parse_source",
     "project",
     "run_query",
+    "scheduled_uniform",
     "summary",
+    "task_query",
     "trial_detail",
     "trial_number",
 ]

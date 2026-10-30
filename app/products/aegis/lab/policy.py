@@ -55,6 +55,7 @@ PAIR_MIN_N = 4
 PAIR_MIN_COVERAGE = 0.5
 PAIR_BALANCE_TVD = 0.25
 TRIPLE_TOP = 20
+INTERACTIONS_MAX_PAIRS = 190  # the interactions view's response bound: every pair at d = 20
 
 # §7.4 / §7.4a the rule: the residual vetoes when its lower bound exceeds 0.3, the decomposition
 # is inconsistent when its upper bound is below -0.05, and θ_min is the practical floor applied

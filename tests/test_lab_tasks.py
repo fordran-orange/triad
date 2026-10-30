@@ -21,6 +21,7 @@ from products.aegis.jobs import JobRunner
 from products.aegis.lab import sources
 from products.aegis.lab import store as lab_store
 from products.aegis.lab.cache import LabCache
+from products.aegis.lab.importance import importance_basis, importance_key
 from products.aegis.lab.store import Snapshot
 from products.aegis.lab.tasks import (
     Cancelled,
@@ -32,7 +33,15 @@ from products.aegis.lab.tasks import (
 )
 from test_aegis_experiments import world  # noqa: F401 - the shared experiments fixture
 from test_aegis_lab_harness import scratch_lifespan  # noqa: F401 - the real lifespan, scratch root
-from test_lab_store import EXPERIMENT, NOW, hand_document, layout2_dir, rows_of, write_trials
+from test_lab_store import (
+    EXPERIMENT,
+    NOW,
+    PATHS,
+    hand_document,
+    layout2_dir,
+    rows_of,
+    write_trials,
+)
 
 pytestmark = pytest.mark.aegis
 
@@ -778,3 +787,247 @@ def test_a_task_reads_the_snapshot_it_pinned(world, tmp_path, lab):  # noqa: F81
     _, current = lab_store.latest_snapshot(cells_dir)
     assert current == Snapshot(1, 1)
     assert snapshot_label(lab.tasks.result(key), current) == "snapshot g0 c0 · current g1 c1"
+
+
+# --- Phase 3 Task 6: the newest task of a key, and the real importance body -------------------
+
+
+def test_latest_is_the_newest_task_of_a_key(lab):
+    """`latest(key)` (Ruling P13) is the key's newest task in any state, the last one requested:
+    queued, running, cancelled, failed or done; None for a key the executor knows no task of. A
+    waiting task cancelled while an older one of its key runs stays the newest after that one
+    finishes."""
+    assert lab.tasks.latest(KEY) is None
+    blocker = lab.body("blocker", gates=(1,))
+    lab.tasks.request(seed(9), "importance", 3, blocker)
+    assert blocker.started.wait(WAIT_S)
+    first = lab.tasks.request(KEY, "importance", 3, lab.body("first"), snapshot=snap(1))
+    assert lab.tasks.latest(KEY).id == first.id and lab.tasks.latest(KEY).state == "queued"
+    assert lab.tasks.cancel(first.id)
+    cancelled = lab.tasks.latest(KEY)
+    assert (cancelled.id, cancelled.state) == (first.id, "cancelled")
+    second = lab.tasks.request(KEY, "importance", 3, lab.body("second"), snapshot=snap(2))
+    assert second.id != first.id and lab.tasks.latest(KEY).id == second.id
+    blocker.open()
+    assert lab.tasks.wait(second.id, WAIT_S).state == "done"
+    newest = lab.tasks.latest(KEY)
+    assert (newest.id, newest.state, newest.result["value"]) == (second.id, "done", 3)
+    assert lab.tasks.latest(seed(2)) is None
+
+    def failing(checkpoint):
+        raise ValueError("no finite net_pnl")
+        yield
+
+    failed = lab.tasks.request(seed(3), "importance", 3, failing)
+    lab.tasks.wait(failed.id, WAIT_S)
+    assert lab.tasks.latest(seed(3)).state == "failed"
+    # A running task and a newer waiting one of its key: the waiting one is cancelled, the
+    # running one then finishes; the cancelled one stays the newest.
+    running_body = lab.body("running", gates=(1,))
+    running = lab.tasks.request(seed(4), "importance", 3, running_body, snapshot=snap(3))
+    assert running_body.started.wait(WAIT_S)
+    waiting = lab.tasks.request(seed(4), "importance", 3, lab.body("waiting"), snapshot=snap(4))
+    assert waiting.id != running.id and lab.tasks.cancel(waiting.id)
+    running_body.open()
+    assert lab.tasks.wait(running.id, WAIT_S).state == "done"
+    assert lab.tasks.latest(seed(4)).id == waiting.id
+    assert lab.tasks.latest(seed(4)).state == "cancelled"
+
+
+def test_importance_task_never_starts_a_pool(world, tmp_path, lab, monkeypatch):  # noqa: F811
+    """Task 3's guard, run with the real importance body (review M6): with `pool.Pool.__init__`
+    and `JobRunner.start` refused, one importance task over a real experiment's store opens its
+    own frame at the snapshot its route pinned, runs its three stages to `done` and releases
+    both its frame's handle and the pin."""
+
+    def refused(*args, **kwargs):
+        raise AssertionError("a Lab task started a process pool or a job")
+
+    store, document, _ = _experiment(world, tmp_path, [rows_of(range(6)), rows_of(range(6, 12))])
+    monkeypatch.setattr(pool.Pool, "__init__", refused)
+    monkeypatch.setattr(JobRunner, "start", refused)
+    meta = sources.experiment_meta(document)
+    request = api.QueryRequest.model_validate({"filter": {}, "view": "importance"})
+    columns = sources.COLUMNS_FOR("importance", request, meta.parameters, meta.objective)
+    source = sources.experiment_source(document)
+    key = importance_key(source, "net_pnl", "combined", 1)
+    assert key == task_key(source, "importance", "net_pnl", "combined", 1)
+    pinned, hold = sources.pin_experiment(document, store)
+    body = sources.experiment_importance(
+        document,
+        store,
+        LabCache(),
+        columns,
+        snapshot=pinned,
+        metric="net_pnl",
+        scope="combined",
+        seed=1,
+    )
+    task = lab.tasks.request(key, "importance", 3, body, snapshot=pinned, hold=hold)
+    done = lab.tasks.wait(task.id, WAIT_S)
+    assert done.state == "done", done.error
+    assert done.result["stage"] == 3 and done.result["partial"] is False
+    assert done.result["n"] == 12 and done.result["N"] == sources.scheduled_uniform(document)
+    assert done.result["snapshot"] == {"generation": 0, "chunk_watermark": 1}
+    assert lab_store.REGISTRY.held(EXPERIMENT) == set()
+
+
+def test_keep_stopped_answers_a_failed_or_cancelled_task(lab):
+    """Ruling P13 at the one lock that places a task: `keep_stopped` answers the key's newest task
+    when it failed, was cancelled or is being cancelled, whatever the snapshot, its body never
+    run and the request's pin released; without it the same request restarts. A key whose newest
+    task is live or done requests as ever."""
+    blocker = lab.body("blocker", gates=(1,))
+    lab.tasks.request(seed(9), "importance", 3, blocker)
+    assert blocker.started.wait(WAIT_S)
+    first = lab.tasks.request(KEY, "importance", 3, lab.body("first"), snapshot=snap(1))
+    assert lab.tasks.cancel(first.id)
+    unrun = lab.body("unrun")
+    kept = lab.tasks.request(
+        KEY, "importance", 3, unrun, snapshot=snap(2), hold=fake_pin(2), keep_stopped=True
+    )
+    assert (kept.id, kept.state) == (first.id, "cancelled")
+    assert lab_store.REGISTRY.held(SOURCE[1]) == set()
+    assert lab.tasks.latest(KEY).id == first.id  # nothing was placed
+    restarted = lab.tasks.request(KEY, "importance", 3, lab.body("again"), snapshot=snap(2))
+    assert restarted.id != first.id and restarted.state == "queued"
+    live = lab.tasks.request(KEY, "x", 3, lab.body(), snapshot=snap(2), keep_stopped=True)
+    assert live.id == restarted.id  # a live task joins, as ever
+    blocker.open()
+    assert lab.tasks.wait(restarted.id, WAIT_S).state == "done"
+    newer = lab.tasks.request(KEY, "x", 3, lab.body("newer"), snapshot=snap(3), keep_stopped=True)
+    assert newer.id != restarted.id  # done: a new snapshot requests, as ever
+    assert lab.tasks.wait(newer.id, WAIT_S).state == "done"
+
+    def failing(checkpoint):
+        raise ValueError("no finite net_pnl")
+        yield
+
+    failed = lab.tasks.request(seed(3), "importance", 3, failing)
+    lab.tasks.wait(failed.id, WAIT_S)
+    again = lab.tasks.request(seed(3), "x", 3, lab.body("unrun"), keep_stopped=True)
+    assert (again.id, again.state) == (failed.id, "failed")
+    # Being cancelled, its state still `running`: a poll in that window restarts nothing.
+    stopping_body = lab.body("stopping", gates=(1,))
+    stopping = lab.tasks.request(seed(4), "importance", 3, stopping_body)
+    assert stopping_body.started.wait(WAIT_S)
+    assert lab.tasks.cancel(stopping.id)
+    pending = lab.tasks.request(seed(4), "x", 3, lab.body("unrun"), keep_stopped=True)
+    assert (pending.id, pending.state) == (stopping.id, "running")
+    stopping_body.open()
+    assert lab.tasks.wait(stopping.id, WAIT_S).state == "cancelled"
+    # A cancel after the last stage changes nothing: the task is `done`, not stopped, so a newer
+    # snapshot requests as ever.
+    finished, proceed = threading.Event(), threading.Event()
+
+    def thorough(checkpoint):
+        yield {"value": 1}
+        finished.set()
+        assert proceed.wait(WAIT_S)
+        checkpoint()
+
+    late = lab.tasks.request(seed(5), "importance", 1, thorough, snapshot=snap(1))
+    assert finished.wait(WAIT_S)
+    assert lab.tasks.cancel(late.id)
+    proceed.set()
+    assert lab.tasks.wait(late.id, WAIT_S).state == "done"
+    next_one = lab.tasks.request(
+        seed(5), "x", 1, lab.body(stages=1), snapshot=snap(2), keep_stopped=True
+    )
+    assert next_one.id != late.id
+    assert lab.tasks.wait(next_one.id, WAIT_S).state == "done"
+    assert unrun.started.is_set() is False
+
+
+def test_importance_holds_no_lock_during_compute(world, tmp_path, lab, monkeypatch):  # noqa: F811
+    """The body's frame is opened under the read lock, which is released before it computes; the
+    registry keeps the frame's files until the body's `finally`, and the pin until the task
+    ends."""
+    store, document, _ = _experiment(world, tmp_path, [rows_of(range(12))])
+    seen = {}
+
+    def stages(frame, **kwargs):
+        seen["readers"] = dict(lab_store.LOCKS._lock(EXPERIMENT).readers)
+        seen["held"] = lab_store.REGISTRY.held(EXPERIMENT)
+        seen["rows"] = frame.table.num_rows
+        for _ in range(3):
+            yield {}
+
+    monkeypatch.setattr(sources, "importance_stages", stages)
+    assert _importance_of(document, store, lab).state == "done"
+    assert seen["readers"] == {} and seen["rows"] == 12
+    assert seen["held"]  # its files held by the registry instead
+    assert lab_store.REGISTRY.held(EXPERIMENT) == set()
+
+
+def test_importance_on_a_legacy_experiment(world, lab):  # noqa: F811
+    """Review Focus 5: a layout-1 experiment gets importance with `design` inferred from `pass`,
+    its rows promoted on read, and the basis line `computed on n uniform trials of N`."""
+    repository, _library, strategy = world
+    store = exp.ExperimentStore(repository)
+    legacy = hand_document(repository, strategy, experiment_id="legacy-importance", status="done")
+    store.write_chunk(legacy.id, 0, rows_of(range(12)), PATHS)
+    assert store.layout(legacy.id) == 1
+    done = _importance_of(legacy, store, lab)
+    assert done.state == "done", done.error
+    assert importance_basis(done.result) == (
+        "computed on 12 uniform trials of 12; adaptive rows excluded; ignores the active filter"
+    )
+    assert lab_store.REGISTRY.held(legacy.id) == set()
+
+
+def _importance_of(document, store, lab, *, cache=None):
+    """One real importance task on `document`, pinned as its route pins it, run to its end."""
+    meta = sources.experiment_meta(document)
+    request = api.QueryRequest.model_validate({"filter": {}, "view": "importance"})
+    columns = sources.COLUMNS_FOR("importance", request, meta.parameters, meta.objective)
+    pinned, hold = sources.pin_experiment(document, store)
+    body = sources.experiment_importance(
+        document,
+        store,
+        cache or LabCache(),
+        columns,
+        snapshot=pinned,
+        metric="net_pnl",
+        scope="combined",
+        seed=1,
+    )
+    key = importance_key(sources.experiment_source(document), "net_pnl", "combined", 1)
+    task = lab.tasks.request(key, "importance", 3, body, snapshot=pinned, hold=hold)
+    return lab.tasks.wait(task.id, WAIT_S)
+
+
+def test_a_sampled_experiments_n_is_its_first_pass(world, tmp_path, lab):  # noqa: F811
+    """N is the document's first pass, which a frame cannot tell: a sampled experiment's frame
+    schedules its refinement cells too, whose rows are adaptive and excluded from n."""
+    first = rows_of(range(6), **{"pass": "sample"})
+    refinement = rows_of(range(6, 8), **{"pass": "refine"})
+    store, document, _ = _experiment(world, tmp_path, [first, refinement])
+    sampled = document.model_copy(
+        update={
+            "plan": {**document.plan, "mode": "sampled", "first_pass": 6, "refinement": 2},
+            "first_pass_cells": list(range(6)),
+            "refinement_cells": [6, 7],
+            "counts": {**document.counts, "scheduled": 8},
+        }
+    )
+    assert _read(sampled, store, LabCache()).scheduled == 8  # first pass and refinement
+    done = _importance_of(sampled, store, lab)
+    assert done.state == "done", done.error
+    assert (done.result["n"], done.result["attempted"], done.result["N"]) == (6, 6, 6)
+    assert importance_basis(done.result) == (
+        "computed on 6 uniform trials of 6; adaptive rows excluded; ignores the active filter"
+    )
+
+
+def test_importance_before_the_first_chunk_finishes_on_no_rows(world, tmp_path, lab):  # noqa: F811
+    """A poll before the job's first chunk runs the task on no rows: it finishes, saying so,
+    rather than failing, since a failed task stays failed until the user asks again (P13)."""
+    store, document, _ = _experiment(world, tmp_path, [])
+    done = _importance_of(document, store, lab)
+    assert done.state == "done", done.error
+    assert (done.result["n"], done.result["attempted"]) == (0, 0)
+    assert done.result["N"] == sources.scheduled_uniform(document) > 0
+    assert done.result["availability"]["reason"] == "no uniform rows of the current space"
+    assert importance_basis(done.result).startswith("computed on 0 uniform trials of ")
+    assert lab_store.REGISTRY.held(EXPERIMENT) == set()

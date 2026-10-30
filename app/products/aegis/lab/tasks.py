@@ -44,6 +44,19 @@ FINISHED = ("done", "cancelled", "failed")
 SHUTDOWN_JOIN_S = 10.0  # how long `shutdown` waits for the running task to reach a checkpoint
 THREAD_NAME = "aegis-lab-tasks"
 _STOP = None  # the queue's last item: the thread returns
+# A task's status as a view sends it: its key is the executor's, its result the view's to choose.
+_STATUS_FIELDS = (
+    "id",
+    "label",
+    "state",
+    "stage",
+    "stages",
+    "progress",
+    "error",
+    "started_at",
+    "finished_at",
+    "sharing_cpu",
+)
 
 
 class Cancelled(Exception):
@@ -104,6 +117,7 @@ class _Task:
     started_at: str | None = None
     finished_at: str | None = None
     order: int = 0  # the finish order, newest highest
+    requested: int = 0  # the request order, newest highest
     cancel: threading.Event = field(default_factory=threading.Event)
 
 
@@ -128,6 +142,11 @@ def task_of(key: tuple, source: tuple) -> bool:
     if mine[0] == "opt":
         return mine[1] == source[1]
     return mine == tuple(source)
+
+
+def status_json(status: TaskStatus | None) -> dict | None:
+    """A task's status in a view's answer: everything but its key and its result."""
+    return None if status is None else {name: getattr(status, name) for name in _STATUS_FIELDS}
 
 
 def snapshot_label(result: Mapping | None, current: Snapshot | None) -> str | None:
@@ -188,6 +207,7 @@ class LabTasks:
         self._thread: threading.Thread | None = None
         self._closed = False
         self._finished = 0
+        self._requested = 0
 
     # -- the routes' side ---------------------------------------------------------------------
 
@@ -200,13 +220,20 @@ class LabTasks:
         *,
         snapshot: Snapshot | None = None,
         hold: int | None = None,
+        keep_stopped: bool = False,
     ) -> TaskStatus:
         """The task for `key` at `snapshot`: its finished result when one is cached, else the
         running or waiting task of the key it joins, else a new task queued behind the others.
         A newer snapshot than the waiting task's replaces that task's snapshot, body and pin in
         place (its id stays); an older one joins what is there. A task being cancelled is never
         joined. `hold` is the registry handle pinning `snapshot`'s files: the task keeps it until
-        it ends, and a request that needs none (joined, cached, replaced, refused) releases it."""
+        it ends, and a request that needs none (joined, cached, replaced, refused, kept) releases
+        it.
+
+        With `keep_stopped` (Ruling P13: a view's poll) a key whose newest task failed, was
+        cancelled or is being cancelled answers that task instead, whatever the snapshot: a poll
+        never restarts what the user cancelled or what failed. It is decided here, under the one
+        lock that places a task, so a cancel arriving while a poll loads its frame still holds."""
         placed = None
         try:
             if stages < 1:
@@ -214,7 +241,11 @@ class LabTasks:
             with self._lock:
                 if self._closed:
                     raise RuntimeError("the Lab tasks are shut down")
-                placed = self._place(key, label, stages, fn, snapshot, hold)
+                stopped = self._stopped(key) if keep_stopped else None
+                if stopped is not None:
+                    placed = (stopped, hold)
+                else:
+                    placed = self._place(key, label, stages, fn, snapshot, hold)
                 status = self._status_of(placed[0])
         finally:
             if placed is None:  # refused: the pin is not kept (a release is idempotent)
@@ -242,6 +273,17 @@ class LabTasks:
             newest = max(found, key=lambda task: (_order(task.snapshot), task.order))
             self._done.move_to_end(newest.id)
             return dict(newest.result)
+
+    def latest(self, key: tuple) -> TaskStatus | None:
+        """The newest task of `key` in any state, the last one requested (Ruling P13); None when
+        this executor knows none of that key (any more). A waiting task cancelled while an older
+        one of its key runs stays the newest after that one finishes."""
+        with self._lock:
+            newest = self._newest(key)
+            if newest is None:
+                return None
+            status = self._status_of(newest)
+        return self._with_cpu(status)
 
     def cancel(self, task_id: str) -> bool:
         """A waiting task is cancelled at once and its pin released; a running one stops at its
@@ -297,6 +339,25 @@ class LabTasks:
 
     # -- under the lock -----------------------------------------------------------------------
 
+    def _newest(self, key: tuple) -> _Task | None:
+        """The last task requested for `key`, in any state."""
+        found = [
+            task
+            for tasks in (self._active, self._done, self._ended)
+            for task in tasks.values()
+            if task.key == key
+        ]
+        return max(found, key=lambda task: task.requested) if found else None
+
+    def _stopped(self, key: tuple) -> _Task | None:
+        """The key's newest task when it failed, was cancelled or is being cancelled (it stays
+        `running` until its next checkpoint); a cancel after the last stage is simply `done`."""
+        newest = self._newest(key)
+        if newest is None:
+            return None
+        cancelling = newest.state == "running" and newest.cancel.is_set()
+        return newest if cancelling or newest.state in ("failed", "cancelled") else None
+
     def _place(self, key, label, stages, fn, snapshot, hold) -> tuple[_Task, int | None]:
         """The task that answers a request and the pin it does not need (the caller releases it
         outside the lock)."""
@@ -318,7 +379,10 @@ class LabTasks:
             return waiting, spare
         if running is not None and _order(snapshot) < _order(running.snapshot):
             return running, hold
-        task = _Task(uuid.uuid4().hex, key, label, stages, fn, snapshot, hold)
+        self._requested += 1
+        task = _Task(
+            uuid.uuid4().hex, key, label, stages, fn, snapshot, hold, requested=self._requested
+        )
         self._active[task.id] = task
         self._waiting[key] = task
         self._queue.put(task.id)

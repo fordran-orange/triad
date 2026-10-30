@@ -55,10 +55,11 @@ from products.aegis.lab import identity
 from products.aegis.lab import sources as lab_sources
 from products.aegis.lab import store as lab_store
 from products.aegis.lab.cache import LabCache, cache_bytes_from_env
+from products.aegis.lab.importance import METHOD, RUNNING_OPTIMIZATION, STAGES, importance_key
 from products.aegis.lab.index import FrameIndex
 from products.aegis.lab.policy import LOW_DISK_GB, PAGE_LIMIT, TOP_LIMIT
 from products.aegis.lab.query import LabFilter, TrialFrame
-from products.aegis.lab.tasks import LabTasks, task_of
+from products.aegis.lab.tasks import LabTasks, TaskStatus, task_of
 from products.aegis.learned import LearnedPhrases
 from products.aegis.library import FOLDERS as LIBRARY_FOLDERS
 from products.aegis.library import KINDS as LIBRARY_KINDS
@@ -1342,11 +1343,25 @@ def _non_finite_named(value):
 
 class QueryRequest(BaseModel):
     """One view of one filter. Only `filter` and `view` are required; a view checks its own
-    arguments (a matrix needs rows, cols and metric; a square's trials its two values)."""
+    arguments (a matrix needs rows, cols and metric; a square's trials its two values). `seed`
+    and `rerun` are the importance task's: its resamples' seed, in the task's key and every
+    answer, and the user's own "run again" after a task failed or was cancelled, which a poll
+    never does by itself."""
 
     model_config = ConfigDict(extra="forbid")
     filter: LabFilter
-    view: Literal["counts", "matrix", "page", "top", "marginals", "parallel", "square_trials"]
+    view: Literal[
+        "counts",
+        "matrix",
+        "page",
+        "top",
+        "marginals",
+        "parallel",
+        "square_trials",
+        "importance",
+        "interactions",
+        "triples",
+    ]
     filter_hash: str | None = None
     rows: str | None = None
     cols: str | None = None
@@ -1363,6 +1378,8 @@ class QueryRequest(BaseModel):
     axes: list[str] | None = None
     row_value: float | None = None
     col_value: float | None = None
+    seed: int = Field(1, ge=0)  # numpy's seed sequences refuse a negative entropy
+    rerun: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -1459,6 +1476,107 @@ def _lab_answer(
         raise _lab_refused(exc) from exc
 
 
+def _lab_task_answer(
+    frame: TrialFrame,
+    request: QueryRequest,
+    tasks: LabTasks,
+    key: tuple,
+    task: TaskStatus,
+    unique: int | None = None,
+) -> dict:
+    """A task view's answer from the task's own latest stage (a cancelled one's stages stay
+    readable, labelled partial), else the key's newest finished result, of whichever snapshot."""
+    result = task.result if task.result is not None else tasks.result(key)
+    try:
+        return lab_sources.task_query(frame, request, task=task, result=result, unique=unique)
+    except (KeyError, ValueError) as exc:
+        raise _lab_refused(exc) from exc
+
+
+def _lab_task_optimization(
+    job_id: str, request: QueryRequest, runner: JobRunner, tasks: LabTasks
+) -> dict:
+    """A task view of an `opt:` source. Its identity carries its cells done, so a running job
+    would key a new task at every poll, which coalescing cannot bound: nothing is requested until
+    it finishes, and the answer says so."""
+    status, frame = _lab_optimization(runner, job_id, request.view, request)
+    if status.get("status") not in lab_sources.OPT_FINAL:
+        return lab_sources.task_query(
+            frame, request, task=None, result=None, reason=RUNNING_OPTIMIZATION
+        )
+    metric, scope = request.metric or frame.objective, request.filter.scope
+    source = lab_sources.optimization_source(status, frame)
+    key = importance_key(source, metric, scope, request.seed)
+    body = lab_sources.optimization_importance(frame, metric=metric, scope=scope, seed=request.seed)
+    task = tasks.request(key, METHOD, STAGES, body, keep_stopped=not request.rerun)
+    return _lab_task_answer(frame, request, tasks, key, task)
+
+
+def _lab_task_experiment(
+    experiment_id: str,
+    request: QueryRequest,
+    experiments: experiments_module.ExperimentStore,
+    cache: LabCache,
+    tasks: LabTasks,
+) -> dict:
+    """A task view of an `exp:` source. Under the experiment's read lock: the document, the latest
+    snapshot pinned for the task, and the frame the scope is counted on, at that same snapshot, so
+    the answer's `snapshot` is the one a task was requested at. The task is requested and answered
+    outside the lock, and must be: a status of a live task reads the runner, whose lock the job
+    holds while it takes this experiment's write lock (`finalize` compacts). `request` takes the
+    pin over, releasing it whenever the task needs none; without `rerun`, a task that failed or
+    was cancelled stays as it is (Ruling P13). A snapshot whose files are gone is a 409, never a
+    500."""
+    hold = None
+    try:
+        with lab_store.LOCKS.read(experiment_id):
+            document = _experiment(experiments, experiment_id)
+            meta = lab_sources.cached_meta(document, cache)
+            try:
+                columns = lab_sources.COLUMNS_FOR(
+                    request.view, request, meta.parameters, meta.objective
+                )
+            except (KeyError, ValueError) as exc:
+                raise _lab_refused(exc) from exc
+            metric, scope = request.metric or meta.objective, request.filter.scope
+            source = lab_sources.experiment_source(document)
+            key = importance_key(source, metric, scope, request.seed)
+            pinned, hold = lab_sources.pin_experiment(document, experiments)
+            frame, handle = lab_sources.open_experiment(
+                document, experiments, cache, columns, snapshot=pinned
+            )
+    except BaseException as exc:
+        if hold is not None:
+            lab_store.REGISTRY.release(hold)
+        if isinstance(exc, lab_store.SnapshotExpired):
+            raise HTTPException(409, "snapshot expired") from exc
+        raise
+    try:
+        body = lab_sources.experiment_importance(
+            document,
+            experiments,
+            cache,
+            columns,
+            snapshot=pinned,
+            metric=metric,
+            scope=scope,
+            seed=request.seed,
+        )
+        task = tasks.request(
+            key,
+            METHOD,
+            STAGES,
+            body,
+            snapshot=pinned,
+            hold=hold,
+            keep_stopped=not request.rerun,
+        )
+        unique = lab_sources.experiment_unique(cache, frame, document)
+        return _lab_task_answer(frame, request, tasks, key, task, unique)
+    finally:
+        lab_store.REGISTRY.release(handle)
+
+
 @router.get("/lab/build")
 def lab_build(cache: LabCache = LAB_CACHE):
     """The worker's engine build and versions, its code and data roots, the Lab cache and the
@@ -1509,8 +1627,13 @@ def lab_query(
     runner: JobRunner = RUNNER,
     experiments: experiments_module.ExperimentStore = EXPERIMENTS,
     cache: LabCache = LAB_CACHE,
+    tasks: LabTasks = LAB_TASKS,
 ):
     ref = _lab_source(src)
+    if request.view in lab_sources.TASK_VIEWS:
+        if ref.kind == "opt":
+            return _lab_task_optimization(ref.id, request, runner, tasks)
+        return _lab_task_experiment(ref.id, request, experiments, cache, tasks)
     if ref.kind == "opt":
         status, frame = _lab_optimization(runner, ref.id, request.view, request)
         identity_of = lab_sources.optimization_source(status, frame)
