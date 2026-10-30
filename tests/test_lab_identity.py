@@ -277,6 +277,9 @@ def test_policy_constants_match_spec():
     assert policy.CONVERGENCE_BATCH == 5_000
     assert policy.CONVERGENCE_TOP == 0.01
     assert policy.CONVERGENCE_MAX_POINTS == 1_000
+    assert policy.MIN_BATCHES == 2
+    assert policy.OBJECTIVES_MIN == 2
+    assert policy.OBJECTIVES_MAX == 3
     # Task budgets (§9.4, §9.6).
     assert policy.TASK_BUDGET_S == 180
     assert policy.FINE_STAGE_BUDGET_S == 30

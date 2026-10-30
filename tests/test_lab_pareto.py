@@ -6,6 +6,7 @@ strict JSON."""
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import replace
 from itertools import pairwise
 
@@ -16,7 +17,10 @@ from lab_stat_fixtures import first_order, lattice_frame, paths_of, stat_frame, 
 from products.aegis import api
 from products.aegis.lab import convergence as convergence_module
 from products.aegis.lab import neighbours as neighbours_module
+from products.aegis.lab import pareto as pareto_module
 from products.aegis.lab import policy, sources
+from products.aegis.lab import store as lab_store
+from products.aegis.lab.cache import LabCache
 from products.aegis.lab.convergence import convergence_view
 from products.aegis.lab.index import build_index
 from products.aegis.lab.neighbours import PositionLookup, neighbourhood
@@ -27,6 +31,7 @@ from products.aegis.lab.query import (
     TrialFrame,
     _numbers,
     _trial_numbers,
+    defined_rows,
     even_positions,
     filter_mask,
 )
@@ -41,6 +46,11 @@ NEIGHBOURS = (
     "neighbours read every completed block-0 trial of the snapshot, "
     "the filter selects each batch's top trials"
 )
+
+
+def spans_more(metric: str = "net_pnl", size: int = 5_000) -> str:
+    """The basis clause of a batch that left trials out: item 10 of the review."""
+    return f"each batch counts {size} filtered trials with a defined {metric}, so it spans more raw trials"
 
 
 # --- helpers ----------------------------------------------------------------------------------
@@ -253,6 +263,84 @@ def test_front_size_capped_with_a_label():
     assert answer(exact, view="pareto", objectives=PNL_DD)["scope"]["basis"] == "Tested (exact)"
 
 
+def _wide_front(n: int, p1: int, p2: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """`n` points all on the three-objective front, along the first objective by place: the third
+    rises at every place, so nothing earlier dominates anything later, and the best of the second
+    and third objectives sit at places `p1` < `p2`, inside the list."""
+    a = -np.arange(n, dtype=np.float64)
+    b, c = np.arange(n, dtype=np.float64), np.arange(n, dtype=np.float64)
+    b[p1], c[p2] = 10.0 * n, 10.0 * n
+    return a, b, c
+
+
+@pytest.mark.parametrize("minimized", [False, True])
+def test_a_capped_front_keeps_every_objectives_best(minimized):
+    """Even thinning along the first objective would drop the best of the other two when they sit
+    between its places. They stay, within the cap, and both ends with them."""
+    n = 5_000
+    even = set(even_positions(n, 2_000).tolist())
+    p1, p2 = [place for place in range(1_000, n) if place not in even][:2]
+    a, b, c = _wide_front(n, p1, p2)
+    assert brute_front(a, b, c).tolist() == list(range(n))
+    third = "max_drawdown" if minimized else "win_rate"
+    objectives = ["net_pnl", "expectancy", third]
+    frame = trials(net_pnl=a, expectancy=b, **{third: -c if minimized else c})
+    out = pareto_view(frame, LabFilter(), objectives=objectives, scope=COMBINED)
+    assert out["front_size"] == n and out["sampled"] is True
+    assert len(out["front"]) == len(set(out["front"])) == len(out["points"]) == 2_000
+    assert out["front"] == [point["trial_id"] for point in out["points"]]
+    assert out["orientation"] == [1, 1, -1 if minimized else 1]
+    held = np.array([point["values"] for point in out["points"]])
+    assert held[:, 0].max() == 0.0 and held[:, 1].max() == 10.0 * n
+    assert (held[:, 2].min() == -10.0 * n) if minimized else (held[:, 2].max() == 10.0 * n)
+    numbers = {int(trial.split("#")[1]) for trial in out["front"]}
+    assert {0, n - 1, p1, p2} <= numbers
+    assert len(numbers - even) == len(even - numbers) == 2  # two places moved, the rest stay even
+    assert out == pareto_view(frame, LabFilter(), objectives=objectives, scope=COMBINED)
+
+
+@pytest.mark.parametrize(
+    ("p1", "p2", "places"),
+    [(7, 8, [0, 7, 8, 17, 23, 29]), (26, 27, [0, 6, 12, 26, 27, 29])],
+)
+def test_the_kept_bests_replace_nearby_places_within_a_small_cap(monkeypatch, p1, p2, places):
+    """Evenly, six of 30 are 0, 6, 12, 17, 23 and 29. Each best takes its nearest place's slot, and
+    the cap holds exactly. The ends stay even beside a best (26 and 27 sit next to the last place),
+    and a best never gives way to another one (7 and 8 are each other's nearest)."""
+    assert even_positions(30, 6).tolist() == [0, 6, 12, 17, 23, 29]
+    monkeypatch.setattr(pareto_module, "PARETO_FRONT_MAX", 6)
+    a, b, c = _wide_front(30, p1, p2)
+    frame = trials(net_pnl=a, expectancy=b, win_rate=c)
+    objectives = ["net_pnl", "expectancy", "win_rate"]
+    out = pareto_view(frame, LabFilter(), objectives=objectives, scope=COMBINED)
+    numbers = [int(trial.split("#")[1]) for trial in out["front"]]
+    assert numbers == places  # along the first objective, where a place is its trial number here
+    assert out["basis"] == "Sampled subset (6 of 30)"
+
+
+def test_a_best_a_kept_copy_already_holds_moves_nothing():
+    """Trials 0 and 1 share the far end's value and only trial 1's place is on the even spacing: its
+    copy holds that objective's best, so no place has to give way."""
+    values = np.r_[0.0, np.arange(3_000, dtype=np.float64)]
+    frame = trials(net_pnl=values, max_drawdown=values)
+    out = pareto_view(frame, LabFilter(), objectives=PNL_DD, scope=COMBINED)
+    trial_at_place = [*range(3_000, 0, -1)]  # best first, then the far end's two copies by number
+    trial_at_place[2_999:] = [0, 1]
+    assert out["front_size"] == 3_001 and len(out["front"]) == 2_000
+    assert out["front"] == ids(
+        frame, [trial_at_place[place] for place in even_positions(3_001, 2_000).tolist()]
+    )
+
+
+def test_a_two_objective_front_needs_no_forcing():
+    """Its ends are already the two objectives' bests, so even spacing stays exactly even."""
+    front = np.arange(3_001, dtype=np.float64)
+    frame = trials(net_pnl=front, max_drawdown=front)
+    out = pareto_view(frame, LabFilter(), objectives=PNL_DD, scope=COMBINED)
+    numbers = sorted(int(trial.split("#")[1]) for trial in out["front"])
+    assert numbers == even_positions(3_001, 2_000).tolist()
+
+
 def test_pareto_reads_the_filter_and_the_completed_rows_only():
     """Decision 7: the filter's completed block-0 trials only, by brute force on a frame with
     invalid and failed rows, whose missing metrics are never counted as undefined here."""
@@ -341,6 +429,31 @@ def test_the_density_loses_nothing_at_its_edges_or_on_a_flat_axis():
     assert sum(map(sum, wide["density"]["counts"])) == wide["dominated"]
     assert all(len(point["values"]) == 3 for point in wide["points"])
     assert wide["density"]["axes"] == ["net_pnl", "win_rate"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [1e16, -1e16, 2.0**53, 2.0**53 + 2.0, 1e17, 1e300, sys.float_info.max, -sys.float_info.max],
+)
+def test_a_flat_axis_keeps_its_range_at_any_magnitude(value):
+    """At 1e16 and above, 0.5 is lost to rounding, so a flat axis would have no width to divide
+    by: it widens by one representable step instead, and every trial stays counted, in finite
+    numbers."""
+    frame = trials(net_pnl=[value] * 3, win_rate=[1.0, 2.0, 3.0])
+    out = pareto_view(frame, LabFilter(), objectives=["net_pnl", "win_rate"], scope=COMBINED)
+    low, high = out["density"]["x"]
+    assert low < high and low <= value <= high
+    assert out["dominated"] == 2 and sum(map(sum, out["density"]["counts"])) == 2
+    strict(out)
+
+
+def test_a_span_past_the_float_range_loses_no_trial():
+    frame = trials(net_pnl=[-1e308, 0.0, 1e308, 1e308], win_rate=[0.0, 0.0, 0.0, 1.0])
+    out = pareto_view(frame, LabFilter(), objectives=["net_pnl", "win_rate"], scope=COMBINED)
+    counts = np.array(out["density"]["counts"])
+    assert out["front"] == ids(frame, [3]) and out["dominated"] == 3
+    assert counts[0, 0] == 1 and counts[0, 32] == 1 and counts[0, 63] == 1
+    strict(out)
 
 
 @pytest.mark.parametrize(
@@ -570,6 +683,27 @@ def test_best_is_thinned_evenly_and_keeps_the_last_point(n, points):
         assert out["basis"] == f"Tested (exact); {NEIGHBOURS}"
 
 
+def test_defined_rows_are_the_filters_by_trial_number():
+    """What the sample and convergence share: the filter's completed trials with a defined value,
+    by trial number however the rows arrive, and how many it left undefined."""
+    frame = synthetic_frame(3_000, 3, 24)
+    path = frame.parameters[0].path
+    flt = LabFilter(ranges={path: (frame.parameters[0].values[0], frame.parameters[0].values[2])})
+    shuffled = replace(
+        frame, table=frame.table.take(pa.array(np.random.default_rng(2).permutation(3_000)))
+    )
+    mask = filter_mask(shuffled, flt)
+    column = _numbers(shuffled.table, "combined.cagr")
+    numbers = _trial_numbers(shuffled.table)
+    rows, values, held, undefined = defined_rows(shuffled, flt, "combined.cagr")
+    assert held.tolist() == sorted(numbers[mask & np.isfinite(column)].tolist())
+    assert numbers[rows].tolist() == held.tolist() and values.tolist() == column[rows].tolist()
+    assert undefined == int((mask & ~np.isfinite(column)).sum()) > 0
+    with_index = defined_rows(shuffled, flt, "combined.cagr", index=build_index(shuffled))
+    assert with_index[0].tolist() == rows.tolist() and with_index[3] == undefined
+    assert defined_rows(shuffled, flt, "combined.net_pnl")[3] == 0
+
+
 def test_even_positions():
     assert even_positions(0, 5).tolist() == [] and even_positions(3, 5).tolist() == [0, 1, 2]
     assert even_positions(5, 5).tolist() == [0, 1, 2, 3, 4]
@@ -638,6 +772,7 @@ def test_robust_is_the_median_of_the_top_trials_neighbourhood_p25():
         "CONVERGENCE_BATCH": 5_000,
         "CONVERGENCE_TOP": 0.01,
         "CONVERGENCE_MAX_POINTS": 1_000,
+        "MIN_BATCHES": 2,
         "NEIGHBOUR_R": policy.NEIGHBOUR_R,
     }
     strict(out)
@@ -659,7 +794,10 @@ def test_the_filter_selects_the_top_trials_and_neighbours_read_the_whole_snapsho
     brush = LabFilter(values={path: 4.0})
     held = convergence_view(frame, brush, metric="net_pnl", scope=COMBINED)
     assert held["batches"] == 2 and held["robust"] == _expected_robust(frame, brush, "net_pnl")
-    assert held["basis"].startswith(f"Tested (exact); {NEIGHBOURS}")
+    assert held["basis"] == (
+        f"Tested (exact); {NEIGHBOURS}; {spans_more()}; "
+        f"best-so-far thinned evenly to 1000 of {held['best_total']} points"
+    )
     # the top trial of the first batch has tested neighbours the brush left out, and they count
     first = np.flatnonzero(filter_mask(frame, brush))[:5_000]
     pnl = _numbers(frame.table, "combined.net_pnl")
@@ -669,6 +807,30 @@ def test_the_filter_selects_the_top_trials_and_neighbours_read_the_whole_snapsho
     # the same narrow brush on a tenth of the trials holds under two batches: no robust series
     fewer = stat_frame(d=3, values=8, n=10_000, seed=16, y=first_order)
     assert convergence_view(fewer, brush, metric="net_pnl", scope=COMBINED)["robust"] == []
+
+
+def test_the_basis_says_when_a_batch_spans_more_raw_trials():
+    """A batch counts filtered trials with a defined value, so only a batch that left some out
+    spans more than its size. A side scope drops no row, and with no batch there is nothing to say."""
+    frame = stat_frame(d=3, values=8, n=10_000, seed=25, y=first_order)
+    path = frame.parameters[0].path
+    plain = convergence_view(frame, LabFilter(), metric="net_pnl", scope=COMBINED)
+    assert plain["batches"] == 2 and spans_more() not in plain["basis"]
+    side = convergence_view(frame, LabFilter(scope="long"), metric="net_pnl", scope="long")
+    assert spans_more() not in side["basis"]
+    # the same brush reads no batch on these rows, so it has no batch to describe
+    brushed = convergence_view(
+        frame, LabFilter(values={path: 1.0}), metric="net_pnl", scope=COMBINED
+    )
+    assert brushed["robust"] == [] and spans_more() not in brushed["basis"]
+    undefined = stat_frame(
+        d=3, values=8, n=12_000, seed=25, y=first_order, undefined=lambda u: u[:, 0] > 0.9
+    )
+    held = convergence_view(undefined, LabFilter(), metric="cagr", scope=COMBINED)
+    assert held["batches"] == 2 and spans_more("cagr") in held["basis"]
+    # the same rows on a metric every trial defines left nothing out
+    whole = convergence_view(undefined, LabFilter(), metric="net_pnl", scope=COMBINED)
+    assert spans_more() not in whole["basis"]
 
 
 def test_the_views_read_the_scope_they_are_given():
@@ -706,19 +868,36 @@ def test_the_views_read_the_scope_they_are_given():
     ("n", "batches"), [(0, 0), (4_999, 0), (5_000, 1), (9_999, 1), (10_000, 2)]
 )
 def test_robust_is_empty_below_two_batches_and_best_is_not(n, batches):
-    """§7.10 puts no floor on best-so-far; §5's `< 2 batches: empty` is the robust series'. A reason
-    says why it is empty, and nothing is built for it."""
+    """§5's `P "provisional"; < 2 batches: empty` is the panel's state: below two batches the
+    envelope's `empty` is the reason. §7.10 puts no floor on best-so-far, so `best` stays in the
+    payload for the compact sparkline. Nothing is built for the robust series."""
     frame = stat_frame(d=2, values=8, n=n, seed=17, y=zero)
     out = convergence_view(frame, LabFilter(), metric="net_pnl", scope=COMBINED)
     assert out["batches"] == batches and len(out["best"]) == min(n, 1_000)
     assert out["partial"] == n - batches * 5_000
+    sent = answer(frame, view="convergence", metric="net_pnl")
     if batches < 2:
-        assert out["robust"] == []
-        assert out["robust_reason"] == (
-            f"fewer than 2 complete batches of 5000 trials with a defined net_pnl ({n} so far)"
-        )
+        reason = f"fewer than 2 complete batches of 5000 trials with a defined net_pnl ({n} so far)"
+        assert out["robust"] == [] and out["robust_reason"] == reason
+        assert "robust thinned" not in out["basis"]  # no series to have thinned
+        if n:
+            assert out["empty"] == reason and sent["empty"] == reason
+            assert len(sent["best"]) == min(n, 1_000)
+        else:  # no trial matches: the envelope's own state comes first
+            assert out["empty"] == "no trial has a defined net_pnl"
+            assert sent["empty"] == "no trials match: 0 filters active"
     else:
         assert len(out["robust"]) == 2 and out["robust_reason"] is None
+        assert out["empty"] is None and sent["empty"] is None
+
+
+def test_a_filter_with_no_defined_value_keeps_its_own_empty_state():
+    """Trials match, and none of them defines the metric: that, not a count of batches."""
+    nan = float("nan")
+    frame = trials(net_pnl=[1.0, 2.0], cagr=[nan, nan])
+    sent = answer(frame, view="convergence", metric="cagr")
+    assert sent["empty"] == "no trial has a defined cagr" and sent["best"] == []
+    assert sent["scope"]["filtered"] == 2 and sent["scope"]["undefined"] == 2
 
 
 def test_a_short_run_builds_no_neighbourhood(monkeypatch):
@@ -761,6 +940,118 @@ def test_robust_is_thinned_evenly_past_the_bound(monkeypatch):
     assert len(out["best"]) == 5 and out["best"][-1][0] == 204
     every = _expected_robust(frame, LabFilter(), "net_pnl", batch=10, top=1)
     assert out["robust"] == [every[b] for b in (0, 5, 10, 14, 19)]
+    assert out["basis"] == (
+        f"Tested (exact); {NEIGHBOURS}; best-so-far thinned evenly to 5 of 205 points; "
+        "robust thinned evenly to 5 of 20 batches"
+    )
+    # at the bound it is not thinned, and says nothing
+    monkeypatch.setattr(convergence_module, "CONVERGENCE_MAX_POINTS", 20)
+    held = convergence_view(frame, LabFilter(), metric="net_pnl", scope=COMBINED)
+    assert len(held["robust"]) == 20 and "robust thinned" not in held["basis"]
+
+
+# --- convergence: the cached payload -------------------------------------------------------------
+
+SOURCE = ("exp", "cached", "2026-10-30T00:00:00+00:00")
+
+
+def _computed(monkeypatch) -> list[str]:
+    """The convergence payloads computed: a spy on what the wrapper would call."""
+    calls: list[str] = []
+    real = sources.convergence_payload
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs["metric"])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(sources, "convergence_payload", spy)
+    return calls
+
+
+def _trend(frame, cache, *, source=SOURCE, flt=None, **body) -> dict:
+    request = api.QueryRequest.model_validate(
+        {"filter": flt or {}, "view": "convergence", "metric": "net_pnl", **body}
+    )
+    return sources.run_query(frame, request, cache=cache, source_identity=source)
+
+
+def _held_payloads(cache: LabCache) -> list[dict]:
+    return [value for key, (value, _) in cache._entries.items() if key[0][0] == "convergence"]
+
+
+def test_a_repeat_request_reads_the_cached_payload(monkeypatch):
+    calls = _computed(monkeypatch)
+    frame = stat_frame(d=3, values=8, n=10_000, seed=26, y=first_order)
+    cache = LabCache(64 * 1024 * 1024)
+    first = _trend(frame, cache)
+    assert calls == ["net_pnl"] and len(first["robust"]) == 2
+    again = _trend(frame, cache)
+    assert calls == ["net_pnl"] and again == first
+    assert cache.stats()["bytes"] > 0 and len(_held_payloads(cache)) == 1
+    # with no cache, or no source to key it by, each request computes
+    request = api.QueryRequest.model_validate({"filter": {}, "view": "convergence"})
+    sources.run_query(frame, request)
+    sources.run_query(frame, request, cache=cache)
+    sources.run_query(frame, request, source_identity=SOURCE)
+    assert len(calls) == 4
+
+
+@pytest.mark.parametrize("first_status", [True, False])
+def test_a_status_change_at_one_snapshot_reads_its_own_label(monkeypatch, first_status):
+    """`provisional` follows the source's status and the key its snapshot, so a job finishing at
+    the same snapshot must not read PROVISIONAL from the entry a running request left, nor the
+    reverse. The cached dict never holds it."""
+    calls = _computed(monkeypatch)
+    frame = stat_frame(d=2, values=8, n=100, seed=27, y=zero)
+    cache = LabCache(64 * 1024 * 1024)
+    one = _trend(replace(frame, provisional=first_status), cache)
+    other = _trend(replace(frame, provisional=not first_status), cache)
+    assert calls == ["net_pnl"]
+    assert one["provisional"] is first_status and other["provisional"] is (not first_status)
+    assert one["best"] == other["best"]
+    assert all("provisional" not in held for held in _held_payloads(cache))
+    assert _trend(frame, cache)["provisional"] is False
+
+
+def test_a_changed_filter_metric_scope_snapshot_or_source_recomputes(monkeypatch):
+    calls = _computed(monkeypatch)
+    frame = stat_frame(d=2, values=8, n=100, seed=28, y=zero)
+    path = frame.parameters[0].path
+    cache = LabCache(64 * 1024 * 1024)
+    variants = [
+        lambda: _trend(frame, cache),
+        lambda: _trend(frame, cache, flt={"values": {path: 1.0}}),
+        lambda: _trend(frame, cache, metric="max_drawdown"),
+        lambda: _trend(frame, cache, flt={"scope": "long"}),
+        lambda: _trend(replace(frame, snapshot=lab_store.Snapshot(1, 0)), cache),
+        lambda: _trend(replace(frame, snapshot=lab_store.Snapshot(0, 1)), cache),
+        lambda: _trend(frame, cache, source=("exp", "cached", "a later instance")),
+        lambda: _trend(frame, cache, source=("opt", "cached", 100)),
+    ]
+    answers = [variant() for variant in variants]
+    assert len(calls) == len(variants)
+    assert len(_held_payloads(cache)) == len(variants)
+    assert answers[1]["scope"]["filtered"] < answers[0]["scope"]["filtered"]
+    assert (
+        answers[2]["metric"] == "combined.max_drawdown" and answers[3]["metric"] == "long.net_pnl"
+    )
+    assert [variant() for variant in variants] == answers  # each one is answered from its own entry
+    assert len(calls) == len(variants)
+
+
+def test_the_scope_and_the_echo_stay_per_request(monkeypatch):
+    """Only the payload is cached: the counts and the echoed hash are this request's."""
+    calls = _computed(monkeypatch)
+    frame = stat_frame(d=2, values=8, n=100, seed=29, y=zero)
+    cache = LabCache(64 * 1024 * 1024)
+    first = _trend(frame, cache, filter_hash="aaaa0001")
+    later = _trend(replace(frame, scheduled=frame.scheduled + 7), cache, filter_hash="bbbb0002")
+    assert calls == ["net_pnl"]
+    assert first["filter_hash"] == "aaaa0001" and later["filter_hash"] == "bbbb0002"
+    assert later["scope"]["scheduled"] == first["scope"]["scheduled"] + 7
+    assert later["scope"]["basis"] == later["basis"] and later["scope"]["shown"] == len(
+        later["best"]
+    )
 
 
 # --- the batched lookup -------------------------------------------------------------------------

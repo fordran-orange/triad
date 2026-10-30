@@ -731,11 +731,11 @@ def _stable_of(
 
 
 def rankings_basis(ranks: Mapping, axes: Sequence[str]) -> str:
-    """What the rankings' basis line adds: how far they looked. B runs only with `axes`, on at most
-    the first min(pool, k, b_max) rows, so the line claims no more than that."""
+    """What the rankings' basis line adds: how far they looked. B runs only with `axes`, on the first
+    min(pool, k, b_max) rows and only where A is unresolved, so the number is an upper bound."""
     line = f"robust ranks the top {ranks['pool']} by peak"
     read = min(ranks["pool"], ranks["k"], ranks["b_max"])
-    return f"{line}, B reads the top {read} (at most {ranks['b_max']})" if axes and read else line
+    return f"{line}, B reads at most {read}" if axes and read else line
 
 
 def rankings(

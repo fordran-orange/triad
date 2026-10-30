@@ -247,6 +247,21 @@ def filter_mask(
     return mask
 
 
+def defined_rows(
+    frame: TrialFrame, flt: LabFilter, column: str, *, index: FrameIndex | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    """The filter's completed rows with a defined value of `column`, by trial number however the
+    table holds them: the rows, their values and their trial numbers, and how many of the filter's
+    rows that left undefined."""
+    members = np.flatnonzero(filter_mask(frame, flt, index=index))
+    values = _numbers(frame.table, column)[members]
+    defined = np.isfinite(values)
+    rows, values = members[defined], values[defined]
+    numbers = _trial_numbers(frame.table)[rows]
+    by_trial = np.argsort(numbers, kind="stable")
+    return rows[by_trial], values[by_trial], numbers[by_trial], int((~defined).sum())
+
+
 # --- the scope (§6.4) -------------------------------------------------------------------------
 
 

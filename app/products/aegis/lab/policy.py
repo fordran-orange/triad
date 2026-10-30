@@ -111,14 +111,17 @@ BREAK_EVEN = MappingProxyType(
 
 # §7.7 Pareto: ≤ 2,000 front points and one 64 × 64 density grid. §7.9 exact parallel mode:
 # ≤ 5,000 lines stratified by metric decile. §7.10 convergence: the robust median per batch of
-# 5,000 trials over its top 1 %, at most 1,000 points.
+# 5,000 trials over its top 1 %, at most 1,000 points, and the panel empty under two batches (§5).
 PARETO_FRONT_MAX = 2_000
 PARETO_DENSITY_BINS = 64
+OBJECTIVES_MIN = 2
+OBJECTIVES_MAX = 3
 PARALLEL_MAX_LINES = 5_000
 PARALLEL_STRATA = 10
 CONVERGENCE_BATCH = 5_000
 CONVERGENCE_TOP = 0.01
 CONVERGENCE_MAX_POINTS = 1_000
+MIN_BATCHES = 2
 
 # §9.4 / §9.6 the staged importance task: ≤ 180 s in total, the fine-grid stage within 30 s.
 TASK_BUDGET_S = 180

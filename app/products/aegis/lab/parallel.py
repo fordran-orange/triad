@@ -19,9 +19,8 @@ from products.aegis.lab.query import (
     TrialFrame,
     _numbers,
     _optional,
-    _trial_numbers,
     checked_axes,
-    filter_mask,
+    defined_rows,
     metric_column,
 )
 
@@ -67,14 +66,8 @@ def sample_view(
         raise ValueError(f"k must be between 1 and {PARALLEL_MAX_LINES}, not {k}")
     column = metric_column(flt.scope, metric)
     table = frame.table
-    members = np.flatnonzero(filter_mask(frame, flt))
-    values = _numbers(table, column)[members]
-    defined = np.isfinite(values)
-    rows, values = members[defined], values[defined]
-    numbers = _trial_numbers(table)[rows]
+    rows, values, numbers, excluded = defined_rows(frame, flt, column)
     total = len(rows)
-    by_trial = np.argsort(numbers, kind="stable")
-    rows, values, numbers = rows[by_trial], values[by_trial], numbers[by_trial]
     if total > k:
         ranked = np.empty(total, dtype=np.int64)
         ranked[np.argsort(values, kind="stable")] = np.arange(total)
@@ -92,7 +85,7 @@ def sample_view(
         "sampled_from": total,
         "strata": PARALLEL_STRATA,
         "seed": seed,
-        "excluded": int((~defined).sum()),
+        "excluded": excluded,
         "bins": [],
         "bundles": [],
         "total_bundles": 0,

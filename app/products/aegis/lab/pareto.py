@@ -10,19 +10,25 @@ fronts work on oriented values, larger better; the view orients `query.LOWER_IS_
 each value in its metric's own units, with `orientation` beside them.
 
 **Drawing.** At most PARETO_FRONT_MAX exact front points, evenly along the first objective with both
-ends kept, labelled `Sampled subset (n of N)` beyond that; `front_size` stays the true size. A
-PARETO_DENSITY_BINS square bitmap holds the dominated cloud over the first two objectives, on the
-range of every defined trial, so the front points share its frame.
+ends and each objective's best kept, labelled `Sampled subset (n of N)` beyond that; `front_size`
+stays the true size. A PARETO_DENSITY_BINS square bitmap holds the dominated cloud over the first two
+objectives, on the range of every defined trial, so the front points share its frame.
 """
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from products.aegis.lab.policy import PARETO_DENSITY_BINS, PARETO_FRONT_MAX
+from products.aegis.lab.policy import (
+    OBJECTIVES_MAX,
+    OBJECTIVES_MIN,
+    PARETO_DENSITY_BINS,
+    PARETO_FRONT_MAX,
+)
 from products.aegis.lab.query import (
     BASIS_EXACT,
     LOWER_IS_BETTER,
@@ -40,9 +46,8 @@ from products.aegis.lab.query import (
 if TYPE_CHECKING:
     from products.aegis.lab.index import FrameIndex
 
-OBJECTIVES_MIN = 2
-OBJECTIVES_MAX = 3
 _PAIRWISE = 256  # a block of the 3-D stream this small is compared point by point
+_FLOAT_MAX = sys.float_info.max
 
 
 def _checked(*objectives: Sequence[float]) -> list[np.ndarray]:
@@ -140,15 +145,22 @@ def checked_objectives(objectives: Sequence[str]) -> list[str]:
 
 def _range_of(values: np.ndarray) -> tuple[float, float]:
     """A bitmap axis's range: its values', widened by 0.5 each way when they are one value (as
-    numpy's histogram widens it)."""
+    numpy's histogram widens it). From about 1e16 up rounding loses the 0.5, so there it widens by
+    one representable step: the range always has a width, and it never leaves the floats."""
     low, high = float(values.min()), float(values.max())
-    return (low - 0.5, high + 0.5) if low == high else (low, high)
+    if low != high:
+        return low, high
+    below, above = low - 0.5, high + 0.5
+    if above > below:
+        return below, above
+    return float(np.nextafter(low, -_FLOAT_MAX)), float(np.nextafter(high, _FLOAT_MAX))
 
 
 def _bins(values: np.ndarray, low: float, high: float) -> np.ndarray:
-    """Equal-width bins over [low, high], the last one closed: the top edge is in, nothing is out."""
-    at = ((values - low) / (high - low) * PARETO_DENSITY_BINS).astype(np.int64)
-    return np.minimum(at, PARETO_DENSITY_BINS - 1)
+    """Equal-width bins over [low, high], the last one closed: the top edge is in, nothing is out.
+    Halved first, which changes no ratio, so a span past the float range stays finite."""
+    at = (values / 2 - low / 2) / (high / 2 - low / 2) * PARETO_DENSITY_BINS
+    return np.minimum(at.astype(np.int64), PARETO_DENSITY_BINS - 1)
 
 
 def _density(names: list[str], x: np.ndarray, y: np.ndarray, cloud: np.ndarray) -> dict:
@@ -169,6 +181,26 @@ def _density(names: list[str], x: np.ndarray, y: np.ndarray, cloud: np.ndarray) 
     return density
 
 
+def _with_bests(kept: np.ndarray, along: np.ndarray) -> np.ndarray:
+    """The evenly spaced places `kept` of a capped front, sorted, with each objective's best in them
+    (`along`, objectives x places, oriented). Thinning along the first objective keeps its own best
+    and, with two objectives, the other's at the far end; with three, the others can sit between
+    places. A best it missed takes the slot of the nearest place that is neither an end nor another
+    objective's best, so the cap holds and the other places stay even."""
+    needed: set[int] = set()
+    for values in along:  # one place per objective: one already kept when there is one
+        holders = np.flatnonzero(values == values.max())
+        kept_holders = np.intersect1d(holders, kept)
+        needed.add(int(kept_holders[0] if len(kept_holders) else holders[0]))
+    places = set(kept.tolist())
+    protected = needed | {int(kept[0]), int(kept[-1])}
+    for place in sorted(needed - places):
+        spare = min(places - protected, key=lambda at: (abs(at - place), at))
+        places.remove(spare)
+        places.add(place)
+    return np.array(sorted(places), dtype=np.int64)
+
+
 def pareto_view(
     frame: TrialFrame,
     flt: LabFilter,
@@ -179,9 +211,9 @@ def pareto_view(
 ) -> dict:
     """The rank-1 front of two or three objectives over the filter's completed trials, in `scope`'s
     metric columns (module docstring). `front` and `points` are aligned and hold at most
-    PARETO_FRONT_MAX; `sampled` says when that is not all of `front_size`. `points[i].values` line
-    up with `objectives`, `orientation` says which way each is better, and `basis` is the line the
-    scope states."""
+    PARETO_FRONT_MAX, among them each objective's best; `sampled` says when that is not all of
+    `front_size`. `points[i].values` line up with `objectives`, `orientation` says which way each is
+    better, and `basis` is the line the scope states."""
     names = checked_objectives(objectives)
     columns = [metric_column(scope, name) for name in names]
     table = frame.table
@@ -197,14 +229,19 @@ def pareto_view(
     cloud = np.ones(len(rows), dtype=bool)
     cloud[picked] = False
     # Along the first objective, best first, so a capped front still has both its ends.
-    along = np.lexsort(
-        (_trial_numbers(table)[rows[picked]], -oriented[1][picked], -oriented[0][picked])
-    )
-    drawn = picked[along][even_positions(front_size, PARETO_FRONT_MAX)]
+    along = picked[
+        np.lexsort(
+            (_trial_numbers(table)[rows[picked]], -oriented[1][picked], -oriented[0][picked])
+        )
+    ]
+    kept = even_positions(front_size, PARETO_FRONT_MAX)
+    sampled = front_size > PARETO_FRONT_MAX
+    if sampled:
+        kept = _with_bests(kept, oriented[:, along])
+    drawn = along[kept]
     numbers = _trial_numbers(table)[rows[drawn]].tolist()
     front = [f"{frame.source}#{number}" for number in numbers]
     values = raw[:, drawn].T.tolist()
-    sampled = front_size > PARETO_FRONT_MAX
     return {
         "objectives": names,
         "orientation": orientation,
@@ -226,6 +263,8 @@ def pareto_view(
         "constants": {
             "PARETO_FRONT_MAX": PARETO_FRONT_MAX,
             "PARETO_DENSITY_BINS": PARETO_DENSITY_BINS,
+            "OBJECTIVES_MIN": OBJECTIVES_MIN,
+            "OBJECTIVES_MAX": OBJECTIVES_MAX,
         },
     }
 

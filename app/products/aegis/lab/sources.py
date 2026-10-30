@@ -47,7 +47,7 @@ from products.aegis.experiments import (
 )
 from products.aegis.lab import identity
 from products.aegis.lab.cache import LabCache
-from products.aegis.lab.convergence import convergence_view
+from products.aegis.lab.convergence import convergence_payload
 from products.aegis.lab.importance import (
     computed_of,
     importance_basis,
@@ -153,6 +153,10 @@ SUMMARY_BYTES = 65_536  # and of an `exp-summary` part (counts per value and the
 # A cached aggregate matrix's size per square, its four stats' values, stats and histogram
 # included (1.3 to 1.9 KB measured, from 200 x 200 to 12 x 12 squares, every square tested).
 SQUARE_BYTES = 2048
+# A cached convergence payload's size: 133 B per `best` point and 412 to 445 B per robust entry
+# measured with `sys.getsizeof` over the whole value, and about 2 KB of the rest (`META_BYTES`).
+BEST_POINT_BYTES = 136
+ROBUST_ENTRY_BYTES = 512
 # The row selection (`query.BLOCK0` / `ALL_BLOCKS`, Ruling P1) is in a table's and an index's
 # key: ordinary views read block 0, filtered before caching; the importance task reads every
 # screening block, under its own key.
@@ -643,6 +647,20 @@ def matrix_payload_key(
     )
 
 
+def convergence_payload_key(
+    source_identity: tuple,
+    snapshot: Snapshot | None,
+    canonical_filter: str,
+    scope: str,
+    metric: str,
+) -> tuple:
+    """A convergence payload's cache key, as `matrix_payload_key`'s: its source's identity first,
+    then the snapshot, the filter and what the view reads. The source's status is not part of it,
+    so the payload holds nothing that follows the status (`convergence_payload`)."""
+    at = None if snapshot is None else (snapshot.generation, snapshot.chunk_watermark)
+    return (("convergence", *source_identity), at, canonical_filter, scope, metric)
+
+
 def experiment_unique(cache: LabCache, frame: TrialFrame, document: ExperimentDocument) -> int:
     """`unique` (the distinct configurations completed) depends on the snapshot alone, so it is
     counted once per snapshot of this instance of the experiment (its `created_at`) and shared by
@@ -947,6 +965,38 @@ def _matrix(
     }
 
 
+def _convergence(
+    frame: TrialFrame,
+    request: Any,
+    metric: str,
+    index: FrameIndex | None,
+    cache: LabCache | None,
+    source_identity: tuple | None,
+) -> dict:
+    """The convergence view's payload. With a cache and the source's identity it is computed once
+    per `convergence_payload_key`, since at 1,000,000 trials its robust series costs a second or two
+    and a rail polls it. It holds no `provisional`, or a job finishing at the same snapshot would
+    read its running label from the entry: `envelope` states this request's."""
+    flt = request.filter
+
+    def compute() -> dict:
+        return convergence_payload(frame, flt, metric=metric, scope=flt.scope, index=index)
+
+    if cache is None or source_identity is None:
+        return compute()
+    return cache.get(
+        convergence_payload_key(
+            source_identity, frame.snapshot, canonical_filter(flt), flt.scope, metric
+        ),
+        compute,
+        size=lambda held: (
+            META_BYTES
+            + BEST_POINT_BYTES * len(held["best"])
+            + ROBUST_ENTRY_BYTES * len(held["robust"])
+        ),
+    )
+
+
 def run_query(
     frame: TrialFrame,
     request: Any,
@@ -961,7 +1011,8 @@ def run_query(
     squares holding trials, the rows, the bundles; 0 for counts and marginals). Without a
     `metric`, a view reads the objective (counts then counts no `undefined`). A view's refusal
     is its ValueError or KeyError. `index` is the snapshot's (None: computed per request); with
-    a `cache` and the source's identity, an aggregate matrix is cached with its four stats."""
+    a `cache` and the source's identity, an aggregate matrix is cached with its four stats, and a
+    convergence payload is cached too. The scope is always this request's."""
     flt = request.filter
     view = request.view
     metric = request.metric if view == "counts" else (request.metric or frame.objective)
@@ -1020,7 +1071,7 @@ def run_query(
         )
         counted = scope(len(payload["front"]), payload["basis"])
     elif view == "convergence":
-        payload = convergence_view(frame, flt, metric=metric, scope=flt.scope, index=index)
+        payload = _convergence(frame, request, metric, index, cache, source_identity)
         counted = scope(len(payload["best"]), payload["basis"])
     elif view == "square_trials":
         payload = square_trials_view(
@@ -1316,6 +1367,7 @@ __all__ = [
     "cached_meta",
     "canonical_filter",
     "column_set",
+    "convergence_payload_key",
     "experiment_identity",
     "experiment_importance",
     "experiment_index",

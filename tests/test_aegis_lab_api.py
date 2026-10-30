@@ -20,6 +20,7 @@ from products.aegis import experiments as experiments_module
 from products.aegis.data import ArchiveStore
 from products.aegis.experiments import ExperimentDocument, _same
 from products.aegis.indicators import IndicatorCache
+from products.aegis.lab import convergence as convergence_module
 from products.aegis.lab import identity, sources
 from products.aegis.lab import store as lab_store_module
 from products.aegis.lab.cache import LabCache
@@ -1783,12 +1784,10 @@ def test_robustness_view_runs_on_a_real_importance_result(client, monkeypatch):
     ranks = _view(c, src, "robustness")
     assert ranks["axes"] == answer["axes"] and ranks["rankings"]["pool"] == 9
     assert ranks["scope"]["basis"] == (
-        f"{EVERY_TRIAL_BASIS}; robust ranks the top 9 by peak, B reads the top 9 (at most 20)"
+        f"{EVERY_TRIAL_BASIS}; robust ranks the top 9 by peak, B reads at most 9"
     )
     short = _view(c, src, "robustness", k=2)
-    assert short["scope"]["basis"].endswith(
-        "robust ranks the top 9 by peak, B reads the top 2 (at most 20)"
-    )
+    assert short["scope"]["basis"].endswith("robust ranks the top 9 by peak, B reads at most 2")
 
 
 def test_robustness_with_blocks_reads_the_selection_period_only(client, monkeypatch, tmp_path):
@@ -1967,7 +1966,12 @@ def test_pareto_view_on_an_experiment(client, monkeypatch):
     assert answer["snapshot"] == {"generation": 1, "chunk_watermark": 1}
     assert answer["provisional"] is False and answer["empty"] is None
     assert answer["objectives"] == PNL_DD and answer["orientation"] == [1, -1]
-    assert answer["constants"] == {"PARETO_FRONT_MAX": 2_000, "PARETO_DENSITY_BINS": 64}
+    assert answer["constants"] == {
+        "PARETO_FRONT_MAX": 2_000,
+        "PARETO_DENSITY_BINS": 64,
+        "OBJECTIVES_MIN": 2,
+        "OBJECTIVES_MAX": 3,
+    }
     assert answer["sampled"] is False and answer["front_size"] == len(answer["front"]) >= 1
     assert answer["front_size"] + answer["dominated"] + answer["excluded"] == 4
     assert answer["scope"]["shown"] == answer["front_size"]
@@ -2062,8 +2066,8 @@ def test_parallel_sample_on_an_experiment(client, monkeypatch):
 
 
 def test_convergence_view_on_an_experiment(client, monkeypatch):
-    """Four trials: best-so-far by trial number, under two batches so no robust series, and the
-    basis line saying what the neighbours would read."""
+    """Four trials: best-so-far by trial number, under two batches so the panel's empty state
+    (`best` stays for the sparkline), and the basis line saying what the neighbours would read."""
     c, _, _ = client
     experiment_id = _finished_experiment(c, monkeypatch)
     src = f"exp:{experiment_id}"
@@ -2076,11 +2080,10 @@ def test_convergence_view_on_an_experiment(client, monkeypatch):
     answer = _strict_json(response)
     assert answer["view"] == "convergence" and answer["filter_hash"] == "cafe0001"
     assert answer["snapshot"] == {"generation": 1, "chunk_watermark": 1}
-    assert answer["provisional"] is False and answer["empty"] is None
+    assert answer["provisional"] is False
     assert answer["robust"] == [] and answer["batches"] == 0 and answer["partial"] == 4
-    assert answer["robust_reason"] == (
-        "fewer than 2 complete batches of 5000 trials with a defined net_pnl (4 so far)"
-    )
+    reason = "fewer than 2 complete batches of 5000 trials with a defined net_pnl (4 so far)"
+    assert answer["robust_reason"] == reason and answer["empty"] == reason
     page = _view(c, src, "page", sort="trial_no")["rows"]
     running, expected = float("-inf"), []
     for row in page:
@@ -2093,6 +2096,7 @@ def test_convergence_view_on_an_experiment(client, monkeypatch):
         "the filter selects each batch's top trials"
     )
     assert answer["constants"]["CONVERGENCE_BATCH"] == 5_000
+    assert answer["constants"]["MIN_BATCHES"] == 2
     assert _view(c, src, "convergence", metric="max_drawdown")["orientation"] == -1
     missing = c.post(
         f"{LAB}/{src}/query", json={"filter": {}, "view": "convergence", "metric": "nope"}
@@ -2118,6 +2122,7 @@ def test_the_new_views_answer_an_optimization(client, monkeypatch):
     trend = _view(c, src, "convergence", **long_side)
     assert len(trend["best"]) == 9 and trend["robust"] == [] and trend["provisional"] is False
     assert trend["m"] == 1  # an exhaustive grid's reach
+    assert trend["empty"] == trend["robust_reason"] is not None
     for body in (
         {"view": "pareto", "objectives": PNL_DD},
         {"view": "convergence"},
@@ -2125,3 +2130,94 @@ def test_the_new_views_answer_an_optimization(client, monkeypatch):
     ):
         refused = c.post(f"{LAB}/{src}/query", json={"filter": {"scope": "short"}, **body})
         assert refused.status_code == 422 and "one side" in refused.json()["detail"]
+
+
+def _expected_batches(c, src: str, flt: dict, size: int) -> list[dict]:
+    """The robust series of batches of `size` by the definition, through the routes: per batch of
+    the page's rows by trial number, its best trial (ties to the lowest number) and that trial's
+    own neighbourhood's P25, the one candidate's value being the batch's median and quartiles."""
+    column = f"{flt.get('scope', 'combined')}.net_pnl"
+    rows = _view(c, src, "page", sort="trial_no", filter=flt)["rows"]
+    out = []
+    for batch in range(len(rows) // size):
+        members = rows[batch * size : (batch + 1) * size]
+        leader = max(members, key=lambda row: (row["values"][column], -row["trial_no"]))
+        found = _view(c, src, "neighbourhood", trial=leader["trial_id"], filter=flt)
+        p25 = found["neighbourhood"]["p25"]
+        out.append(
+            {
+                "batch": batch,
+                "trial_no": members[-1]["trial_no"],
+                "median": p25,
+                "p25": p25,
+                "p75": p25,
+                "top": 1,
+                "measured": 0 if p25 is None else 1,
+            }
+        )
+    return out
+
+
+@pytest.mark.parametrize("kind", ["exp", "opt"])
+def test_the_robust_series_answers_through_the_route(client, monkeypatch, kind):
+    """Small batches, so the robust path runs end to end: on an experiment over the snapshot's
+    index, and on an optimization, which has none and whose 9 cells otherwise give under 2 batches.
+    Its entries are the definition's, and there is no empty state."""
+    c, _, _ = client
+    monkeypatch.setattr(convergence_module, "CONVERGENCE_BATCH", 2)
+    if kind == "exp":
+        src, flt, batches, partial = f"exp:{_finished_experiment(c, monkeypatch)}", {}, 2, 0
+    else:
+        job_id = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+        _wait(c, job_id, "done")
+        src, flt, batches, partial = f"opt:{job_id}", {"scope": "long"}, 4, 1
+    response = c.post(
+        f"{LAB}/{src}/query",
+        json={"filter": flt, "view": "convergence", "metric": "net_pnl"},
+    )
+    assert response.status_code == 200, response.text
+    trend = _strict_json(response)
+    assert trend["empty"] is None and trend["robust_reason"] is None
+    assert trend["batches"] == batches and trend["partial"] == partial
+    assert len(trend["robust"]) == batches
+    assert trend["robust"] == _expected_batches(c, src, flt, 2)
+    assert any(entry["measured"] for entry in trend["robust"])
+
+
+def test_convergence_is_cached_per_snapshot_filter_and_metric(client, lab_cache, monkeypatch):
+    """The ruling on its cost: a repeat is an entry's, a changed filter or metric recomputes, and a
+    status change at one snapshot reads its own label. The key names this instance of the source."""
+    c, _, repository = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    computed: list[str] = []
+    real = sources.convergence_payload
+
+    def spy(*args, **kwargs):
+        computed.append(kwargs["metric"])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(sources, "convergence_payload", spy)
+    first = _view(c, src, "convergence", filter_hash="aaaa0001")
+    assert computed == ["net_pnl"] and first["provisional"] is False
+    again = _view(c, src, "convergence", filter_hash="bbbb0002")
+    assert computed == ["net_pnl"] and again["filter_hash"] == "bbbb0002"
+    assert again["best"] == first["best"] and again["scope"] == first["scope"]
+    keys = [key for key in lab_cache._entries if key[0][0] == "convergence"]
+    store = experiments_module.ExperimentStore(repository)
+    document = store.get(experiment_id)
+    assert [key[0] for key in keys] == [("convergence", *sources.experiment_source(document))]
+    assert keys[0][1] == (1, 1)
+    # the job's status moves and the snapshot does not: the entry serves, the label is this request's
+    store.save(document.model_copy(update={"status": "running"}))
+    running = _view(c, src, "convergence")
+    assert computed == ["net_pnl"] and running["provisional"] is True
+    store.save(document)
+    assert _view(c, src, "convergence")["provisional"] is False
+    assert computed == ["net_pnl"]
+    # a changed filter or metric is its own entry
+    brushed = _view(c, src, "convergence", filter={"ranges": {DONCHIAN: [10, 10]}})
+    assert computed == ["net_pnl", "net_pnl"] and brushed["scope"]["filtered"] == 2
+    assert len(brushed["best"]) == 2
+    other = _view(c, src, "convergence", metric="max_drawdown")
+    assert computed == ["net_pnl", "net_pnl", "max_drawdown"] and other["orientation"] == -1

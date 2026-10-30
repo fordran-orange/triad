@@ -1371,18 +1371,19 @@ def test_stable_scans_the_robust_order_for_the_first_that_qualifies():
 
 
 def test_the_rankings_basis_states_b_only_when_it_runs():
-    """B runs only with axes, and on at most min(pool, k, RANK_B_MAX) rows: no line says more."""
+    """B runs only with axes, where A is unresolved, on at most min(pool, k, RANK_B_MAX) rows: an
+    upper bound, and the line says it is one."""
 
     def ranks(pool, k):
         return {"pool": pool, "k": k, "b_max": policy.RANK_B_MAX}
 
     bare = "robust ranks the top 300 by peak"
     assert rankings_basis(ranks(300, 20), []) == bare
-    assert rankings_basis(ranks(300, 20), ["x"]) == f"{bare}, B reads the top 20 (at most 20)"
-    assert rankings_basis(ranks(300, 2), ["x"]) == f"{bare}, B reads the top 2 (at most 20)"
-    assert rankings_basis(ranks(300, 300), ["x"]) == f"{bare}, B reads the top 20 (at most 20)"
-    assert rankings_basis(ranks(4, 20), ["x"]) == (
-        "robust ranks the top 4 by peak, B reads the top 4 (at most 20)"
+    assert rankings_basis(ranks(300, 20), ["x"]) == f"{bare}, B reads at most 20"
+    assert rankings_basis(ranks(300, 2), ["x"]) == f"{bare}, B reads at most 2"
+    assert rankings_basis(ranks(300, 300), ["x"]) == f"{bare}, B reads at most 20"
+    assert (
+        rankings_basis(ranks(4, 20), ["x"]) == "robust ranks the top 4 by peak, B reads at most 4"
     )
     assert rankings_basis(ranks(0, 20), ["x"]) == "robust ranks the top 0 by peak"
 
