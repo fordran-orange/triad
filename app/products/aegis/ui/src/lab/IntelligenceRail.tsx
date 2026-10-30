@@ -4,6 +4,7 @@ import type { ExperimentDocument } from '../contracts';
 import { recommendationText } from '../experiments';
 import { DASH, money, num, pct, shortHash } from '../format';
 import type { LabTrial } from '../results';
+import { CandidateCard } from './CandidateCard';
 import { metricsLine, squareAt } from './LabCenter';
 import { valueText } from './labHeatmapModel';
 import { lowN, SHARPE, SHARPE_LABEL } from './labQuery';
@@ -11,7 +12,8 @@ import { useLab } from './labState';
 import { sourceText, type PinSlot } from './labStore';
 import { lossTone } from './LabKpiStrip';
 import { LabError } from './NotBuilt';
-import { currentMatrix, type LabData, type LoadedSource, type TrialRow } from './useLabSource';
+import type { LabQueryData } from './useLabQuery';
+import { currentMatrix, type LoadedSource, type TrialRow } from './useLabSource';
 
 const PINS: PinSlot[] = ['A', 'B', 'C'];
 /** The card's metrics: the four Phase 1 ones, exposure, and the trade Sharpe last — never without net P&L, max
@@ -63,7 +65,7 @@ function barsOf(loaded: LoadedSource | null): number | null {
   return typeof bars === 'number' && bars > 0 ? bars : null;
 }
 
-function TrialCard({ row, scope, bars }: { row: TrialRow; scope: string; bars: number | null }) {
+function TrialCard({ row, scope, bars, data }: { row: TrialRow; scope: string; bars: number | null; data: LabQueryData }) {
   // Every metric of the trial from the trial route (a table page carries only the columns it shows), for an
   // experiment's trial and a grid job's alike.
   const exp = row.id.startsWith('exp:');
@@ -128,16 +130,16 @@ function TrialCard({ row, scope, bars }: { row: TrialRow; scope: string; bars: n
         })}
       </div>
       <div className="sub">annualized Sharpe: not computed</div>
-      <div className="sub">temporal consistency: Phase 3</div>
       <div className="sub">metrics for {scope === 'combined' ? 'both sides together' : `the ${scope} side`}</div>
       {failed !== null && failed.id === row.id && <LabError message={`Trial detail unavailable: ${failed.message}`} onRetry={() => setRetry((n) => n + 1)} />}
+      <CandidateCard data={data} trialId={row.id} />
     </>
   );
 }
 
 /** The right rail: deterministic findings, the (not yet built) AI block kept visibly apart, the selection, the
  *  pins, risk, the gate, provenance with Copy JSON, and the follow-up sweep. */
-export function IntelligenceRail({ data, onRefined }: { data: LabData; onRefined: (child: ExperimentDocument) => void }) {
+export function IntelligenceRail({ data, onRefined }: { data: LabQueryData; onRefined: (child: ExperimentDocument) => void }) {
   const lab = useLab();
   const { loaded, loading, knownRows } = data;
   const [busy, setBusy] = useState(false);
@@ -198,9 +200,13 @@ export function IntelligenceRail({ data, onRefined }: { data: LabData; onRefined
       selected.trials.length !== 1 ? (
         <div>{selected.trials.length.toLocaleString('en-US')} trials selected</div>
       ) : row ? (
-        <TrialCard row={row} scope={scope} bars={barsOf(loaded)} />
+        <TrialCard row={row} scope={scope} bars={barsOf(loaded)} data={data} />
       ) : (
-        <div className="mono">{selected.trials[0]}</div>
+        // A trial picked from a chart or a ranking, whose row the table has not handed over: its id and its four categories.
+        <>
+          <div className="rail-id mono">{selected.trials[0]}</div>
+          <CandidateCard data={data} trialId={selected.trials[0]} />
+        </>
       );
   } else if (loaded?.kind === 'exp') {
     // An experiment's square: its two values; the heatmap's square panel shows what it holds.

@@ -297,3 +297,102 @@ export function fitText(ctx: CanvasRenderingContext2D, text: string, cx: number,
   ctx.fillText(text, cx, cy);
   return true;
 }
+
+// --- scatter hits, ticks and whiskers (the Pareto and importance panels) -------------------------------------------
+
+/** Hit testing over a scatter of at most a few thousand points (the Pareto front draws ≤ 2,000): the point nearest
+ *  to (px, py) within `radius` pixels, found through a bucket grid so a mouse move looks at nine buckets, not every
+ *  point. A point at exactly `radius` is hit; at equal distance the lower index wins (the front's first, best along
+ *  its first objective); a point with a coordinate that is not a number is never hit. Pure; pixels in, an index out. */
+export class ScatterHit {
+  private readonly size: number;
+  private readonly buckets = new Map<string, number[]>();
+
+  constructor(
+    private readonly xs: ArrayLike<number>,
+    private readonly ys: ArrayLike<number>,
+    readonly radius: number,
+  ) {
+    this.size = radius > 0 ? radius : 1;
+    const n = Math.min(xs.length, ys.length);
+    for (let i = 0; i < n; i++) {
+      if (!Number.isFinite(xs[i]) || !Number.isFinite(ys[i])) continue;
+      const key = this.key(Math.floor(xs[i] / this.size), Math.floor(ys[i] / this.size));
+      const held = this.buckets.get(key);
+      if (held) held.push(i);
+      else this.buckets.set(key, [i]);
+    }
+  }
+
+  private key(cx: number, cy: number): string {
+    return `${cx},${cy}`;
+  }
+
+  /** The index of the point under (px, py), or null. */
+  at(px: number, py: number): number | null {
+    if (!(this.radius > 0) || !Number.isFinite(px) || !Number.isFinite(py)) return null;
+    const cx = Math.floor(px / this.size);
+    const cy = Math.floor(py / this.size);
+    const limit = this.radius * this.radius;
+    let best: number | null = null;
+    let bestD = Number.POSITIVE_INFINITY;
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (const i of this.buckets.get(this.key(cx + dx, cy + dy)) ?? []) {
+          const d = (this.xs[i] - px) ** 2 + (this.ys[i] - py) ** 2;
+          if (d <= limit && (d < bestD || (d === bestD && best !== null && i < best))) {
+            best = i;
+            bestD = d;
+          }
+        }
+    return best;
+  }
+}
+
+/** The most ticks `niceTicks` ever returns, whatever count it is asked for. */
+const MAX_TICKS = 1000;
+
+/** Round tick values over `domain`, about `count` of them: the step is 1, 2 or 5 times a power of ten (d3's thresholds
+ *  between them), every tick lies inside the domain, and binary noise is cleaned (3 × 0.2 is 0.6) without a negative
+ *  zero. The domain may come in either order; a degenerate one gives its single value; one that is not finite, or a count
+ *  under one, gives none. */
+export function niceTicks(domain: [number, number], count: number): number[] {
+  let [lo, hi] = domain;
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(count >= 1)) return [];
+  if (lo > hi) [lo, hi] = [hi, lo];
+  if (lo === hi) return [lo];
+  const raw = (hi - lo) / Math.min(count, MAX_TICKS);
+  const power = 10 ** Math.floor(Math.log10(raw));
+  const error = raw / power;
+  const step = (error >= Math.sqrt(50) ? 10 : error >= Math.sqrt(10) ? 5 : error >= Math.sqrt(2) ? 2 : 1) * power;
+  const first = Math.ceil(lo / step - 1e-9);
+  const last = Math.floor(hi / step + 1e-9);
+  const ticks: number[] = [];
+  for (let k = first; k <= last && ticks.length <= MAX_TICKS; k++) {
+    const value = Number((k * step).toPrecision(12));
+    ticks.push(value === 0 ? 0 : value);
+  }
+  return ticks;
+}
+
+/** A horizontal whisker at pixel row `y`: the interval `lo`..`hi` (in `x`'s data values, either order) with a cap
+ *  at each end, `cap` pixels above and below. A bound that is not a number draws nothing: an interval is never
+ *  invented. */
+export function drawWhisker(ctx: CanvasRenderingContext2D, x: Scale, y: number, lo: number, hi: number, colour: string, cap = 4, width = 1.5): void {
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return;
+  const a = x(Math.min(lo, hi));
+  const b = x(Math.max(lo, hi));
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return;
+  ctx.save();
+  ctx.strokeStyle = colour;
+  ctx.lineWidth = width;
+  ctx.beginPath();
+  ctx.moveTo(a, y);
+  ctx.lineTo(b, y);
+  ctx.moveTo(a, y - cap);
+  ctx.lineTo(a, y + cap);
+  ctx.moveTo(b, y - cap);
+  ctx.lineTo(b, y + cap);
+  ctx.stroke();
+  ctx.restore();
+}

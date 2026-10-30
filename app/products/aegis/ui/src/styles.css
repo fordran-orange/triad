@@ -473,4 +473,77 @@ tr.muted td{color:#4f6b80}
 .lab-parallel{position:relative;flex:1;min-height:220px}
 .lab-parallel canvas{cursor:crosshair}
 .parallel-axis{position:absolute;top:0;transform:translateX(-50%);font-size:11px;line-height:16px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Phase 3's analytics tabs: Pareto, Importance, Interaction matrix and Robustness (A–D), and the rail's candidate card.
+   The naming rule of the Lab section: the panel is `lab-<panel>`, its toolbar `<panel>-toolbar`, its parts `<panel>-<part>`. */
+.lab-pareto,.lab-importance,.lab-interactions,.lab-robustness{display:flex;flex-direction:column;gap:6px;min-width:0}
+.lab-pareto{height:100%;min-height:0}
+.pareto-toolbar,.importance-toolbar,.interactions-toolbar,.robustness-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.pareto-toolbar .lab-field select{height:24px}
+.pareto-counts{display:flex;flex-wrap:wrap;gap:2px 14px;color:var(--muted)}
+.pareto-counts b{color:var(--bright);font-weight:600}
+.lab-pareto-plot{position:relative;flex:1;min-height:240px}
+.lab-pareto-plot canvas{position:absolute;top:0;left:0;display:block}
+.pareto-overlay{cursor:crosshair}
+.lab-task{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:4px 8px;border:1px solid var(--line);border-radius:5px;background:var(--panel)}
+.lab-task[data-state=queued],.lab-task[data-state=running]{border-color:#6b4d17}
+.lab-task[data-state=failed],.lab-task[data-state=cancelled]{border-color:#6b1f24}
+.lab-task-btn{height:24px;padding:0 10px;font-size:11px}
+.lab-error-text{color:var(--red);font-size:11px}
+.lab-warn{color:var(--amber);border:1px solid #6b4d17;background:#2a2010;border-radius:5px;padding:4px 8px}
+.lab-warnings{margin:0;padding-left:18px;color:var(--amber)}
+.importance-availability[data-available=false]{color:var(--amber)}
+.importance-legend{display:flex;flex-wrap:wrap;gap:2px 14px;color:var(--muted);font-size:11px}
+.importance-legend .mark{display:inline-block;vertical-align:middle;margin-right:4px}
+.mark.whisker{width:14px;height:0;border-top:2px solid var(--blue)}
+.mark.block{width:14px;height:5px;background:var(--violet)}
+.mark.floor{width:2px;height:12px;background:var(--amber)}
+.mark.tick{width:2px;height:8px;background:var(--muted)}
+.importance-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.importance-row{display:grid;grid-template-columns:24px minmax(90px,170px) 190px minmax(0,1fr);gap:0 10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)}
+.importance-row.unresolved{opacity:.85}
+.importance-row > .importance-status,.importance-row > .importance-reason,.importance-row > .importance-flags,.importance-row > .importance-failing{grid-column:2 / -1}
+.importance-rank{color:var(--muted);text-align:right}
+.importance-name{color:var(--bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.importance-marks{display:block;width:190px;height:28px}
+.importance-unmeasured{border:1px dashed var(--line);border-radius:3px}
+.importance-numbers{color:var(--text);font-size:11px}
+.importance-status{font-weight:600}
+.importance-status[data-kind=investigate]{color:var(--amber)}
+.importance-status[data-kind=deprioritized]{color:var(--violet)}
+.importance-status[data-kind=unresolved]{color:var(--muted)}
+.importance-failing{color:var(--muted)}
+.importance-caveat{border-left:2px solid var(--blue);background:#0b1824;padding:4px 8px;color:var(--text)}
+.importance-report{margin-top:14px;border-top:1px solid var(--line);padding-top:8px}
+.lab-interactions-wrap{width:100%;min-height:60px}
+.lab-interactions-wrap canvas{display:block}
+.lab-interactions-list{margin:2px 0 0;padding-left:18px}
+.robustness-summary{display:flex;flex-direction:column;gap:2px}
+.robustness-lists{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.robust-list{min-width:0}
+.robust-rows{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:2px}
+.robust-row{display:grid;grid-template-columns:22px 62px 72px minmax(0,1fr);gap:6px;align-items:baseline;width:100%;text-align:left;background:#0e1a25;border:1px solid var(--line);border-radius:4px;color:var(--text);padding:3px 6px;font:inherit;cursor:pointer}
+.robust-row.selected{border-color:var(--amber)}
+.robust-row.stable{border-left:3px solid var(--blue)}
+.robust-row[data-state=unresolved]{border-style:dashed}
+.robust-place{color:var(--muted);text-align:right}
+.robust-value.red{color:var(--red)}
+.robust-reason{color:var(--muted)}
+.robust-by,.robust-stable{margin-left:6px;color:var(--muted);font-size:11px}
+.robust-stable{color:var(--blue)}
+.candidate-card{margin-top:8px;border-top:1px solid var(--line);padding-top:6px}
+.candidate-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:4px}
+.candidate-cat{border:1px solid var(--line);border-radius:4px;padding:5px;min-width:0;overflow-wrap:anywhere}
+.candidate-cat[data-state=unresolved]{border-style:dashed}
+.candidate-head{display:flex;flex-wrap:wrap;gap:2px 4px;align-items:baseline}
+.candidate-title{color:var(--muted)}
+.candidate-state{margin-left:auto;font-size:11px;border:1px solid var(--line);border-radius:8px;padding:0 6px}
+.candidate-state[data-state=resolved]{color:var(--bright);border-color:var(--blue)}
+.candidate-state[data-state=unresolved]{color:var(--muted)}
+.candidate-verdict{font-weight:600;color:var(--bright);margin:3px 0}
+.candidate-cat[data-state=unresolved] > .candidate-verdict{color:var(--amber);font-weight:500}
+.candidate-inputs{margin:2px 0;display:flex;flex-direction:column;gap:1px}
+.candidate-inputs div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 6px;min-width:0}
+.candidate-inputs dt{color:var(--muted);flex:none}
+.candidate-inputs dd{margin:0;text-align:right;min-width:0}
+.candidate-finding{margin-top:5px;border-top:1px dashed var(--line);padding-top:4px}
 @media (max-width:1500px){.optlab-page{grid-template-columns:140px minmax(0,1fr) 260px}.lab-body{grid-template-columns:220px minmax(0,1fr)}}

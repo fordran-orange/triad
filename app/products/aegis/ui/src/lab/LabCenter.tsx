@@ -3,12 +3,15 @@ import { MainEffects } from '../components/MainEffects';
 import { DASH, money, num, pct } from '../format';
 import { compactMoney } from '../layout';
 import { METRIC_LABELS, type AxisMatrix, type Metric } from '../results';
+import { ImportanceView } from './ImportanceView';
+import { InteractionMatrix } from './InteractionMatrix';
 import { cursorDims, selectSquareAction } from './labHeatmapModel';
 import { LabHeatmap } from './LabHeatmap';
 import { useLab, useLabDispatch } from './labState';
 import type { LabTab } from './labStore';
-import { NotBuilt } from './NotBuilt';
 import { ParallelCoords } from './ParallelCoords';
+import { ParetoView } from './ParetoView';
+import { RobustnessView } from './RobustnessView';
 import { TrialTable, type ScrollMemory, type TrialSort } from './TrialTable';
 import type { LabQueryData } from './useLabQuery';
 import { currentMatrix, type LabData, type TrialRow } from './useLabSource';
@@ -19,7 +22,7 @@ export const LAB_TABS: Array<{ tab: LabTab; label: string }> = [
   { tab: 'parallel', label: 'Parallel coords' },
   { tab: 'pareto', label: 'Pareto' },
   { tab: 'importance', label: 'Importance' },
-  { tab: 'robustness', label: 'Robustness' },
+  { tab: 'robustness', label: 'Robustness (A–D)' },
 ];
 
 /** How a square prints its value: the four optimizer metrics, and the trade Sharpe (per trade, two decimals) for
@@ -114,14 +117,17 @@ function JobMatrix({ data }: { data: LabData }) {
   );
 }
 
-function Importance({ data }: { data: LabData }) {
-  const { loaded, loading } = data;
-  if (loaded === null) return <div className="lab-empty">{loading ? 'Loading…' : 'No source open.'}</div>;
-  if (loaded.kind === 'opt') return <NotBuilt what="Importance for a grid job" phase={3} />;
+/** The existing report's main effects (the median of its objective at each value), kept under the Importance tab's new
+ *  estimators: the plan keeps the report and labels the new estimators as additional, not equal to its medians (§11.1).
+ *  A grid job has no report. */
+function ReportEffects({ data }: { data: LabData }) {
+  const { loaded } = data;
+  if (loaded === null || loaded.kind === 'opt') return null;
   const { report } = loaded;
   if (report === null) return <div className="lab-empty">no report yet: recompute it on the Experiments page</div>;
   return (
-    <>
+    <section className="importance-report" id="lab-report-effects">
+      <div className="rail-title">The experiment&apos;s report: main effects, a different estimate from the shares above</div>
       <div className="lab-basis" title="the median of the report's objective over the tested cells at each value, with its p25–p75 band">
         Aggregated from tested (median per value)
       </div>
@@ -129,7 +135,7 @@ function Importance({ data }: { data: LabData }) {
         Report {report.report_id} · objective {report.objective} · {report.valid_cells.toLocaleString('en-US')} valid cells
       </div>
       <MainEffects effects={report.main_effects} objective={report.objective} lowerIsBetter={report.objective === 'max_drawdown'} />
-    </>
+    </section>
   );
 }
 
@@ -164,20 +170,20 @@ export function LabCenter({
       ) : (
         none
       )
+    ) : kind === null ? (
+      none
     ) : tab === 'interactions' ? (
-      <NotBuilt what="Interaction matrix" phase={3} />
+      <InteractionMatrix data={data} />
     ) : tab === 'parallel' ? (
-      kind === null ? (
-        none
-      ) : (
-        <ParallelCoords data={data} />
-      )
+      <ParallelCoords data={data} />
     ) : tab === 'pareto' ? (
-      <NotBuilt what="Pareto view" phase={3} />
+      <ParetoView data={data} />
     ) : tab === 'importance' ? (
-      <Importance data={data} />
+      <ImportanceView data={data}>
+        <ReportEffects data={data} />
+      </ImportanceView>
     ) : (
-      <NotBuilt what="Robustness" phase={3} />
+      <RobustnessView data={data} />
     );
   return (
     <div className={'lab-center' + (lab.maximized ? ' maximized' : '')} id="lab-center">

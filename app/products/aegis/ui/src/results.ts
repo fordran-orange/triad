@@ -783,8 +783,40 @@ export interface LabAvailability {
   message: string | null;
 }
 
-/** The constants the rule and its panel print (`rule.CONSTANTS`): read from the response, never from a UI literal. */
-export type LabImportanceConstants = Record<string, number>;
+/** The constants the rule and its panel print (`rule.CONSTANTS`, `lab/policy.py`): read from the response, never from a
+ *  UI literal. Named key by key, so a misspelt one does not compile. */
+export interface LabImportanceConstants {
+  /** The practical-significance floor, applied to upper bounds (§7.4a). */
+  THETA_MIN: number;
+  /** The residual's lower bound above which no `Deprioritized` proposal is made. */
+  RESIDUAL_VETO: number;
+  /** The residual's upper bound below which the decomposition is inconsistent. */
+  RESIDUAL_INCONSISTENT: number;
+  /** Bootstrap resamples of the fine grid, and shuffles of its permutation null. */
+  BOOTSTRAP_B: number;
+  PERMUTATION_P: number;
+  /** The same for the coarse decomposition. */
+  COARSE_BOOTSTRAP_B: number;
+  COARSE_PERMUTATION_P: number;
+  COARSE_BINS: number;
+  /** The interval's coverage (0.9: a 90 % interval) and the null's quantile that sets a detection floor. */
+  INTERVAL: number;
+  FLOOR_QUANTILE: number;
+  /** Cramér's V above which a pair is aliased. */
+  ALIAS_V: number;
+  /** A pair's cell needs this many rows; a pair is unresolved under PAIR_MIN_COVERAGE of its grid so held, and
+   *  unbalanced above PAIR_BALANCE_TVD. */
+  PAIR_MIN_N: number;
+  PAIR_MIN_COVERAGE: number;
+  PAIR_BALANCE_TVD: number;
+  /** `Measured` needs n ≥ IMPORTANCE_MIN_N_FACTOR × the parameter's values and IMPORTANCE_MIN_PER_VALUE rows at each. */
+  IMPORTANCE_MIN_N_FACTOR: number;
+  IMPORTANCE_MIN_PER_VALUE: number;
+  /** The rows a bootstrap reads at most (a seeded subsample beyond), the triples shown, the pairs a view sends. */
+  IMPORTANCE_ROWS: number;
+  TRIPLE_TOP: number;
+  INTERACTIONS_MAX_PAIRS: number;
+}
 
 /** An importance stage as the `importance` view sends it (`ImportanceResult.to_json` plus the stage fields, without
  *  the triple-level arrays). Each stage is whole for the stages run so far: stage 1 holds `fine` alone, stage 2 adds
@@ -998,7 +1030,9 @@ export interface LabCategoryOf<N extends LabCategoryName, C extends string, I> {
 }
 
 /** A's inputs, ORIENTED like the neighbourhood's (`max_drawdown` negated): `value` is the candidate's, `p25` the
- *  neighbours' lower quartile, `distance` = |value − p25|, resolved `stable local` when it is within `tau`. */
+ *  neighbours' lower quartile, `distance` = |value − p25|, resolved `stable local` when it is within `tau`. Converting a
+ *  negated metric back to its real units (`orientation * x`) swaps `p25` and `p75`: the oriented lower quartile is the
+ *  real upper one. `iqr`, `tau` and `distance` are widths and keep their sign. */
 export interface LabAInputs {
   n: number;
   valid: number;
@@ -1023,7 +1057,8 @@ export interface LabAInputs {
 }
 
 /** B's inputs (the sampled region), ORIENTED. `a_unresolved` rides along when A is unresolved: B is never reported as
- *  A. `density` is the region's trials over what a uniform draw would put in it. */
+ *  A. `density` is the region's trials over what a uniform draw would put in it. As for A, converting a negated metric
+ *  back swaps `p25` and `p75` (`iqr` and `tau` are widths and keep their sign). */
 export interface LabBInputs {
   axes: string[];
   radius: number;
@@ -1119,7 +1154,8 @@ export interface LabCandidateCard {
 }
 
 /** One row of a ranking: the trial, its ORIENTED `value`, and what placed it (`ranked_by` A or B, null when neither
- *  resolved, then `reason` says why). */
+ *  resolved, then `reason` says why). The rankings carry no `orientation` of their own (the card does): it is the
+ *  asked metric's, and `max_drawdown` is the one metric where lower is better (`orientationOf` in candidateModel.ts). */
 export interface LabRankedEntry {
   trial_id: string;
   value: number;
@@ -1227,7 +1263,7 @@ export interface LabConvergenceBatch {
  *  carry the reason WHILE `best` is full: the compact sparkline draws `best` whatever `empty` says, and the full chart
  *  reads `empty` to state why it has no robust series. `best_total` is how many trials `best` thinned from,
  *  `partial` the trials in no complete batch, `r` and `m` the reach their neighbourhoods read. The envelope's
- *  `provisional` follows the source's status. */
+ *  `provisional` follows the source's status. `metric` is the `<scope>.<metric>` column, as `LabParallel.metric` is. */
 export interface LabConvergence {
   metric: string;
   orientation: 1 | -1;

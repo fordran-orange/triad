@@ -66,6 +66,7 @@ export type LabAction =
   | { type: 'SET_MODE'; mode: LabMode }
   | { type: 'SET_STAT'; stat: LabStat }
   | { type: 'SET_METRIC'; metric: string }
+  | { type: 'SET_OBJECTIVES'; objectives: string[] }
   | { type: 'SET_SCOPE'; scope: LabScope }
   | { type: 'SET_RANGE'; path: string; range: [number, number] | null }
   | { type: 'FIX_VALUE'; path: string; value: number | null }
@@ -140,6 +141,12 @@ export function labReducer(state: LabState, action: LabAction): LabState {
       return { ...state, stat: action.stat };
     case 'SET_METRIC':
       return { ...state, metric: action.metric };
+    case 'SET_OBJECTIVES': {
+      // The Pareto view's two or three metrics (§7.7), none twice: any other choice is not a front and is ignored.
+      const { objectives } = action;
+      const ok = (objectives.length === 2 || objectives.length === 3) && new Set(objectives).size === objectives.length;
+      return ok ? { ...state, objectives: [...objectives] } : state;
+    }
     case 'SET_SCOPE':
       return { ...state, filter: { ...state.filter, scope: action.scope } };
     case 'SET_RANGE': {

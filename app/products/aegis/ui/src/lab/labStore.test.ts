@@ -150,6 +150,16 @@ describe('labReducer SET_*', () => {
     expect(labReducer(initialLabState, { type: 'SET_METRIC', metric: 'sharpe' })).toEqual({ ...initialLabState, metric: 'sharpe' });
   });
 
+  it('SET_OBJECTIVES sets the Pareto view’s two or three metrics, and ignores a choice that is not a front', () => {
+    const next = labReducer(initialLabState, { type: 'SET_OBJECTIVES', objectives: ['mar', 'max_drawdown', 'trade_count'] });
+    expect(next).toEqual({ ...initialLabState, objectives: ['mar', 'max_drawdown', 'trade_count'] });
+    const two = labReducer(next, { type: 'SET_OBJECTIVES', objectives: ['net_pnl', 'mar'] });
+    expect(two.objectives).toEqual(['net_pnl', 'mar']);
+    for (const bad of [[], ['net_pnl'], ['net_pnl', 'net_pnl'], ['a', 'b', 'c', 'd'], ['a', 'b', 'a']]) expect(labReducer(two, { type: 'SET_OBJECTIVES', objectives: bad })).toBe(two);
+    const given = ['net_pnl', 'mar'];
+    expect(labReducer(initialLabState, { type: 'SET_OBJECTIVES', objectives: given }).objectives).not.toBe(given); // a copy
+  });
+
   it('SET_SCOPE sets the filter scope and leaves the rest of the filter alone', () => {
     const before = state({ filter: filter({ ranges: { a: [1, 2] } }) });
     const next = labReducer(before, { type: 'SET_SCOPE', scope: 'short' });
