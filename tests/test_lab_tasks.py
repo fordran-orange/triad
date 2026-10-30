@@ -685,6 +685,50 @@ def test_cancel_route_answers_404_for_an_unknown_task(lab, world):  # noqa: F811
         server.app.dependency_overrides.pop(api.get_repository, None)
 
 
+def test_task_status_route_reads_a_task_of_its_own_source_only(lab, world):  # noqa: F811
+    """Ruling P21's read-only route answers like the cancel route: a task of its own source (an
+    experiment by its whole identity, an optimization by its job id whatever cells it has done),
+    404 for an unknown id, another source, another kind, or a predecessor experiment's task. A
+    read changes nothing: a queued task stays queued and no task is requested."""
+    repository, _library, strategy = world
+    hand_document(repository, strategy, experiment_id=EXPERIMENT)
+    current = sources.experiment_source(exp.ExperimentStore(repository).get(EXPERIMENT))
+    predecessor = ("exp", EXPERIMENT, "2026-10-01T00:00:00+00:00")
+    server.app.dependency_overrides[api.get_lab_tasks] = lambda: lab.tasks
+    server.app.dependency_overrides[api.get_repository] = lambda: repository
+    try:
+        c = TestClient(server.app, raise_server_exceptions=False)
+        blocker = lab.body("blocker", gates=(1,))
+        optimization = task_key(("opt", "job-1", 7), "importance", "net_pnl", "long", 1)
+        running = lab.tasks.request(optimization, "importance", 3, blocker)
+        assert blocker.started.wait(WAIT_S)
+        mine = lab.tasks.request(
+            task_key(current, "importance", "net_pnl", "combined", 1), "importance", 3, lab.body()
+        )
+        theirs = lab.tasks.request(
+            task_key(predecessor, "importance", "net_pnl", "combined", 1),
+            "importance",
+            3,
+            lab.body(),
+        )
+        unknown = c.get(f"{LAB}/exp:{EXPERIMENT}/tasks/{'0' * 32}")
+        assert unknown.status_code == 404 and "unknown task" in unknown.json()["detail"]
+        assert c.get(f"{LAB}/exp:{EXPERIMENT}/tasks/{theirs.id}").status_code == 404
+        assert c.get(f"{LAB}/exp:elsewhere/tasks/{mine.id}").status_code == 404
+        assert c.get(f"{LAB}/opt:{EXPERIMENT}/tasks/{mine.id}").status_code == 404
+        assert c.get(f"{LAB}/opt:job-2/tasks/{running.id}").status_code == 404
+        queued = c.get(f"{LAB}/exp:{EXPERIMENT}/tasks/{mine.id}")
+        assert queued.status_code == 200 and queued.json()["state"] == "queued"
+        assert queued.json()["id"] == mine.id and queued.json()["stage"] == 0
+        live = c.get(f"{LAB}/opt:job-1/tasks/{running.id}")  # whatever cells it has done
+        assert live.status_code == 200 and live.json()["state"] == "running"
+        assert lab.tasks.status(mine.id).state == lab.tasks.status(theirs.id).state == "queued"
+        assert c.get(f"{LAB}/nonsense/tasks/{mine.id}").status_code == 422
+    finally:
+        server.app.dependency_overrides.pop(api.get_lab_tasks, None)
+        server.app.dependency_overrides.pop(api.get_repository, None)
+
+
 # --- the pinned snapshot: `sources.pin_experiment` and `open_experiment(snapshot=)` ------------
 
 

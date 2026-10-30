@@ -1429,6 +1429,93 @@ def _held_experiment(c, gate_of: threading.Event, repository, name: str = "held"
     raise AssertionError("the experiment never reached its held unit")
 
 
+def test_task_status_route_reads_a_running_then_a_done_task(client, monkeypatch):
+    """Ruling P21: `GET /lab/{src}/tasks/{task_id}` is the read-only status of one task, the
+    `task` field of a view built the same way. Held after stage 1 of the real stages it reads
+    `running` at stage 1; once released, `done` at stage 3 with its finish time."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    delivered, proceed = threading.Event(), threading.Event()
+    real = sources.importance_stages
+
+    def held(frame, **kwargs):
+        stages = real(frame, **kwargs)
+        yield next(stages)
+        delivered.set()  # the executor asked for more: stage 1 is in the task's status
+        assert proceed.wait(WAIT_S)
+        yield from stages
+
+    monkeypatch.setattr(sources, "importance_stages", held)
+    task_id = _view(c, src)["task"]["id"]
+    assert delivered.wait(WAIT_S)
+    url = f"{LAB}/{src}/tasks/{task_id}"
+    running = c.get(url)
+    assert running.status_code == 200, running.text
+    body = running.json()
+    assert set(body) == TASK_FIELDS and body["id"] == task_id and body["label"] == "importance"
+    assert body["state"] == "running" and body["stage"] == 1 and body["stages"] == 3
+    assert body["finished_at"] is None and body["started_at"]
+    assert body == _view(c, src)["task"]  # the field a view carries, built the same way
+    proceed.set()
+    assert _tasks().wait(task_id, WAIT_S).state == "done"
+    done = c.get(url)
+    assert done.status_code == 200, done.text
+    body = done.json()
+    assert body["state"] == "done" and body["stage"] == 3 and body["progress"] == 1.0
+    assert body["finished_at"] and body["error"] is None
+    assert body == _view(c, src)["task"]
+
+
+def test_task_status_route_answers_404_for_an_unknown_or_foreign_task(client, monkeypatch):
+    """Like the cancel route: 404 for an id this executor does not know and for a task that is
+    not this source's (another experiment, another kind, a source that does not exist)."""
+    c, _, _ = client
+    mine = _finished_experiment(c, monkeypatch)
+    other = _finished_experiment(c, monkeypatch, name="another")
+    assert other != mine
+    task_id = _view(c, f"exp:{mine}")["task"]["id"]
+    assert _tasks().wait(task_id, WAIT_S).state == "done"
+    unknown = c.get(f"{LAB}/exp:{mine}/tasks/{'0' * 32}")
+    assert unknown.status_code == 404, unknown.text
+    assert "unknown task" in unknown.json()["detail"]
+    for src in (f"exp:{other}", f"opt:{mine}", "exp:missing"):
+        assert c.get(f"{LAB}/{src}/tasks/{task_id}").status_code == 404, src
+    assert c.get(f"{LAB}/nonsense/tasks/{task_id}").status_code == 422
+    assert c.get(f"{LAB}/exp:{mine}/tasks/{task_id}").status_code == 200  # its own source reads it
+
+
+def test_task_status_route_never_creates_work(client, monkeypatch):
+    """The Lab polls this route for a task it left behind, so a read must never create work: a
+    spy on `LabTasks.request` is never called, and no frame is opened and no snapshot pinned
+    (a view's poll does both, and on a running experiment a poll at a new chunk queues a task)."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    other = _finished_experiment(c, monkeypatch, name="another")
+    src = f"exp:{experiment_id}"
+    task_id = _view(c, src)["task"]["id"]
+    assert _tasks().wait(task_id, WAIT_S).state == "done"
+    requests: list[tuple] = []
+
+    def spy(self, *args, **kwargs):
+        requests.append(args)
+        raise AssertionError("the status route requested a task")
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the status route opened a frame or pinned a snapshot")
+
+    monkeypatch.setattr(LabTasks, "request", spy)
+    for name in ("open_experiment", "pin_experiment"):
+        monkeypatch.setattr(sources, name, refuse)
+    monkeypatch.setattr(api, "_lab_experiment", refuse)
+    for _ in range(3):
+        assert c.get(f"{LAB}/{src}/tasks/{task_id}").status_code == 200
+    assert c.get(f"{LAB}/{src}/tasks/{'0' * 32}").status_code == 404
+    assert c.get(f"{LAB}/exp:{other}/tasks/{task_id}").status_code == 404
+    assert requests == []
+    assert lab_store_module.REGISTRY.held(experiment_id) == set()
+
+
 def test_cancel_stops_the_key_of_a_running_experiment(client, monkeypatch):
     """Review fixes 1 and 2, the normal state of a running experiment. T1 is held after stage 1
     and a new chunk arrives, so a poll queues T2. Ruling P14: no done result yet, so the view shows

@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LabTask, LabTaskState } from '../results';
-import { canRerun, cancelPending, isActive, noteDone, NO_DONE, pollDelay, pollStopped, sameWatch, TASK_POLL_MS, taskLine } from './labTask';
+import { canRerun, cancelPending, followTask, isActive, noteDone, NO_DONE, pollDelay, pollStopped, sameWatch, TASK_POLL_MS, taskLine, watchTaskStatus } from './labTask';
 
 const T0 = Date.parse('2026-10-30T10:00:00Z');
 const at = (seconds: number) => new Date(T0 + seconds * 1000).toISOString();
@@ -144,18 +144,17 @@ describe('noteDone (a finished importance task refreshes what reads its result, 
   });
 });
 
-describe('sameWatch (a background watch belongs to one task of one source)', () => {
-  const watch = { source: 'exp:e1', metric: 'net_pnl', scope: 'combined' };
+describe('sameWatch (a background watch belongs to the source it was handed from)', () => {
+  const watch = { source: 'exp:e1', taskId: 'a1b2c3' };
 
-  it('holds only for the same source, metric and scope', () => {
-    expect(sameWatch(watch, { ...watch })).toBe(true);
-    expect(sameWatch(watch, { ...watch, source: 'exp:e2' })).toBe(false);
-    expect(sameWatch(watch, { ...watch, metric: 'mar' })).toBe(false);
-    expect(sameWatch(watch, { ...watch, scope: 'long' })).toBe(false);
+  it('holds only while that source is the one open', () => {
+    expect(sameWatch(watch, 'exp:e1')).toBe(true);
+    expect(sameWatch(watch, 'exp:e2')).toBe(false);
+    expect(sameWatch(watch, 'opt:e1')).toBe(false);
   });
 
-  it('never holds without a watch, or without a place to look', () => {
-    expect(sameWatch(null, watch)).toBe(false);
+  it('never holds without a watch, or without an open source', () => {
+    expect(sameWatch(null, 'exp:e1')).toBe(false);
     expect(sameWatch(watch, null)).toBe(false);
     expect(sameWatch(null, null)).toBe(false);
   });
@@ -192,5 +191,152 @@ describe('pollStopped (a failed poll says that the polling stopped)', () => {
     expect(pollStopped(null, task({ state: 'running' }))).toBeNull();
     expect(pollStopped('boom', task({ state: 'done' }))).toBeNull();
     expect(pollStopped('boom', null)).toBeNull();
+  });
+});
+
+describe('followTask (a watch is bound to the task it was handed and stops when that task ended)', () => {
+  it('keeps watching while the task is queued or running, and counts nothing yet', () => {
+    for (const state of ['queued', 'running'] as const) {
+      const step = followTask(NO_DONE, task({ state }));
+      expect(step.watching, state).toBe(true);
+      expect(step.counter).toBe(NO_DONE);
+    }
+  });
+
+  it('stops at every ended state, and counts a done task exactly once', () => {
+    const done = followTask(NO_DONE, task({ state: 'done', stage: 3 }));
+    expect(done.watching).toBe(false);
+    expect(done.counter.count).toBe(1);
+    // The same ended task seen again (a second look before the watch was dropped) counts nothing more.
+    const again = followTask(done.counter, task({ state: 'done', stage: 3 }));
+    expect(again.watching).toBe(false);
+    expect(again.counter.count).toBe(1);
+  });
+
+  it('counts nothing for a cancelled or a failed task, and stops', () => {
+    for (const state of ['cancelled', 'failed'] as const) {
+      const step = followTask(NO_DONE, task({ state, stage: 1 }));
+      expect(step.watching, state).toBe(false);
+      expect(step.counter.count, state).toBe(0);
+    }
+  });
+
+  it('is of the task it was handed: a different task reading done is no business of the watch', () => {
+    const next = followTask(NO_DONE, task({ id: 'next', state: 'done', stage: 3 }), 'handed');
+    expect(next.watching).toBe(false); // the watch ends: its own task is not the one it sees
+    expect(next.counter.count).toBe(0);
+    const own = followTask(NO_DONE, task({ id: 'handed', state: 'done', stage: 3 }), 'handed');
+    expect(own.counter.count).toBe(1);
+  });
+
+  it('a task that was not found (404) or a look that failed stops the watch quietly, counting nothing', () => {
+    const gone = followTask(NO_DONE, null);
+    expect(gone.watching).toBe(false);
+    expect(gone.counter).toBe(NO_DONE);
+  });
+});
+
+describe('watchTaskStatus (the background watch reads one task’s status and nothing else)', () => {
+  const handed = { source: 'exp:e1', taskId: 'T1' };
+
+  /** A watch over a scripted list of statuses (the last repeats), with the real stop rule and counter. */
+  function scripted(statuses: Array<LabTask | 'unknown'>) {
+    const reads: Array<[string, string]> = [];
+    let counter = NO_DONE;
+    let ended = 0;
+    let asked = 0;
+    const stop = watchTaskStatus(handed, {
+      read: async (source, taskId) => {
+        reads.push([source, taskId]);
+        const next = statuses[Math.min(asked++, statuses.length - 1)];
+        if (next === 'unknown') throw new Error('404: unknown task');
+        return next;
+      },
+      seen: (status) => {
+        const step = followTask(counter, status, handed.taskId);
+        counter = step.counter;
+        return step.watching;
+      },
+      end: () => {
+        ended += 1;
+      },
+    });
+    return { reads, stop, count: () => counter.count, ended: () => ended };
+  }
+
+  const running = task({ id: 'T1', state: 'running', stage: 1 });
+  const done = task({ id: 'T1', state: 'done', stage: 3 });
+
+  afterEach(() => vi.useRealTimers());
+
+  it('reads the handed task every poll while it runs, then notes the one done and stops', async () => {
+    vi.useFakeTimers();
+    const w = scripted([running, running, done]);
+    await vi.advanceTimersByTimeAsync(TASK_POLL_MS * 2 + 10);
+    expect(w.reads).toHaveLength(2);
+    expect(w.count()).toBe(0);
+    await vi.advanceTimersByTimeAsync(TASK_POLL_MS);
+    expect(w.reads).toHaveLength(3);
+    expect(w.count()).toBe(1);
+    expect(w.ended()).toBe(1);
+    await vi.advanceTimersByTimeAsync(TASK_POLL_MS * 5); // nothing more is asked once it ended
+    expect(w.reads).toHaveLength(3);
+    for (const read of w.reads) expect(read).toEqual(['exp:e1', 'T1']); // only ever the handed task, only its status
+  });
+
+  it('never follows the key’s next task: another id ends the watch and counts nothing', async () => {
+    vi.useFakeTimers();
+    const w = scripted([running, task({ id: 'T2', state: 'done', stage: 3 })]);
+    await vi.advanceTimersByTimeAsync(TASK_POLL_MS * 4);
+    expect(w.reads).toHaveLength(2);
+    expect(w.count()).toBe(0);
+    expect(w.ended()).toBe(1);
+  });
+
+  it('a task that ended cancelled or failed stops the watch and counts nothing', async () => {
+    vi.useFakeTimers();
+    for (const state of ['cancelled', 'failed'] as const) {
+      const w = scripted([running, task({ id: 'T1', state, stage: 1 })]);
+      await vi.advanceTimersByTimeAsync(TASK_POLL_MS * 4);
+      expect(w.reads, state).toHaveLength(2);
+      expect(w.count(), state).toBe(0);
+      expect(w.ended(), state).toBe(1);
+    }
+  });
+
+  it('an unknown task (404) or a failed read ends it quietly, counting nothing', async () => {
+    vi.useFakeTimers();
+    const w = scripted([running, 'unknown']);
+    await vi.advanceTimersByTimeAsync(TASK_POLL_MS * 4);
+    expect(w.reads).toHaveLength(2);
+    expect(w.count()).toBe(0);
+    expect(w.ended()).toBe(1);
+  });
+
+  it('stopping it clears its timer, and a read that lands after the stop is ignored', async () => {
+    vi.useFakeTimers();
+    const early = scripted([running]);
+    early.stop();
+    await vi.advanceTimersByTimeAsync(TASK_POLL_MS * 3);
+    expect(early.reads).toHaveLength(0);
+    let answer: (status: LabTask) => void = () => undefined;
+    const seen: Array<LabTask | null> = [];
+    let ended = 0;
+    const stop = watchTaskStatus(handed, {
+      read: () => new Promise<LabTask>((resolve) => (answer = resolve)), // held: the read is in flight
+      seen: (status) => {
+        seen.push(status);
+        return true;
+      },
+      end: () => {
+        ended += 1;
+      },
+    });
+    await vi.advanceTimersByTimeAsync(TASK_POLL_MS); // the first read is issued
+    stop(); // ... and answered after the stop
+    answer(done);
+    await vi.advanceTimersByTimeAsync(TASK_POLL_MS * 3);
+    expect(seen).toEqual([]);
+    expect(ended).toBe(0);
   });
 });

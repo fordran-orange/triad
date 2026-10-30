@@ -29,7 +29,7 @@ export function VariableIntelligence({
         <ParameterCatalog list={loaded ? sourceFamilies(loaded) : null} mode="status" loading={loading} />
         <div className="lab-center no-tabs">
           <div className="lab-panel">
-            <div className="lab-line" id="lab-variables-status" title="screening experiments arrive in Phase 3; statuses in Phase 4">
+            <div className="lab-line" id="lab-variables-status" title="screening blocks are on the experiment planner; the evidence and statuses arrive in Phase 4">
               no screening evidence: all parameters Active
             </div>
             <NotBuilt what="Influence, interactions and search-space proposals" phase={4} />

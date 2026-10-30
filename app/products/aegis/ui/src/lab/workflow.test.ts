@@ -46,7 +46,7 @@ describe('workflowSteps', () => {
     const reasons = Object.fromEntries(
       workflowSteps({ hasExperiment: true, hasReport: false }).map((s) => [s.key, s.reason]),
     );
-    expect(reasons.screen).toBe('screening experiments arrive in Phase 3');
+    expect(reasons.screen).toBe('screening blocks are on the experiment planner; this step arrives in Phase 4');
     expect(reasons.evaluate).toBe('available after Phase 4');
     expect(reasons.propose).toBe('available after Phase 4');
     expect(reasons.approve).toBe('available after Phase 4');
@@ -66,6 +66,6 @@ describe('workflowSteps', () => {
     const second = workflowSteps({ hasExperiment: false, hasReport: false });
     expect(second).not.toBe(first);
     expect(second[0].state).toBe('live');
-    expect(second[1].reason).toBe('screening experiments arrive in Phase 3');
+    expect(second[1].reason).toBe('screening blocks are on the experiment planner; this step arrives in Phase 4');
   });
 });

@@ -99,18 +99,28 @@ export function noteDone(counter: DoneCounter, task: LabTask | null): DoneCounte
   return { count: counter.count + 1, id: task.id };
 }
 
-/** The task a background watch follows: the analysis of one source, metric and side scope (its coalescing key's parts the
- *  Lab chooses). A tab that was left while the task still ran hands it over, so its finishing is seen. */
+/** The task a background watch follows: one task of one source, by its id. A tab that was left while its task still ran
+ *  hands it over, so its finishing is seen. The watch reads that task's status and nothing else: it never asks a view, so it
+ *  creates no work, and it never follows the key's next task. */
 export interface TaskWatch {
   source: string;
-  metric: string;
-  scope: string;
+  taskId: string;
 }
 
-/** Whether the watch is of the task the Lab is looking at now. A watch asks the importance view with the Lab's own metric
- *  and scope, so it may continue only while they are the watch's: asking under another would request another task. */
-export function sameWatch(watch: TaskWatch | null, now: TaskWatch | null): boolean {
-  return watch !== null && now !== null && watch.source === now.source && watch.metric === now.metric && watch.scope === now.scope;
+/** Whether the watch is of the source the Lab has open: a watch the Lab has moved away from is of no use. */
+export function sameWatch(watch: TaskWatch | null, source: string | null): boolean {
+  return watch !== null && source !== null && watch.source === source;
+}
+
+/** One look of a watch at the status of the task it was handed (`handed`; any task when omitted): whether to keep watching
+ *  and the counter after it. An active task (queued or running) keeps the watch and counts nothing. Every ended state stops
+ *  it: `done` is counted, exactly once however many times it is seen, and `cancelled` and `failed` count nothing, being no
+ *  new result. A status that is not the handed task's, and none at all (the task is unknown to the worker, a 404, or the look
+ *  failed), stops the watch quietly and counts nothing. */
+export function followTask(counter: DoneCounter, task: LabTask | null, handed?: string): { watching: boolean; counter: DoneCounter } {
+  if (task === null || (handed !== undefined && task.id !== handed)) return { watching: false, counter };
+  if (isActive(task)) return { watching: true, counter };
+  return { watching: false, counter: noteDone(counter, task) };
 }
 
 /** Whether a Cancel the operator asked is still pending: it named one task under one view key, and holds while that task
@@ -123,4 +133,37 @@ export function cancelPending(asked: { key: string; id: string } | null, key: st
  *  Null with no error, or when that task had already stopped. */
 export function pollStopped(error: string | null, task: LabTask | null): string | null {
   return error !== null && isActive(task) ? 'polling has stopped and the task may still be running: Retry asks again' : null;
+}
+
+/** The background watch's loop (Ruling P21): every `TASK_POLL_MS` it reads the status of the one task it was handed through
+ *  `read` (the read-only status route, never a view: a view's poll requests a task) and tells `seen` what it found; `seen`
+ *  answers whether to go on (`followTask`). It ends, through `end`, when `seen` says so and when a read fails, a 404 for a
+ *  task the worker does not know included. The stop it returns clears the timer, and a read that lands after it is ignored. */
+export function watchTaskStatus(
+  watch: TaskWatch,
+  io: {
+    read: (source: string, taskId: string) => Promise<LabTask>;
+    seen: (task: LabTask | null) => boolean;
+    end: () => void;
+  },
+): () => void {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const again = () => {
+    io.read(watch.source, watch.taskId).then(
+      (task) => {
+        if (stopped) return;
+        if (io.seen(task)) timer = setTimeout(again, TASK_POLL_MS);
+        else io.end();
+      },
+      () => {
+        if (!stopped) io.end();
+      },
+    );
+  };
+  timer = setTimeout(again, TASK_POLL_MS);
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
 }

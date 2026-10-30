@@ -42,3 +42,24 @@ describe('labCancelTask', () => {
     await expect(api.labCancelTask('exp:e1', 'zz')).rejects.toMatchObject({ status: 404, detail: "unknown task 'zz'" });
   });
 });
+
+describe('labTaskStatus (the read-only status of one task, Ruling P21)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('GETs the task route of the source, both encoded, and answers the task', async () => {
+    const task = { id: 'a1b2c3', label: 'importance', state: 'running', stage: 1, stages: 3, progress: 1 / 3, error: null, started_at: null, finished_at: null, sharing_cpu: false };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(task), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const answer = await api.labTaskStatus('exp:e 1', 'a1b2/c3');
+    expect(answer).toEqual(task);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit | undefined];
+    expect(url).toBe('/aegis/api/lab/exp%3Ae%201/tasks/a1b2%2Fc3');
+    expect(init?.method ?? 'GET').toBe('GET'); // a read: it never posts, so it can never ask for work
+    expect(init?.body).toBeUndefined();
+  });
+
+  it("rejects with the worker's detail for an unknown task or another source's (404)", async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: "unknown task 'zz'" }), { status: 404 })));
+    await expect(api.labTaskStatus('exp:e1', 'zz')).rejects.toMatchObject({ status: 404, detail: "unknown task 'zz'" });
+  });
+});

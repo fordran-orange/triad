@@ -168,7 +168,7 @@ export function InteractionMatrix({ data }: { data: LabQueryData }) {
       {model !== null && view !== null && view.constants !== null && (
         <div className="sub" id="lab-interactions-legend">
           Shade = J, the pair&apos;s joint share of the variance · hatched = unresolved (under {view.constants.PAIR_MIN_COVERAGE} of the pair&apos;s value grid holds ≥ {view.constants.PAIR_MIN_N} rows) ·
-          amber corner = unbalanced · dot = Δ of the row beyond the column exceeds its detection floor · hover for Δ and I; I has no interval and no rule reads it.
+          outlined square = no J (the diagonal, a pair the worker did not send, or a resolved pair whose J is undefined) · amber corner = unbalanced · dot = Δ of the row beyond the column exceeds its detection floor · hover for Δ and I; I has no interval and no rule reads it.
         </div>
       )}
       <div className="lab-interactions-wrap" ref={wrap}>

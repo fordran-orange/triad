@@ -6,7 +6,7 @@
 // the panel's X state, whose Retry asks again. The components only render what this returns.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
-import type { LabEnvelope, LabMatrix, LabQueryBody, LabQueryView, LabSummary, LabTaskView } from '../results';
+import type { LabEnvelope, LabMatrix, LabQueryBody, LabQueryView, LabSummary } from '../results';
 import { useLab } from './labState';
 import { sourceText, type LabState } from './labStore';
 import { exactFixed, expMatrixKey, isCurrentHash, optBody, queryBody } from './labQuery';
@@ -130,9 +130,8 @@ export function useLabQuery() {
   const retryMatrix = useCallback(() => setMatrixRetry((n) => n + 1), []);
 
   // The importance task's finishing, for the readers of its result (the Robustness tab, the rail's candidate card): the
-  // count they re-ask on, and the watch that sees a task finish after its tab was left.
-  const look = useCallback(() => query<LabTaskView>('importance').then((envelope) => (envelope === null ? undefined : envelope.task)), [query]);
-  const importance = useTaskWatch(look, ready ? source : null);
+  // count they re-ask on, and the watch that sees a task finish after its tab was left (it reads the task's status only).
+  const importance = useTaskWatch(ready ? source : null);
 
   return {
     ...base,

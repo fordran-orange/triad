@@ -7,7 +7,8 @@
 //
 // What the rest of the Lab reads of the task is told to `data` (`useLabQuery`'s `noteTask` and `watchTask`): every answer's
 // task goes to the done counter that the Robustness tab and the rail's card re-ask on, and a tab left while the task still
-// runs hands it to a background watch, so its finishing is seen with this tab gone.
+// runs hands the task's id to a background watch, which reads that task's status (never a view) until it ends, so its
+// finishing is seen with this tab gone and no work is created by leaving.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import type { LabEnvelope, LabTaskView } from '../results';
@@ -86,15 +87,13 @@ export function useTaskView<T extends LabTaskView>(data: LabQueryData, view: Tas
     return () => clearTimeout(timer);
   }, [delay, current]);
 
-  // A tab left while its task still runs hands the task to the background watch (and takes it back when it is opened
+  // A tab left while its task still runs hands the task's id to the background watch (and takes it back when it is opened
   // again), so the Robustness tab and the card learn that it finished. What is running is remembered as it is answered.
   const running = useRef<TaskWatch | null>(null);
   const task = current?.envelope.task ?? null;
-  const metric = lab.metric;
-  const scope = lab.filter.scope;
   useEffect(() => {
-    running.current = source !== null && isActive(task) ? { source, metric, scope } : null;
-  }, [source, task, metric, scope]);
+    running.current = source !== null && task !== null && isActive(task) ? { source, taskId: task.id } : null;
+  }, [source, task]);
   useEffect(() => {
     watchTask(null);
     return () => {

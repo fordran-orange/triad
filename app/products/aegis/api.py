@@ -61,7 +61,7 @@ from products.aegis.lab.index import FrameIndex
 from products.aegis.lab.policy import DEFAULT_TOLERANCE, LOW_DISK_GB, PAGE_LIMIT, TOP_LIMIT
 from products.aegis.lab.query import LabFilter, TrialFrame
 from products.aegis.lab.robustness import DEFAULT_TOLERANCE_LABEL, top_axes
-from products.aegis.lab.tasks import LabTasks, TaskStatus, task_of
+from products.aegis.lab.tasks import LabTasks, TaskStatus, status_json, task_of
 from products.aegis.learned import LearnedPhrases
 from products.aegis.library import FOLDERS as LIBRARY_FOLDERS
 from products.aegis.library import KINDS as LIBRARY_KINDS
@@ -1781,6 +1781,46 @@ def lab_trial(
     return detail
 
 
+def _own_task(
+    src: str,
+    task_id: str,
+    tasks: LabTasks,
+    experiments: experiments_module.ExperimentStore,
+) -> TaskStatus:
+    """The status of Lab task `task_id`, which must be a task of source `src`: a 404 for an id this
+    executor does not know and for a task another source owns. An experiment owns its tasks by its
+    whole identity (`task_of`), so one deleted and created again under the same id never reaches
+    its predecessor's; an optimization by its job id. Only the executor's status is read: no
+    experiment lock, no frame, no snapshot, and nothing is requested."""
+    ref = _lab_source(src)
+    if ref.kind == "exp":
+        source = lab_sources.experiment_source(_experiment(experiments, ref.id))
+    else:
+        source = (ref.kind, ref.id)
+    try:
+        status = tasks.status(task_id)
+    except KeyError as exc:
+        raise HTTPException(404, f"unknown task {task_id!r}") from exc
+    if not task_of(status.key, source):
+        raise HTTPException(404, f"unknown task {task_id!r}")
+    return status
+
+
+@router.get("/lab/{src}/tasks/{task_id}")
+def lab_task_status(
+    src: str,
+    task_id: str,
+    tasks: LabTasks = LAB_TASKS,
+    experiments: experiments_module.ExperimentStore = EXPERIMENTS,
+):
+    """The status of one of this source's Lab tasks, read-only (Ruling P21): the `task` field a
+    view carries (`status_json`: everything but the key and the result), for a Lab that left a task
+    behind and only wants to know whether it ended. It is not a view: it never requests a task,
+    which a view's poll does at every new chunk of a running experiment, and it opens no frame and
+    pins no snapshot. A task this source does not own, or an unknown one, is a 404."""
+    return status_json(_own_task(src, task_id, tasks, experiments))
+
+
 @router.post("/lab/{src}/tasks/{task_id}/cancel")
 def lab_cancel_task(
     src: str,
@@ -1792,17 +1832,9 @@ def lab_cancel_task(
     whichever of its tasks it is. The key's waiting task is dropped at once and its running one
     stops at its next checkpoint, its finished stages kept and labelled partial; a finished task's
     id still stops the key's live tasks, and answers true. `cancelled` is false only when the key
-    has nothing live left to stop. A task this source does not own is a 404: an experiment owns
-    its tasks by its whole identity (`task_of`), so one deleted and created again under the same
-    id never cancels its predecessor's; an optimization by its job id."""
-    ref = _lab_source(src)
-    if ref.kind == "exp":
-        source = lab_sources.experiment_source(_experiment(experiments, ref.id))
-    else:
-        source = (ref.kind, ref.id)
+    has nothing live left to stop. A task this source does not own is a 404 (`_own_task`)."""
+    _own_task(src, task_id, tasks, experiments)
     try:
-        if not task_of(tasks.status(task_id).key, source):
-            raise KeyError(task_id)
         return {"cancelled": tasks.cancel(task_id)}
     except KeyError as exc:
         raise HTTPException(404, f"unknown task {task_id!r}") from exc

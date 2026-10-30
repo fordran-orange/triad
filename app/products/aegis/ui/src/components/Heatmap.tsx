@@ -96,8 +96,9 @@ export function testedCounts(matrices: Partial<Record<string, Partial<Record<str
   return grid.map((row) => row.map((value) => (value !== null && Number.isFinite(value) ? 1 : 0)));
 }
 
-/** The legend the dock's basis line carries (spec §5.1): what a square's look means. The dock draws no robust plateau
- *  overlay: the estimators arrived in Phase 3 as the Lab's Robustness (A–D) tab and the candidate card. */
+/** The legend the dock's basis line carries (spec §5.1): what a square's look means. No robust plateau overlay is
+ *  drawn, in the dock or on the Lab's heatmap: the estimators arrived in Phase 3 as the Lab's Robustness (A–D) tab and the
+ *  candidate card. */
 export function HeatLegend() {
   return (
     <span className="heat-legend">
@@ -116,9 +117,9 @@ export function HeatLegend() {
         Selected
       </span>
       {' · '}
-      <span className="heat-key muted" title="the dock draws no robust plateau: the Lab's Robustness (A–D) tab shows how a trial's surroundings hold up">
+      <span className="heat-key muted" title="no robust plateau is drawn here or on the Lab's heatmap; the Lab's Robustness (A–D) tab shows how a trial's surroundings hold up">
         <i className="swatch plateau" />
-        Robust plateau (Lab only)
+        Robust plateau (not drawn)
       </span>
     </span>
   );

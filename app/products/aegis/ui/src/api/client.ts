@@ -16,6 +16,7 @@ import type {
   LabEnvelope,
   LabQueryBody,
   LabSummary,
+  LabTask,
   LabTrial,
   LibraryEntry,
   LibraryFilters,
@@ -382,6 +383,9 @@ export const api = {
   labQuery: <T>(src: string, body: LabQueryBody) => request<LabEnvelope<T>>(`${lab(src)}/query`, post(body)),
   labTrial: (src: string, trialId: string) => request<LabTrial>(`${lab(src)}/trials/${encodeURIComponent(trialId)}`),
   labBuild: () => request<LabBuild>('/lab/build'),
+  // One task's status, read-only (Ruling P21): the `task` a view carries, for a watch on a task whose tab was left. It asks no
+  // view, so it can never create work; an unknown task, or another source's, is a 404.
+  labTaskStatus: (src: string, taskId: string) => request<LabTask>(`${lab(src)}/tasks/${encodeURIComponent(taskId)}`),
   // Stops the analysis one of this source's Lab tasks belongs to (Phase 3): `taskId` names its key, whichever of its
   // tasks it is; a task the source does not own is a 404.
   labCancelTask: (src: string, taskId: string) => request<LabCancelled>(`${lab(src)}/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),

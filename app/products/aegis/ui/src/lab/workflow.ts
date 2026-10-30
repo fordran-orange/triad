@@ -32,7 +32,7 @@ export function workflowSteps(input: { hasExperiment: boolean; hasReport: boolea
   const afterPhase4 = 'available after Phase 4';
   return [
     step('define', input.hasExperiment ? 'done' : 'live'),
-    step('screen', 'disabled', 'screening experiments arrive in Phase 3'),
+    step('screen', 'disabled', 'screening blocks are on the experiment planner; this step arrives in Phase 4'),
     step('evaluate', 'disabled', afterPhase4),
     step('propose', 'disabled', afterPhase4),
     step('approve', 'disabled', afterPhase4),
