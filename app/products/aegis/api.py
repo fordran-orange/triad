@@ -1349,7 +1349,10 @@ class QueryRequest(BaseModel):
     and `rerun` are the importance task's: its resamples' seed, in the task's key and every
     answer, and the user's own "run again" after a task failed or was cancelled, which a poll
     never does by itself. `trial` is a trial id, `<src>#<n>`: the `neighbourhood` view's trial and
-    the `robustness` view's candidate (without one, that view answers the rankings)."""
+    the `robustness` view's candidate (without one, that view answers the rankings). `objectives`
+    are the `pareto` view's two or three metric names, each in the filter's scope. `parallel_mode`
+    is the `parallel` view's: its bundles by default, or `sample`'s exact lines, seeded by `seed`
+    (decision 8: `mode` is the matrix's)."""
 
     model_config = ConfigDict(extra="forbid")
     filter: LabFilter
@@ -1366,6 +1369,8 @@ class QueryRequest(BaseModel):
         "triples",
         "neighbourhood",
         "robustness",
+        "pareto",
+        "convergence",
     ]
     filter_hash: str | None = None
     rows: str | None = None
@@ -1386,6 +1391,8 @@ class QueryRequest(BaseModel):
     seed: int = Field(1, ge=0)  # numpy's seed sequences refuse a negative entropy
     rerun: bool = False
     trial: str | None = None
+    objectives: list[str] | None = None
+    parallel_mode: Literal["bundles", "sample"] = "bundles"
 
     @model_validator(mode="before")
     @classmethod

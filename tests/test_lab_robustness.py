@@ -57,6 +57,7 @@ from products.aegis.lab.robustness import (
     category_d,
     constants,
     rankings,
+    rankings_basis,
     robust_key,
     tau,
     top_axes,
@@ -1342,9 +1343,22 @@ def test_stable_scans_the_robust_order_for_the_first_that_qualifies():
     assert named(*tied) == is_tied
     assert named(losing) == (None, "the most robust candidate has net_pnl ≤ 0")
     assert named(losing, entry("c", "stable local", -6.0)) == named(losing)
-    # the top is the first that qualifies: below its break-even a candidate is passed over
+    # the top is the first that qualifies: below its break-even a candidate is passed over, so the
+    # tie is not at the very top and the reason says which candidates it is about
     tied_regions = entry("b", "stable region", 3.0), entry("c", "stable region", 3.0)
-    assert named(losing, *tied_regions) == is_tied
+    above = (None, "the most robust candidates above break-even are tied on net_pnl")
+    assert named(losing, *tied_regions) == above
+    assert named(losing, *tied_regions, metric="profit_factor") == (
+        None,
+        "the most robust candidates above break-even are tied on profit_factor",
+    )
+    # a candidate that is not stable is not one passed over: the plain wording stays
+    assert named(entry("m", "mixed", 50.0), *tied) == is_tied
+    # and a metric with no break-even passes nobody over
+    assert named(losing, entry("d", "stable local", -5.0), metric="win_rate") == (
+        None,
+        "the most robust candidates are tied on win_rate",
+    )
     # a tie below the one that qualifies changes nothing
     assert named(entry("z", "stable local", 10.0), *tied) == ("z", None)
     assert named(entry("a", "mixed", 9.0)) == (None, "none among the top 7 by peak")
@@ -1354,6 +1368,23 @@ def test_stable_scans_the_robust_order_for_the_first_that_qualifies():
         "no trial with a defined net_pnl in the filter",
     )
     assert _stable_of([losing], metric="net_pnl", pool=1, band=0.0) == (None, NO_SPREAD)
+
+
+def test_the_rankings_basis_states_b_only_when_it_runs():
+    """B runs only with axes, and on at most min(pool, k, RANK_B_MAX) rows: no line says more."""
+
+    def ranks(pool, k):
+        return {"pool": pool, "k": k, "b_max": policy.RANK_B_MAX}
+
+    bare = "robust ranks the top 300 by peak"
+    assert rankings_basis(ranks(300, 20), []) == bare
+    assert rankings_basis(ranks(300, 20), ["x"]) == f"{bare}, B reads the top 20 (at most 20)"
+    assert rankings_basis(ranks(300, 2), ["x"]) == f"{bare}, B reads the top 2 (at most 20)"
+    assert rankings_basis(ranks(300, 300), ["x"]) == f"{bare}, B reads the top 20 (at most 20)"
+    assert rankings_basis(ranks(4, 20), ["x"]) == (
+        "robust ranks the top 4 by peak, B reads the top 4 (at most 20)"
+    )
+    assert rankings_basis(ranks(0, 20), ["x"]) == "robust ranks the top 0 by peak"
 
 
 def test_constants_print_what_a_panel_reads():

@@ -500,6 +500,14 @@ def _grid(flat: list, rows: int, width: int) -> list[list]:
     return [flat[r * width : (r + 1) * width] for r in range(rows)]
 
 
+def even_positions(total: int, limit: int) -> np.ndarray:
+    """At most `limit` (two or more) of `total` positions, evenly spaced, the first and the last
+    kept: all of them when they fit. Past `limit` the spacing exceeds one, so none repeats."""
+    if total <= limit:
+        return np.arange(total)
+    return np.rint(np.linspace(0, total - 1, limit)).astype(np.int64)
+
+
 def _number(value: float) -> str:
     value = float(value)
     return str(int(value)) if value.is_integer() and abs(value) < 1e15 else repr(value)
@@ -920,6 +928,18 @@ def marginals_view(
     return {"metric": column, "marginals": out}
 
 
+def checked_axes(frame: TrialFrame, axes: Sequence[str]) -> list[str]:
+    """Parallel coordinates' axes: at least one, each a parameter, none twice."""
+    axes = list(axes)
+    if not axes:
+        raise ValueError("parallel coordinates need at least one axis")
+    if len(set(axes)) != len(axes):
+        raise ValueError("an axis is named twice")
+    for path in axes:
+        _parameter(frame, path)
+    return axes
+
+
 def parallel_view(
     frame: TrialFrame,
     flt: LabFilter,
@@ -931,13 +951,7 @@ def parallel_view(
     """Bundles of the filtered trials sharing one quantile-bin vector over the axes (each axis's
     q bins cut at the quantiles of the filtered population), largest first, at most
     PARALLEL_MAX_BUNDLES, each with its count and its median defined value."""
-    axes = list(axes)
-    if not axes:
-        raise ValueError("parallel coordinates need at least one axis")
-    if len(set(axes)) != len(axes):
-        raise ValueError("an axis is named twice")
-    for path in axes:
-        _parameter(frame, path)
+    axes = checked_axes(frame, axes)
     if q < 1:
         raise ValueError(f"q must be at least 1, not {q}")
     if q ** len(axes) - 1 > _INT64_MAX:

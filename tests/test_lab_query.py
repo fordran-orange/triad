@@ -15,8 +15,9 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from products.aegis import api
 from products.aegis import experiments as exp
-from products.aegis.lab import identity, policy
+from products.aegis.lab import identity, policy, sources
 from products.aegis.lab import store as lab_store
 from products.aegis.lab.cache import LabCache, cache_bytes_from_env
 from products.aegis.lab.index import build_index
@@ -26,6 +27,7 @@ from products.aegis.lab.query import (
     TrialFrame,
     _axis,
     _numbers,
+    aggregated_basis,
     counts_view,
     envelope,
     filter_mask,
@@ -1111,6 +1113,106 @@ def test_parallel_bundles_bounded_and_ordered():
         assert bundle["median"] == (float(np.median(defined)) if defined else None)
     shown = {tuple(bundle["bins"]) for bundle in out["bundles"]}
     assert max(len(m) for v, m in groups.items() if v not in shown) <= counts[-1]
+
+
+# --- Phase 3 Task 8: the parallel mode, and the new views' one scope -----------------------------
+
+
+def _answer(frame: TrialFrame, flt: dict, *, index=None, **body) -> dict:
+    """One view through `run_query`, as the route calls it."""
+    request = api.QueryRequest.model_validate({"filter": flt, **body})
+    return sources.run_query(frame, request, index=index)
+
+
+def test_parallel_mode_default_is_bundles():
+    """Decision 8: `parallel_mode`, not the matrix's `mode`, and without it the Phase 2 answer."""
+    request = api.QueryRequest.model_validate({"filter": {}, "view": "parallel"})
+    assert request.parallel_mode == "bundles" and request.mode == "exact"
+    frame = synthetic_frame(4_000, 4, 3)
+    axes = [p.path for p in frame.parameters][:2]
+    bare = _answer(frame, {}, view="parallel", axes=axes)
+    named = _answer(frame, {}, view="parallel", axes=axes, parallel_mode="bundles")
+    assert json.dumps(bare) == json.dumps(named)
+    assert set(bare) == {
+        "view",
+        "filter_hash",
+        "scope",
+        "snapshot",
+        "provisional",
+        "empty",
+        "axes",
+        "bins",
+        "bundles",
+        "total_bundles",
+        "shown_bundles",
+        "basis",
+    }
+    direct = parallel_view(frame, LabFilter(), axes=axes, metric="net_pnl")
+    assert {name: bare[name] for name in direct} == direct
+    assert bare["scope"]["basis"] == aggregated_basis(bare["scope"]["filtered"])
+    assert bare["scope"]["shown"] == bare["shown_bundles"]
+    # a matrix's `mode` says nothing to it, and a seed changes nothing in the bundles
+    other = _answer(frame, {}, view="parallel", axes=axes, mode="aggregate", seed=9)
+    assert json.dumps(other) == json.dumps(bare)
+    sampled = _answer(frame, {}, view="parallel", axes=axes, parallel_mode="sample", seed=4)
+    assert len(sampled["lines"]) == sampled["sampled_from"] == bare["scope"]["filtered"]
+    assert sampled["bundles"] == [] and sampled["seed"] == 4
+    assert sampled["scope"]["shown"] == len(sampled["lines"])
+    assert sampled["scope"]["basis"] == sampled["basis"]
+    assert sampled["basis"].endswith("(stratified by decile of net_pnl)")
+    with pytest.raises(ValidationError):
+        api.QueryRequest.model_validate({"filter": {}, "view": "parallel", "parallel_mode": "x"})
+
+
+def test_parallel_sample_reads_an_explicit_k_and_every_axis_by_default():
+    frame = synthetic_frame(4_000, 3, 4)
+    sampled = _answer(frame, {}, view="parallel", parallel_mode="sample")
+    assert sampled["axes"] == [p.path for p in frame.parameters]
+    assert len(sampled["lines"]) == sampled["sampled_from"]  # QueryRequest.k's 200 is `top`'s
+    capped = _answer(frame, {}, view="parallel", parallel_mode="sample", k=30)
+    assert len(capped["lines"]) == 30 and capped["sampled_from"] == sampled["sampled_from"]
+
+
+@pytest.mark.parametrize(
+    "flt",
+    [
+        {},
+        {"ranges": {"X": [0, 1]}},
+        {"values": {"X": 0}},
+        {"scope": "short"},
+        {"pass": ["grid"]},
+        {"status": ["ok"]},
+    ],
+)
+@pytest.mark.parametrize("metric", ["net_pnl", "cagr"])
+def test_counts_identical_across_new_views(flt, metric):
+    """§6.4: one filter, one scope, whichever view reads it, with or without the snapshot's index.
+    `undefined` is the request's metric's on all of them, whatever Pareto's objectives are."""
+    frame = synthetic_frame(3_000, 4, 6)
+    parameter = frame.parameters[0]
+    if "ranges" in flt:
+        flt = {"ranges": {parameter.path: [parameter.values[0], parameter.values[2]]}}
+    elif "values" in flt:
+        flt = {"values": {parameter.path: parameter.values[1]}}
+    bodies = [
+        {"view": "counts"},
+        {"view": "parallel"},
+        {"view": "parallel", "parallel_mode": "sample"},
+        {"view": "pareto", "objectives": ["net_pnl", "max_drawdown"]},
+        {"view": "pareto", "objectives": ["mar", "cagr", "exposure"]},
+        {"view": "convergence"},
+    ]
+    index = build_index(frame)
+    scopes = []
+    for body in bodies:
+        for held in (None, index):
+            answer = _answer(frame, flt, index=held, metric=metric, **body)
+            assert answer["view"] == body["view"]
+            scopes.append({k: v for k, v in answer["scope"].items() if k not in DROP})
+    assert all(scope == scopes[0] for scope in scopes)
+    expected = scope_counts(frame, LabFilter.model_validate(flt), metric=metric)
+    assert scopes[0] == {k: v for k, v in expected.items() if k not in DROP}
+    assert scopes[0]["filtered"] > 0
 
 
 # --- legacy rows and the cache ----------------------------------------------------------------

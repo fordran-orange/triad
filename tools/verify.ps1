@@ -35,7 +35,8 @@ $Lint = @('app/products/aegis', 'tests/products/aegis', 'tools/aegis_contracts.p
     'tools/run_daily_product_cycle.py', 'tools/accept_environments.py',
     'tests/test_lab_store.py', 'tests/test_lab_query.py', 'tests/test_lab_sharpe.py',
     'tests/test_lab_identity.py', 'tests/test_lab_blocks.py', 'tests/test_lab_tasks.py', 'tools/aegis_decompact.py',
-    'tests/test_lab_analytics.py', 'tests/lab_stat_fixtures.py', 'tests/test_lab_robustness.py') +
+    'tests/test_lab_analytics.py', 'tests/lab_stat_fixtures.py', 'tests/test_lab_robustness.py',
+    'tests/test_lab_pareto.py') +
     @(Get-ChildItem tests/test_aegis_*.py | ForEach-Object { $_.FullName })
 & $CorePython -m ruff check @Lint
 Assert-Exit 'Lint'

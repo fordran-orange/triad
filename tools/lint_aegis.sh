@@ -38,6 +38,7 @@ scope=(app/products/aegis tests/products/aegis tools/aegis_contracts.py
     tests/test_lab_store.py tests/test_lab_query.py tests/test_lab_sharpe.py
     tests/test_lab_identity.py tests/test_lab_blocks.py tests/test_lab_tasks.py tools/aegis_decompact.py
     tests/test_lab_analytics.py tests/lab_stat_fixtures.py tests/test_lab_robustness.py
+    tests/test_lab_pareto.py
     tests/test_aegis_*.py)
 
 case "$MODE" in

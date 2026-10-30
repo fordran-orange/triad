@@ -10,6 +10,9 @@ Pure: numpy over a block-0 `TrialFrame` and its `FrameIndex`, with no I/O and no
 - **The lookup.** `position_table` sorts the hashes once per snapshot (held by the index). A
   neighbourhood is one `np.searchsorted` over its positions: at most 800 needles at d = 20,
   m = 2, r = 1 (`4·C(20, 2) + 2·20`, within §7.6's 840), whatever the number of trials.
+- **Many at once.** Hashing is linear, so a move adds the same to any position's hash (`_Moves`):
+  `p25_around` looks up every candidate's needles in that one pass, without a position matrix, by
+  the same arithmetic as `around`, which is the same call with one candidate.
 - **t is outside its own neighbourhood.** Every count and quartile is of its surroundings: an
   untested neighbourhood has coverage 0, and an isolated peak can be told at a corner.
 - **`valid` is read from the frame**, never from the surface's constraint tables: the on-lattice
@@ -26,7 +29,9 @@ Pure: numpy over a block-0 `TrialFrame` and its `FrameIndex`, with no I/O and no
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from itertools import combinations
 
 import numpy as np
@@ -39,6 +44,7 @@ from products.aegis.lab.query import (
     LOWER_IS_BETTER,
     TrialFrame,
     _axis,
+    _Groups,
     _numbers,
     _status_codes,
     _trial_numbers,
@@ -128,33 +134,70 @@ def _exhaustive(frame: TrialFrame) -> bool:
     return frame.valid > 0 and frame.scheduled >= frame.valid
 
 
-def _positions_around(at: np.ndarray, widths: list[int], r: int, m: int) -> np.ndarray:
-    """The on-lattice positions (probes x d) within `r` steps in 1 to `m` parameters of `at`, t's
-    own excluded. A value off the lattice takes no step along its axis."""
-    steps = [
-        (k, step)
-        for k, (code, width) in enumerate(zip(at.tolist(), widths, strict=True))
-        if code < width
-        for reach in range(1, r + 1)
-        for step in (-reach, reach)
-        if 0 <= code + step < width
-    ]
-    d = len(at)
-    if not steps:
-        return np.empty((0, d), dtype=np.int64)
+@dataclass(frozen=True, eq=False)
+class _Moves:
+    """Every way to move from a position within `r` steps in 1 to `m` parameters, t's own excluded,
+    before any lattice's bounds: each elementary step's parameter and signed reach, and the steps
+    each move makes (`chosen`, moves x m, -1 past a move's last step)."""
+
+    axes: np.ndarray
+    deltas: np.ndarray
+    chosen: np.ndarray
+
+    def on_lattice(self, at: np.ndarray, widths: np.ndarray) -> np.ndarray:
+        """Per position of `at` (positions x d), the moves that stay on the lattice (positions x
+        moves). A value off the lattice takes no step along its axis."""
+        code = at[:, self.axes]
+        landed = code + self.deltas
+        width = widths[self.axes]
+        step_open = (code < width) & (landed >= 0) & (landed < width)
+        # A -1 in `chosen` reads this last column, always open.
+        step_open = np.concatenate((step_open, np.ones((len(at), 1), dtype=bool)), axis=1)
+        allowed = step_open[:, self.chosen[:, 0]]
+        for j in range(1, self.chosen.shape[1]):
+            allowed &= step_open[:, self.chosen[:, j]]
+        return allowed
+
+    def shifts(self, multipliers: np.ndarray) -> np.ndarray:
+        """What each move adds to a position's hash, wrapping around like the hash itself."""
+        per_step = np.append(self.deltas * multipliers[self.axes], np.int64(0))
+        return per_step[self.chosen].sum(axis=1, dtype=np.int64)
+
+    def landing(self, at: np.ndarray, moves: np.ndarray) -> np.ndarray:
+        """Where one move per row of `at` lands (rows x d)."""
+        out = at.copy()
+        rows = np.arange(len(out))
+        for j in range(self.chosen.shape[1]):
+            step = self.chosen[moves, j]
+            real = step >= 0
+            out[rows[real], self.axes[step[real]]] += self.deltas[step[real]]
+        return out
+
+
+@lru_cache(maxsize=16)
+def _moves(d: int, r: int, m: int) -> _Moves:
+    """The moves of a `d`-parameter space: a function of (d, r, m) alone, so kept per shape."""
+    steps = [(k, step) for k in range(d) for reach in range(1, r + 1) for step in (-reach, reach)]
     axes = np.array([k for k, _ in steps], dtype=np.intp)
     deltas = np.array([step for _, step in steps], dtype=np.int64)
-    parts = []
+    parts = [np.empty((0, m), dtype=np.intp)]
     for count in range(1, m + 1):
         chosen = np.array(list(combinations(range(len(steps)), count)), dtype=np.intp)
         if not len(chosen):  # more parameters than steps to take
             break
         # `steps` runs by axis, so two steps along one axis are adjacent in a sorted choice
         chosen = chosen[(np.diff(axes[chosen], axis=1) != 0).all(axis=1)]
-        positions = np.tile(at, (len(chosen), 1))
-        positions[np.arange(len(chosen))[:, None], axes[chosen]] += deltas[chosen]
-        parts.append(positions)
-    return np.concatenate(parts)
+        padding = np.full((len(chosen), m - count), -1, dtype=np.intp)
+        parts.append(np.hstack((chosen, padding)))
+    moves = _Moves(axes, deltas, np.concatenate(parts))
+    for held in (moves.axes, moves.deltas, moves.chosen):
+        held.setflags(write=False)  # shared by every lookup of this shape
+    return moves
+
+
+def default_m(frame: TrialFrame) -> int:
+    """How many parameters a neighbour may differ in: §7.6's m by the frame's design."""
+    return NEIGHBOUR_M_GRID if _exhaustive(frame) else NEIGHBOUR_M_SAMPLED
 
 
 class PositionLookup:
@@ -182,7 +225,7 @@ class PositionLookup:
         self.values = -column if self.orientation < 0 else column
         self.trial_numbers = _trial_numbers(frame.table)
         self.paths = [parameter.path for parameter in frame.parameters]
-        self.widths = [len(_axis(frame, path)) for path in self.paths]
+        self.widths = np.array([len(_axis(frame, path)) for path in self.paths], dtype=np.int64)
         self.multipliers = _multipliers(len(self.paths))
         self.codes = [self.index.codes_for(frame, path) for path in self.paths]
         self.table = position_table(frame, self.index)
@@ -190,7 +233,7 @@ class PositionLookup:
         self.all_attempted = (
             _exhaustive(frame) and self.index.tallies["attempted"] >= frame.scheduled
         )
-        self.default_m = NEIGHBOUR_M_GRID if _exhaustive(frame) else NEIGHBOUR_M_SAMPLED
+        self.default_m = default_m(frame)
 
     def row_of(self, trial_no: int) -> int:
         """The completed row of a trial: KeyError for a trial the frame has no row of, ValueError
@@ -210,11 +253,11 @@ class PositionLookup:
             held[:, k] = code[rows]
         return held
 
-    def _probe(self, positions: np.ndarray) -> np.ndarray:
-        """Each position's row, -1 for one without: one `np.searchsorted` over every position,
-        each hit checked against its codes, and a collision walked past."""
+    def _probe(self, needles: np.ndarray, landed: Callable[[np.ndarray], np.ndarray]) -> np.ndarray:
+        """Each needle's row, -1 for one without: one `np.searchsorted` over every needle, each hit
+        checked against the codes of its position (`landed(hits)`, built for the hits alone), and a
+        collision walked past."""
         hashes = self.table.hashes
-        needles = (positions * self.multipliers).sum(axis=1, dtype=np.int64)
         at = np.searchsorted(hashes, needles)
         rows = np.full(len(needles), -1, dtype=np.int64)
         inside = np.flatnonzero(at < len(hashes))
@@ -222,11 +265,31 @@ class PositionLookup:
         if not len(hit):
             return rows
         found = self.table.rows[at[hit]].astype(np.int64)
-        agrees = (self._held(found) == positions[hit]).all(axis=1)
+        positions = landed(hit)
+        agrees = (self._held(found) == positions).all(axis=1)
         rows[hit[agrees]] = found[agrees]
-        for probe in hit[~agrees].tolist():  # a collision, which the multipliers make very rare
-            rows[probe] = self._walk(int(at[probe]) + 1, int(needles[probe]), positions[probe])
+        for k in np.flatnonzero(~agrees).tolist():  # a collision, which the multipliers make rare
+            probe = hit[k]
+            rows[probe] = self._walk(int(at[probe]) + 1, int(needles[probe]), positions[k])
         return rows
+
+    def _probe_around(self, rows: np.ndarray, r: int, m: int) -> tuple[np.ndarray, np.ndarray]:
+        """Every candidate's on-lattice positions looked up in one pass: per probe, the place in
+        `rows` of the candidate it belongs to and the row found there, -1 for none."""
+        moves = _moves(len(self.codes), r, m)
+        at = self._held(rows)
+        owner, move = np.nonzero(moves.on_lattice(at, self.widths))
+        base = (at * self.multipliers).sum(axis=1, dtype=np.int64)
+        needles = base[owner] + moves.shifts(self.multipliers)[move]
+        return owner, self._probe(needles, lambda hit: moves.landing(at[owner[hit]], move[hit]))
+
+    def _reach(self, r: int, m: int | None) -> tuple[int, int]:
+        if r < 1:
+            raise ValueError(f"r must be at least 1, not {r}")
+        m = self.default_m if m is None else m
+        if m < 1:
+            raise ValueError(f"m must be at least 1, not {m}")
+        return r, m
 
     def _walk(self, start: int, needle: int, position: np.ndarray) -> int:
         """The first row at `position` among the equal hashes from `start`, -1 when none is."""
@@ -249,14 +312,8 @@ class PositionLookup:
 
     def around(self, row: int, *, r: int = NEIGHBOUR_R, m: int | None = None) -> Neighbourhood:
         """The neighbourhood of the trial at `row` (`row_of`)."""
-        if r < 1:
-            raise ValueError(f"r must be at least 1, not {r}")
-        m = self.default_m if m is None else m
-        if m < 1:
-            raise ValueError(f"m must be at least 1, not {m}")
-        at = np.array([int(code[row]) for code in self.codes], dtype=np.int64)
-        positions = _positions_around(at, self.widths, r, m)
-        rows = self._probe(positions)
+        r, m = self._reach(r, m)
+        _, rows = self._probe_around(np.array([row], dtype=np.int64), r, m)
         held = rows[rows >= 0]
         completed = self.index.completed[held]
         probes = len(rows)
@@ -290,6 +347,19 @@ class PositionLookup:
             orientation=self.orientation,
         )
 
+    def p25_around(
+        self, rows: np.ndarray, *, r: int = NEIGHBOUR_R, m: int | None = None
+    ) -> np.ndarray:
+        """`around(row).p25` per row, NaN for a row with no tested neighbour: every candidate's
+        positions in one lookup and every quartile in one grouping, so n candidates pay for their
+        probes and never for n calls."""
+        r, m = self._reach(r, m)
+        owner, found = self._probe_around(rows, r, m)
+        present = found >= 0
+        owner, found = owner[present], found[present]
+        tested = self.index.completed[found]
+        return _Groups(owner[tested], self.values[found[tested]], len(rows)).quantile(0.25)
+
     def value_at(self, row: int) -> float | None:
         """The oriented value of a row, None where undefined."""
         value = float(self.values[row])
@@ -318,6 +388,7 @@ __all__ = [
     "Neighbourhood",
     "PositionLookup",
     "PositionTable",
+    "default_m",
     "neighbourhood",
     "position_codes",
     "position_table",

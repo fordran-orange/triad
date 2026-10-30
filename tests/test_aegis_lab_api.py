@@ -143,6 +143,10 @@ def test_query_views_share_one_scope(client, monkeypatch):
         },
         "page": {"view": "page", "metric": "net_pnl"},
         "top": {"view": "top", "metric": "net_pnl"},
+        "bundles": {"view": "parallel", "metric": "net_pnl"},
+        "sample": {"view": "parallel", "metric": "net_pnl", "parallel_mode": "sample"},
+        "pareto": {"view": "pareto", "metric": "net_pnl", "objectives": ["mar", "max_drawdown"]},
+        "convergence": {"view": "convergence", "metric": "net_pnl"},
     }
     answers = {}
     for name, body in bodies.items():
@@ -326,6 +330,42 @@ def test_query_loads_projected_columns_only(client, lab_cache, monkeypatch):
         allowed = sources.COLUMNS_FOR(query["view"], request, meta.parameters, meta.objective)
         assert set(allowed) == hood_columns
         assert len(recorded) == before + 1 and set(recorded[-1]) == hood_columns, query
+    # Phase 3 Task 8: Pareto loads BASE, the filter's paths, its objectives and the metric the
+    # scope's `undefined` counts; the exact sample what the bundles load; convergence what a
+    # neighbourhood loads, so the two share one table.
+    pareto_columns = {*sources.BASE, RSI, "combined.net_pnl", "combined.max_drawdown"}
+    for query, expected in (
+        ({"view": "pareto", "objectives": ["net_pnl", "max_drawdown"]}, pareto_columns),
+        (
+            {"view": "pareto", "objectives": ["cagr", "mar", "exposure"], "metric": "win_rate"},
+            {
+                *sources.BASE,
+                RSI,
+                "combined.cagr",
+                "combined.mar",
+                "combined.exposure",
+                "combined.win_rate",
+            },
+        ),
+        (
+            {"view": "parallel", "parallel_mode": "sample", "axes": [DONCHIAN], "metric": "mar"},
+            {*sources.BASE, RSI, DONCHIAN, "combined.mar"},
+        ),
+        ({"view": "convergence"}, hood_columns),
+        (
+            {"view": "convergence", "metric": "mar"},
+            (hood_columns - {"combined.net_pnl"}) | {"combined.mar"},
+        ),
+    ):
+        lab_cache.evict((("exp", experiment_id),))
+        before = len(recorded)
+        body = {**base, **query}
+        response = c.post(url, json=body)
+        assert response.status_code == 200, (query, response.text)
+        request = api.QueryRequest.model_validate(body)
+        allowed = sources.COLUMNS_FOR(query["view"], request, meta.parameters, meta.objective)
+        assert set(allowed) == expected
+        assert len(recorded) == before + 1 and set(recorded[-1]) == expected, query
 
 
 def test_trial_no_round_trips_with_a_warmup_skip(client, monkeypatch):
@@ -435,11 +475,14 @@ def test_running_experiment_is_provisional(client, monkeypatch):
         assert summary.json()["counts"]["completed"] == 4
         counts = c.post(f"{LAB}/exp:{experiment_id}/query", json={"filter": {}, "view": "counts"})
         assert counts.status_code == 200 and counts.json()["provisional"] is True
+        held = _view(c, f"exp:{experiment_id}", "convergence")
+        assert held["provisional"] is True and len(held["best"]) == 4
     finally:
         gate.set()
     done = _wait_experiment(c, experiment_id, ("done", "failed"))
     assert done["status"] == "done", done.get("error")
     assert c.get(f"{LAB}/exp:{experiment_id}/summary").json()["provisional"] is False
+    assert _view(c, f"exp:{experiment_id}", "convergence")["provisional"] is False
 
 
 def test_materialize_matches_lab_page_row(client, monkeypatch):
@@ -828,8 +871,9 @@ def test_release_only_after_table_and_index_loads(client, lab_cache, monkeypatch
 
 
 def test_index_only_for_the_views_that_read_it(client, lab_cache, monkeypatch):
-    """`top`, `parallel` and `square_trials` never read the index, so their requests never build
-    or fetch it; counts, matrix, page, marginals and the summary do."""
+    """`top`, `parallel` in either mode and `square_trials` never read the index, so their requests
+    never build or fetch it; counts, matrix, page, marginals, pareto, convergence and the summary
+    do."""
     c, _, _ = client
     experiment_id = _finished_experiment(c, monkeypatch)
     built: list[str] = []
@@ -844,6 +888,7 @@ def test_index_only_for_the_views_that_read_it(client, lab_cache, monkeypatch):
     unread = [
         {"view": "top", "metric": "net_pnl"},
         {"view": "parallel", "axes": [DONCHIAN, RSI], "metric": "net_pnl"},
+        {"view": "parallel", "parallel_mode": "sample", "axes": [DONCHIAN], "metric": "net_pnl"},
         {"view": "square_trials", "rows": DONCHIAN, "cols": RSI, "row_value": 10, "col_value": 7},
     ]
     for body in unread:
@@ -856,12 +901,14 @@ def test_index_only_for_the_views_that_read_it(client, lab_cache, monkeypatch):
         {"view": "matrix", "rows": DONCHIAN, "cols": RSI, "metric": "net_pnl"},
         {"view": "page"},
         {"view": "marginals", "metric": "net_pnl"},
+        {"view": "pareto", "objectives": ["net_pnl", "max_drawdown"]},
+        {"view": "convergence"},
     ]
     for body in read:
         response = c.post(url, json={"filter": {}, **body})
         assert response.status_code == 200, (body, response.text)
     assert c.get(f"{LAB}/exp:{experiment_id}/summary").status_code == 200
-    assert built == ["index"] * 5
+    assert built == ["index"] * 7
 
 
 # --- Phase 3 Task 6: the staged importance task and the importance, interactions, triples views --
@@ -1651,26 +1698,24 @@ def test_robustness_rankings_on_an_experiment(client, monkeypatch):
     assert ranks["b_max"] == answer["constants"]["RANK_B_MAX"] == 20
     assert answer["constants"]["PER_BARS"] == 1_000
     assert answer["scope"]["shown"] == 4 and answer["scope"]["filtered"] == 4
-    assert answer["scope"]["basis"] == (
-        f"{EVERY_TRIAL_BASIS}; robust ranks the top 4 by peak, B reads the top 20 (at most 20)"
-    )
+    # no importance result, so no axes and no B to speak of
+    assert answer["axes"] == []
+    assert answer["scope"]["basis"] == f"{EVERY_TRIAL_BASIS}; robust ranks the top 4 by peak"
     assert isinstance(ranks["disagree"], bool)
     short = _view(c, src, "robustness", k=2)
     two = short["rankings"]
     assert two["k"] == 2 and len(two["peak"]) == len(two["robust"]) == 2 and two["pool"] == 4
-    assert short["scope"]["basis"].endswith("B reads the top 2 (at most 20)")
+    assert short["scope"]["basis"] == f"{EVERY_TRIAL_BASIS}; robust ranks the top 4 by peak"
     widest = _view(c, src, "robustness", k=500)
     assert widest["rankings"]["k"] == 300 and len(widest["rankings"]["peak"]) == 4
-    assert widest["scope"]["basis"].endswith("B reads the top 20 (at most 20)")
+    assert widest["scope"]["basis"] == f"{EVERY_TRIAL_BASIS}; robust ranks the top 4 by peak"
     # `k`'s default is `top`'s 200: only a `k` the request sent is a list length here
     assert api.QueryRequest.model_validate({"filter": {}, "view": "robustness"}).k == 200
     page = _view(c, src, "page")
     assert ranks["peak"][0] == page["rows"][0]["trial_id"]
     brushed = _view(c, src, "robustness", filter={"ranges": {DONCHIAN: [10, 10]}})
     assert len(brushed["rankings"]["peak"]) == 2 and brushed["scope"]["filtered"] == 2
-    assert brushed["scope"]["basis"] == (
-        f"{EVERY_TRIAL_BASIS}; robust ranks the top 2 by peak, B reads the top 20 (at most 20)"
-    )
+    assert brushed["scope"]["basis"] == f"{EVERY_TRIAL_BASIS}; robust ranks the top 2 by peak"
 
 
 def test_b_reads_the_importance_result_of_the_frames_snapshot(client, monkeypatch):
@@ -1734,6 +1779,16 @@ def test_robustness_view_runs_on_a_real_importance_result(client, monkeypatch):
     assert answer["axes"] and set(answer["axes"]) <= {fast, slow}
     b = answer["card"]["categories"]["B"]
     assert b["inputs"]["axes"] == answer["axes"] and b["reason"] != NO_IMPORTANCE
+    # with axes B runs, on the top min(pool, k, RANK_B_MAX) rows: the basis line says how many
+    ranks = _view(c, src, "robustness")
+    assert ranks["axes"] == answer["axes"] and ranks["rankings"]["pool"] == 9
+    assert ranks["scope"]["basis"] == (
+        f"{EVERY_TRIAL_BASIS}; robust ranks the top 9 by peak, B reads the top 9 (at most 20)"
+    )
+    short = _view(c, src, "robustness", k=2)
+    assert short["scope"]["basis"].endswith(
+        "robust ranks the top 9 by peak, B reads the top 2 (at most 20)"
+    )
 
 
 def test_robustness_with_blocks_reads_the_selection_period_only(client, monkeypatch, tmp_path):
@@ -1888,3 +1943,185 @@ def test_robustness_on_an_optimization_uses_the_default_tolerance(client):
     assert computed["axes"]
     refused = c.post(f"{LAB}/{src}/query", json={"filter": {}, "view": "robustness"})
     assert refused.status_code == 422  # an optimizer source has one side
+
+
+# --- Phase 3 Task 8: Pareto, the exact parallel sample and convergence ---------------------------
+
+PNL_DD = ["net_pnl", "max_drawdown"]
+
+
+def test_pareto_view_on_an_experiment(client, monkeypatch):
+    """The 4-cell grid: every field is what the page's rows say, the brush narrows it, and the
+    panel reads its bounds from the response. It reads no live task."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    _no_task_is_touched(monkeypatch)
+    response = c.post(
+        f"{LAB}/{src}/query",
+        json={"filter": {}, "view": "pareto", "objectives": PNL_DD, "filter_hash": "cafe0001"},
+    )
+    assert response.status_code == 200, response.text
+    answer = _strict_json(response)
+    assert answer["view"] == "pareto" and answer["filter_hash"] == "cafe0001"
+    assert answer["snapshot"] == {"generation": 1, "chunk_watermark": 1}
+    assert answer["provisional"] is False and answer["empty"] is None
+    assert answer["objectives"] == PNL_DD and answer["orientation"] == [1, -1]
+    assert answer["constants"] == {"PARETO_FRONT_MAX": 2_000, "PARETO_DENSITY_BINS": 64}
+    assert answer["sampled"] is False and answer["front_size"] == len(answer["front"]) >= 1
+    assert answer["front_size"] + answer["dominated"] + answer["excluded"] == 4
+    assert answer["scope"]["shown"] == answer["front_size"]
+    assert answer["scope"]["basis"] == "Tested (exact)" and answer["scope"]["filtered"] == 4
+    assert all(trial.startswith(f"{src}#") for trial in answer["front"])
+    density = answer["density"]
+    assert density["bins"] == 64 and len(density["counts"]) == 64
+    assert sum(map(sum, density["counts"])) == answer["dominated"]
+    rows = _view(c, src, "page")["rows"]
+    values = {row["trial_id"]: row["values"] for row in rows}
+    for point in answer["points"]:
+        held = values[point["trial_id"]]
+        assert point["values"] == [held["combined.net_pnl"], held["combined.max_drawdown"]]
+    brushed = _view(c, src, "pareto", objectives=PNL_DD, filter={"ranges": {DONCHIAN: [10, 10]}})
+    assert brushed["scope"]["filtered"] == 2 and len(brushed["front"]) <= 2
+    lengths = {row["trial_id"]: row["params"][DONCHIAN] for row in rows}
+    assert {lengths[trial] for trial in brushed["front"]} == {10.0}
+    nothing = _view(c, src, "pareto", objectives=PNL_DD, filter={"values": {DONCHIAN: 999}})
+    assert nothing["empty"] == "no trials match: 1 filter active" and nothing["front"] == []
+    assert lab_store_module.REGISTRY.held(experiment_id) == set()
+
+
+@pytest.mark.parametrize(
+    ("body", "named"),
+    [
+        ({}, "the pareto view needs objectives"),
+        ({"objectives": ["net_pnl"]}, "2 or 3 objectives"),
+        ({"objectives": ["net_pnl", "mar", "cagr", "exposure"]}, "2 or 3 objectives"),
+        ({"objectives": ["net_pnl", "net_pnl"]}, "named twice"),
+        ({"objectives": ["net_pnl", "nope"]}, "unknown metric"),
+    ],
+)
+def test_pareto_refuses_bad_objectives(client, monkeypatch, body, named):
+    """A clean 422 naming the refusal, on an experiment and on an optimization."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    response = c.post(
+        f"{LAB}/exp:{experiment_id}/query", json={"filter": {}, "view": "pareto", **body}
+    )
+    assert response.status_code == 422, response.text
+    assert named in response.json()["detail"]
+    assert lab_store_module.REGISTRY.held(experiment_id) == set()
+    job_id = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    _wait(c, job_id, "done")
+    refused = c.post(
+        f"{LAB}/opt:{job_id}/query",
+        json={"filter": {"scope": "long"}, "view": "pareto", **body},
+    )
+    assert refused.status_code == 422, refused.text
+    assert named in refused.json()["detail"]
+
+
+def test_parallel_sample_on_an_experiment(client, monkeypatch):
+    """`parallel_mode` picks the lines; the default stays the bundles; the seed is in the answer."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    bundled = _view(c, src, "parallel", axes=[DONCHIAN, RSI], metric="net_pnl")
+    assert bundled["bundles"] and "lines" not in bundled
+    response = c.post(
+        f"{LAB}/{src}/query",
+        json={
+            "filter": {},
+            "view": "parallel",
+            "axes": [DONCHIAN, RSI],
+            "metric": "net_pnl",
+            "parallel_mode": "sample",
+            "seed": 3,
+        },
+    )
+    assert response.status_code == 200, response.text
+    answer = _strict_json(response)
+    assert answer["sampled_from"] == 4 and answer["strata"] == 10 and answer["seed"] == 3
+    assert answer["scope"]["basis"] == "Sampled 4 of 4 (stratified by decile of net_pnl)"
+    assert answer["scope"]["shown"] == len(answer["lines"]) == 4
+    assert answer["axes"] == [DONCHIAN, RSI] and answer["bundles"] == []
+    assert answer["constants"] == {"PARALLEL_MAX_LINES": 5_000, "PARALLEL_STRATA": 10}
+    rows = {row["trial_id"]: row for row in _view(c, src, "page")["rows"]}
+    for line in answer["lines"]:
+        row = rows[line["trial_id"]]
+        assert line["values"] == [row["params"][DONCHIAN], row["params"][RSI]]
+        assert line["metric"] == row["values"]["combined.net_pnl"]
+    refused = c.post(
+        f"{LAB}/{src}/query", json={"filter": {}, "view": "parallel", "parallel_mode": "lines"}
+    )
+    assert refused.status_code == 422, refused.text
+    unknown = c.post(
+        f"{LAB}/{src}/query",
+        json={"filter": {}, "view": "parallel", "parallel_mode": "sample", "axes": ["nope"]},
+    )
+    assert unknown.status_code == 422 and "unknown path" in unknown.json()["detail"]
+
+
+def test_convergence_view_on_an_experiment(client, monkeypatch):
+    """Four trials: best-so-far by trial number, under two batches so no robust series, and the
+    basis line saying what the neighbours would read."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    _no_task_is_touched(monkeypatch)
+    response = c.post(
+        f"{LAB}/{src}/query",
+        json={"filter": {}, "view": "convergence", "metric": "net_pnl", "filter_hash": "cafe0001"},
+    )
+    assert response.status_code == 200, response.text
+    answer = _strict_json(response)
+    assert answer["view"] == "convergence" and answer["filter_hash"] == "cafe0001"
+    assert answer["snapshot"] == {"generation": 1, "chunk_watermark": 1}
+    assert answer["provisional"] is False and answer["empty"] is None
+    assert answer["robust"] == [] and answer["batches"] == 0 and answer["partial"] == 4
+    assert answer["robust_reason"] == (
+        "fewer than 2 complete batches of 5000 trials with a defined net_pnl (4 so far)"
+    )
+    page = _view(c, src, "page", sort="trial_no")["rows"]
+    running, expected = float("-inf"), []
+    for row in page:
+        running = max(running, row["values"]["combined.net_pnl"])
+        expected.append([row["trial_no"], running])
+    assert answer["best"] == expected
+    assert answer["scope"]["shown"] == 4 and answer["scope"]["filtered"] == 4
+    assert answer["scope"]["basis"] == (
+        "Tested (exact); neighbours read every completed block-0 trial of the snapshot, "
+        "the filter selects each batch's top trials"
+    )
+    assert answer["constants"]["CONVERGENCE_BATCH"] == 5_000
+    assert _view(c, src, "convergence", metric="max_drawdown")["orientation"] == -1
+    missing = c.post(
+        f"{LAB}/{src}/query", json={"filter": {}, "view": "convergence", "metric": "nope"}
+    )
+    assert missing.status_code == 422 and "unknown metric" in missing.json()["detail"]
+    assert lab_store_module.REGISTRY.held(experiment_id) == set()
+
+
+def test_the_new_views_answer_an_optimization(client, monkeypatch):
+    """An `opt:` source has no snapshot, so no index, and one side: the three views read its cells
+    under its own ids, and another scope is the shared refusal."""
+    c, _, _ = client
+    job_id = c.post("/aegis/api/optimize", json=_optimize_payload()).json()["job_id"]
+    done = _wait(c, job_id, "done")
+    src = f"opt:{job_id}"
+    long_side = {"filter": {"scope": "long"}}
+    pareto = _view(c, src, "pareto", objectives=PNL_DD, **long_side)
+    assert pareto["snapshot"] is None and pareto["scope"]["filtered"] == done["total_cells"] == 9
+    assert pareto["front_size"] + pareto["dominated"] + pareto["excluded"] == 9
+    assert all(trial.startswith(f"{src}#") for trial in pareto["front"])
+    lines = _view(c, src, "parallel", parallel_mode="sample", **long_side)
+    assert len(lines["lines"]) == 9 and all(path.startswith("long_side.") for path in lines["axes"])
+    trend = _view(c, src, "convergence", **long_side)
+    assert len(trend["best"]) == 9 and trend["robust"] == [] and trend["provisional"] is False
+    assert trend["m"] == 1  # an exhaustive grid's reach
+    for body in (
+        {"view": "pareto", "objectives": PNL_DD},
+        {"view": "convergence"},
+        {"view": "parallel", "parallel_mode": "sample"},
+    ):
+        refused = c.post(f"{LAB}/{src}/query", json={"filter": {"scope": "short"}, **body})
+        assert refused.status_code == 422 and "one side" in refused.json()["detail"]

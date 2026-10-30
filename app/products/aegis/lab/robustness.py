@@ -716,24 +716,26 @@ def _stable_of(
     stable = [place for place, entry in enumerate(ordered) if entry["classification"] in _STABLE]
     if not stable:
         return None, f"none among the top {pool} by peak"
+    passed_over = False
     for place in stable:
         entry = ordered[place]
         if even is not None and entry["value"] <= even:
+            passed_over = True
             continue
         following = ordered[place + 1 : place + 2]
         if following and following[0]["key"][:-1] == entry["key"][:-1]:
-            return None, f"the most robust candidates are tied on {metric}"
+            tied = "candidates above break-even" if passed_over else "candidates"
+            return None, f"the most robust {tied} are tied on {metric}"
         return entry["trial_id"], None
     return None, f"the most robust candidate has {metric} ≤ {even:g}"
 
 
-def rankings_basis(ranks: Mapping) -> str:
-    """What the rankings' basis line adds: how far they looked."""
-    bound = ranks["b_max"]
-    return (
-        f"robust ranks the top {ranks['pool']} by peak, "
-        f"B reads the top {min(ranks['k'], bound)} (at most {bound})"
-    )
+def rankings_basis(ranks: Mapping, axes: Sequence[str]) -> str:
+    """What the rankings' basis line adds: how far they looked. B runs only with `axes`, on at most
+    the first min(pool, k, b_max) rows, so the line claims no more than that."""
+    line = f"robust ranks the top {ranks['pool']} by peak"
+    read = min(ranks["pool"], ranks["k"], ranks["b_max"])
+    return f"{line}, B reads the top {read} (at most {ranks['b_max']})" if axes and read else line
 
 
 def rankings(

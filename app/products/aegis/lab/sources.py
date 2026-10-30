@@ -18,7 +18,9 @@ The importance task's three views (`TASK_VIEWS`, Phase 3 Task 6) answer from a L
 computing in the request: `experiment_importance` and `optimization_importance` are the task's
 body, and `task_query` builds their answers from the stage the route chose. The `robustness` view
 (Phase 3 Task 7) reads a finished stage and never requests a task: `robustness_query` answers it,
-over the importance axes the route read and a card's block rows (`trial_blocks`).
+over the importance axes the route read and a card's block rows (`trial_blocks`). The `pareto` and
+`convergence` views and `parallel`'s `sample` mode (Phase 3 Task 8) are ordinary query views, each
+in its own module, and honour the filter like the rest (decision 7).
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ from products.aegis.experiments import (
 )
 from products.aegis.lab import identity
 from products.aegis.lab.cache import LabCache
+from products.aegis.lab.convergence import convergence_view
 from products.aegis.lab.importance import (
     computed_of,
     importance_basis,
@@ -55,7 +58,9 @@ from products.aegis.lab.importance import (
 )
 from products.aegis.lab.index import FrameIndex, build_index
 from products.aegis.lab.neighbours import neighbourhood
-from products.aegis.lab.policy import RANKING_K, SHARPE_MIN_TRADES
+from products.aegis.lab.parallel import sample_view
+from products.aegis.lab.pareto import checked_objectives, pareto_view
+from products.aegis.lab.policy import PARALLEL_MAX_LINES, RANKING_K, SHARPE_MIN_TRADES
 from products.aegis.lab.query import (
     ALL_BLOCKS,
     BASIS_EXACT,
@@ -125,8 +130,11 @@ VIEWS = (
     "triples",
     "neighbourhood",
     "robustness",
+    "pareto",
+    "convergence",
 )
-INDEXED_VIEWS = ("counts", "matrix", "page", "marginals", "neighbourhood")  # they read the index
+# They read the index.
+INDEXED_VIEWS = ("counts", "matrix", "page", "marginals", "neighbourhood", "pareto", "convergence")
 TASK_VIEWS = ("importance", "interactions", "triples")  # answered from the importance task
 # A page row's `values` beside the objective (the page's metric columns, §9.3).
 PAGE_VALUES = ("net_pnl", "max_drawdown", "trade_count", "exposure", "sharpe_trade")
@@ -134,6 +142,7 @@ _REQUIRED = {
     "matrix": ("rows", "cols", "metric"),
     "square_trials": ("rows", "cols", "row_value", "col_value"),
     "neighbourhood": ("trial",),
+    "pareto": ("objectives",),
 }
 # The two robustness views' basis: what is exact, and which rows their evidence reads.
 ROBUSTNESS_BASIS = f"{BASIS_EXACT}; {EVERY_TRIAL}"
@@ -333,12 +342,16 @@ def COLUMNS_FOR(
         columns.append(metric_column(scope, metric))
     elif view in TASK_VIEWS:  # the cohort's rows (a legacy source's design comes from its pass)
         columns += ["design", "pass", *paths, metric_column(scope, metric)]
-    elif view in ("neighbourhood", "robustness"):
+    elif view in ("neighbourhood", "robustness", "convergence"):
         # Every parameter's stored position beside its values, which `index.codes_for` checks it
-        # against; B reads the design. A card's block rows are read apart (`trial_blocks`).
+        # against; B reads the design. A card's block rows are read apart (`trial_blocks`). One
+        # column set, so convergence shares a neighbourhood's cached table.
         columns += ["design", "pass", *paths, *(f"pos.{k}" for k in range(len(paths)))]
         columns.append(metric_column(scope, metric))
-    else:  # parallel
+    elif view == "pareto":  # its objectives, and the metric whose `undefined` the scope counts
+        columns += [metric_column(scope, name) for name in checked_objectives(request.objectives)]
+        columns.append(metric_column(scope, metric))
+    else:  # parallel, in either mode
         chosen = paths if request.axes is None else request.axes
         columns += [parameter(path) for path in chosen]
         columns.append(metric_column(scope, metric))
@@ -987,8 +1000,28 @@ def run_query(
         counted = scope(0, aggregated)
     elif view == "parallel":
         axes = request.axes if request.axes is not None else [p.path for p in frame.parameters]
-        payload = parallel_view(frame, flt, axes=axes, metric=metric)
-        counted = scope(payload["shown_bundles"], aggregated)
+        if request.parallel_mode == "sample":
+            payload = sample_view(
+                frame,
+                flt,
+                axes=axes,
+                metric=metric,
+                # `k`'s default is `top`'s: only a `k` the request sent bounds the lines
+                k=request.k if "k" in request.model_fields_set else PARALLEL_MAX_LINES,
+                seed=request.seed,
+            )
+            counted = scope(len(payload["lines"]), payload["basis"])
+        else:
+            payload = parallel_view(frame, flt, axes=axes, metric=metric)
+            counted = scope(payload["shown_bundles"], aggregated)
+    elif view == "pareto":
+        payload = pareto_view(
+            frame, flt, objectives=request.objectives, scope=flt.scope, index=index
+        )
+        counted = scope(len(payload["front"]), payload["basis"])
+    elif view == "convergence":
+        payload = convergence_view(frame, flt, metric=metric, scope=flt.scope, index=index)
+        counted = scope(len(payload["best"]), payload["basis"])
     elif view == "square_trials":
         payload = square_trials_view(
             frame,
@@ -1129,7 +1162,7 @@ def robustness_query(
         metric=metric,
         basis=ROBUSTNESS_BASIS
         if card is not None
-        else f"{ROBUSTNESS_BASIS}; {rankings_basis(ranks)}",
+        else f"{ROBUSTNESS_BASIS}; {rankings_basis(ranks, axes)}",
         unique=unique,
         mask=filter_mask(frame, flt, index=index),
         index=index,
