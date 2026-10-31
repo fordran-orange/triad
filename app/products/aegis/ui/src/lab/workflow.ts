@@ -23,7 +23,7 @@ export const WORKFLOW_LABELS: Readonly<Record<WorkflowStep['key'], string>> = Ob
 
 /** Phase 1: only Define works. It is done once an experiment exists, live until then. Every later step stays
  *  disabled, with the phase it arrives in as its reason. `hasReport` is accepted now so the signature does not
- *  change when the Phase 3 screening report starts to move steps. Returns new objects on every call. */
+ *  change when the screening evidence (Phase 4) starts to move steps. Returns new objects on every call. */
 export function workflowSteps(input: { hasExperiment: boolean; hasReport: boolean }): WorkflowStep[] {
   const step = (key: WorkflowStep['key'], state: StepState, reason?: string): WorkflowStep =>
     reason === undefined

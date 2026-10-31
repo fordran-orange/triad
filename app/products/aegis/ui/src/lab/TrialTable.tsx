@@ -5,7 +5,7 @@ import type { LabEnvelope, LabPage, LabRow } from '../results';
 import { lossTone, objectiveText } from './metricRules';
 import { defaultSort, emptyTableText, expRowFromLab, optPath, optRowFromLab, pageKey, panelLabel, SHARPE, SHARPE_TITLE, tableValueColumns, undefinedLast } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
-import { sourceText, type PinSlot } from './labStore';
+import { sourceText, type LabFilter, type PinSlot } from './labStore';
 import { LinkedChip } from './LinkedChip';
 import { LabError } from './NotBuilt';
 import { pageFor, ROW_HEIGHT, windowRows } from './trialWindow';
@@ -48,19 +48,22 @@ type Page = { key: string; tick: number; offset: number; rows: LabRow[]; total: 
 
 /** The trials table: windowed rows (22 px, overscan 10), sortable, one click or arrow key selects a trial. The rows
  *  come a page at a time from the worker's `page` view of the linked filter, for an experiment and a grid job alike;
- *  every row is a tested trial. */
+ *  every row is a tested trial. `filter` is a drill-down's own: the linked filter plus a trellis square (Screen E), asked
+ *  of the worker in place of the Lab's; the rows are still the worker's, nothing is filtered here. */
 export function TrialTable({
   data,
   sort,
   onSort,
   onSelect,
   memory,
+  filter: drill,
 }: {
   data: LabQueryData;
   sort: TrialSort;
   onSort: (sort: TrialSort) => void;
   onSelect: (row: TrialRow) => void;
   memory: ScrollMemory;
+  filter?: LabFilter;
 }) {
   const lab = useLab();
   const dispatch = useLabDispatch();
@@ -78,7 +81,8 @@ export function TrialTable({
 
   const source = loaded ? sourceText(loaded) : '';
   const job = loaded?.kind === 'opt' ? loaded.job : null;
-  const scope = job ? job.side : lab.filter.scope;
+  const filter = drill ?? lab.filter;
+  const scope = job ? job.side : filter.scope;
   const metric = job ? optMetric(job, lab.metric) : lab.metric;
   const objective = job ? job.objective : loaded?.kind === 'exp' ? loaded.document.objective : 'net_pnl';
   // The summary names the layout; while it loads, the experiment document's own `cells_layout` does.
@@ -86,7 +90,7 @@ export function TrialTable({
   const fallback = defaultSort(scope, metric, objective); // never the trade Sharpe (§7.12)
   const sortColumn = sort.column ?? fallback.column;
   const descending = sort.column === null ? fallback.descending : sort.descending;
-  const queryKey = pageKey(source, sortColumn, descending, lab.filter);
+  const queryKey = pageKey(source, sortColumn, descending, filter);
 
   const paths = loaded === null ? [] : loaded.kind === 'opt' ? jobPaths(loaded.job).map((path) => optPath(path, loaded.job.side)) : loaded.document.surface.parameters.map((p) => p.path);
   const metricColumn = `${scope}.${metric}`;
@@ -158,7 +162,7 @@ export function TrialTable({
     pending.current = asked;
     const mine = ++seq.current;
     data
-      .query<LabPage>('page', { sort: sortColumn, descending, offset: request.offset, limit: request.limit })
+      .query<LabPage>('page', { ...(drill === undefined ? {} : { filter: drill }), sort: sortColumn, descending, offset: request.offset, limit: request.limit })
       .then((envelope) => {
         if (mine !== seq.current || envelope === null) return; // a newer request owns the table, or the filter moved on
         // The worker lists undefined values last whichever the direction; the page is held to that.
@@ -270,7 +274,7 @@ export function TrialTable({
 
   const emptyText =
     scopeCounts !== null && scopeCounts.completed > 0
-      ? emptyTableText(scopeCounts.completed, lab.filter)
+      ? emptyTableText(scopeCounts.completed, filter)
       : `No trials yet${loaded?.kind === 'exp' && loaded.document.status === 'running' ? ': the first chunk is still running' : ''}.`;
 
   return (
@@ -287,7 +291,7 @@ export function TrialTable({
           · Tested (exact)
           {panelLabel(current?.envelope ?? null)}
         </span>
-        <LinkedChip />
+        {drill === undefined && <LinkedChip />}
         <span className="trial-pins">
           {PINS.map((slot) => {
             const held = lab.pins[slot];

@@ -240,6 +240,16 @@ export function cellIndex(cells: ReadonlyArray<{ params: Record<string, number |
   );
 }
 
+/** The actions that clear the filter's brushes, fixed values and side scope: what the Linked chip's Clear and Screen E's
+ *  pinned-filters Clear both dispatch. The pass and status chips are the table's own and stay. */
+export function clearActions(filter: LabFilter): LabAction[] {
+  return [
+    ...Object.keys(filter.ranges).map((path): LabAction => ({ type: 'SET_RANGE', path, range: null })),
+    ...Object.keys(filter.values).map((path): LabAction => ({ type: 'FIX_VALUE', path, value: null })),
+    { type: 'SET_SCOPE', scope: 'combined' },
+  ];
+}
+
 /** How many constraints the filter holds: ranges, fixed values, a side scope, pass and status chips. */
 export function activeFilterCount(filter: LabFilter): number {
   return Object.keys(filter.ranges).length + Object.keys(filter.values).length + (filter.scope !== 'combined' ? 1 : 0) + filter.pass.length + filter.status.length;

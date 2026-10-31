@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ExperimentDocument } from '../contracts';
+import { FamiliesPage } from './FamiliesPage';
 import { IntelligenceRail } from './IntelligenceRail';
 import { LabCenter } from './LabCenter';
 import { LabContextBar } from './LabContextBar';
@@ -17,9 +18,8 @@ import { currentMatrix, sourceFamilies, type TrialRow } from './useLabSource';
 import { VariableIntelligence } from './VariableIntelligence';
 
 /** The views a later phase builds: each one says what it is and when it arrives, inside the same layout. */
-const PLACEHOLDERS: Record<Exclude<LabView, 'trials' | 'variables'>, { what: string; phase: number }> = {
+const PLACEHOLDERS: Record<Exclude<LabView, 'trials' | 'variables' | 'families'>, { what: string; phase: number }> = {
   monitor: { what: 'Run Monitor', phase: 5 },
-  families: { what: 'Parameter Families', phase: 3 },
   walkforward: { what: 'Walk-Forward & Robustness', phase: 6 },
   lineage: { what: 'History, Lineage & Forensics', phase: 6 },
   compare: { what: 'Candidate Compare', phase: 5 },
@@ -68,6 +68,8 @@ export function OptLabPage() {
     );
   } else if (lab.view === 'variables') {
     body = <VariableIntelligence data={data} sort={sort} onSort={setSort} onSelect={select} memory={memory} />;
+  } else if (lab.view === 'families') {
+    body = <FamiliesPage data={data} sort={sort} onSort={setSort} onSelect={select} memory={memory} />;
   } else {
     const placeholder = PLACEHOLDERS[lab.view];
     body = (

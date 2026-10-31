@@ -2,6 +2,7 @@
 // tests import this module; the app never does.
 import type {
   LabCandidateCard,
+  LabCounts,
   LabCategoryA,
   LabCategoryB,
   LabCategoryC,
@@ -310,6 +311,35 @@ export function pareto(over: Partial<LabPareto> = {}): LabPareto {
     },
     basis: 'Sampled subset (3 of 5)',
     constants: { PARETO_FRONT_MAX: 2000, PARETO_DENSITY_BINS: 64, OBJECTIVES_MIN: 2, OBJECTIVES_MAX: 3 },
+    ...over,
+  };
+}
+
+/** The §6.4 counts of a source with 12,000 completed trials and no filter. */
+export function labCounts(over: Partial<LabCounts> = {}): LabCounts {
+  return {
+    space: 1_000_000,
+    valid: 900_000,
+    budget_total: 12_000,
+    reserved: 0,
+    scheduled: 12_000,
+    evaluations: 12_000,
+    remaining: 0,
+    reused: 0,
+    attempted: 12_000,
+    evaluations_done: 12_000,
+    completed: 12_000,
+    invalid: 0,
+    failed: 0,
+    pending: 0,
+    unique: 11_800,
+    duplicates: 200,
+    filtered: 12_000,
+    shown: 0,
+    undefined: 0,
+    basis: 'Tested (exact)',
+    block: 0,
+    filters_active: 0,
     ...over,
   };
 }

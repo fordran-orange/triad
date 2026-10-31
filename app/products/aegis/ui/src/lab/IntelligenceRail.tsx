@@ -5,6 +5,7 @@ import { recommendationText } from '../experiments';
 import { DASH, money, num, pct, shortHash } from '../format';
 import type { LabTrial } from '../results';
 import { CandidateCard } from './CandidateCard';
+import { ConvergenceChart } from './ConvergenceChart';
 import { metricsLine, squareAt } from './LabCenter';
 import { valueText } from './labHeatmapModel';
 import { lowN, SHARPE, SHARPE_LABEL } from './labQuery';
@@ -267,6 +268,10 @@ export function IntelligenceRail({ data, onRefined }: { data: LabQueryData; onRe
             <p>{recommendationText(report)}</p>
           </>
         )}
+      </section>
+      <section className="rail-block" id="lab-convergence-block">
+        <div className="rail-title">Convergence</div>
+        <ConvergenceChart data={data} compact />
       </section>
       <section className="rail-block rail-ai" id="lab-ai">
         AI explanations: Phase 8 · AI explains, it never decides

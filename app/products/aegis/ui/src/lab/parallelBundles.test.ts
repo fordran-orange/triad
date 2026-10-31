@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { LabParallel } from '../results';
+import type { LabParallel, LabParallelLine } from '../results';
 import { linearScale } from './charts/canvas';
 import { answered } from './labQuery';
 import { initialLabState, labReducer } from './labStore';
-import { axisLabel, axisPositions, binEdges, brushToFilter, bundleKey, exactLine, nearestAxis, opacityFor, parallelBasis, parallelSummary, polyline } from './parallelBundles';
+import { axisLabel, axisPositions, binEdges, brushToFilter, bundleKey, exactLine, isSampleView, nearestAxis, opacityFor, parallelBasis, parallelRequest, parallelSummary, polyline, sampleLine, sampleNote, sampleOrder } from './parallelBundles';
 
 /** The bin a value falls in under `edges`: [edges[i], edges[i + 1]), the last bin closed. */
 const binsHolding = (edges: number[], v: number) =>
@@ -136,5 +136,87 @@ describe('parallelBundles', () => {
     expect(parallelSummary(view, 'net_pnl', false, String)).toBe('parallel coordinates: 3 bundles over 3 axes, largest 40 trials, best median net_pnl 30');
     expect(parallelSummary(view, 'max_drawdown', true, String)).toBe('parallel coordinates: 3 bundles over 3 axes, largest 40 trials, best median max_drawdown -5');
     expect(parallelSummary({ ...view, bundles: [], shown_bundles: 0 }, 'net_pnl', false, String)).toBe('parallel coordinates: 0 bundles over 3 axes');
+  });
+});
+
+// --- sample mode (spec §7.9, exact mode): a stratified sample of actual trials ----------------------------------------
+
+/** The `parallel_mode = "sample"` answer: the bundle fields empty, the sample's own present. */
+function sampleView(over: Partial<LabParallel> = {}): LabParallel {
+  const lines: LabParallelLine[] = [
+    { trial_id: 'exp:e1#4', values: [10, 0.5, null], metric: -120 },
+    { trial_id: 'exp:e1#9', values: [20, 1, 3], metric: 40 },
+    { trial_id: 'exp:e1#17', values: [30, 1.5, 4], metric: 900 },
+  ];
+  return {
+    axes: ['a', 'b', 'c'],
+    bins: [],
+    bundles: [],
+    total_bundles: 0,
+    shown_bundles: 0,
+    basis: 'Sampled 3 of 6904 (stratified by decile of net_pnl)',
+    lines,
+    sampled_from: 6904,
+    metric: 'combined.net_pnl',
+    strata: 10,
+    seed: 1,
+    excluded: 12,
+    constants: { PARALLEL_MAX_LINES: 5000, PARALLEL_STRATA: 10 },
+    ...over,
+  };
+}
+
+describe('parallel coordinates in sample mode', () => {
+  it('prints the server\'s basis line verbatim, and with pins appends only the pinned lines drawn exactly', () => {
+    const basis = 'Sampled 4000 of 6904 (stratified by decile of net_pnl)';
+    expect(parallelBasis(basis, null)).toBe(basis);
+    expect(parallelBasis(basis, 2)).toBe(`${basis} · 2 pinned trials drawn exactly`);
+    expect(parallelBasis(basis, 1)).toBe(`${basis} · 1 pinned trial drawn exactly`);
+    // The bundles' tail ("0 raw lines drawn") is that mode's; the sample's basis has none to strip, nor to add.
+    expect(parallelBasis('Sampled 5000 of 5000 (stratified by decile of mar)', null)).toBe('Sampled 5000 of 5000 (stratified by decile of mar)');
+  });
+
+  it('asks for bundles exactly as before, and for the sample only when it is chosen', () => {
+    expect(parallelRequest('bundles', ['a', 'b'], 'net_pnl')).toEqual({ axes: ['a', 'b'], metric: 'net_pnl' });
+    expect('parallel_mode' in parallelRequest('bundles', ['a', 'b'], 'net_pnl')).toBe(false); // the unchanged request of Phase 2
+    expect(parallelRequest('sample', ['a', 'b'], 'net_pnl')).toEqual({ axes: ['a', 'b'], metric: 'net_pnl', parallel_mode: 'sample' });
+  });
+
+  it('tells a sample from bundles by its lines', () => {
+    expect(isSampleView(sampleView())).toBe(true);
+    expect(isSampleView({ axes: [], bins: [], bundles: [], total_bundles: 0, shown_bundles: 0, basis: '' })).toBe(false);
+    expect(isSampleView(sampleView({ lines: [] }))).toBe(true); // an empty sample is still a sample
+  });
+
+  it('draws the best lines last so they stay on top: worst first, ties in the order they came', () => {
+    const lines = sampleView().lines!;
+    expect(sampleOrder(lines, false)).toEqual([0, 1, 2]);
+    expect(sampleOrder([...lines].reverse(), false)).toEqual([2, 1, 0]);
+    // Lower is better (a drawdown): the largest value is the worst and goes first.
+    expect(sampleOrder(lines, true)).toEqual([2, 1, 0]);
+    expect(sampleOrder([{ ...lines[0], metric: 5 }, { ...lines[1], metric: 5 }], false)).toEqual([0, 1]);
+  });
+
+  it('a sampled line runs through its own values; a value it lacks breaks it', () => {
+    const axes = [linearScale([0, 10], [100, 0]), linearScale([0, 100], [100, 0])];
+    expect(sampleLine([5, 25], axes, [20, 180])).toEqual([
+      [20, 50],
+      [180, 75],
+    ]);
+    expect(sampleLine([5, null], axes, [20, 180])).toEqual([[20, 50], null]);
+    expect(sampleLine([], axes, [20, 180])).toEqual([null, null]);
+  });
+
+  it('the summary counts the sampled lines of the trials they were drawn from, never bundles', () => {
+    const fmt = (v: number) => String(v);
+    expect(parallelSummary(sampleView(), 'net_pnl', false, fmt)).toBe('parallel coordinates: 3 sampled lines of 6,904 trials over 3 axes, best net_pnl 900');
+    expect(parallelSummary(sampleView(), 'max_drawdown', true, fmt)).toBe('parallel coordinates: 3 sampled lines of 6,904 trials over 3 axes, best max_drawdown -120');
+    expect(parallelSummary(sampleView({ lines: [], sampled_from: 0 }), 'net_pnl', false, fmt)).toBe('parallel coordinates: 0 sampled lines of 0 trials over 3 axes');
+  });
+
+  it('says how the sample was drawn, and what it left out', () => {
+    expect(sampleNote(sampleView())).toBe('a stratified sample, 10 strata by decile of net_pnl, seed 1; 12 trials with no net_pnl value are not drawn');
+    expect(sampleNote(sampleView({ excluded: 0 }))).toBe('a stratified sample, 10 strata by decile of net_pnl, seed 1');
+    expect(sampleNote({ axes: [], bins: [], bundles: [], total_bundles: 0, shown_bundles: 0, basis: '' })).toBe('');
   });
 });

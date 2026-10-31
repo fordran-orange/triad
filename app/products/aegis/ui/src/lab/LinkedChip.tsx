@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { filterLines } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
-import { activeFilterCount, canonicalFilter } from './labStore';
+import { activeFilterCount, canonicalFilter, clearActions } from './labStore';
 
 /** `Linked · k filters` on every panel that reads the shared filter; a click lists the filters with Clear. The
  *  chip carries the exact filter as `data-filter` (its canonical text). Only the context bar's chip carries an id
@@ -13,9 +13,7 @@ export function LinkedChip({ id }: { id?: string }) {
   const count = activeFilterCount(filter);
   const lines = filterLines(filter);
   const clear = () => {
-    for (const path of Object.keys(filter.ranges)) dispatch({ type: 'SET_RANGE', path, range: null });
-    for (const path of Object.keys(filter.values)) dispatch({ type: 'FIX_VALUE', path, value: null });
-    dispatch({ type: 'SET_SCOPE', scope: 'combined' });
+    for (const action of clearActions(filter)) dispatch(action);
     setOpen(false);
   };
   return (

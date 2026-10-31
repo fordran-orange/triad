@@ -33,14 +33,14 @@ import { LabError } from './NotBuilt';
 import type { LabQueryData, Stamped } from './useLabQuery';
 
 /** The squares' fills and texts: the dock's `.cell` tones (styles.css), so a tone looks the same on both. */
-const TONE_FILL: Record<Tone, string> = { hot: '#1b5c42', gain: '#143125', mid: '#16222e', cool: '#35232a', loss: '#4a1f27', empty: '#0f1a24' };
-const TONE_TEXT: Record<Tone, string> = { hot: '#d9ffe9', gain: '#9fdcbd', mid: '#9fb3c2', cool: '#dd98a0', loss: '#ffb3bb', empty: '#4f6b80' };
-const HATCH = '#1b2935';
+export const TONE_FILL: Record<Tone, string> = { hot: '#1b5c42', gain: '#143125', mid: '#16222e', cool: '#35232a', loss: '#4a1f27', empty: '#0f1a24' };
+export const TONE_TEXT: Record<Tone, string> = { hot: '#d9ffe9', gain: '#9fdcbd', mid: '#9fb3c2', cool: '#dd98a0', loss: '#ffb3bb', empty: '#4f6b80' };
+export const HATCH = '#1b2935';
 const SELECTED = '#f5bd51'; // the dock's selected square
 const CURSOR = '#2da7ff';
 const HOVER = '#d8e5ef';
 const FLAG = '#f5bd51'; // a confounded square's corner
-const LOW_N_ALPHA = 0.45;
+export const LOW_N_ALPHA = 0.45;
 /** The rectangles one frame paints: a 200 × 200 grid of distinct squares paints over ~16 frames, never in one long
  *  task (touching squares that look alike paint as one run, so an all-untested grid is one rectangle per row). */
 const FRAME_RECTS = 2500;

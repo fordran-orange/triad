@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
+import type { LabParameter } from '../results';
 import { fixValueAction, parseNumber as parse, searchFamilies, type CatalogEntry, type Family } from './catalog';
+import { familyTree } from './familiesModel';
+import { filterLines } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
+import { activeFilterCount, clearActions } from './labStore';
 import { LinkedChip } from './LinkedChip';
 
 const ACTIVE_TITLE = 'no screening evidence yet: all parameters Active (Phase 4)';
@@ -91,10 +95,109 @@ function FixValueInput({ entry }: { entry: CatalogEntry }) {
   );
 }
 
+/** Screen E's family tree: the families by side (long first) and indicator id, each with its parameters, its values and how
+ *  many of them have a tested trial, and under each parameter its brush and fixed value (the pinned filters and slices). */
+function FamilyTree({ shown, parameters, collapsed, toggle }: { shown: Family[]; parameters: readonly LabParameter[] | null; collapsed: string[]; toggle: (key: string) => void }) {
+  const entryOf = new Map(shown.flatMap((family) => family.entries.map((entry) => [entry.path, entry] as const)));
+  return (
+    <>
+      {familyTree(shown, parameters).map((node) => {
+        const open = !collapsed.includes(node.key);
+        return (
+          <section
+            className="family"
+            key={node.key}
+            id={`lab-families-family-${node.side}-${node.id}`}
+            data-family={node.key}
+            data-side={node.side}
+            data-parameters={node.parameters}
+            data-values={node.values}
+            data-tested={node.tested ?? ''}
+          >
+            <button type="button" className="family-toggle" aria-expanded={open} onClick={() => toggle(node.key)}>
+              <span className="family-caret">{open ? '▾' : '▸'}</span> {node.label}
+            </button>
+            <div className="sub family-counts" title="the parameters of this indicator on this side, the values of their ranges, and the values that have a tested trial">
+              {node.text}
+            </div>
+            {open && (
+              <ul className="family-entries">
+                {node.entries.map((e) => {
+                  const entry = entryOf.get(e.path);
+                  if (entry === undefined) return null;
+                  return (
+                    <li className="catalog-entry" key={e.path} data-path={e.path}>
+                      <div className="entry-head" title={e.path}>
+                        <span className="entry-field">{e.field}</span>
+                        <span className="muted">
+                          {entry.start}–{entry.stop} / {entry.step} · {e.count} values
+                          {e.tested !== null ? ` · ${e.tested} of ${e.of} ${e.bucketed ? 'buckets' : 'values'} tested` : ''}
+                        </span>
+                      </div>
+                      <div className="entry-controls">
+                        <RangeInputs entry={entry} />
+                        <FixValueInput entry={entry} />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        );
+      })}
+    </>
+  );
+}
+
+/** The filters and slices in force, each as a line, with the Clear that removes the brushes and fixed values. */
+function PinnedFilters() {
+  const { filter } = useLab();
+  const dispatch = useLabDispatch();
+  const lines = filterLines(filter);
+  const active = activeFilterCount(filter);
+  return (
+    <div className="catalog-pinned" id="lab-families-pinned" data-filters={active}>
+      <div className="catalog-subtitle">Pinned filters &amp; slices</div>
+      {lines.length === 0 ? (
+        <div className="sub">none: every trial is in view</div>
+      ) : (
+        <ul className="catalog-pinned-list">
+          {lines.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      )}
+      <button
+        type="button"
+        className="btn"
+        id="lab-families-clear"
+        disabled={active === 0}
+        title={active === 0 ? 'nothing to clear' : 'clears the brushes, the fixed values and the side'}
+        onClick={() => clearActions(filter).forEach(dispatch)}
+      >
+        Clear
+      </button>
+    </div>
+  );
+}
+
 /** The parameter rail: families per side, collapsible and searchable. In `controls` mode each parameter carries
  *  the X / Y axis radios (X = the heatmap's columns, Y = its rows), a range brush and a fixed value; in `status` mode (Variable
- *  Intelligence) it carries its variable status instead. */
-export function ParameterCatalog({ list, mode, loading }: { list: Family[] | null; mode: 'controls' | 'status'; loading: boolean }) {
+ *  Intelligence) it carries its variable status instead; in `families` mode (Screen E) it is the family tree, grouped by side
+ *  and indicator id, with the counts of each family, each parameter's brush and fixed value, and the filters in force. */
+export function ParameterCatalog({
+  list,
+  mode,
+  loading,
+  parameters = null,
+}: {
+  list: Family[] | null;
+  mode: 'controls' | 'status' | 'families';
+  loading: boolean;
+  /** The summary's parameters, for the tested counts of the `families` mode. */
+  parameters?: readonly LabParameter[] | null;
+}) {
   const { axes } = useLab();
   const dispatch = useLabDispatch();
   const [search, setSearch] = useState('');
@@ -109,16 +212,18 @@ export function ParameterCatalog({ list, mode, loading }: { list: Family[] | nul
   const setY = (path: string) => dispatch({ type: 'SET_AXES', axes: [path, other(path, [axes?.[1], axes?.[0]])] });
   const toggle = (key: string) => setCollapsed((keys) => (keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]));
   const total = paths.length;
+  const families = mode === 'families';
+  const matching = shown.reduce((sum, family) => sum + family.entries.length, 0);
 
   return (
-    <aside className="lab-catalog" id="lab-catalog" aria-label="Parameters">
+    <aside className="lab-catalog" id={families ? 'lab-families-catalog' : 'lab-catalog'} aria-label="Parameters">
       <div className="catalog-head">
         <span className="catalog-title">Parameters{list ? ` · ${total}` : ''}</span>
-        {mode === 'controls' && <LinkedChip />}
+        {mode !== 'status' && <LinkedChip />}
       </div>
       <input
         type="search"
-        id="lab-catalog-search"
+        id={families ? 'lab-families-search' : 'lab-catalog-search'}
         className="catalog-search"
         placeholder="Search parameters"
         aria-label="Search parameters"
@@ -132,7 +237,19 @@ export function ParameterCatalog({ list, mode, loading }: { list: Family[] | nul
       ) : list.length === 0 ? (
         <div className="lab-empty">No parameters: this source varies none.</div>
       ) : shown.length === 0 ? (
-        <div className="lab-empty">No parameter matches “{search.trim()}”.</div>
+        <div className="lab-empty" id={families ? 'lab-families-no-match' : undefined}>
+          No parameter matches “{search.trim()}”.
+        </div>
+      ) : families ? (
+        <>
+          {search.trim() !== '' && (
+            <div className="sub" id="lab-families-matches" data-families={shown.length} data-parameters={matching}>
+              {shown.length} of {list.length} {list.length === 1 ? 'family matches' : 'families match'} · {matching} {matching === 1 ? 'parameter' : 'parameters'} of {total}
+            </div>
+          )}
+          <FamilyTree shown={shown} parameters={parameters} collapsed={collapsed} toggle={toggle} />
+          <PinnedFilters />
+        </>
       ) : (
         shown.map((family) => {
           const open = !collapsed.includes(family.key);

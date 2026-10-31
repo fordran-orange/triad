@@ -61,26 +61,28 @@ function Category({ category }: { category: CategoryView }) {
   );
 }
 
-/** The four categories of one trial of the open source. */
-export function CandidateCard({ data, trialId }: { data: LabQueryData; trialId: string }) {
+/** The `robustness` view's card for one trial of the open source, as the rail's candidate card and Screen E's neighbourhood map
+ *  both read it: one payload, one model, so the two never state a category differently. `trialId` null asks nothing. */
+export function useCandidateCard(data: LabQueryData, trialId: string | null) {
   const lab = useLab();
   const { query, tick } = data;
   // The card does not depend on the filter, but an answer that lands after the filter moved is discarded by `query`, and
   // the key moving is what asks again. B reads the finished importance: the count of importance tasks seen finished is part of
   // the mark, so the card asks again when one finishes (in the Importance tab, or in the background after it was left). The tab is
-  // part of it too: a tab left before its first answer hands the watch nothing, and one cheap ask per tab change closes
-  // that window. Every refresh while the source runs asks again as well.
-  const viewKey = [trialId, lab.metric, filterHash(lab.filter)].join('|');
+  // part of it too: a tab left before its first answer hands the watch nothing, so the card cannot hear that task finish, and one
+  // cheap ask per tab change narrows that window (it does not close it). Every refresh while the source runs asks again as well.
+  const viewKey = trialId === null ? null : [trialId, lab.metric, filterHash(lab.filter)].join('|');
   const [retry, setRetry] = useState(0);
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
   const seq = useRef(0);
   const asked = useRef<string | null>(null);
   useEffect(() => {
-    const mark = `${viewKey}|${tick}|${retry}|${data.importanceDone}|${lab.tab}`;
-    if (asked.current === mark) return; // React's development double-run of the same ask
+    const mark = viewKey === null ? null : `${viewKey}|${tick}|${retry}|${data.importanceDone}|${lab.tab}`;
+    if (mark !== null && asked.current === mark) return; // React's development double-run of the same ask
     asked.current = mark;
     const mine = ++seq.current;
+    if (viewKey === null || trialId === null) return;
     query<LabRobustness>('robustness', { trial: trialId })
       .then((envelope) => {
         if (mine !== seq.current) return; // a newer ask owns the card
@@ -100,12 +102,24 @@ export function CandidateCard({ data, trialId }: { data: LabQueryData; trialId: 
   const error = failure !== null && failure.key === viewKey ? failure.message : null;
   const card = shown !== null && isCandidateCard(shown.envelope) ? shown.envelope.card : null;
   const model = useMemo(() => (card === null ? null : candidateCardModel(card)), [card]);
-  const pending = error === null && current === null;
+  return {
+    card,
+    model,
+    error,
+    /** No answer for the trial in hand yet. */
+    pending: viewKey !== null && error === null && current === null,
+    retry: () => setRetry((n) => n + 1),
+  };
+}
+
+/** The four categories of one trial of the open source. */
+export function CandidateCard({ data, trialId }: { data: LabQueryData; trialId: string }) {
+  const { model, error, pending, retry } = useCandidateCard(data, trialId);
 
   return (
     <div className="candidate-card" id="lab-candidate" data-loading={pending ? 'true' : 'false'}>
       <div className="rail-title">Robustness · four categories</div>
-      {error !== null && <LabError message={`Robustness unavailable: ${error}`} onRetry={() => setRetry((n) => n + 1)} />}
+      {error !== null && <LabError message={`Robustness unavailable: ${error}`} onRetry={retry} />}
       {model === null ? (
         error === null && (
           <div className="muted" id="lab-candidate-loading">

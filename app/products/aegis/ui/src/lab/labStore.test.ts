@@ -3,6 +3,7 @@ import {
   activeFilterCount,
   canonicalFilter,
   cellIndex,
+  clearActions,
   filterHash,
   initialLabState,
   labReducer,
@@ -569,5 +570,14 @@ describe('labReducer SET_TAB (the centre tab is store state, so any view can ope
     expect(labReducer(before, { type: 'OPEN_SOURCE', source: EXP }).tab).toBe('pareto');
     expect(labReducer(before, { type: 'ESCAPE' }).tab).toBe('pareto');
     expect(labReducer(labReducer(before, { type: 'ESCAPE' }), { type: 'ESCAPE' }).tab).toBe('pareto');
+  });
+});
+
+describe('clearActions', () => {
+  it('clears every brush, fixed value and the side scope, and leaves the pass and status chips', () => {
+    const held = filter({ ranges: { a: [1, 2], c: [3, 4] }, values: { b: 3 }, scope: 'long', pass: ['IS'], status: ['ok'] });
+    const cleared = clearActions(held).reduce((s, action) => labReducer(s, action), state({ filter: held }));
+    expect(cleared.filter).toEqual({ ranges: {}, values: {}, scope: 'combined', pass: ['IS'], status: ['ok'] });
+    expect(clearActions(initialLabState.filter)).toEqual([{ type: 'SET_SCOPE', scope: 'combined' }]);
   });
 });

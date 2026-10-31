@@ -1,10 +1,12 @@
-// The parallel coordinates' decisions (spec §7.9, aggregated mode), nothing React and nothing drawn: the bin math
-// the server's bundles rest on, where each axis stands, a bundle's line and opacity, a pinned trial's exact line,
-// which axis a press lands on, what a brush writes to the shared filter, and the basis and live-region texts.
-// ParallelCoords only draws what this returns.
-import type { LabParallel } from '../results';
+// The parallel coordinates' decisions (spec §7.9), nothing React and nothing drawn: the bin math the server's bundles
+// rest on, where each axis stands, a bundle's line and opacity, a pinned trial's exact line, the sample mode's lines (a
+// stratified sample of actual trials, §7.9's exact mode) and the order they are drawn in, which axis a press lands on,
+// what a brush writes to the shared filter, and the basis and live-region texts. ParallelCoords only draws what this
+// returns.
+import type { LabParallel, LabParallelLine, LabQueryBody } from '../results';
 import type { Scale } from './charts/canvas';
 import type { LabAction } from './labStore';
+import { bareMetric } from './metricRules';
 
 /** Phase 2 draws at most this many axes: the active parameters in catalog order. */
 export const PARALLEL_MAX_AXES = 10;
@@ -107,6 +109,7 @@ export function parallelBasis(basis: string, pinned: number | null): string {
 /** `#lab-parallel-summary`, the chart's DOM twin: the bundles drawn over the axes, the largest bundle and the best
  *  defined median (`format` prints it). */
 export function parallelSummary(view: LabParallel, metric: string, lowerIsBetter: boolean, format: (v: number) => string): string {
+  if (isSampleView(view)) return sampleSummary(view, metric, lowerIsBetter, format);
   const head = `parallel coordinates: ${view.shown_bundles.toLocaleString('en-US')} bundles over ${view.axes.length} axes`;
   if (view.bundles.length === 0) return head;
   const largest = Math.max(...view.bundles.map((b) => b.count));
@@ -116,4 +119,54 @@ export function parallelSummary(view: LabParallel, metric: string, lowerIsBetter
     if (best === null || (lowerIsBetter ? median < best : median > best)) best = median;
   }
   return `${head}, largest ${largest.toLocaleString('en-US')} trials, best median ${metric} ${best === null ? '—' : format(best)}`;
+}
+
+// --- sample mode (§7.9, exact mode) ----------------------------------------------------------------------------------
+
+/** The parallel view's two modes: its aggregated bundles (the default), or a stratified sample of actual trials. */
+export type ParallelMode = 'bundles' | 'sample';
+
+/** What the request adds to the filter for the mode. Bundles are the worker's default and are asked exactly as in Phase 2
+ *  (no `parallel_mode` at all); the sample is asked for by name, and the worker bounds and seeds it. */
+export function parallelRequest(mode: ParallelMode, axes: string[], metric: string): Partial<LabQueryBody> {
+  return mode === 'sample' ? { axes, metric, parallel_mode: 'sample' } : { axes, metric };
+}
+
+/** A sample answer carries its lines (the bundle fields are sent empty beside them). */
+export function isSampleView(view: LabParallel): boolean {
+  return view.lines !== undefined;
+}
+
+/** The order the sampled lines are drawn in, as indexes into `lines`: the worst first, so the best lie on top; lines of
+ *  equal value keep the order they came in. `lowerIsBetter` is the metric's (a drawdown). */
+export function sampleOrder(lines: readonly LabParallelLine[], lowerIsBetter: boolean): number[] {
+  const goodness = (k: number) => (lowerIsBetter ? -lines[k].metric : lines[k].metric);
+  return lines.map((_, k) => k).sort((a, b) => goodness(a) - goodness(b) || a - b);
+}
+
+/** A sampled trial's line through its own values on the axes; an axis it has no value on breaks the line (null). */
+export function sampleLine(values: ReadonlyArray<number | null>, axes: Scale[], xs: readonly number[]): Array<[number, number] | null> {
+  return axes.map((axis, i) => {
+    const v = values[i];
+    return typeof v === 'number' && Number.isFinite(v) ? [xs[i], axis(v)] : null;
+  });
+}
+
+/** `#lab-parallel-summary` for a sample: the lines drawn, the trials they were drawn from, and the best metric among them. */
+function sampleSummary(view: LabParallel, metric: string, lowerIsBetter: boolean, format: (v: number) => string): string {
+  const lines = view.lines ?? [];
+  const from = (view.sampled_from ?? 0).toLocaleString('en-US');
+  const head = `parallel coordinates: ${lines.length.toLocaleString('en-US')} sampled lines of ${from} trials over ${view.axes.length} axes`;
+  if (lines.length === 0) return head;
+  const best = lines.reduce((a, b) => ((lowerIsBetter ? b.metric < a : b.metric > a) ? b.metric : a), lines[0].metric);
+  return `${head}, best ${metric} ${format(best)}`;
+}
+
+/** How the sample was drawn and what it left out (§7.9): its strata, its seed, and the trials with no value of the metric,
+ *  which have no decile and are never drawn. Empty for bundles. */
+export function sampleNote(view: LabParallel): string {
+  if (!isSampleView(view)) return '';
+  const metric = bareMetric(view.metric ?? '');
+  const left = view.excluded ?? 0;
+  return `a stratified sample, ${view.strata ?? 0} strata by decile of ${metric}, seed ${view.seed ?? 0}${left > 0 ? `; ${left.toLocaleString('en-US')} trials with no ${metric} value are not drawn` : ''}`;
 }

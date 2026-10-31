@@ -1,10 +1,11 @@
-// Trial Lab's parallel coordinates (spec §7.9, aggregated mode): the server's bundles of the filtered trials over
-// the active parameters, one polyline per bundle through its bins' centres (opacity by count, colour by the bundle's
-// median through the dock's `Heatmap.cells()` tones, so a losing median is red), the pinned trials as exact lines
-// over them, and a brush per axis that writes the shared filter. Every decision is `parallelBundles.ts`'s; this
-// asks for the view, draws it and turns a drag into the filter. Two stacked canvases: the axes and the bundles are
-// painted once per answer or size, as hairlines over a few frames; the brushes and the pinned lines live on an
-// overlay that a drag repaints alone, with no React state per mouse move.
+// Trial Lab's parallel coordinates (spec §7.9): the server's bundles of the filtered trials over the active
+// parameters, one polyline per bundle through its bins' centres (opacity by count, colour by the bundle's median
+// through the dock's `Heatmap.cells()` tones, so a losing median is red), or, in the exact mode `#lab-parallel-mode`
+// asks for, a stratified sample of actual trials, one polyline each through its own values (coloured by its metric the
+// same way); the pinned trials as exact lines over either, and a brush per axis that writes the shared filter. Every
+// decision is `parallelBundles.ts`'s; this asks for the view, draws it and turns a drag into the filter. Two stacked
+// canvases: the axes and the lines are painted once per answer or size, as hairlines over a few frames; the brushes and
+// the pinned lines live on an overlay that a drag repaints alone, with no React state per mouse move.
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { errorMessage } from '../api/client';
 import { cells, profitKind } from '../components/Heatmap';
@@ -12,12 +13,29 @@ import type { LabEnvelope, LabParallel } from '../results';
 import type { CatalogEntry } from './catalog';
 import { AXIS_COLOUR, Brush1D, CHART_FONT, hairline, LABEL_COLOUR, linearScale, observeResize, paintInFrames, setupCanvas, strokeLine, type Scale } from './charts/canvas';
 import { valueText, type Tone } from './labHeatmapModel';
-import { objectiveText } from './metricRules';
+import { lowerIsBetter, objectiveText } from './metricRules';
 import { answered, panelLabel } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
 import { filterHash, type PinSlot } from './labStore';
 import { LabError } from './NotBuilt';
-import { axisLabel, axisPositions, brushToFilter, exactLine, nearestAxis, opacityFor, PARALLEL_MAX_AXES, parallelBasis, parallelSummary, polyline } from './parallelBundles';
+import {
+  axisLabel,
+  axisPositions,
+  brushToFilter,
+  exactLine,
+  isSampleView,
+  nearestAxis,
+  opacityFor,
+  PARALLEL_MAX_AXES,
+  parallelBasis,
+  parallelRequest,
+  parallelSummary,
+  polyline,
+  sampleLine,
+  sampleNote,
+  sampleOrder,
+  type ParallelMode,
+} from './parallelBundles';
 import type { LabQueryData, Stamped } from './useLabQuery';
 import { sourceFamilies, type TrialRow } from './useLabSource';
 
@@ -27,6 +45,10 @@ const BOTTOM = 20; // and below them for its bottom value
 const HIT = 14; // a press this close to an axis brushes it
 /** The bundles one frame strokes: 2,000 hairline bundles paint over 8 frames, never in one long task. */
 const FRAME_BUNDLES = 250;
+/** The sampled lines one frame strokes: 5,000 hairlines paint over 10 frames. */
+const FRAME_LINES = 500;
+/** A sampled line is one trial, so it is faint: the density of the lines is what reads. */
+const SAMPLE_ALPHA = 0.3;
 /** A bundle's stroke by the tone of its median: green only for a winning value, red for a losing one. */
 const LINE: Record<Tone, string> = { hot: '#39d98a', gain: '#2f9e6a', mid: '#7690a3', cool: '#dd98a0', loss: '#ff5c67', empty: '#4f6b80' };
 const PIN_COLOUR: Record<PinSlot, string> = { A: '#f5bd51', B: '#2da7ff', C: '#b784ff' };
@@ -35,7 +57,7 @@ const BRUSH_FILL = 'rgba(45, 167, 255, 0.18)';
 const BRUSH_EDGE = '#2da7ff';
 
 /** An answered view and what it was asked for: the basis and the summary describe it until the next one lands. */
-type Answer = { key: string; source: string; metric: string; envelope: Stamped<LabEnvelope<LabParallel>> };
+type Answer = { key: string; source: string; metric: string; mode: ParallelMode; envelope: Stamped<LabEnvelope<LabParallel>> };
 type Live = { axis: number; range: [number, number] | null };
 type Pinned = { slot: PinSlot; row: TrialRow };
 
@@ -49,7 +71,8 @@ function geometry(active: CatalogEntry[], w: number, h: number): { xs: number[];
 }
 
 /** Paints the base layer: the axes with their end values at once, then the bundles as hairlines, the smallest first
- *  so the largest lie on top, a frame's worth at a time. Returns the cancel. */
+ *  so the largest lie on top, or the sampled lines, the worst first so the best lie on top, a frame's worth at a time.
+ *  Returns the cancel. */
 function paintBundles(canvas: HTMLCanvasElement, w: number, h: number, active: CatalogEntry[], view: LabParallel | null, metric: string): () => void {
   const ctx = setupCanvas(canvas, w, h);
   if (w <= 0 || h <= TOP + BOTTOM) return () => undefined;
@@ -75,7 +98,26 @@ function paintBundles(canvas: HTMLCanvasElement, w: number, h: number, active: C
       });
     },
   ];
-  if (view !== null && view.bundles.length > 0) {
+  if (view !== null && isSampleView(view)) {
+    const lines = view.lines ?? [];
+    const lower = lowerIsBetter(metric);
+    const order = sampleOrder(lines, lower);
+    // The lines' tones are the dock's too: one row of metrics through `cells()`, a losing value red whatever its rank.
+    const tones = cells([0], lines.map((_, k) => k), [lines.map((l) => l.metric)], lower, profitKind(metric))[0] ?? [];
+    const width = hairline();
+    for (let start = 0; start < order.length; start += FRAME_LINES) {
+      const band = order.slice(start, start + FRAME_LINES);
+      chunks.push(() => {
+        ctx.lineWidth = width;
+        ctx.globalAlpha = SAMPLE_ALPHA;
+        for (const k of band) {
+          ctx.strokeStyle = LINE[tones[k]?.tone ?? 'empty'];
+          strokeLine(ctx, sampleLine(lines[k].values, scales, xs));
+        }
+        ctx.globalAlpha = 1;
+      });
+    }
+  } else if (view !== null && view.bundles.length > 0) {
     const { bundles } = view;
     const most = Math.max(...bundles.map((b) => b.count));
     // The bundles' tones are the dock's: one row of medians through `cells()`, a null median never coloured.
@@ -143,9 +185,11 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
   const axesKey = active.map((e) => `${e.path}:${e.start}:${e.stop}`).join(',');
   const source = loaded ? `${loaded.kind}:${loaded.id}` : null;
   const metric = lab.metric;
+  // Aggregated bundles (the default) or the exact mode's sample: this panel's own choice, asked of the worker as `parallel_mode`.
+  const [mode, setMode] = useState<ParallelMode>('bundles');
   // The view in hand answers this key; a refresh of the same key keeps it drawn while it updates, another filter,
-  // metric or parameter set waits for its own answer.
-  const viewKey = source === null || axes.length === 0 ? null : [source, axes.join(','), metric, filterHash(lab.filter)].join('|');
+  // metric, mode or parameter set waits for its own answer.
+  const viewKey = source === null || axes.length === 0 ? null : [source, axes.join(','), metric, mode, filterHash(lab.filter)].join('|');
 
   const [retry, setRetry] = useState(0);
   const [answer, setAnswer] = useState<Answer | null>(null);
@@ -160,12 +204,12 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
     const mine = ++seq.current;
     if (viewKey === null || source === null) return;
     setAsking(true);
-    query<LabParallel>('parallel', { axes, metric })
+    query<LabParallel>('parallel', parallelRequest(mode, axes, metric))
       .then((envelope) => {
         if (mine !== seq.current) return; // a newer ask owns the view
         setAsking(false);
         if (envelope === null) return; // the filter or the source moved on: its own ask follows
-        setAnswer({ key: viewKey, source, metric, envelope });
+        setAnswer({ key: viewKey, source, metric, mode, envelope });
         setFailure(null);
       })
       .catch((e: unknown) => {
@@ -173,7 +217,7 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
         setAsking(false);
         setFailure({ key: viewKey, message: errorMessage(e) });
       });
-    // The key stands for the source, the parameter set, the metric and the filter.
+    // The key stands for the source, the parameter set, the metric, the mode and the filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewKey, tick, retry]);
   // Drawn: the answer for the view in hand. Described by the basis and the summary: that answer, else the last one
@@ -269,14 +313,37 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
         <span className="lab-basis" id="lab-parallel-basis">
           {basis}
         </span>
+        <span className="parallel-mode" id="lab-parallel-mode" role="group" aria-label="Data mode" data-mode={mode}>
+          <button
+            type="button"
+            id="lab-parallel-mode-bundles"
+            className={'chip' + (mode === 'bundles' ? ' active' : '')}
+            aria-pressed={mode === 'bundles'}
+            title="Aggregated: bundles of trials that share a quantile bin on every axis (the default)"
+            onClick={() => setMode('bundles')}
+          >
+            Aggregated
+          </button>
+          <button
+            type="button"
+            id="lab-parallel-mode-sample"
+            className={'chip' + (mode === 'sample' ? ' active' : '')}
+            aria-pressed={mode === 'sample'}
+            title="Exact: a stratified sample of actual trials, one line each, bounded and seeded by the worker"
+            onClick={() => setMode('sample')}
+          >
+            Exact (sampled)
+          </button>
+        </span>
         {pending && (
           <span className="sub lab-loading" id="lab-parallel-loading">
-            {loaded === null ? 'loading the source…' : 'loading the bundles…'}
+            {loaded === null ? 'loading the source…' : mode === 'sample' ? 'loading the sample…' : 'loading the bundles…'}
           </span>
         )}
       </div>
       <div className="sub">
-        Each line is a bundle of trials sharing a quantile bin on every axis; drag along an axis to brush it into the shared filter, click an axis to clear its brush, Esc clears every brush.
+        {shown !== null && isSampleView(shown.envelope) ? `Each line is one sampled trial through its own values (${sampleNote(shown.envelope)}); ` : 'Each line is a bundle of trials sharing a quantile bin on every axis; '}
+        drag along an axis to brush it into the shared filter, click an axis to clear its brush, Esc clears every brush.
         {entries.length > PARALLEL_MAX_AXES ? ` The first ${PARALLEL_MAX_AXES} of ${entries.length} parameters, in catalog order.` : ''}
       </div>
       {loaded !== null && axes.length === 0 && <div className="lab-empty">no parameters to draw: this source varies none</div>}

@@ -49,6 +49,12 @@ export function orientationOf(metric: string): 1 | -1 {
   return lowerIsBetter(metric) ? -1 : 1;
 }
 
+/** The metric of a `<scope>.<metric>` column (`combined.net_pnl` is `net_pnl`); a bare metric stays as it is. Labels use this. */
+export function bareMetric(column: string): string {
+  const dot = column.indexOf('.');
+  return dot < 0 ? column : column.slice(dot + 1);
+}
+
 /** A metric as the panels name it: the objective's label, the trade Sharpe with its qualifiers. */
 export function metricName(metric: string): string {
   if (metric === SHARPE) return SHARPE_LABEL;

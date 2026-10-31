@@ -547,3 +547,49 @@ tr.muted td{color:#4f6b80}
 .candidate-inputs dd{margin:0;text-align:right;min-width:0}
 .candidate-finding{margin-top:5px;border-top:1px dashed var(--line);padding-top:4px}
 @media (max-width:1500px){.optlab-page{grid-template-columns:140px minmax(0,1fr) 260px}.lab-body{grid-template-columns:220px minmax(0,1fr)}}
+/* Phase 3's Screen E (Parameter Families) and the convergence chart. The naming rule above holds: the panel is `lab-<panel>`,
+   its toolbar `<panel>-toolbar`, its parts `<panel>-<part>`. */
+.lab-families{display:flex;flex-direction:column;gap:14px;overflow:auto;padding:10px;min-height:0;min-width:0}
+.families-toolbar{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:6px 12px}
+.families-section{display:flex;flex-direction:column;gap:6px;min-width:0;border-top:1px solid var(--line);padding-top:8px}
+.families-title{font-weight:700;color:var(--bright)}
+.families-parallel{height:380px;min-height:0;display:flex;flex-direction:column}
+.parallel-mode{display:inline-flex;gap:4px;margin-left:auto}
+.lab-breadcrumb{display:flex;flex-direction:column;gap:4px;min-width:0}
+.breadcrumb-steps{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px 10px}
+.breadcrumb-step{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:5px;padding:3px 8px;background:var(--panel);min-width:96px}
+.breadcrumb-step b{color:var(--bright);font-size:14px}
+.breadcrumb-note{display:block;max-width:220px}
+.breadcrumb-arrow{align-self:center;color:var(--muted)}
+.lab-trellis,.lab-neighbourhood,.lab-drill{display:flex;flex-direction:column;gap:6px;min-width:0}
+.trellis-toolbar,.neighbourhood-toolbar,.convergence-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
+.trellis-pairs{display:flex;flex-wrap:wrap;gap:14px 18px;align-items:flex-start}
+.trellis-pair{display:flex;flex-direction:column;gap:4px;min-width:240px;max-width:100%;width:calc(var(--trellis-cols,8) * 30px)}
+.trellis-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px}
+.trellis-grid{display:grid;grid-template-columns:repeat(var(--trellis-cols,8),minmax(0,1fr));gap:1px}
+.trellis-cell{height:24px;padding:0;border:0;font:inherit;font-size:11px;cursor:pointer;min-width:0;overflow:hidden}
+.trellis-cell[aria-disabled=true]{cursor:default}
+.trellis-cell[data-state=thin]{background:repeating-linear-gradient(135deg,#16222e 0 4px,#243646 4px 6px);color:#9fb3c2}
+.trellis-cell[data-state=undefined]{color:#9fb3c2;outline:1px dashed #2c3d4b;outline-offset:-2px}
+.trellis-note{max-width:100%}
+.lab-neighbourhood-wrap{width:100%;min-height:60px}
+.lab-neighbourhood-wrap canvas{display:block}
+.neighbourhood-candidate{border-top:1px solid var(--line);padding-top:6px;display:flex;flex-direction:column;gap:2px}
+.neighbourhood-state[data-state=tested]{color:var(--bright)}
+.neighbourhood-state[data-state=unknown]{color:var(--amber)}
+.drill-check{color:var(--text)}
+.drill-check b{color:var(--bright)}
+.drill-check[data-match=false]{color:var(--red)}
+.drill-check[data-match=true] .drill-verdict{color:var(--green)}
+.drill-table{height:320px;display:flex;flex-direction:column;border:1px solid var(--line);min-height:0}
+.drill-table .lab-trials{flex:1;min-height:0}
+.catalog-pinned{margin-top:10px;border-top:1px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:4px}
+.catalog-subtitle{font-weight:700;color:var(--bright)}
+.catalog-pinned-list{margin:0;padding-left:16px}
+.family-counts{margin:0 0 4px 18px}
+.lab-convergence{display:flex;flex-direction:column;gap:4px;min-width:0}
+.convergence-plot{width:100%}
+.convergence-plot canvas{display:block}
+.convergence-empty{padding:6px 0}
+.convergence-key{display:inline-block;width:14px;height:0;border-top:2px solid var(--blue);vertical-align:middle;margin-right:2px}
+.convergence-key.robust{height:6px;border-top-color:var(--violet);background:rgba(183,132,255,.22)}
