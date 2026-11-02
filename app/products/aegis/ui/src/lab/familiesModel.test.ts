@@ -18,6 +18,7 @@ import {
   neighbourhoodTitle,
   rangeText,
   refreshedPick,
+  drillKey,
   arrowTarget,
   rovingCell,
   trellisLegend,
@@ -337,6 +338,29 @@ describe('the drill-down keeps the count', () => {
     expect(drillCheck(120, at, null, null)).toEqual({ match: null, text: 'reading the table\'s total…' });
     expect(drillCheck(120, null, 120, null).match).toBe(true); // a source without snapshots: its numbers are all there is to compare
     expect(drillCheck(120, null, 118, null).match).toBe(false);
+  });
+
+  it('asks for the table\'s total again whenever the pick takes a newer snapshot, and not otherwise', () => {
+    const wide = trellisModel(matrixOf(NONE, emas, stops), 'mean', 'net_pnl', C, { generation: 2, chunk_watermark: 7 });
+    const pick = pickOf(1, wide, wide.cells[2][3]);
+    const key = (p: typeof pick) => drillKey('exp:e1', 'net_pnl', NONE, p);
+    expect(key(pick)).toBe(drillKey('exp:e1', 'net_pnl', NONE, { ...pick, n: pick.n + 5 })); // n alone does not re-ask: same snapshot, same total
+    // The pair refreshes the pick at a later snapshot (`refreshedPick`): the key moves, so the total is read at once and compared
+    // with that snapshot's n.
+    const later = trellisModel(matrixOf(NONE, emas, stops), 'mean', 'net_pnl', C, { generation: 2, chunk_watermark: 8 });
+    const moved = refreshedPick(pick, later);
+    expect(moved.snapshot).toEqual({ generation: 2, chunk_watermark: 8 });
+    expect(key(moved)).not.toBe(key(pick));
+    expect(refreshedPick(moved, later)).toBe(moved);
+    expect(key(refreshedPick(moved, later))).toBe(key(moved)); // and a refresh that changes nothing asks nothing
+    expect(key({ ...pick, snapshot: { generation: 3, chunk_watermark: 7 } })).not.toBe(key(pick)); // a new generation is a new snapshot
+    expect(key({ ...pick, snapshot: null })).not.toBe(key(pick));
+    // The filter that defines the square, the metric and the source are in it too.
+    expect(drillKey('exp:e2', 'net_pnl', NONE, pick)).not.toBe(key(pick));
+    expect(drillKey('exp:e1', 'mar', NONE, pick)).not.toBe(key(pick));
+    expect(drillKey('exp:e1', 'net_pnl', { ...NONE, ranges: { [OTHER_PATH]: [30, 50] } }, pick)).not.toBe(key(pick));
+    expect(drillKey(null, 'net_pnl', NONE, pick)).toBeNull();
+    expect(drillKey('exp:e1', 'net_pnl', NONE, null)).toBeNull();
   });
 
   it('does not compare numbers read at different snapshots: a running source moves between two reads', () => {

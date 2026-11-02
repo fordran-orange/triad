@@ -69,7 +69,7 @@ export interface LabState {
   pins: Partial<Record<PinSlot, string>>;
   cursor: { r: number; c: number } | null;
   maximized: boolean;
-  /** The trellis square picked on Screen E (its drill-down); goes with the source and with the filter's Clear. */
+  /** The trellis square picked on Screen E (its drill-down); goes with the source and with Screen E's own Clear. */
   familiesPick: TrellisPick | null;
 }
 
@@ -261,22 +261,27 @@ export function cellIndex(cells: ReadonlyArray<{ params: Record<string, number |
   );
 }
 
-/** The actions that clear the filter's brushes, fixed values and side scope, and the trellis square picked on them: what the
- *  Linked chip's Clear and Screen E's pinned-filters Clear both dispatch. The pass and status chips are the table's own and
- *  stay. */
+/** The actions that clear the filter's brushes, fixed values and side scope: what the Linked chip's Clear dispatches. The pass and
+ *  status chips are the table's own and stay, and so does a picked trellis square: the chip lists filters, not selections (Escape
+ *  clears the brushes and the fixed values and keeps it too). */
 export function clearActions(filter: LabFilter): LabAction[] {
   return [
     ...Object.keys(filter.ranges).map((path): LabAction => ({ type: 'SET_RANGE', path, range: null })),
     ...Object.keys(filter.values).map((path): LabAction => ({ type: 'FIX_VALUE', path, value: null })),
     { type: 'SET_SCOPE', scope: 'combined' },
-    { type: 'SET_FAMILIES_PICK', pick: null },
   ];
 }
 
-/** How many constraints `clearActions` removes from the filter: brushes, fixed values and a side scope, not the pass and status
- *  chips. A Clear control is enabled by this and by nothing it leaves alone. */
-export function clearableCount(filter: LabFilter): number {
-  return Object.keys(filter.ranges).length + Object.keys(filter.values).length + (filter.scope !== 'combined' ? 1 : 0);
+/** Screen E's own Clear (`#lab-families-clear`): the filter's Clear and the square picked on it. */
+export function familiesClearActions(filter: LabFilter): LabAction[] {
+  return [...clearActions(filter), { type: 'SET_FAMILIES_PICK', pick: null }];
+}
+
+/** How many constraints a Clear removes: the filter's brushes, fixed values and side scope (not the pass and status chips), and
+ *  the picked trellis square when the control also drops it (Screen E's passes it; the chip's Clear passes none). A Clear
+ *  control is enabled by this and by nothing it leaves alone. */
+export function clearableCount(filter: LabFilter, pick: TrellisPick | null = null): number {
+  return Object.keys(filter.ranges).length + Object.keys(filter.values).length + (filter.scope !== 'combined' ? 1 : 0) + (pick !== null ? 1 : 0);
 }
 
 /** How many constraints the filter holds: ranges, fixed values, a side scope, pass and status chips. */

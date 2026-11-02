@@ -6,14 +6,19 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { Parameter, Surface } from '../contracts';
 import { ASSUMPTION_CLAUSES, AssumptionsLine, assumptionsText } from './AssumptionsLine';
+import { CandidateCard } from './CandidateCard';
 import { ConvergenceChart } from './ConvergenceChart';
 import { FamiliesPage } from './FamiliesPage';
 import { ImportanceView } from './ImportanceView';
+import { IntelligenceRail } from './IntelligenceRail';
 import { InteractionMatrix } from './InteractionMatrix';
+import { JobMatrix } from './LabCenter';
 import { LabHeatmap } from './LabHeatmap';
 import { ParetoView } from './ParetoView';
 import { RobustnessView } from './RobustnessView';
 import type { LabQueryData } from './useLabQuery';
+import { NO_MATRIX, type LabData } from './useLabSource';
+import { VariableIntelligence } from './VariableIntelligence';
 
 const GRID = 'Discrete grids: every parameter has a step';
 const UNIFORM = 'Uniform-design rows';
@@ -70,6 +75,9 @@ const data = (loaded: unknown) =>
   }) as unknown as LabQueryData;
 const open = data({ kind: 'exp', id: 'e1', document, report: null, strategyName: 'S' });
 const closed = data(null);
+/** A finished grid job as the Lab opens it: its heatmap is `JobMatrix` (the worker's best-of-the-rest matrix), not `LabHeatmap`. */
+const job = { kind: 'opt', id: 'j1', job: { job_id: 'j1', objective: 'net_pnl', side: 'long', status: 'done' } };
+const gridJob = { loaded: job, loading: false, matrix: NO_MATRIX, optAxes: null, optMetric: null } as unknown as LabData;
 const pageProps = { sort: { column: null, descending: true }, onSort: () => undefined, onSelect: () => undefined, memory: { current: { key: '', top: 0 } } };
 const render = (element: ReactElement) => renderToStaticMarkup(element);
 
@@ -95,6 +103,23 @@ describe('every analytic panel states its assumptions', () => {
     for (const panel of ['heatmap', 'interactions', 'pareto', 'robustness', 'importance']) expect(found.has(panel), panel).toBe(true);
   });
 
+  it('the grid job\'s heatmap, the rail\'s candidate card and findings, and the Variables screen', () => {
+    const jobMatrix = lines(render(createElement(JobMatrix, { data: gridJob })));
+    expect(jobMatrix.map((l) => l.panel)).toEqual(['heatmap']); // an opt: source reads JobMatrix on the heatmap tab, not LabHeatmap
+    add(render(createElement(JobMatrix, { data: gridJob })));
+    const card = lines(render(createElement(CandidateCard, { data: open, trialId: 'exp:e1#5' })));
+    expect(card.map((l) => l.panel)).toEqual(['candidate']);
+    add(render(createElement(CandidateCard, { data: open, trialId: 'exp:e1#5' })));
+    // The rail holds the findings block and the compact convergence chart (which states its own line).
+    const rail = lines(render(createElement(IntelligenceRail, { data: closed, onRefined: () => undefined })));
+    expect(rail.map((l) => l.panel).sort()).toEqual(['convergence', 'findings']);
+    add(render(createElement(IntelligenceRail, { data: closed, onRefined: () => undefined })));
+    // The Variables screen has no analytic view of its own yet (the evidence table and a placeholder): one line for the screen.
+    const variables = lines(render(createElement(VariableIntelligence, { data: closed, ...pageProps })));
+    expect(variables.map((l) => l.panel)).toEqual(['variables']);
+    add(render(createElement(VariableIntelligence, { data: closed, ...pageProps })));
+  });
+
   it('the convergence chart, compact in the rail and at full size', () => {
     for (const compact of [true, false]) {
       const chart = lines(render(createElement(ConvergenceChart, { data: closed, compact })));
@@ -104,7 +129,7 @@ describe('every analytic panel states its assumptions', () => {
   });
 
   it('every one is the same line: the uniform-design clause appears exactly on the importance, interactions and trellis panels', () => {
-    expect([...found.keys()].sort()).toEqual(['convergence', 'drill', 'heatmap', 'importance', 'interactions', 'neighbourhood', 'parallel', 'pareto', 'robustness', 'trellis']);
+    expect([...found.keys()].sort()).toEqual(['candidate', 'convergence', 'drill', 'findings', 'heatmap', 'importance', 'interactions', 'neighbourhood', 'parallel', 'pareto', 'robustness', 'trellis', 'variables']);
     for (const [panel, text] of found) {
       expect(text, panel).toBe(assumptionsText(UNIFORM_PANELS.includes(panel)));
       expect(text.includes(UNIFORM), panel).toBe(UNIFORM_PANELS.includes(panel));

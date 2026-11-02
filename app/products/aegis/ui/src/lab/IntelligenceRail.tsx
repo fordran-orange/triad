@@ -4,6 +4,7 @@ import type { ExperimentDocument } from '../contracts';
 import { recommendationText } from '../experiments';
 import { DASH, money, num, pct, shortHash } from '../format';
 import type { LabTrial } from '../results';
+import { AssumptionsLine } from './AssumptionsLine';
 import { CandidateCard } from './CandidateCard';
 import { ConvergenceChart } from './ConvergenceChart';
 import { metricsLine, squareAt } from './LabCenter';
@@ -256,6 +257,7 @@ export function IntelligenceRail({ data, onRefined }: { data: LabQueryData; onRe
     <aside className="lab-rail" id="lab-rail" aria-label="Intelligence">
       <section className="rail-block" id="lab-findings">
         <div className="rail-title">Findings{report ? ` · report ${report.report_id}, deterministic` : ''}</div>
+        <AssumptionsLine panel="findings" />
         {loaded === null ? (
           <div className="muted">{loading ? 'Loading…' : 'No source open.'}</div>
         ) : loaded.kind === 'opt' ? (

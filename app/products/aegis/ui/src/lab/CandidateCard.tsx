@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { errorMessage } from '../api/client';
 import type { LabEnvelope, LabRobustness } from '../results';
+import { AssumptionsLine } from './AssumptionsLine';
 import { candidateCardModel, type CategoryView } from './candidateModel';
 import { answered, isCandidateCard } from './labQuery';
 import { useLab } from './labState';
@@ -126,6 +127,7 @@ export function CandidateCard({ data, trialId }: { data: LabQueryData; trialId: 
   return (
     <div className="candidate-card" id="lab-candidate" data-loading={pending ? 'true' : 'false'}>
       <div className="rail-title">Robustness · four categories</div>
+      <AssumptionsLine panel="candidate" />
       {error !== null && <LabError message={`Robustness unavailable: ${error}`} onRetry={retry} />}
       {model === null ? (
         error === null && (

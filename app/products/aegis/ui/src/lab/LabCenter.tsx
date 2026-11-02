@@ -3,6 +3,7 @@ import { MainEffects } from '../components/MainEffects';
 import { DASH, money, num, pct } from '../format';
 import { compactMoney } from '../layout';
 import { METRIC_LABELS, type AxisMatrix, type Metric } from '../results';
+import { AssumptionsLine } from './AssumptionsLine';
 import { ImportanceView } from './ImportanceView';
 import { InteractionMatrix } from './InteractionMatrix';
 import { cursorDims, selectSquareAction } from './labHeatmapModel';
@@ -52,7 +53,7 @@ export function squareAt(matrix: AxisMatrix, metric: Metric, r: number, c: numbe
 
 /** The `opt` source's heatmap: the worker's matrix for the pair and metric in view, each square the best of the
  *  rest, drawn by the dock's Heatmap (which owns the losses-red tones). */
-function JobMatrix({ data }: { data: LabData }) {
+export function JobMatrix({ data }: { data: LabData }) {
   const lab = useLab();
   const dispatch = useLabDispatch();
   const job = data.loaded?.kind === 'opt' ? data.loaded.job : null;
@@ -88,6 +89,7 @@ function JobMatrix({ data }: { data: LabData }) {
         Y (rows): {m?.rows_path ?? data.optAxes?.[0] ?? DASH} · X (columns): {m?.cols_path ?? data.optAxes?.[1] ?? DASH} · {METRIC_LABELS[metric]}
         {state.loading ? ' · updating…' : ''}
       </div>
+      <AssumptionsLine panel="heatmap" />
       {state.error && <div className="error">Matrix unavailable: {state.error}</div>}
       {state.notice && <div className="notice">{state.notice}</div>}
       {!m && !state.error && !state.notice && <div className="lab-empty">Loading the matrix…</div>}

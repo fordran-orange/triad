@@ -5,6 +5,7 @@ import {
   cellIndex,
   clearableCount,
   clearActions,
+  familiesClearActions,
   filterHash,
   initialLabState,
   labReducer,
@@ -581,7 +582,17 @@ describe('clearActions', () => {
     const held = filter({ ranges: { a: [1, 2], c: [3, 4] }, values: { b: 3 }, scope: 'long', pass: ['IS'], status: ['ok'] });
     const cleared = clearActions(held).reduce((s, action) => labReducer(s, action), state({ filter: held }));
     expect(cleared.filter).toEqual({ ranges: {}, values: {}, scope: 'combined', pass: ['IS'], status: ['ok'] });
-    expect(clearActions(initialLabState.filter)).toEqual([{ type: 'SET_SCOPE', scope: 'combined' }, { type: 'SET_FAMILIES_PICK', pick: null }]);
+    expect(clearActions(initialLabState.filter)).toEqual([{ type: 'SET_SCOPE', scope: 'combined' }]);
+  });
+
+  it('keeps the picked trellis square: the chip lists filters, not selections', () => {
+    const pick: TrellisPick = { pair: 0, axes: ['a', 'b'], rows: [1, 1], cols: [2, 2], n: 40, snapshot: null };
+    const held = state({ familiesPick: pick, filter: filter({ ranges: { a: [1, 2] }, pass: ['IS'] }) });
+    const cleared = clearActions(held.filter).reduce((s, action) => labReducer(s, action), held);
+    expect(cleared.familiesPick).toBe(pick);
+    expect(cleared.filter.ranges).toEqual({});
+    // Escape is the same: it clears the brushes and the fixed values and leaves the pick.
+    expect(labReducer(held, { type: 'ESCAPE' }).familiesPick).toBe(pick);
   });
 
   it('counts only what it clears: the pass and status chips are the table\'s own and are not counted', () => {
@@ -593,6 +604,26 @@ describe('clearActions', () => {
     expect(clearableCount(filter({ ranges: { a: [1, 2], b: [3, 4] }, values: { c: 1 }, scope: 'long', pass: ['IS'], status: ['ok'] }))).toBe(4);
     // activeFilterCount still counts the chips: it is the chip's `Linked · k filters`.
     expect(activeFilterCount(filter({ pass: ['IS'], status: ['ok'] }))).toBe(2);
+  });
+
+  it('counts a picked square as something Screen E\'s Clear takes away, when it is given one', () => {
+    const pick: TrellisPick = { pair: 0, axes: ['a', 'b'], rows: [1, 1], cols: [2, 2], n: 40, snapshot: null };
+    expect(clearableCount(initialLabState.filter, pick)).toBe(1);
+    expect(clearableCount(filter({ ranges: { a: [1, 2] } }), pick)).toBe(2);
+    expect(clearableCount(filter({ pass: ['IS'] }), null)).toBe(0);
+    expect(clearableCount(filter({ ranges: { a: [1, 2] } }))).toBe(1); // the chip's Clear passes none
+  });
+});
+
+describe('Screen E\'s Clear', () => {
+  const pick: TrellisPick = { pair: 0, axes: ['a', 'b'], rows: [1, 1], cols: [2, 2], n: 40, snapshot: null };
+
+  it('is the filter\'s Clear and the picked square with it', () => {
+    const held = state({ familiesPick: pick, filter: filter({ ranges: { a: [1, 2] }, values: { b: 2 }, scope: 'long', pass: ['IS'], status: ['ok'] }) });
+    const cleared = familiesClearActions(held.filter).reduce((s, action) => labReducer(s, action), held);
+    expect(cleared.familiesPick).toBeNull();
+    expect(cleared.filter).toEqual({ ranges: {}, values: {}, scope: 'combined', pass: ['IS'], status: ['ok'] });
+    expect(familiesClearActions(initialLabState.filter)).toEqual([{ type: 'SET_SCOPE', scope: 'combined' }, { type: 'SET_FAMILIES_PICK', pick: null }]);
   });
 });
 
@@ -618,10 +649,11 @@ describe('the picked trellis square', () => {
     expect(labReducer(held, { type: 'SOURCE_FAILED', message: 'no such source' }).familiesPick).toBeNull();
   });
 
-  it('goes with the filter\'s Clear, as the chip and the pinned filters dispatch it', () => {
+  it('goes with Screen E\'s own Clear, and stays through the chip\'s', () => {
     const withBrush = state({ ...held, filter: filter({ ranges: { a: [1, 2] }, pass: ['IS'] }) });
-    const cleared = clearActions(withBrush.filter).reduce((s, action) => labReducer(s, action), withBrush);
+    const cleared = familiesClearActions(withBrush.filter).reduce((s, action) => labReducer(s, action), withBrush);
     expect(cleared.familiesPick).toBeNull();
     expect(cleared.filter).toEqual({ ranges: {}, values: {}, scope: 'combined', pass: ['IS'], status: [] });
+    expect(clearActions(withBrush.filter).reduce((s, action) => labReducer(s, action), withBrush).familiesPick).toBe(pick);
   });
 });

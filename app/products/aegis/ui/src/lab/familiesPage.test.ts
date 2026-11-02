@@ -67,6 +67,17 @@ describe('Clear in the pinned filters', () => {
     expect(disabled({ filter: filter({ scope: 'long' }) })).toBe(false);
   });
 
+  it('is enabled by a picked square, which it also drops, and its tooltip says so', () => {
+    const pick: TrellisPick = { pair: 0, axes: ['long_side.indicators.ema.length', 'long_side.stop_loss_pct'], rows: [15, 15], cols: [2, 2.5], n: 120, snapshot: null };
+    vi.spyOn(console, 'error').mockImplementation(() => undefined); // the table under the drill-down: a layout effect in a static render
+    expect(disabled({ familiesPick: pick })).toBe(false);
+    const title = (state: Partial<LabState>) => attribute(page(state), 'lab-families-clear', 'title');
+    expect(title({ familiesPick: pick })).toBe('clears the brushes, the fixed values, the side and the picked square');
+    expect(title({ filter: filter({ ranges: { 'long_side.stop_loss_pct': [2, 3] } }) })).toBe('clears the brushes, the fixed values, the side and the picked square');
+    expect(title({})).toBe('nothing to clear');
+    vi.restoreAllMocks();
+  });
+
   it('is not enabled by a pass or status chip, which it leaves alone', () => {
     expect(disabled({ filter: filter({ status: ['ok'] }) })).toBe(true);
     expect(disabled({ filter: filter({ pass: ['IS'] }) })).toBe(true);

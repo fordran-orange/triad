@@ -121,6 +121,28 @@ export function parallelCaption(
   };
 }
 
+/** The note under the toolbar: what a line is (`lead`, which depends on the answer) and then the tail that tells how to brush. Blank
+ *  when the lead is: a tail alone would open on a lower-case fragment, and the note describes an answer that is not there. */
+export function parallelNote(lead: string, tail: string): string {
+  return lead === '' ? '' : `${lead}${tail}`;
+}
+
+/** Everything the panel says about its answer, from the answer for the key now asked for or from none: the basis line, the note
+ *  under the toolbar, and the summary (`#lab-parallel-summary` and the canvas's label). All four are blank while a new view loads
+ *  (after the mode, the metric or the filter changed, the canvas is blank until its answer lands, and any of the words would
+ *  describe the previous one). `metric` is the one the answer was asked for; `format` prints one of its values. */
+export function parallelWords(
+  answer: { envelope: LabParallel & { provisional: boolean; snapshot: LabSnapshot | null; receivedAt: string }; metric: string } | null,
+  pinned: number | null,
+  tail: string,
+  format: (metric: string, value: number) => string,
+): { basis: string; lead: string; note: string; summary: string } {
+  if (answer === null) return { basis: '', lead: '', note: '', summary: '' };
+  const { basis, lead } = parallelCaption(answer.envelope, pinned);
+  const { metric } = answer;
+  return { basis, lead, note: parallelNote(lead, tail), summary: parallelSummary(answer.envelope, metric, metric === 'max_drawdown', (v) => format(metric, v)) };
+}
+
 /** `#lab-parallel-summary`, the chart's DOM twin: the bundles drawn over the axes, the largest bundle and the best
  *  defined median (`format` prints it). */
 export function parallelSummary(view: LabParallel, metric: string, lowerIsBetter: boolean, format: (v: number) => string): string {

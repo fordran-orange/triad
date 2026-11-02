@@ -16,7 +16,6 @@ import type { CatalogEntry } from './catalog';
 import { AXIS_COLOUR, Brush1D, CHART_FONT, hairline, LABEL_COLOUR, linearScale, observeResize, paintInFrames, setupCanvas, strokeLine, type Scale } from './charts/canvas';
 import { valueText, type Tone } from './labHeatmapModel';
 import { lowerIsBetter, objectiveText } from './metricRules';
-import { answered } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
 import { filterHash, type PinSlot } from './labStore';
 import { LabError } from './NotBuilt';
@@ -29,9 +28,8 @@ import {
   nearestAxis,
   opacityFor,
   PARALLEL_MAX_AXES,
-  parallelCaption,
   parallelRequest,
-  parallelSummary,
+  parallelWords,
   polyline,
   sampleLine,
   sampleOrder,
@@ -58,7 +56,7 @@ const PIN_SLOTS: PinSlot[] = ['A', 'B', 'C'];
 const BRUSH_FILL = 'rgba(45, 167, 255, 0.18)';
 const BRUSH_EDGE = '#2da7ff';
 
-/** An answered view and what it was asked for: the basis and the summary describe it until the next one lands. */
+/** An answered view and what it was asked for: the basis, the note and the summary describe it, and only it. */
 type Answer = { key: string; source: string; metric: string; mode: ParallelMode; envelope: Stamped<LabEnvelope<LabParallel>> };
 type Live = { axis: number; range: [number, number] | null };
 type Pinned = { slot: PinSlot; row: TrialRow };
@@ -225,11 +223,10 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
     // The key stands for the source, the parameter set, the metric, the mode and the filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewKey, cadence, retry]);
-  // Drawn: the answer for the view in hand. The basis and the sentence about what a line is describe that answer alone and are
-  // blank while a new view loads, as the canvas is (after the mode is toggled they would describe the previous mode); the summary
-  // keeps the last answer this source gave until the next lands (a pending query shows as `data-loading` and `#lab-parallel-loading`).
+  // Drawn and described: the answer for the view in hand, and nothing else. The basis, the note, the summary and the canvas's label
+  // are blank while a new view loads, as the canvas is (after the mode is toggled they would describe the previous mode); a
+  // pending query shows as `data-loading` and `#lab-parallel-loading`.
   const current = answer !== null && answer.key === viewKey ? answer : null;
-  const shown = answered(current, answer, source);
   const error = failure !== null && failure.key === viewKey ? failure.message : null;
 
   const wrap = useRef<HTMLDivElement>(null);
@@ -309,9 +306,9 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
   };
 
   const pending = loaded === null ? data.loading : viewKey !== null && error === null && (current === null || asking);
-  const caption = parallelCaption(current === null ? null : current.envelope, pinsActive ? pinned.length : null);
-  const basis = caption.basis;
-  const summary = shown !== null ? parallelSummary(shown.envelope, shown.metric, shown.metric === 'max_drawdown', (v) => objectiveText(shown.metric, v)) : '';
+  const tail = `drag along an axis to brush it into the shared filter, click an axis to clear its brush, Esc clears every brush.${entries.length > PARALLEL_MAX_AXES ? ` The first ${PARALLEL_MAX_AXES} of ${entries.length} parameters, in catalog order.` : ''}`;
+  const words = parallelWords(current, pinsActive ? pinned.length : null, tail, objectiveText);
+  const { basis, note, summary } = words;
   const labelWidth = axes.length > 1 ? Math.max(xs[1] - xs[0] - 6, 24) : Math.max(size.w - 2 * PAD, 24);
 
   return (
@@ -350,9 +347,7 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
       </div>
       <AssumptionsLine panel="parallel" />
       <div className="sub" id="lab-parallel-note">
-        {caption.lead}
-        drag along an axis to brush it into the shared filter, click an axis to clear its brush, Esc clears every brush.
-        {entries.length > PARALLEL_MAX_AXES ? ` The first ${PARALLEL_MAX_AXES} of ${entries.length} parameters, in catalog order.` : ''}
+        {note}
       </div>
       {loaded !== null && axes.length === 0 && <div className="lab-empty">no parameters to draw: this source varies none</div>}
       {error !== null && <LabError message={`Parallel coordinates unavailable: ${error}`} onRetry={() => setRetry((n) => n + 1)} />}

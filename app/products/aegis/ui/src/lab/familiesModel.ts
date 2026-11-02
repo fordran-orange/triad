@@ -15,7 +15,7 @@ import { candidateCardModel } from './candidateModel';
 import type { Family } from './catalog';
 import { heatModel, valueText, type Tone } from './labHeatmapModel';
 import { displayShare, filterLines } from './labQuery';
-import { activeFilterCount, type LabFilter, type TrellisPick } from './labStore';
+import { activeFilterCount, filterHash, type LabFilter, type TrellisPick } from './labStore';
 import { lowerIsBetter, metricName, objectiveText } from './metricRules';
 import { axisLabel } from './parallelBundles';
 
@@ -264,6 +264,16 @@ export function sameSnapshot(a: LabSnapshot | null, b: LabSnapshot | null): bool
 /** A snapshot as the drill-down names it. */
 export function snapshotText(snapshot: LabSnapshot | null): string {
   return snapshot === null ? 'none' : `gen ${snapshot.generation} · chunk ${snapshot.chunk_watermark}`;
+}
+
+/** The key of the drill-down's total: the source, the metric, the square's defining filter and the snapshot its n was read at (null
+ *  without a source, a pick or a filter for it). The snapshot is in it so that when a pair refreshes the pick (`refreshedPick`) the
+ *  total is read again at once, and is compared with that same snapshot's n; with no timer of its own the total moves with the
+ *  pair, and a finished source is read once more when its pair is settled. */
+export function drillKey(source: string | null, metric: string, filter: LabFilter | null, pick: TrellisPick | null): string | null {
+  if (source === null || filter === null || pick === null) return null;
+  const at = pick.snapshot === null ? 'none' : `${pick.snapshot.generation}.${pick.snapshot.chunk_watermark}`;
+  return [source, metric, filterHash(filter), at].join('|');
 }
 
 /** Whether the table's total is the square's n. `total` is null while the table's total is being read. On a running source the

@@ -3,7 +3,7 @@ import type { LabParallel, LabParallelLine } from '../results';
 import { linearScale } from './charts/canvas';
 import { answered } from './labQuery';
 import { initialLabState, labReducer } from './labStore';
-import { axisLabel, axisPositions, binEdges, brushToFilter, bundleKey, exactLine, isSampleView, nearestAxis, opacityFor, parallelBasis, parallelCaption, parallelRequest, parallelSummary, polyline, sampleLine, sampleNote, sampleOrder } from './parallelBundles';
+import { axisLabel, axisPositions, binEdges, brushToFilter, bundleKey, exactLine, isSampleView, nearestAxis, opacityFor, parallelBasis, parallelCaption, parallelNote, parallelRequest, parallelSummary, parallelWords, polyline, sampleLine, sampleNote, sampleOrder } from './parallelBundles';
 
 /** The bin a value falls in under `edges`: [edges[i], edges[i + 1]), the last bin closed. */
 const binsHolding = (edges: number[], v: number) =>
@@ -183,6 +183,34 @@ describe('what the panel says about its answer', () => {
     // After the mode is toggled, the key is new and the canvas is blank; the words are blank with it until the answer lands.
     expect(parallelCaption(null, null)).toEqual({ basis: '', lead: '' });
     expect(parallelCaption(null, 3)).toEqual({ basis: '', lead: '' });
+  });
+});
+
+describe('what the panel says while a new view loads', () => {
+  const stamped = (view: LabParallel) => ({ ...view, provisional: false, snapshot: null, receivedAt: '2026-10-29T12:00:00Z' });
+  const TAIL = 'drag along an axis to brush it into the shared filter, click an axis to clear its brush, Esc clears every brush.';
+  const format = (metric: string, v: number) => `${metric} ${v}`;
+
+  it('is blank in the basis, the note, the summary and the canvas label: all of them describe the answer for the key now asked for', () => {
+    // After the mode is toggled the canvas is blank until the new answer lands; none of the words may describe the previous one.
+    expect(parallelWords(null, null, TAIL, format)).toEqual({ basis: '', lead: '', note: '', summary: '' });
+    expect(parallelWords(null, 3, TAIL, format)).toEqual({ basis: '', lead: '', note: '', summary: '' });
+  });
+
+  it('describes the answer when there is one: its basis, a note that opens with what a line is, and its summary', () => {
+    const sample = sampleView();
+    const words = parallelWords({ envelope: stamped(sample), metric: 'net_pnl' }, null, TAIL, format);
+    expect(words.basis).toBe(sample.basis);
+    expect(words.summary).toBe(parallelSummary(sample, 'net_pnl', false, (v) => format('net_pnl', v)));
+    expect(words.note).toBe(`Each line is one sampled trial through its own values (${sampleNote(sample)}); ${TAIL}`);
+    // The metric the answer was asked for decides which end of the scale is best.
+    const drawdown = parallelWords({ envelope: stamped(sample), metric: 'max_drawdown' }, null, TAIL, format);
+    expect(drawdown.summary).toBe(parallelSummary(sample, 'max_drawdown', true, (v) => format('max_drawdown', v)));
+  });
+
+  it('never leaves the note as a lower-case fragment: without its lead it is blank', () => {
+    expect(parallelNote('', TAIL)).toBe('');
+    expect(parallelNote('Each line is a bundle; ', TAIL)).toBe(`Each line is a bundle; ${TAIL}`);
   });
 });
 

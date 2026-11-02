@@ -10,7 +10,7 @@ import { errorMessage } from '../api/client';
 import { DASH } from '../format';
 import type { LabPage, LabSnapshot } from '../results';
 import { AssumptionsLine } from './AssumptionsLine';
-import { drillCheck, pickFilter, rangeText, type TrellisPick } from './familiesModel';
+import { drillCheck, drillKey, pickFilter, rangeText, type TrellisPick } from './familiesModel';
 import { ImportanceView } from './ImportanceView';
 import { NeighbourhoodMap } from './NeighbourhoodMap';
 import { ParallelCoords } from './ParallelCoords';
@@ -20,12 +20,11 @@ import { Trellis } from './Trellis';
 import { TrialTable, type ScrollMemory, type TrialSort } from './TrialTable';
 import { filterLines } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
-import { filterHash, sourceText } from './labStore';
+import { sourceText } from './labStore';
 import { LabError } from './NotBuilt';
 import { axisLabel } from './parallelBundles';
-import { useAskMark } from './useAskMark';
 import type { LabQueryData } from './useLabQuery';
-import { sourceFamilies, sourceLive, type TrialRow } from './useLabSource';
+import { sourceFamilies, type TrialRow } from './useLabSource';
 
 /** The square's n beside the table's total, and whether they agree (§7.8): both exact numbers as attributes, for the walk. Each
  *  was read at a snapshot; on a running source they can differ, and then the two are not compared (`data-match` is empty). */
@@ -48,8 +47,9 @@ export function DrillCheck({ squareN, squareSnapshot, total, tableSnapshot }: { 
 }
 
 /** The contributing trials of the picked square: the worker's `page` of the Lab's filter plus the square. Its total is read
- *  on its own (a page of one row) and printed beside the square's n; the table below pages the same filter. The total is asked on
- *  the 30 s rule, like the pairs it is compared with (`useAskMark`), and keeps the snapshot it was read at. */
+ *  on its own (a page of one row) and printed beside the square's n; the table below pages the same filter. The total has no
+ *  cadence of its own: its key carries the snapshot the pick's n was read at (`drillKey`), so it is read again when the pair
+ *  refreshes the pick, and is compared against that snapshot; it keeps the snapshot it was read at. */
 function Drilldown({
   data,
   pick,
@@ -69,8 +69,7 @@ function Drilldown({
   const { loaded, query } = data;
   const source = loaded ? sourceText(loaded) : null;
   const filter = useMemo(() => (pick === null ? null : pickFilter(lab.filter, pick)), [lab.filter, pick]);
-  const key = source === null || filter === null ? null : [source, lab.metric, filterHash(filter)].join('|');
-  const askMark = useAskMark(key, sourceLive(loaded));
+  const key = drillKey(source, lab.metric, filter, pick);
 
   const [retry, setRetry] = useState(0);
   const [answer, setAnswer] = useState<{ key: string; total: number; snapshot: LabSnapshot | null } | null>(null);
@@ -78,7 +77,7 @@ function Drilldown({
   const seq = useRef(0);
   const asked = useRef<string | null>(null);
   useEffect(() => {
-    const mark = key === null ? null : `${key}|${askMark}|${retry}`;
+    const mark = key === null ? null : `${key}|${retry}`;
     if (mark !== null && asked.current === mark) return; // React's development double-run of the same ask
     asked.current = mark;
     const mine = ++seq.current;
@@ -90,9 +89,9 @@ function Drilldown({
         setFailure(null);
       })
       .catch((e: unknown) => mine === seq.current && setFailure({ key, message: errorMessage(e) }));
-    // The key stands for the source, the metric and the drill-down's filter.
+    // The key stands for the source, the metric, the drill-down's filter and the snapshot of the pick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, askMark, retry]);
+  }, [key, retry]);
   const total = answer !== null && answer.key === key ? answer.total : null;
   const tableSnapshot = answer !== null && answer.key === key ? answer.snapshot : null;
   const error = failure !== null && failure.key === key ? failure.message : null;
@@ -147,7 +146,7 @@ export function FamiliesPage({
   const list = useMemo(() => (loaded ? sourceFamilies(loaded) : null), [loaded]);
 
   // The picked trellis square, kept as the filter that defines it, is the Lab's: leaving the page does not lose it, and another
-  // source (which has other pairs) or the filter's Clear takes it away.
+  // source (which has other pairs) or Screen E's own Clear takes it away (the Linked chip's Clear and Escape leave it).
   const pick = lab.familiesPick;
   const choose = useCallback((next: TrellisPick) => dispatch({ type: 'SET_FAMILIES_PICK', pick: next }), [dispatch]);
   // The neighbourhood map shows the pair of the picked square, else the pair the heatmap is on.

@@ -1,3 +1,4 @@
+import { AssumptionsLine } from './AssumptionsLine';
 import { NotBuilt } from './NotBuilt';
 import { ParameterCatalog } from './ParameterCatalog';
 import { TrialTable, type ScrollMemory, type TrialSort } from './TrialTable';
@@ -32,6 +33,7 @@ export function VariableIntelligence({
             <div className="lab-line" id="lab-variables-status" title="screening blocks are on the experiment planner; the evidence and statuses arrive in Phase 4">
               no screening evidence: all parameters Active
             </div>
+            <AssumptionsLine panel="variables" />
             <NotBuilt what="Influence, interactions and search-space proposals" phase={4} />
           </div>
           {loaded ? (

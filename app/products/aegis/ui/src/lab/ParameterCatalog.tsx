@@ -4,7 +4,7 @@ import { fixValueAction, parseNumber as parse, searchFamilies, type CatalogEntry
 import { familyTree } from './familiesModel';
 import { filterLines } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
-import { activeFilterCount, clearableCount, clearActions } from './labStore';
+import { activeFilterCount, clearableCount, familiesClearActions } from './labStore';
 import { LinkedChip } from './LinkedChip';
 
 const ACTIVE_TITLE = 'no screening evidence yet: all parameters Active (Phase 4)';
@@ -150,14 +150,15 @@ function FamilyTree({ shown, parameters, collapsed, toggle }: { shown: Family[];
   );
 }
 
-/** The filters and slices in force, each as a line, with the Clear that removes the brushes, the fixed values and the side (and
- *  the square picked on them). It is enabled by those and by nothing it leaves alone: a pass or a status chip is the table's own. */
+/** The filters and slices in force, each as a line, with the Clear that removes the brushes, the fixed values and the side, and
+ *  the trellis square picked on them (the Linked chip's Clear leaves the pick alone; this one is Screen E's). It is enabled by
+ *  those and by nothing it leaves alone: a pass or a status chip is the table's own. */
 function PinnedFilters() {
-  const { filter } = useLab();
+  const { filter, familiesPick } = useLab();
   const dispatch = useLabDispatch();
   const lines = filterLines(filter);
   const active = activeFilterCount(filter);
-  const clearable = clearableCount(filter);
+  const clearable = clearableCount(filter, familiesPick);
   return (
     <div className="catalog-pinned" id="lab-families-pinned" data-filters={active}>
       <div className="catalog-subtitle">Pinned filters &amp; slices</div>
@@ -175,8 +176,8 @@ function PinnedFilters() {
         className="btn"
         id="lab-families-clear"
         disabled={clearable === 0}
-        title={clearable === 0 ? 'nothing to clear' : 'clears the brushes, the fixed values and the side'}
-        onClick={() => clearActions(filter).forEach(dispatch)}
+        title={clearable === 0 ? 'nothing to clear' : 'clears the brushes, the fixed values, the side and the picked square'}
+        onClick={() => familiesClearActions(filter).forEach(dispatch)}
       >
         Clear
       </button>
