@@ -3,8 +3,9 @@
 // stratified sample of actual trials, §7.9's exact mode) and the order they are drawn in, which axis a press lands on,
 // what a brush writes to the shared filter, and the basis and live-region texts. ParallelCoords only draws what this
 // returns.
-import type { LabParallel, LabParallelLine, LabQueryBody } from '../results';
+import type { LabParallel, LabParallelLine, LabQueryBody, LabSnapshot } from '../results';
 import type { Scale } from './charts/canvas';
+import { panelLabel } from './labQuery';
 import type { LabAction } from './labStore';
 import { bareMetric } from './metricRules';
 
@@ -104,6 +105,20 @@ export function parallelBasis(basis: string, pinned: number | null): string {
   if (pinned === null) return basis;
   const head = basis.endsWith(RAW_TAIL) ? basis.slice(0, -RAW_TAIL.length) : basis;
   return `${head} · ${pinned} pinned trial${pinned === 1 ? '' : 's'} drawn exactly`;
+}
+
+/** What the panel says about the answer for the view now asked for: its basis line, and the lead of its explanation (what a line
+ *  is, which depends on the mode the answer is of). Both are blank without that answer: after the mode, the metric or the filter
+ *  changes the canvas is blank until the new answer lands, and a basis or a sentence about the previous answer would be false. */
+export function parallelCaption(
+  answer: (LabParallel & { provisional: boolean; snapshot: LabSnapshot | null; receivedAt: string }) | null,
+  pinned: number | null,
+): { basis: string; lead: string } {
+  if (answer === null) return { basis: '', lead: '' };
+  return {
+    basis: `${parallelBasis(answer.basis, pinned)}${panelLabel(answer)}`,
+    lead: isSampleView(answer) ? `Each line is one sampled trial through its own values (${sampleNote(answer)}); ` : 'Each line is a bundle of trials sharing a quantile bin on every axis; ',
+  };
 }
 
 /** `#lab-parallel-summary`, the chart's DOM twin: the bundles drawn over the axes, the largest bundle and the best

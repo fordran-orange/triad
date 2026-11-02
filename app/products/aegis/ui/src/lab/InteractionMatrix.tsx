@@ -10,6 +10,7 @@ import { CHART_FONT, fitText, HitGrid, hatchPattern, LABEL_COLOUR, observeResize
 import { hoverText, interactionModel, jBasisLine, matrixLayout, matrixSummary, squareLook, truncatedNotice, unresolvedText, type InteractionModel } from './interactionModel';
 import { displayShare, panelLabel } from './labQuery';
 import { axisLabel } from './parallelBundles';
+import { AssumptionsLine } from './AssumptionsLine';
 import { LabError } from './NotBuilt';
 import { TaskBar } from './TaskBar';
 import type { LabQueryData } from './useLabQuery';
@@ -148,6 +149,7 @@ export function InteractionMatrix({ data }: { data: LabQueryData }) {
           </span>
         )}
       </div>
+      <AssumptionsLine panel="interactions" uniform />
       <TaskBar id="lab-interactions-task" task={current?.envelope.task ?? null} cancelling={task.cancelling} rerunning={task.rerunning} error={task.stopError} onCancel={() => void task.cancel()} onRerun={task.runAgain} />
       {error !== null && <LabError message={`Interactions unavailable: ${error}${task.pollStopped !== null ? ` · ${task.pollStopped}` : ''}`} onRetry={task.retry} />}
       {notice !== null && (

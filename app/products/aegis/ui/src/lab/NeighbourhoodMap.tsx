@@ -2,23 +2,28 @@
 // square. A ring marks a square whose IQR is above the 75th percentile of the IQRs, so the stable surface reads at a glance;
 // a square no trial tested is hatched and holds no value (nothing is interpolated or filled from its neighbours); a square
 // under 8 trials (the server's `low n`) is dim and carries no ring. The selected candidate's square is outlined when its row is
-// known, and its category A (local) and B (sampled region) states are printed from the same card payload the rail's candidate
-// card reads (`useCandidateCard`): they are never recomputed here. Every decision is `familiesModel.ts`'s.
+// known, and its category A (local) and B (sampled region) states are printed from the same model the rail's candidate card reads
+// (`useCandidateCard`, which turns the worker's card into it): they are never recomputed here. The model is shared and the asks
+// are not: the map asks for its own `robustness` card. Its matrix and that card follow the 30 s rule (`useAskMark`: on mount and
+// on a new key, at most every 30 s while the source runs, once more when it ends), not the Lab's 2 s tick. Every decision is
+// `familiesModel.ts`'s.
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { errorMessage } from '../api/client';
 import type { LabEnvelope, LabMatrix } from '../results';
+import { AssumptionsLine } from './AssumptionsLine';
 import { useCandidateCard } from './CandidateCard';
 import { CHART_FONT, drawAxes, fitText, HitGrid, hatchPattern, LABEL_COLOUR, linearScale, observeResize, ordinalScale, outlineRect, setupCanvas } from './charts/canvas';
 import { candidateSquare, candidateStates, neighbourhoodModel, neighbourhoodTitle, type NeighbourhoodModel } from './familiesModel';
 import { HATCH, LOW_N_ALPHA, TONE_FILL, TONE_TEXT } from './LabHeatmap';
 import { heatLayout, HEAT_MARGIN, squareLabel, valueText } from './labHeatmapModel';
-import { answered, panelLabel } from './labQuery';
+import { answered, askFailure, panelLabel } from './labQuery';
 import { useLab } from './labState';
 import { filterHash } from './labStore';
 import { metricName } from './metricRules';
 import { LabError } from './NotBuilt';
 import { axisLabel } from './parallelBundles';
+import { useAskMark } from './useAskMark';
 import type { LabQueryData, Stamped } from './useLabQuery';
+import { sourceLive } from './useLabSource';
 
 const HEIGHT = 300;
 const RING = '#b784ff';
@@ -85,19 +90,20 @@ function paint(canvas: HTMLCanvasElement, width: number, model: NeighbourhoodMod
 
 export function NeighbourhoodMap({ data, axes }: { data: LabQueryData; axes: [string, string] | null }) {
   const lab = useLab();
-  const { loaded, query, tick, knownRows } = data;
+  const { loaded, query, knownRows } = data;
   const source = loaded ? `${loaded.kind}:${loaded.id}` : null;
   const [rows, cols] = axes ?? [null, null];
   const metric = lab.metric;
   const viewKey = source === null || rows === null || cols === null || rows === cols ? null : [source, rows, cols, metric, filterHash(lab.filter)].join('|');
+  const askMark = useAskMark(viewKey, sourceLive(loaded));
 
   const [retry, setRetry] = useState(0);
   const [answer, setAnswer] = useState<Answer | null>(null);
-  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
+  const [failure, setFailure] = useState<{ key: string; message: string; refused: boolean } | null>(null);
   const seq = useRef(0);
   const asked = useRef<string | null>(null);
   useEffect(() => {
-    const mark = viewKey === null ? null : `${viewKey}|${tick}|${retry}`;
+    const mark = viewKey === null ? null : `${viewKey}|${askMark}|${retry}`;
     if (mark !== null && asked.current === mark) return; // React's development double-run of the same ask
     asked.current = mark;
     const mine = ++seq.current;
@@ -108,19 +114,21 @@ export function NeighbourhoodMap({ data, axes }: { data: LabQueryData; axes: [st
         setAnswer({ key: viewKey, source, envelope, metric });
         setFailure(null);
       })
-      .catch((e: unknown) => mine === seq.current && setFailure({ key: viewKey, message: errorMessage(e) }));
+      .catch((e: unknown) => mine === seq.current && setFailure({ key: viewKey, ...askFailure(e) }));
     // The key stands for the source, the pair, the metric and the filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewKey, tick, retry]);
+  }, [viewKey, askMark, retry]);
   const current = answer !== null && answer.key === viewKey ? answer : null;
   const shown = answered(current, answer, source);
-  const error = failure !== null && failure.key === viewKey ? failure.message : null;
+  const failed = failure !== null && failure.key === viewKey ? failure : null;
+  const error = failed === null ? null : failed.message;
   const model = useMemo(() => (shown === null ? null : neighbourhoodModel(shown.envelope, shown.metric)), [shown]);
 
-  // The selected candidate: one trial of this source. Its card is the rail's own payload.
+  // The selected candidate: one trial of this source. Its card is the rail's own model (`useCandidateCard`), asked for here on the
+  // 30 s rule.
   const selected = lab.selected !== null && 'trials' in lab.selected && lab.selected.trials.length === 1 ? lab.selected.trials[0] : null;
   const trialId = selected !== null && source !== null && selected.startsWith(`${source}#`) ? selected : null;
-  const card = useCandidateCard(data, trialId);
+  const card = useCandidateCard(data, trialId, 'rule');
   const states = useMemo(() => (card.card === null ? null : candidateStates(card.card)), [card.card]);
   const row = trialId === null ? undefined : knownRows[trialId];
   const mark = shown !== null && row !== undefined ? candidateSquare(shown.envelope, row.params) : null;
@@ -167,7 +175,8 @@ export function NeighbourhoodMap({ data, axes }: { data: LabQueryData; axes: [st
           ? 'no pair: pick a trellis square, or open a source that varies two parameters'
           : `median ${metricName(metric)} · rows ${axisLabel(rows)} ↓ · columns ${axisLabel(cols)} →`}
       </div>
-      {error !== null && <LabError message={`Neighbourhood map unavailable: ${error}`} onRetry={() => setRetry((n) => n + 1)} />}
+      <AssumptionsLine panel="neighbourhood" />
+      {error !== null && <LabError message={`Neighbourhood map unavailable: ${error}`} onRetry={failed?.refused ? undefined : () => setRetry((n) => n + 1)} />}
       {shown !== null && shown.envelope.empty !== null && <div className="lab-empty">{shown.envelope.empty}</div>}
       <div className="lab-neighbourhood-wrap" ref={wrap} hidden={model === null}>
         <canvas

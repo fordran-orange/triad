@@ -1,23 +1,26 @@
 // Screen E's trellis (spec §5.5): the top pairs of parameters by the interactions' priority, each an aggregated matrix of at
-// most 16 × 16 squares with its n. The pairs are the importance task's `interactions` view (a task view, asked through
-// `useTaskView` exactly as the Interaction matrix tab asks it: it polls while the task runs and no longer, offers Cancel and Run
-// again, and leaving this page creates no work), in the order the worker sent them; a pair it could not resolve is not drawn, and
-// until a stage is delivered no pair is: nothing is guessed. Each pair's matrix is the worker's `matrix` view in aggregate mode
-// (the median, or the mean where an axis is over 16 values and its squares are merged). A square under 30 trials is hatched and
-// carries no tone; an untested square is hatched and holds no value. A click picks a square, whose defining filter is the
-// drill-down's (§7.8): its n is the `page` total of that filter. Every decision is `familiesModel.ts`'s.
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { errorMessage } from '../api/client';
+// most TRELLIS_MAX_SIDE × TRELLIS_MAX_SIDE squares with its n. The pairs are the importance task's `interactions` view (a task
+// view, asked through `useTaskView` exactly as the Interaction matrix tab asks it: it polls while the task runs and no longer,
+// offers Cancel and Run again, and leaving this page creates no work), in the order the worker sent them; a pair it could not
+// resolve is not drawn, and until a stage is delivered no pair is: nothing is guessed. Each pair's matrix is the worker's `matrix`
+// view in aggregate mode (the median, or the mean where an axis is over the side limit and its squares are merged). A square
+// under the floor (in trials, or in trials with a value) is hatched and carries no tone; an untested square is hatched and holds
+// no value. A click picks a square, whose defining filter is the drill-down's (§7.8): its n is the `page` total of that filter.
+// The floor, the side and the number of pairs are the worker's (`constants` of its answers); every decision is
+// `familiesModel.ts`'s. A pair asks on mount and on a new key, at most every 30 s while the source runs and once more when it
+// ends (`useAskMark`), never on the Lab's 2 s tick.
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import type { LabEnvelope, LabInteractions, LabMatrix } from '../results';
-import { stateNotice } from './importanceModel';
+import { AssumptionsLine } from './AssumptionsLine';
 import {
+  arrowTarget,
   cellTitle,
   countLabel,
   isPicked,
   pickOf,
   refreshedPick,
-  TRELLIS_MAX_SIDE,
-  TRELLIS_MIN_N,
+  rovingCell,
+  trellisLegend,
   trellisModel,
   trellisPairs,
   trellisStat,
@@ -25,22 +28,26 @@ import {
   type TrellisPairSpec,
   type TrellisPick,
 } from './familiesModel';
-import { panelLabel } from './labQuery';
+import { stateNotice } from './importanceModel';
+import { askFailure, panelLabel } from './labQuery';
 import { useLab } from './labState';
 import { filterHash } from './labStore';
 import { metricName } from './metricRules';
 import { LabError } from './NotBuilt';
 import { axisLabel } from './parallelBundles';
 import { TaskBar } from './TaskBar';
+import { useAskMark } from './useAskMark';
 import type { LabQueryData, Stamped } from './useLabQuery';
+import { sourceFamilies, sourceLive } from './useLabSource';
 import { useTaskView } from './useTaskView';
-import { sourceFamilies } from './useLabSource';
 
 type Answer = { key: string; envelope: Stamped<LabEnvelope<LabMatrix>> };
 
-/** The squares of one pair as the DOM the walk reads: one button per square, carrying its exact trial count (`data-n`), its state
- *  (`untested`, `thin`, `undefined`, `ok`) and the two value ranges it stands for. A square with no trial is hatched and cannot
- *  be picked; a thin one is hatched without a tone and can. */
+/** The squares of one pair as the DOM the walk reads: one button per square, carrying its exact trial count (`data-n`), the trials
+ *  among them with a value (`data-defined`), its state (`untested`, `thin`, `undefined`, `ok`) and the two value ranges it stands
+ *  for. A square with no trial is hatched and cannot be picked; a thin one is hatched without a tone and can. The grid is one
+ *  tab stop (a roving tabindex: the picked square, else the first tested one, else wherever focus last was inside it); the arrow
+ *  keys move between its squares, and Enter or Space picks the focused one. */
 export function TrellisGrid({
   model,
   index,
@@ -56,6 +63,14 @@ export function TrellisGrid({
   metric: string;
   onPick: (pick: TrellisPick) => void;
 }) {
+  const [focused, setFocused] = useState<{ r: number; c: number } | null>(null);
+  const stop = focused !== null && model.cells[focused.r]?.[focused.c] !== undefined ? focused : rovingCell(model, pick);
+  const move = (event: KeyboardEvent<HTMLButtonElement>, r: number, c: number) => {
+    const to = arrowTarget(model.rows.length, model.cols.length, { r, c }, event.key);
+    if (to === null) return;
+    event.preventDefault();
+    event.currentTarget.parentElement?.querySelector<HTMLElement>(`[data-r="${to.r}"][data-c="${to.c}"]`)?.focus();
+  };
   return (
     <div className="trellis-grid" role="group" aria-label={`${label}: ${model.summary}`}>
       {model.cells.flat().map((cell) => {
@@ -68,6 +83,7 @@ export function TrellisGrid({
             id={`lab-families-cell-${index}-${cell.r}-${cell.c}`}
             className={className}
             data-n={cell.n}
+            data-defined={cell.defined}
             data-state={cell.state}
             data-r={cell.r}
             data-c={cell.c}
@@ -75,8 +91,11 @@ export function TrellisGrid({
             data-cols={`${cell.cols.lo},${cell.cols.hi}`}
             aria-pressed={picked}
             aria-disabled={cell.n === 0}
+            tabIndex={stop !== null && stop.r === cell.r && stop.c === cell.c ? 0 : -1}
             title={cellTitle(model, cell, metric)}
             onClick={() => cell.n > 0 && onPick(pickOf(index, model, cell))}
+            onFocus={() => setFocused((was) => (was?.r === cell.r && was?.c === cell.c ? was : { r: cell.r, c: cell.c }))}
+            onKeyDown={(event) => move(event, cell.r, cell.c)}
           >
             {cell.n > 0 ? countLabel(cell.n) : ''}
           </button>
@@ -86,7 +105,8 @@ export function TrellisGrid({
   );
 }
 
-/** One pair: its matrix asked of the worker (a stale answer dropped, a failure with its own Retry), drawn as a grid of squares. */
+/** One pair: its matrix asked of the worker (a stale answer dropped, a failure with its own Retry unless the worker refused the
+ *  request), drawn as a grid of squares. */
 function Pair({
   data,
   spec,
@@ -103,17 +123,19 @@ function Pair({
   onPick: (pick: TrellisPick) => void;
 }) {
   const lab = useLab();
-  const { loaded, query, tick } = data;
+  const { loaded, query } = data;
   const source = loaded ? `${loaded.kind}:${loaded.id}` : null;
   const [rows, cols] = spec.axes;
   const viewKey = source === null ? null : [source, rows, cols, stat, lab.metric, filterHash(lab.filter)].join('|');
+  // The pair asks on mount and on a new key, at most every 30 s while the source runs, and once when it ends.
+  const askMark = useAskMark(viewKey, sourceLive(loaded));
   const [retry, setRetry] = useState(0);
   const [answer, setAnswer] = useState<Answer | null>(null);
-  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
+  const [failure, setFailure] = useState<{ key: string; message: string; refused: boolean } | null>(null);
   const seq = useRef(0);
   const asked = useRef<string | null>(null);
   useEffect(() => {
-    const mark = viewKey === null ? null : `${viewKey}|${tick}|${retry}`;
+    const mark = viewKey === null ? null : `${viewKey}|${askMark}|${retry}`;
     if (mark !== null && asked.current === mark) return; // React's development double-run of the same ask
     asked.current = mark;
     const mine = ++seq.current;
@@ -124,15 +146,19 @@ function Pair({
         setAnswer({ key: viewKey, envelope });
         setFailure(null);
       })
-      .catch((e: unknown) => mine === seq.current && setFailure({ key: viewKey, message: errorMessage(e) }));
+      .catch((e: unknown) => mine === seq.current && setFailure({ key: viewKey, ...askFailure(e) }));
     // The key stands for the source, the pair, the statistic, the metric and the filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewKey, tick, retry]);
+  }, [viewKey, askMark, retry]);
   const current = answer !== null && answer.key === viewKey ? answer : null;
-  const error = failure !== null && failure.key === viewKey ? failure.message : null;
-  const model: TrellisModel | null = useMemo(() => (current === null ? null : trellisModel(current.envelope, stat, lab.metric)), [current, stat, lab.metric]);
+  const error = failure !== null && failure.key === viewKey ? failure : null;
+  const model: TrellisModel | null = useMemo(
+    () => (current === null ? null : trellisModel(current.envelope, stat, lab.metric, current.envelope.constants, current.envelope.snapshot)),
+    [current, stat, lab.metric],
+  );
 
-  // A running source moves the picked square's n: the pick takes the new one, so the drill-down compares against it.
+  // A running source moves the picked square's n: the pick takes the new one (and its snapshot), so the drill-down compares
+  // against it.
   useEffect(() => {
     if (model === null || pick === null) return;
     const next = refreshedPick(pick, model);
@@ -160,7 +186,7 @@ function Pair({
           {model !== null ? ` · ${model.stat} of ${metricName(lab.metric)}` : ''}
         </span>
       </header>
-      {error !== null && <LabError message={`${spec.label}: matrix unavailable: ${error}`} onRetry={() => setRetry((n) => n + 1)} />}
+      {error !== null && <LabError message={`${spec.label}: matrix unavailable: ${error.message}`} onRetry={error.refused ? undefined : () => setRetry((n) => n + 1)} />}
       {model === null && error === null && <div className="lab-empty trellis-loading">loading the matrix…</div>}
       {model !== null && current !== null && (
         <>
@@ -179,14 +205,16 @@ function Pair({
   );
 }
 
-/** The trellis: the top pairs, each its own matrix. `pick` is the picked square (lifted to the page, so the drill-down and the
- *  neighbourhood map read it) and `onPick` replaces it. */
+/** The trellis: the top pairs, each its own matrix. `pick` is the picked square (the Lab's store keeps it, so the drill-down and
+ *  the neighbourhood map read it) and `onPick` replaces it. */
 export function Trellis({ data, pick, onPick }: { data: LabQueryData; pick: TrellisPick | null; onPick: (pick: TrellisPick) => void }) {
   const lab = useLab();
   const task = useTaskView<LabInteractions>(data, 'interactions');
   const { shown, error, pending, current } = task;
   const view = shown?.envelope ?? null;
-  const pairs = trellisPairs(view);
+  // The floor, the side and the number of pairs are the worker's: nothing is drawn before an answer carries them.
+  const constants = view?.constants ?? null;
+  const pairs = trellisPairs(view, constants?.TRELLIS_PAIRS ?? 0);
   // How many values each axis has, to know which pairs will merge: the catalog's own counts.
   const counts = useMemo(() => new Map((data.loaded ? sourceFamilies(data.loaded) : []).flatMap((f) => f.entries.map((e) => [e.path, e.count] as const))), [data.loaded]);
   const lengthOf = (path: string) => counts.get(path) ?? counts.get(path.replace(/^(long|short)_side\./, '')) ?? null;
@@ -228,13 +256,14 @@ export function Trellis({ data, pick, onPick }: { data: LabQueryData; pick: Trel
         </div>
       )}
       <div className="sub" id="lab-families-legend">
-        Each square is the {metricName(lab.metric)} of the trials with its two values (the median; the mean where an axis has more than {TRELLIS_MAX_SIDE} values and its squares are merged), a loss is red · hatched and without a colour = under{' '}
-        {TRELLIS_MIN_N} trials, left out (n is shown) · hatched and empty = untested · the number on a square is its n · click a square for its trials.
+        {trellisLegend(lab.metric, constants)}
       </div>
+      <AssumptionsLine panel="trellis" uniform />
       <div className="trellis-pairs" id="lab-families-pairs">
-        {pairs.pairs.map((spec, index) => (
-          <Pair key={spec.axes.join('|')} data={data} spec={spec} index={index} stat={trellisStat(lengthOf(spec.axes[0]), lengthOf(spec.axes[1]))} pick={pick} onPick={onPick} />
-        ))}
+        {constants !== null &&
+          pairs.pairs.map((spec, index) => (
+            <Pair key={spec.axes.join('|')} data={data} spec={spec} index={index} stat={trellisStat(lengthOf(spec.axes[0]), lengthOf(spec.axes[1]), constants.TRELLIS_MAX_SIDE)} pick={pick} onPick={onPick} />
+          ))}
       </div>
     </div>
   );

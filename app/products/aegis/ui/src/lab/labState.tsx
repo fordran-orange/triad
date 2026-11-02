@@ -25,7 +25,8 @@ export interface LabMemory {
   addOptSource: (id: string) => void;
 }
 
-const LabStateContext = createContext<LabState>(initialLabState);
+/** The store's state as context; exported so a test can provide a state to a static render. The app provides it through `LabProvider`. */
+export const LabStateContext = createContext<LabState>(initialLabState);
 const LabDispatchContext = createContext<Dispatch<LabAction>>(() => undefined);
 const LabMemoryContext = createContext<LabMemory | null>(null);
 

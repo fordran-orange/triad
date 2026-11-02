@@ -77,6 +77,9 @@ from products.aegis.lab.policy import (
     RESIDUAL_INCONSISTENT,
     RESIDUAL_VETO,
     THETA_MIN,
+    TRELLIS_MAX_SIDE,
+    TRELLIS_MIN_N,
+    TRELLIS_PAIRS,
     TRIPLE_TOP,
 )
 from products.aegis.lab.shares import fine_parts, interaction
@@ -195,6 +198,10 @@ CONSTANTS = MappingProxyType(
         "IMPORTANCE_ROWS": IMPORTANCE_ROWS,
         "TRIPLE_TOP": TRIPLE_TOP,
         "INTERACTIONS_MAX_PAIRS": INTERACTIONS_MAX_PAIRS,
+        # §5.5 Screen E's trellis rides the interactions answer, which is this task's constants.
+        "TRELLIS_MIN_N": TRELLIS_MIN_N,
+        "TRELLIS_MAX_SIDE": TRELLIS_MAX_SIDE,
+        "TRELLIS_PAIRS": TRELLIS_PAIRS,
     }
 )
 

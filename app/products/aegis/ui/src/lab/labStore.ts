@@ -1,4 +1,5 @@
 // The Optimization Lab's own state: one pure reducer, nothing React. A later task wraps it in a context.
+import type { LabSnapshot } from '../results';
 
 /** What the Lab is looking at: an experiment (`exp:<id>`) or an optimization job (`opt:<id>`). */
 export type LabSource = { kind: 'exp' | 'opt'; id: string };
@@ -40,6 +41,19 @@ export type SquareSelection = { x: number; y: number; axes: [string, string]; va
 export type LabSelection = { trials: string[] } | { square: SquareSelection } | null;
 export type PinSlot = 'A' | 'B' | 'C';
 
+/** Screen E's picked trellis square: which pair, its two axes (the worker's paths) and value ranges (equal ends: one value),
+ *  the n the matrix gave it and the snapshot that matrix was read at (the drill-down compares its table's total with that n only
+ *  when both were read at one snapshot). The square is its defining filter (§7.8); the Lab keeps it, so leaving the page does not
+ *  lose it. */
+export interface TrellisPick {
+  pair: number;
+  axes: [string, string];
+  rows: [number, number];
+  cols: [number, number];
+  n: number;
+  snapshot: LabSnapshot | null;
+}
+
 export interface LabState {
   source: LabSource | null;
   sourceError: string | null;
@@ -55,6 +69,8 @@ export interface LabState {
   pins: Partial<Record<PinSlot, string>>;
   cursor: { r: number; c: number } | null;
   maximized: boolean;
+  /** The trellis square picked on Screen E (its drill-down); goes with the source and with the filter's Clear. */
+  familiesPick: TrellisPick | null;
 }
 
 export type LabAction =
@@ -78,6 +94,7 @@ export type LabAction =
   | { type: 'MOVE_CURSOR'; dr: number; dc: number; rows: number; cols: number }
   | { type: 'ESCAPE' }
   | { type: 'SET_MAXIMIZED'; maximized: boolean }
+  | { type: 'SET_FAMILIES_PICK'; pick: TrellisPick | null }
   | { type: 'ROWS_REFRESHED' };
 
 const PIN_SLOTS: PinSlot[] = ['A', 'B', 'C'];
@@ -101,6 +118,7 @@ export const initialLabState: LabState = {
   pins: {},
   cursor: null,
   maximized: false,
+  familiesPick: null,
 };
 
 /** A record without one key (the reducer never leaves an `undefined` entry behind). */
@@ -124,11 +142,12 @@ export function labReducer(state: LabState, action: LabAction): LabState {
         selected: null,
         pins: {},
         cursor: null,
+        familiesPick: null, // another source has other pairs
         axes: action.axes ?? state.axes,
         metric: action.metric ?? state.metric,
       };
     case 'SOURCE_FAILED':
-      return { ...state, source: null, sourceError: action.message };
+      return { ...state, source: null, sourceError: action.message, familiesPick: null };
     case 'SET_VIEW':
       return { ...state, view: action.view };
     case 'SET_TAB':
@@ -199,6 +218,8 @@ export function labReducer(state: LabState, action: LabAction): LabState {
     }
     case 'SET_MAXIMIZED':
       return { ...state, maximized: action.maximized };
+    case 'SET_FAMILIES_PICK':
+      return state.familiesPick === action.pick ? state : { ...state, familiesPick: action.pick };
     case 'ROWS_REFRESHED':
       return state; // the table marks a refresh; the selection and the pins stay as they are
     default:
@@ -240,14 +261,22 @@ export function cellIndex(cells: ReadonlyArray<{ params: Record<string, number |
   );
 }
 
-/** The actions that clear the filter's brushes, fixed values and side scope: what the Linked chip's Clear and Screen E's
- *  pinned-filters Clear both dispatch. The pass and status chips are the table's own and stay. */
+/** The actions that clear the filter's brushes, fixed values and side scope, and the trellis square picked on them: what the
+ *  Linked chip's Clear and Screen E's pinned-filters Clear both dispatch. The pass and status chips are the table's own and
+ *  stay. */
 export function clearActions(filter: LabFilter): LabAction[] {
   return [
     ...Object.keys(filter.ranges).map((path): LabAction => ({ type: 'SET_RANGE', path, range: null })),
     ...Object.keys(filter.values).map((path): LabAction => ({ type: 'FIX_VALUE', path, value: null })),
     { type: 'SET_SCOPE', scope: 'combined' },
+    { type: 'SET_FAMILIES_PICK', pick: null },
   ];
+}
+
+/** How many constraints `clearActions` removes from the filter: brushes, fixed values and a side scope, not the pass and status
+ *  chips. A Clear control is enabled by this and by nothing it leaves alone. */
+export function clearableCount(filter: LabFilter): number {
+  return Object.keys(filter.ranges).length + Object.keys(filter.values).length + (filter.scope !== 'combined' ? 1 : 0);
 }
 
 /** How many constraints the filter holds: ranges, fixed values, a side scope, pass and status chips. */

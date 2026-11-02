@@ -593,3 +593,9 @@ tr.muted td{color:#4f6b80}
 .convergence-empty{padding:6px 0}
 .convergence-key{display:inline-block;width:14px;height:0;border-top:2px solid var(--blue);vertical-align:middle;margin-right:2px}
 .convergence-key.robust{height:6px;border-top-color:var(--violet);background:rgba(183,132,255,.22)}
+/* Spec §7.11: the assumptions every analytic panel states, styled like the basis lines (small, muted, wrapping). */
+.lab-assumptions{margin:4px 0 0;font-size:11px;line-height:1.35;color:var(--muted);overflow-wrap:anywhere}
+.convergence-basis{overflow-wrap:anywhere}
+/* Screen E's parameter tree stays mounted while a panel is maximized and is hidden; the roving tab stop of a trellis grid shows. */
+.lab-catalog[hidden]{display:none}
+.trellis-cell:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}

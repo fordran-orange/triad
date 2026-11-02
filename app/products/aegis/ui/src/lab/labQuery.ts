@@ -1,6 +1,7 @@
 // The Lab's side of the Phase 2 query layer (`/aegis/api/lab`): pure request and response helpers, nothing React
 // and nothing fetched. Every decision the panels make about a request body, a stale answer, a label or a column
 // list lives here, so it runs under vitest in node.
+import { errorMessage, isRefusal } from '../api/client';
 import { SHARPE_MIN_TRADES } from '../contracts';
 import {
   METRICS,
@@ -174,6 +175,12 @@ export function tableValueColumns(scope: LabScope, objective: string, layout: 1 
 /** The X state every panel renders on a failed query: its message and a Retry that re-issues that one query. */
 export function xState(message: string): { message: string; retryLabel: 'Retry' } {
   return { message, retryLabel: 'Retry' };
+}
+
+/** A failed ask as a panel keeps it: the message, and whether the worker refused the request (a 4xx with its message), which
+ *  asking again cannot change. A refusal is shown without Retry; a network error or a 5xx keeps it. */
+export function askFailure(error: unknown): { message: string; refused: boolean } {
+  return { message: errorMessage(error), refused: isRefusal(error) };
 }
 
 /** The rows by `column` (`trial_no`, a parameter or a `<scope>.<metric>`), the undefined values (null, absent or

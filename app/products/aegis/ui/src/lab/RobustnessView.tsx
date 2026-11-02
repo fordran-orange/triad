@@ -12,6 +12,7 @@ import { trialLabel } from './candidateModel';
 import { isCandidateCard, answered, panelLabel } from './labQuery';
 import { useLab } from './labState';
 import { filterHash } from './labStore';
+import { AssumptionsLine } from './AssumptionsLine';
 import { LabError } from './NotBuilt';
 import { axesLine, classTone, rankingRows, robustSummary, toleranceLine, type RankedRow } from './robustnessModel';
 import type { LabQueryData, Stamped } from './useLabQuery';
@@ -127,6 +128,7 @@ export function RobustnessView({ data }: { data: LabQueryData }) {
           </span>
         )}
       </div>
+      <AssumptionsLine panel="robustness" />
       {error !== null && <LabError message={`Robustness unavailable: ${error}`} onRetry={() => setRetry((n) => n + 1)} />}
       {pickFailure !== null && <LabError id="lab-robustness-pick-error" message={`${trialLabel(pickFailure.id)}: its row is unavailable (${pickFailure.message}); the selection and its four categories stand`} onRetry={() => pick(pickFailure.id)} />}
       {envelope !== null && envelope.empty !== null && <div className="lab-empty">{envelope.empty}</div>}

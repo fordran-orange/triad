@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiError, errorMessage } from './client';
+import { api, ApiError, errorMessage, isRefusal } from './client';
 
 describe('errorMessage', () => {
   it('renders a 422 list detail as the Value error messages joined by "; "', () => {
@@ -21,6 +21,24 @@ describe('errorMessage', () => {
   it('keeps a string detail and a transport error as they are', () => {
     expect(errorMessage(new ApiError(404, "unknown strategy 'x'"))).toBe("404: unknown strategy 'x'");
     expect(errorMessage(new Error('Failed to fetch'))).toBe('Failed to fetch');
+  });
+});
+
+describe('isRefusal', () => {
+  it('is a worker that read the request and said no: a 4xx with its message, which asking again cannot change', () => {
+    expect(isRefusal(new ApiError(422, 'long_side.stop_loss_pct has 201 values; a matrix axis holds at most 200'))).toBe(true);
+    expect(isRefusal(new ApiError(400, 'bad request'))).toBe(true);
+    expect(isRefusal(new ApiError(404, 'unknown source'))).toBe(true);
+    expect(isRefusal(new ApiError(409, 'conflict'))).toBe(true);
+  });
+
+  it('is not a failure that may pass: a server error, a timeout or throttle, or a network error', () => {
+    expect(isRefusal(new ApiError(500, 'internal'))).toBe(false);
+    expect(isRefusal(new ApiError(503, 'busy'))).toBe(false);
+    expect(isRefusal(new ApiError(408, 'timeout'))).toBe(false);
+    expect(isRefusal(new ApiError(429, 'slow down'))).toBe(false);
+    expect(isRefusal(new TypeError('Failed to fetch'))).toBe(false);
+    expect(isRefusal('boom')).toBe(false);
   });
 });
 

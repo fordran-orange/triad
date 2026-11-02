@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LabConvergence, LabConvergenceBatch, LabEnvelope } from '../results';
 import { labCounts } from './analyticsFixtures';
-import { bareMetric, bestPieces, CONVERGENCE_REFRESH_MS, convergenceModel, refreshDelay, robustRuns, stepValueAt, stepVertices } from './convergenceModel';
+import { bareMetric, bestPieces, convergenceModel, robustRuns, stepValueAt, stepVertices } from './convergenceModel';
 
 const CONSTANTS = { CONVERGENCE_BATCH: 5000, CONVERGENCE_TOP: 0.01, CONVERGENCE_MAX_POINTS: 1000, MIN_BATCHES: 2, NEIGHBOUR_R: 1 };
 
@@ -201,18 +201,5 @@ describe('the model', () => {
     expect(m.summary).toBe('convergence of net_pnl: best so far $90 after 41 trials, no robust series yet');
     const robust = convergenceModel(view({ robust: [batch(0), batch(1)], batches: 2 }))!;
     expect(robust.summary).toBe('convergence of net_pnl: best so far $90 after 41 trials, latest robust median $101 over 2 batches');
-  });
-});
-
-describe('how often it is asked', () => {
-  it('is never while the source is not running; at once when it was never asked; otherwise at most every 30 s', () => {
-    expect(CONVERGENCE_REFRESH_MS).toBe(30_000);
-    expect(refreshDelay(false, null, 1_000)).toBeNull();
-    expect(refreshDelay(false, 500, 1_000)).toBeNull();
-    expect(refreshDelay(true, null, 1_000)).toBe(0);
-    expect(refreshDelay(true, 1_000, 1_000)).toBe(30_000);
-    expect(refreshDelay(true, 1_000, 11_000)).toBe(20_000);
-    expect(refreshDelay(true, 1_000, 31_000)).toBe(0);
-    expect(refreshDelay(true, 40_000, 1_000)).toBe(30_000); // a clock that went back never waits longer than the interval
   });
 });

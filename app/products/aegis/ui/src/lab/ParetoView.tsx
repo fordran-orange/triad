@@ -16,6 +16,7 @@ import { breakEven, metricName } from './metricRules';
 import { answered, metricList } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
 import { filterHash } from './labStore';
+import { AssumptionsLine } from './AssumptionsLine';
 import { LabError } from './NotBuilt';
 import {
   axisTitle,
@@ -266,6 +267,7 @@ export function ParetoView({ data }: { data: LabQueryData }) {
           </span>
         )}
       </div>
+      <AssumptionsLine panel="pareto" />
       {counts !== null && (
         <div className="pareto-counts" id="lab-pareto-counts">
           <span>

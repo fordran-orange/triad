@@ -67,6 +67,11 @@ export function statusOf(loaded: LoadedSource): string {
   return loaded.kind === 'exp' ? loaded.document.status : loaded.job.status;
 }
 
+/** Whether the open source is still running (queued or running): what a panel on the 30 s rule asks again for. */
+export function sourceLive(loaded: LoadedSource | null): boolean {
+  return loaded !== null && isLive(statusOf(loaded));
+}
+
 export function isCurrent(loaded: LoadedSource | null, source: LabSource | null): loaded is LoadedSource {
   return loaded !== null && source !== null && loaded.kind === source.kind && loaded.id === source.id;
 }

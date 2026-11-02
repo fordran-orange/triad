@@ -4,7 +4,7 @@ import { fixValueAction, parseNumber as parse, searchFamilies, type CatalogEntry
 import { familyTree } from './familiesModel';
 import { filterLines } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
-import { activeFilterCount, clearActions } from './labStore';
+import { activeFilterCount, clearableCount, clearActions } from './labStore';
 import { LinkedChip } from './LinkedChip';
 
 const ACTIVE_TITLE = 'no screening evidence yet: all parameters Active (Phase 4)';
@@ -150,12 +150,14 @@ function FamilyTree({ shown, parameters, collapsed, toggle }: { shown: Family[];
   );
 }
 
-/** The filters and slices in force, each as a line, with the Clear that removes the brushes and fixed values. */
+/** The filters and slices in force, each as a line, with the Clear that removes the brushes, the fixed values and the side (and
+ *  the square picked on them). It is enabled by those and by nothing it leaves alone: a pass or a status chip is the table's own. */
 function PinnedFilters() {
   const { filter } = useLab();
   const dispatch = useLabDispatch();
   const lines = filterLines(filter);
   const active = activeFilterCount(filter);
+  const clearable = clearableCount(filter);
   return (
     <div className="catalog-pinned" id="lab-families-pinned" data-filters={active}>
       <div className="catalog-subtitle">Pinned filters &amp; slices</div>
@@ -172,8 +174,8 @@ function PinnedFilters() {
         type="button"
         className="btn"
         id="lab-families-clear"
-        disabled={active === 0}
-        title={active === 0 ? 'nothing to clear' : 'clears the brushes, the fixed values and the side'}
+        disabled={clearable === 0}
+        title={clearable === 0 ? 'nothing to clear' : 'clears the brushes, the fixed values and the side'}
         onClick={() => clearActions(filter).forEach(dispatch)}
       >
         Clear
@@ -191,12 +193,15 @@ export function ParameterCatalog({
   mode,
   loading,
   parameters = null,
+  hidden = false,
 }: {
   list: Family[] | null;
   mode: 'controls' | 'status' | 'families';
   loading: boolean;
   /** The summary's parameters, for the tested counts of the `families` mode. */
   parameters?: readonly LabParameter[] | null;
+  /** Screen E keeps the tree mounted while a panel is maximized and hides it, so its search text and collapsed families survive. */
+  hidden?: boolean;
 }) {
   const { axes } = useLab();
   const dispatch = useLabDispatch();
@@ -216,7 +221,7 @@ export function ParameterCatalog({
   const matching = shown.reduce((sum, family) => sum + family.entries.length, 0);
 
   return (
-    <aside className="lab-catalog" id={families ? 'lab-families-catalog' : 'lab-catalog'} aria-label="Parameters">
+    <aside className="lab-catalog" id={families ? 'lab-families-catalog' : 'lab-catalog'} aria-label="Parameters" hidden={hidden}>
       <div className="catalog-head">
         <span className="catalog-title">Parameters{list ? ` · ${total}` : ''}</span>
         {mode !== 'status' && <LinkedChip />}

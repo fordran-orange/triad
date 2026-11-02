@@ -4,20 +4,22 @@
 //
 // When it asks (decision 10): on mount, on a new source, metric or filter, and at most every 30 s while the source runs. A
 // new chunk is a server cache miss that costs up to 1.8 s at 1M trials, so it is never tied to the Lab's 2 s refresh tick.
-// When the source stops running it asks once more, so a settled answer replaces the provisional one. A stale answer is dropped
-// (a newer ask owns the chart), and the timer stops on unmount and on a new source.
+// When the source stops running it asks once more, so a settled answer replaces the provisional one. The rule is `useAskMark`'s
+// (every expensive panel on Screen E follows it too); a stale answer is dropped (a newer ask owns the chart).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { errorMessage } from '../api/client';
 import type { LabConvergence, LabEnvelope } from '../results';
+import { AssumptionsLine } from './AssumptionsLine';
 import { AXIS_COLOUR, CHART_FONT, LABEL_COLOUR, linearScale, niceTicks, observeResize, setupCanvas, strokeLine } from './charts/canvas';
-import { convergenceModel, refreshDelay, type ConvergenceModel } from './convergenceModel';
+import { convergenceModel, type ConvergenceModel } from './convergenceModel';
 import { answered, snapshotLabel } from './labQuery';
 import { useLab } from './labState';
 import { filterHash } from './labStore';
 import { objectiveText } from './metricRules';
 import { LabError } from './NotBuilt';
+import { useAskMark } from './useAskMark';
 import type { LabQueryData, Stamped } from './useLabQuery';
-import { isLive, statusOf } from './useLabSource';
+import { sourceLive } from './useLabSource';
 
 const BEST = '#2da7ff';
 const LOSS = '#ff5c67'; // a P&L-signed value below zero is never the blue of a best
@@ -107,29 +109,59 @@ function paint(canvas: HTMLCanvasElement, width: number, compact: boolean, model
   }
 }
 
+/** What the chart says under its plot: the summary a screen reader can use, the legend, why the robust series is empty, the worker's
+ *  `empty` at full size, and the basis line (both sizes: the compact chart draws a thinned best-so-far too, and says so here). */
+export function ConvergenceReadout({ id, model, compact }: { id: string; model: ConvergenceModel; compact: boolean }) {
+  // Under two batches the robust series is empty: the compact chart still draws `best` and says why in a line; the full chart
+  // reads the envelope's own `empty`.
+  const note = model.robustNote !== '' ? model.robustNote : (model.robustReason ?? '');
+  // The full chart prints the envelope's `empty` below, which is that same reason: once is enough.
+  const showNote = note !== '' && (compact || model.emptyReason === null);
+  return (
+    <>
+      <div className="sub convergence-summary" id={`${id}-summary`} aria-live="polite">
+        {model.summary}
+      </div>
+      <div className="sub convergence-legend" id={`${id}-legend`}>
+        <span className="convergence-key best" /> best so far (step, red where it loses) · <span className="convergence-key robust" /> robust median, quartile band
+      </div>
+      {showNote && (
+        <div className="sub" id={`${id}-robust`} data-robust={model.runs.length > 0 ? 'drawn' : 'empty'}>
+          {note}
+        </div>
+      )}
+      {!compact && model.emptyReason !== null && (
+        <div className="lab-empty convergence-empty" id={`${id}-empty`}>
+          {model.emptyReason}
+        </div>
+      )}
+      <div className="sub convergence-basis" id={`${id}-basis`} title="the worker's basis line">
+        {model.basis}
+      </div>
+    </>
+  );
+}
+
 export function ConvergenceChart({ data, compact = false, id = 'lab-convergence' }: { data: LabQueryData; compact?: boolean; id?: string }) {
   const lab = useLab();
   const { loaded, query } = data;
   const source = loaded ? `${loaded.kind}:${loaded.id}` : null;
-  const live = loaded !== null && isLive(statusOf(loaded));
-  // The view honours the filter (decision 7), so a new filter is a new ask; the Lab's 2 s refresh tick is not part of it.
+  // The view honours the filter (decision 7), so a new filter is a new ask; the Lab's 2 s refresh tick is not part of it. The mark
+  // bumps for a new key, every 30 s while the source runs and once when the run ends (a settled answer replaces the provisional).
   const viewKey = source === null ? null : [source, lab.metric, filterHash(lab.filter)].join('|');
+  const askMark = useAskMark(viewKey, sourceLive(loaded));
 
   const [retry, setRetry] = useState(0);
-  const [refresh, setRefresh] = useState(0);
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
   const seq = useRef(0);
   const asked = useRef<string | null>(null);
-  const askedAt = useRef<number | null>(null);
   useEffect(() => {
-    // `live` is in the mark: when the run ends, one more ask settles the answer.
-    const mark = viewKey === null ? null : `${viewKey}|${live}|${retry}|${refresh}`;
+    const mark = viewKey === null ? null : `${viewKey}|${askMark}|${retry}`;
     if (mark !== null && asked.current === mark) return; // React's development double-run of the same ask
     asked.current = mark;
     const mine = ++seq.current;
     if (viewKey === null || source === null) return;
-    askedAt.current = Date.now();
     query<LabConvergence>('convergence', {})
       .then((envelope) => {
         if (mine !== seq.current) return; // a newer ask owns the chart
@@ -143,16 +175,7 @@ export function ConvergenceChart({ data, compact = false, id = 'lab-convergence'
       });
     // The key stands for the source, the metric and the filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewKey, live, retry, refresh]);
-
-  // While the source runs, ask again once the interval since the last ask has passed. Each ask re-arms the timer; a new source,
-  // the end of the run and the unmount clear it.
-  useEffect(() => {
-    const delay = refreshDelay(live && viewKey !== null, askedAt.current, Date.now());
-    if (delay === null) return;
-    const timer = setTimeout(() => setRefresh((n) => n + 1), delay);
-    return () => clearTimeout(timer);
-  }, [live, viewKey, retry, refresh]);
+  }, [viewKey, askMark, retry]);
 
   const current = answer !== null && answer.key === viewKey ? answer : null;
   const shown = answered(current, answer, source);
@@ -173,11 +196,6 @@ export function ConvergenceChart({ data, compact = false, id = 'lab-convergence'
   }, [model, width, compact]);
 
   const drawn = model !== null && model.best.length > 0;
-  // Under two batches the robust series is empty: the compact chart still draws `best` and says why in a line; the full chart
-  // reads the envelope's own `empty`.
-  const note = model === null ? '' : model.robustNote !== '' ? model.robustNote : (model.robustReason ?? '');
-  // The full chart prints the envelope's `empty` below, which is that same reason: once is enough.
-  const showNote = note !== '' && (compact || model?.emptyReason === null);
   return (
     <div className={'lab-convergence' + (compact ? ' compact' : '')} id={id} data-loading={pending ? 'true' : 'false'} data-provisional={model?.provisional ? 'true' : 'false'}>
       <div className="convergence-toolbar">
@@ -193,6 +211,7 @@ export function ConvergenceChart({ data, compact = false, id = 'lab-convergence'
           </span>
         )}
       </div>
+      <AssumptionsLine panel="convergence" />
       {error !== null && <LabError id={`${id}-error`} message={`Convergence unavailable: ${error}`} onRetry={() => setRetry((n) => n + 1)} />}
       {model !== null && !drawn && (
         <div className="lab-empty convergence-empty" id={`${id}-empty`}>
@@ -202,31 +221,7 @@ export function ConvergenceChart({ data, compact = false, id = 'lab-convergence'
       <div className="convergence-plot" ref={wrap} hidden={!drawn}>
         <canvas id={`${id}-canvas`} ref={canvas} role="img" aria-label={model?.summary ?? 'convergence'} />
       </div>
-      {drawn && model !== null && (
-        <>
-          <div className="sub convergence-summary" id={`${id}-summary`} aria-live="polite">
-            {model.summary}
-          </div>
-          <div className="sub convergence-legend" id={`${id}-legend`}>
-            <span className="convergence-key best" /> best so far (step, red where it loses) · <span className="convergence-key robust" /> robust median, quartile band
-          </div>
-          {showNote && (
-            <div className="sub" id={`${id}-robust`} data-robust={model.runs.length > 0 ? 'drawn' : 'empty'}>
-              {note}
-            </div>
-          )}
-          {!compact && model.emptyReason !== null && (
-            <div className="lab-empty convergence-empty" id={`${id}-empty`}>
-              {model.emptyReason}
-            </div>
-          )}
-          {!compact && (
-            <div className="sub" id={`${id}-basis`} title="the worker's basis line">
-              {model.basis}
-            </div>
-          )}
-        </>
-      )}
+      {drawn && model !== null && <ConvergenceReadout id={id} model={model} compact={compact} />}
     </div>
   );
 }

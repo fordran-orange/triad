@@ -3,7 +3,7 @@ import type { LabParallel, LabParallelLine } from '../results';
 import { linearScale } from './charts/canvas';
 import { answered } from './labQuery';
 import { initialLabState, labReducer } from './labStore';
-import { axisLabel, axisPositions, binEdges, brushToFilter, bundleKey, exactLine, isSampleView, nearestAxis, opacityFor, parallelBasis, parallelRequest, parallelSummary, polyline, sampleLine, sampleNote, sampleOrder } from './parallelBundles';
+import { axisLabel, axisPositions, binEdges, brushToFilter, bundleKey, exactLine, isSampleView, nearestAxis, opacityFor, parallelBasis, parallelCaption, parallelRequest, parallelSummary, polyline, sampleLine, sampleNote, sampleOrder } from './parallelBundles';
 
 /** The bin a value falls in under `edges`: [edges[i], edges[i + 1]), the last bin closed. */
 const binsHolding = (edges: number[], v: number) =>
@@ -165,6 +165,26 @@ function sampleView(over: Partial<LabParallel> = {}): LabParallel {
     ...over,
   };
 }
+
+describe('what the panel says about its answer', () => {
+  const stamped = (view: LabParallel, over: Record<string, unknown> = {}) => ({ ...view, provisional: false, snapshot: null, receivedAt: '2026-10-29T12:00:00Z', ...over });
+
+  it('describes the answer for the view now asked for: its basis, and what a line is', () => {
+    const sample = parallelCaption(stamped(sampleView()), null);
+    expect(sample.basis).toBe(sampleView().basis);
+    expect(sample.lead).toBe(`Each line is one sampled trial through its own values (${sampleNote(sampleView())}); `);
+    const bundles = parallelCaption(stamped({ axes: ['a'], bins: [], bundles: [], total_bundles: 0, shown_bundles: 0, basis: 'Aggregated from tested (n = 5) · 0 raw lines drawn' }), 2);
+    expect(bundles.lead).toBe('Each line is a bundle of trials sharing a quantile bin on every axis; ');
+    expect(bundles.basis).toBe('Aggregated from tested (n = 5) · 2 pinned trials drawn exactly');
+    expect(parallelCaption(stamped(sampleView(), { provisional: true, snapshot: { generation: 3, chunk_watermark: 1 } }), null).basis).toContain('PROVISIONAL · snapshot 12:00:00 · gen 3');
+  });
+
+  it('says nothing about a view whose answer has not landed: a basis or a sentence about the previous mode would be false', () => {
+    // After the mode is toggled, the key is new and the canvas is blank; the words are blank with it until the answer lands.
+    expect(parallelCaption(null, null)).toEqual({ basis: '', lead: '' });
+    expect(parallelCaption(null, 3)).toEqual({ basis: '', lead: '' });
+  });
+});
 
 describe('parallel coordinates in sample mode', () => {
   it('prints the server\'s basis line verbatim, and with pins appends only the pinned lines drawn exactly', () => {

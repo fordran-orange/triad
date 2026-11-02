@@ -41,6 +41,9 @@ export const IMPORTANCE_CONSTANTS: LabImportanceConstants = {
   IMPORTANCE_ROWS: 50000,
   TRIPLE_TOP: 20,
   INTERACTIONS_MAX_PAIRS: 190,
+  TRELLIS_MIN_N: 30,
+  TRELLIS_MAX_SIDE: 16,
+  TRELLIS_PAIRS: 6,
 };
 
 export const ROBUSTNESS_CONSTANTS: LabRobustnessConstants = {

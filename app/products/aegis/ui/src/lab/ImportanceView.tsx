@@ -11,6 +11,7 @@ import { axisMax, availabilityText, caveatOf, constantsLine, importanceRows, par
 import { metricName } from './metricRules';
 import { displayShare, panelLabel } from './labQuery';
 import { axisLabel } from './parallelBundles';
+import { AssumptionsLine } from './AssumptionsLine';
 import { LabError } from './NotBuilt';
 import { TaskBar } from './TaskBar';
 import type { LabQueryData } from './useLabQuery';
@@ -144,6 +145,7 @@ export function ImportanceView({ data, children }: { data: LabQueryData; childre
           </span>
         )}
       </div>
+      <AssumptionsLine panel="importance" uniform />
       <TaskBar id="lab-importance-task" task={current?.envelope.task ?? null} cancelling={task.cancelling} rerunning={task.rerunning} error={task.stopError} onCancel={() => void task.cancel()} onRerun={task.runAgain} />
       {error !== null && <LabError message={`Importance unavailable: ${error}${task.pollStopped !== null ? ` · ${task.pollStopped}` : ''}`} onRetry={task.retry} />}
       {notice !== null && (

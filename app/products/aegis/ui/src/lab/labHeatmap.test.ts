@@ -6,6 +6,8 @@ import { answered } from './labQuery';
 
 const ROWS = 'long_side.indicators.ema.length';
 const COLS = 'long_side.indicators.sma.length';
+/** What the worker sends in a matrix's `constants` (§5.5): the heatmap reads none of them. */
+const TRELLIS = { TRELLIS_MIN_N: 30, TRELLIS_MAX_SIDE: 16, TRELLIS_PAIRS: 6 };
 
 /** An exact slice as `matrix_view` sends it: a square with a value is tested by one trial, the others untested. */
 function exact(rows: number[], cols: number[], values: Array<Array<number | null>>, over: Partial<LabMatrix> = {}): LabMatrix {
@@ -21,6 +23,7 @@ function exact(rows: number[], cols: number[], values: Array<Array<number | null
     legend: 'empty = untested',
     trial_ids: values.map((row, r) => row.map((v, c) => (v === null ? null : `exp:e1#${r * cols.length + c}`))),
     duplicates: counts.map((row) => row.map(() => 0)),
+    constants: TRELLIS,
     ...over,
   };
 }
@@ -41,6 +44,7 @@ function aggregate(rows: number[], cols: number[], values: Array<Array<number | 
     basis: 'Aggregated from tested (n = 40)',
     legend: 'Aggregated n ≥ 8 / n < 8 low',
     stats: grid,
+    constants: TRELLIS,
   };
 }
 

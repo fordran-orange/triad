@@ -11,15 +11,18 @@ export function NotBuilt({ what, phase }: { what: string; phase: number }) {
 }
 
 /** A panel's X state (spec:390): the failed query's message and a Retry that re-issues that one query; the other
- *  panels are not touched. */
-export function LabError({ message, onRetry, id }: { message: string; onRetry: () => void; id?: string }) {
+ *  panels are not touched. A worker's refusal passes no `onRetry`: asking again cannot change its answer, so it has the message
+ *  alone. */
+export function LabError({ message, onRetry, id }: { message: string; onRetry?: () => void; id?: string }) {
   const x = xState(message);
   return (
     <div className="lab-error" role="alert" id={id}>
       <span className="lab-error-text">{x.message}</span>
-      <button type="button" className="btn lab-retry" onClick={onRetry}>
-        {x.retryLabel}
-      </button>
+      {onRetry !== undefined && (
+        <button type="button" className="btn lab-retry" onClick={onRetry}>
+          {x.retryLabel}
+        </button>
+      )}
     </div>
   );
 }

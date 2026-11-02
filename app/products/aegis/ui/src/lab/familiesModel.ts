@@ -3,27 +3,23 @@
 // groups whose trials all stay counted), the filter that defines a square and so its drill-down, the robust
 // neighbourhood map's rings, the candidate's A and B states and the family tree's counts. The worker decides everything
 // statistical; this only arranges what it sent, and it never filters, interpolates or fills a square: a square no trial
-// tested stays untested, and a square with fewer than `TRELLIS_MIN_N` trials is hatched and carries no tone.
+// tested stays untested, and a square with fewer trials (or fewer with a value) than the worker's `TRELLIS_MIN_N` is hatched and
+// carries no tone. The trellis's three constants (§5.5: the floor, the squares per axis, the pairs drawn) arrive with the
+// worker's answers (the `constants` of its `matrix` and `interactions` views) and are parameters here: this module holds none.
 //
 // Count-preserving drill-down (§7.8): a square's `n` equals the `page` total of the same filter plus the square, because
 // the square IS that filter (`cellFilter`). The page is asked on the worker; nothing here filters rows.
 import { DASH, pct } from '../format';
-import type { LabCandidateCard, LabCounts, LabInteractions, LabMatrix, LabParameter } from '../results';
+import type { LabCandidateCard, LabCounts, LabInteractions, LabMatrix, LabParameter, LabSnapshot, LabTrellisConstants } from '../results';
 import { candidateCardModel } from './candidateModel';
 import type { Family } from './catalog';
 import { heatModel, valueText, type Tone } from './labHeatmapModel';
 import { displayShare, filterLines } from './labQuery';
-import { activeFilterCount, type LabFilter } from './labStore';
-import { lowerIsBetter, objectiveText } from './metricRules';
+import { activeFilterCount, type LabFilter, type TrellisPick } from './labStore';
+import { lowerIsBetter, metricName, objectiveText } from './metricRules';
 import { axisLabel } from './parallelBundles';
 
-/** A trellis matrix shows at most this many squares per axis (§5.5). */
-export const TRELLIS_MAX_SIDE = 16;
-/** A square under this many trials is hatched and left out of the scale and of the importance (§5.5). The worker has no
- *  constant for it, so it is the spec's own number, printed on the panel. */
-export const TRELLIS_MIN_N = 30;
-/** How many of the top pairs the trellis draws. A display choice, printed on the panel. */
-export const TRELLIS_PAIRS = 6;
+export type { TrellisPick };
 
 const count = (n: number) => n.toLocaleString('en-US');
 const plural = (n: number, word: string) => `${count(n)} ${word}${n === 1 ? '' : 's'}`;
@@ -38,9 +34,9 @@ export interface AxisGroup {
   hi: number;
 }
 
-/** The lattice `values` (ascending) as at most `limit` contiguous groups of equal width, the last possibly narrower. A
- *  lattice that fits stays one square per value. */
-export function groupAxis(values: readonly number[], limit = TRELLIS_MAX_SIDE): AxisGroup[] {
+/** The lattice `values` (ascending) as at most `limit` (the worker's TRELLIS_MAX_SIDE) contiguous groups of equal width, the
+ *  last possibly narrower. A lattice that fits stays one square per value. */
+export function groupAxis(values: readonly number[], limit: number): AxisGroup[] {
   const size = Math.max(1, Math.ceil(values.length / limit));
   const groups: AxisGroup[] = [];
   for (let from = 0; from < values.length; from += size) {
@@ -52,16 +48,17 @@ export function groupAxis(values: readonly number[], limit = TRELLIS_MAX_SIDE): 
 
 export type TrellisStat = 'median' | 'mean';
 
-/** The statistic a pair's matrix is asked for: the median (§5.5), unless a lattice is over the limit. Merged squares can
- *  only be pooled exactly from means (a median of the whole is not a function of the medians of its parts), so such a pair
- *  asks for the mean. A lattice size not known asks for the median: the model then withholds a merged value rather than
- *  guess it. */
-export function trellisStat(rowCount: number | null, colCount: number | null): TrellisStat {
-  return (rowCount ?? 0) > TRELLIS_MAX_SIDE || (colCount ?? 0) > TRELLIS_MAX_SIDE ? 'mean' : 'median';
+/** The statistic a pair's matrix is asked for: the median (§5.5), unless a lattice is over `maxSide` (the worker's
+ *  TRELLIS_MAX_SIDE). Merged squares can only be pooled exactly from means (a median of the whole is not a function of the
+ *  medians of its parts), so such a pair asks for the mean. A lattice size not known asks for the median: the model then
+ *  withholds a merged value rather than guess it. */
+export function trellisStat(rowCount: number | null, colCount: number | null, maxSide: number): TrellisStat {
+  return (rowCount ?? 0) > maxSide || (colCount ?? 0) > maxSide ? 'mean' : 'median';
 }
 
-/** `untested`: no trial. `thin`: under `TRELLIS_MIN_N` trials (hatched, no tone, left out of the scale). `undefined`: enough
- *  trials, but no value (the metric is undefined over them, or a merged median that cannot be pooled). `ok`: drawn. */
+/** `untested`: no trial. `thin`: under the floor (`TRELLIS_MIN_N`) in trials, or in trials with a value (hatched, no tone, left
+ *  out of the scale). `undefined`: enough trials, but no value at all (the metric is undefined over them, or a merged median
+ *  that cannot be pooled). `ok`: drawn. */
 export type TrellisState = 'untested' | 'thin' | 'undefined' | 'ok';
 
 export interface TrellisCell {
@@ -69,6 +66,8 @@ export interface TrellisCell {
   c: number;
   /** The trials in the square: the sum of the counts of the lattice squares it holds. */
   n: number;
+  /** Of them, the trials with a value: what the statistic rests on, and what the floor is applied to beside `n`. */
+  defined: number;
   /** The statistic over them. A thin square keeps its value for the hover and never draws it. */
   value: number | null;
   tone: Tone;
@@ -81,13 +80,18 @@ export interface TrellisModel {
   rowsPath: string;
   colsPath: string;
   stat: TrellisStat;
+  /** The worker's floor and side this model was built with (TRELLIS_MIN_N, TRELLIS_MAX_SIDE). */
+  minN: number;
+  maxSide: number;
+  /** The snapshot the matrix was read at; a pick carries it, so the drill-down compares like with like. */
+  snapshot: LabSnapshot | null;
   rows: AxisGroup[];
   cols: AxisGroup[];
   merged: boolean;
   cells: TrellisCell[][];
   /** The trials in all the squares (the matrix's own total, merged or not). */
   total: number;
-  /** Squares with a trial, with n >= `TRELLIS_MIN_N`, and hatched for having fewer. */
+  /** Squares with a trial, those drawn, and those hatched for having too few trials or too few with a value. */
   tested: number;
   included: number;
   thin: number;
@@ -98,38 +102,47 @@ export interface TrellisModel {
 
 const finite = (v: number | null | undefined): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-/** One square's trials and its value: a lattice square as the server sent it; a merged one summed, and valued by the exact
- *  pooled mean (each part weighted by its trials with a value) when `stat` is the mean, else not at all. */
-function pool(matrix: LabMatrix, rows: AxisGroup, cols: AxisGroup, stat: TrellisStat): { n: number; value: number | null } {
+/** One square's trials, the trials among them with a value, and its value: a lattice square as the server sent it; a merged one
+ *  summed, and valued by the exact pooled mean (each part weighted by its trials with a value) when `stat` is the mean, else
+ *  not at all. A part the server sent no statistics for counts its trials as having a value when it has one. */
+function pool(matrix: LabMatrix, rows: AxisGroup, cols: AxisGroup, stat: TrellisStat): { n: number; defined: number; value: number | null } {
   let n = 0;
+  let defined = 0;
   let weight = 0;
   let sum = 0;
   for (let r = rows.from; r <= rows.to; r++)
     for (let c = cols.from; c <= cols.to; c++) {
       const held = matrix.counts[r]?.[c] ?? 0;
       n += held;
+      if (held === 0) continue;
       const value = finite(matrix.values[r]?.[c]);
       const stats = matrix.stats?.[r]?.[c] ?? null;
-      if (held === 0 || value === null || stats === null) continue;
-      const defined = stats.n - stats.histogram.nulls;
-      if (defined > 0) {
-        weight += defined;
-        sum += value * defined;
+      const withValue = stats === null ? (value === null ? 0 : held) : stats.n - stats.histogram.nulls;
+      defined += withValue;
+      if (value !== null && withValue > 0) {
+        weight += withValue;
+        sum += value * withValue;
       }
     }
-  if (rows.from === rows.to && cols.from === cols.to) return { n, value: n > 0 ? finite(matrix.values[rows.from]?.[cols.from]) : null };
-  return { n, value: stat === 'mean' && weight > 0 ? sum / weight : null };
+  if (rows.from === rows.to && cols.from === cols.to) return { n, defined, value: n > 0 ? finite(matrix.values[rows.from]?.[cols.from]) : null };
+  return { n, defined, value: stat === 'mean' && weight > 0 ? sum / weight : null };
 }
 
-/** An aggregate matrix answer as the trellis draws it: at most 16 × 16 squares. */
-export function trellisModel(matrix: LabMatrix, stat: TrellisStat, metric: string): TrellisModel {
-  const rows = groupAxis(matrix.rows);
-  const cols = groupAxis(matrix.cols);
+/** An aggregate matrix answer as the trellis draws it: at most `TRELLIS_MAX_SIDE` × `TRELLIS_MAX_SIDE` squares. `constants` is what
+ *  the worker sent with the answer (the floor and the side) and `snapshot` the snapshot it was read at. */
+export function trellisModel(matrix: LabMatrix, stat: TrellisStat, metric: string, constants: LabTrellisConstants, snapshot: LabSnapshot | null = null): TrellisModel {
+  const minN = constants.TRELLIS_MIN_N;
+  const maxSide = constants.TRELLIS_MAX_SIDE;
+  const rows = groupAxis(matrix.rows, maxSide);
+  const cols = groupAxis(matrix.cols, maxSide);
   const merged = rows.length < matrix.rows.length || cols.length < matrix.cols.length;
   const pooled = rows.map((rg) => cols.map((cg) => pool(matrix, rg, cg, stat)));
-  const stateOf = (n: number, value: number | null): TrellisState => (n === 0 ? 'untested' : n < TRELLIS_MIN_N ? 'thin' : value === null ? 'undefined' : 'ok');
+  // Drawn needs the floor in trials and in trials with a value (a square of 40 trials with 5 profit factors says almost
+  // nothing); a square with trials but no value at all is its own state.
+  const stateOf = (p: { n: number; defined: number; value: number | null }): TrellisState =>
+    p.n === 0 ? 'untested' : p.n < minN || (p.defined > 0 && p.defined < minN) ? 'thin' : p.value === null ? 'undefined' : 'ok';
   // The scale is the drawn squares' alone: a thin square sets no colour and a losing one is red whatever its rank.
-  const drawn = pooled.map((row) => row.map((p) => (stateOf(p.n, p.value) === 'ok' ? p.value : null)));
+  const drawn = pooled.map((row) => row.map((p) => (stateOf(p) === 'ok' ? p.value : null)));
   const grid: LabMatrix = {
     rows_path: matrix.rows_path,
     cols_path: matrix.cols_path,
@@ -139,12 +152,13 @@ export function trellisModel(matrix: LabMatrix, stat: TrellisStat, metric: strin
     counts: pooled.map((row) => row.map((p) => p.n)),
     basis: matrix.basis,
     legend: matrix.legend,
+    constants: matrix.constants,
   };
   const tones = heatModel(grid, metric, 'aggregate', lowerIsBetter(metric)).squares;
   const cells = pooled.map((row, r) =>
     row.map((p, c): TrellisCell => {
-      const state = stateOf(p.n, p.value);
-      return { r, c, n: p.n, value: p.value, tone: state === 'ok' ? tones[r][c].tone : 'empty', state, rows: rows[r], cols: cols[c] };
+      const state = stateOf(p);
+      return { r, c, n: p.n, defined: p.defined, value: p.value, tone: state === 'ok' ? tones[r][c].tone : 'empty', state, rows: rows[r], cols: cols[c] };
     }),
   );
   const all = cells.flat();
@@ -156,6 +170,9 @@ export function trellisModel(matrix: LabMatrix, stat: TrellisStat, metric: strin
     rowsPath: matrix.rows_path,
     colsPath: matrix.cols_path,
     stat,
+    minN,
+    maxSide,
+    snapshot,
     rows,
     cols,
     merged,
@@ -167,9 +184,9 @@ export function trellisModel(matrix: LabMatrix, stat: TrellisStat, metric: strin
     valueNote: !merged
       ? null
       : stat === 'mean'
-        ? 'squares merged past 16 per axis show the mean of their parts, pooled exactly (a median of the whole cannot be built from its parts)'
-        : 'squares merged past 16 per axis carry no value: a median cannot be built from the medians of its parts',
-    summary: `${size} · ${tested} tested · ${included} with n ≥ ${TRELLIS_MIN_N} · ${thin} hatched`,
+        ? `squares merged past ${maxSide} per axis show the mean of their parts, pooled exactly (a median of the whole cannot be built from its parts)`
+        : `squares merged past ${maxSide} per axis carry no value: a median cannot be built from the medians of its parts`,
+    summary: `${size} · ${tested} tested · ${included} with n ≥ ${minN} · ${thin} hatched`,
   };
 }
 
@@ -183,33 +200,35 @@ export function trellisModel(matrix: LabMatrix, stat: TrellisStat, metric: strin
 export function cellFilter(base: LabFilter, axes: readonly [string, string], rows: readonly [number, number], cols: readonly [number, number]): LabFilter | null {
   const ranges = { ...base.ranges };
   const values = { ...base.values };
+  // The store keeps an `opt:` source's brushes and fixed values under the job's own path (`indicators.ema.length`), the worker
+  // names its axes with the side (`long_side.indicators.ema.length`), and the request prefixes the store's keys when it asks. A
+  // square writes under the key the store already holds for the parameter, so the request carries one entry for it: written
+  // under the other form it would collide with the held one when the keys are prefixed, and one of the two would vanish.
+  const keyFor = (record: Record<string, unknown>, path: string): string => {
+    const bare = path.replace(/^(long|short)_side\./, '');
+    return Object.hasOwn(record, path) || !Object.hasOwn(record, bare) ? path : bare;
+  };
   const apply = ([path, [lo, hi]]: readonly [string, readonly [number, number]]): boolean => {
     if (lo === hi) {
-      values[path] = lo;
+      values[keyFor(values, path)] = lo;
       return true;
     }
-    const held = ranges[path];
+    const key = keyFor(ranges, path);
+    const held = ranges[key];
     const from = held === undefined ? lo : Math.max(lo, Math.min(held[0], held[1]));
     const to = held === undefined ? hi : Math.min(hi, Math.max(held[0], held[1]));
     if (from > to) return false;
-    ranges[path] = [from, to];
+    ranges[key] = [from, to];
     return true;
   };
   if (!apply([axes[0], rows]) || !apply([axes[1], cols])) return null;
   return { ...base, ranges, values, pass: [...base.pass], status: [...base.status] };
 }
 
-/** A picked square: which pair, its two axes and value ranges (equal ends: one value) and the n the matrix gave it. */
-export interface TrellisPick {
-  pair: number;
-  axes: [string, string];
-  rows: [number, number];
-  cols: [number, number];
-  n: number;
-}
-
+/** The square as a pick (the Lab's store keeps it, see `TrellisPick`): its pair, axes and ranges, the n the matrix gave it and the
+ *  snapshot that matrix was read at. */
 export function pickOf(pair: number, model: TrellisModel, cell: TrellisCell): TrellisPick {
-  return { pair, axes: [model.rowsPath, model.colsPath], rows: [cell.rows.lo, cell.rows.hi], cols: [cell.cols.lo, cell.cols.hi], n: cell.n };
+  return { pair, axes: [model.rowsPath, model.colsPath], rows: [cell.rows.lo, cell.rows.hi], cols: [cell.cols.lo, cell.cols.hi], n: cell.n, snapshot: model.snapshot };
 }
 
 /** Whether `cell` of `model` is the picked square: the same pair of parameters and the same two value ranges. */
@@ -225,11 +244,11 @@ export function isPicked(pick: TrellisPick | null, model: TrellisModel, cell: Tr
   );
 }
 
-/** The pick with the n its square has now, when `model` is a newer answer for the same pair and that n moved (a running
- *  source); the same object when nothing changed, so the caller writes nothing. */
+/** The pick with the n its square has now and the snapshot it was read at, when `model` is a newer answer for the same pair and
+ *  either moved (a running source); the same object when nothing changed, so the caller writes nothing. */
 export function refreshedPick(pick: TrellisPick, model: TrellisModel): TrellisPick {
   const now = model.cells.flat().find((cell) => isPicked(pick, model, cell));
-  return now === undefined || now.n === pick.n ? pick : { ...pick, n: now.n };
+  return now === undefined || (now.n === pick.n && sameSnapshot(pick.snapshot, model.snapshot)) ? pick : { ...pick, n: now.n, snapshot: model.snapshot };
 }
 
 /** The drill-down's filter: the Lab's filter plus the picked square (null: it holds no trial, see `cellFilter`). */
@@ -237,11 +256,25 @@ export function pickFilter(base: LabFilter, pick: TrellisPick): LabFilter | null
   return cellFilter(base, pick.axes, pick.rows, pick.cols);
 }
 
-/** Whether the table's total is the square's n. `total` is null while the table's total is being read. */
-export function drillCheck(squareN: number, total: number | null): { match: boolean | null; text: string } {
+/** Whether two answers were read at one snapshot of the source (both null: a source without snapshots). */
+export function sameSnapshot(a: LabSnapshot | null, b: LabSnapshot | null): boolean {
+  return a === null || b === null ? a === b : a.generation === b.generation && a.chunk_watermark === b.chunk_watermark;
+}
+
+/** A snapshot as the drill-down names it. */
+export function snapshotText(snapshot: LabSnapshot | null): string {
+  return snapshot === null ? 'none' : `gen ${snapshot.generation} · chunk ${snapshot.chunk_watermark}`;
+}
+
+/** Whether the table's total is the square's n. `total` is null while the table's total is being read. On a running source the
+ *  two answers can come from different snapshots, and numbers read at two snapshots are not comparable (neither true nor false:
+ *  `match` is null, and the text says so); read at one snapshot they are equal, or one of them is wrong. */
+export function drillCheck(squareN: number, squareSnapshot: LabSnapshot | null, total: number | null, tableSnapshot: LabSnapshot | null): { match: boolean | null; text: string } {
   if (total === null) return { match: null, text: "reading the table's total…" };
+  if (!sameSnapshot(squareSnapshot, tableSnapshot))
+    return { match: null, text: `the square was read at snapshot ${snapshotText(squareSnapshot)} and the table at ${snapshotText(tableSnapshot)}: compared when they agree` };
   if (total === squareN) return { match: true, text: "the square's n and the table's total agree" };
-  return { match: false, text: `the square says ${count(squareN)} and the table ${count(total)}: they were read at different moments, or one of them is wrong` };
+  return { match: false, text: `the square says ${count(squareN)} and the table ${count(total)}: one of them is wrong` };
 }
 
 // --- the pairs ------------------------------------------------------------------------------------------------------
@@ -264,10 +297,10 @@ export interface TrellisPairs {
   line: string;
 }
 
-/** The first `limit` resolved pairs in the order the worker sent them (its priority: the larger Δ first). A pair it could
- *  not resolve (a thinly covered value grid) is never drawn, and a view with no stage delivered holds no pair: nothing is
- *  guessed. */
-export function trellisPairs(view: LabInteractions | null, limit = TRELLIS_PAIRS): TrellisPairs {
+/** The first `limit` (the worker's TRELLIS_PAIRS) resolved pairs in the order the worker sent them (its priority: the larger Δ
+ *  first). A pair it could not resolve (a thinly covered value grid) is never drawn, and a view with no stage delivered holds no
+ *  pair: nothing is guessed. */
+export function trellisPairs(view: LabInteractions | null, limit: number): TrellisPairs {
   if (view === null || view.computed === null) return { pairs: [], resolved: 0, line: '' };
   const resolved = view.pairs.filter((p) => !p.unresolved);
   const pairs = resolved.slice(0, limit).map((p): TrellisPairSpec => {
@@ -505,20 +538,48 @@ export function rangeText([lo, hi]: readonly [number, number]): string {
 }
 
 /** A square's hover title: where it is, and then what it holds, or why it shows nothing. A thin square's value is named in its
- *  hover and nowhere else: it is not drawn and sets no colour. */
+ *  hover and nowhere else: it is not drawn and sets no colour. When not every trial has a value, the title says how many do and
+ *  what the floor needs of them. */
 export function cellTitle(model: TrellisModel, cell: TrellisCell, metric: string): string {
   const where = `${axisLabel(model.rowsPath)} = ${rangeText([cell.rows.lo, cell.rows.hi])} / ${axisLabel(model.colsPath)} = ${rangeText([cell.cols.lo, cell.cols.hi])}`;
   const value = cell.value === null ? null : `${model.stat} ${objectiveText(metric, cell.value)}`;
+  const held = cell.defined === cell.n ? `n ${count(cell.n)}` : `n ${count(cell.n)} · ${count(cell.defined)} with a value (needs ${count(model.minN)})`;
   switch (cell.state) {
     case 'untested':
       return `${where} · untested: no trial`;
     case 'thin':
-      return `${where} · n ${count(cell.n)}: under ${TRELLIS_MIN_N}, hatched and left out of the scale${value === null ? '' : ` (${value}, not drawn)`}`;
+      return `${where} · ${held}: ${cell.n < model.minN ? `under ${count(model.minN)}, ` : ''}hatched and left out of the scale${value === null ? '' : ` (${value}, not drawn)`}`;
     case 'undefined':
-      return `${where} · n ${count(cell.n)} · no ${metric} value${model.merged ? ' (a merged median is not pooled)' : ''}`;
+      return `${where} · ${held} · no ${metric} value${model.merged ? ' (a merged median is not pooled)' : ''}`;
     default:
-      return `${where} · ${value} · n ${count(cell.n)}`;
+      return `${where} · ${value} · ${held}`;
   }
+}
+
+/** The trellis legend: what a square is, a loss, a hatched square. The floor and the side are the worker's, printed as it sent them;
+ *  before it has sent any the legend names no number. */
+export function trellisLegend(metric: string, constants: LabTrellisConstants | null): string {
+  const side = constants === null ? 'more values than the worker allows per axis' : `more than ${constants.TRELLIS_MAX_SIDE} values`;
+  const floor = constants === null ? 'too few trials, or too few with a value' : `under ${constants.TRELLIS_MIN_N} trials or under ${constants.TRELLIS_MIN_N} with a value`;
+  return `Each square is the ${metricName(metric)} of the trials with its two values (the median; the mean where an axis has ${side} and its squares are merged), a loss is red · hatched and without a colour = ${floor}, left out (n is shown) · hatched and empty = untested · the number on a square is its n · click a square for its trials.`;
+}
+
+const ARROW_STEPS: Record<string, readonly [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+
+/** Where an arrow key moves focus inside a grid of `rows` × `cols` squares: the neighbouring square, held at the edge. Null for a
+ *  key that is not an arrow (or a grid with no square). */
+export function arrowTarget(rows: number, cols: number, from: { r: number; c: number }, key: string): { r: number; c: number } | null {
+  const step = ARROW_STEPS[key];
+  if (step === undefined || rows <= 0 || cols <= 0) return null;
+  return { r: Math.min(Math.max(from.r + step[0], 0), rows - 1), c: Math.min(Math.max(from.c + step[1], 0), cols - 1) };
+}
+
+/** The square that is the tab stop of a pair's grid: the picked square, else the first tested one, else the first (a grid with
+ *  no tested square is still reached). The other squares are reached by the arrow keys. Null for a grid with no square. */
+export function rovingCell(model: TrellisModel, pick: TrellisPick | null): { r: number; c: number } | null {
+  const all = model.cells.flat();
+  const found = all.find((cell) => isPicked(pick, model, cell)) ?? all.find((cell) => cell.n > 0) ?? all[0];
+  return found === undefined ? null : { r: found.r, c: found.c };
 }
 
 /** A neighbourhood-map square's hover: where it is and what it holds, its spread, and why it is ringed. */

@@ -12,18 +12,8 @@ import { bareMetric, breakEven, objectiveText } from './metricRules';
 
 export { bareMetric };
 
-/** The chart asks again at most this often while its source runs: a new chunk is a server cache miss that costs up to
- *  1.8 s at 1M trials (decision 10), so it is not tied to the 2 s refresh tick. */
-export const CONVERGENCE_REFRESH_MS = 30_000;
-
-/** The wait before the next ask: never while the source is not running (it was asked when it settled), at once when it was
- *  never asked, else what is left of the interval since `lastAskedAt`. A clock that went back never waits longer than the
- *  interval. Milliseconds. */
-export function refreshDelay(live: boolean, lastAskedAt: number | null, now: number): number | null {
-  if (!live) return null;
-  if (lastAskedAt === null) return 0;
-  return Math.min(CONVERGENCE_REFRESH_MS, Math.max(0, CONVERGENCE_REFRESH_MS - (now - lastAskedAt)));
-}
+// The cadence the chart began with is every expensive panel's now (`refreshRule.ts`); it is re-exported for the chart's own tests.
+export { CONVERGENCE_REFRESH_MS, refreshDelay } from './refreshRule';
 
 export interface Vertex {
   x: number;

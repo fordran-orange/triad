@@ -3,6 +3,7 @@ import {
   activeFilterCount,
   canonicalFilter,
   cellIndex,
+  clearableCount,
   clearActions,
   filterHash,
   initialLabState,
@@ -12,6 +13,7 @@ import {
   type LabFilter,
   type LabState,
   type SquareSelection,
+  type TrellisPick,
 } from './labStore';
 import { squareFilter } from './labQuery';
 
@@ -41,6 +43,7 @@ describe('initialLabState', () => {
     expect(initialLabState.pins).toEqual({});
     expect(initialLabState.cursor).toBeNull();
     expect(initialLabState.maximized).toBe(false);
+    expect(initialLabState.familiesPick).toBeNull();
   });
 });
 
@@ -578,6 +581,47 @@ describe('clearActions', () => {
     const held = filter({ ranges: { a: [1, 2], c: [3, 4] }, values: { b: 3 }, scope: 'long', pass: ['IS'], status: ['ok'] });
     const cleared = clearActions(held).reduce((s, action) => labReducer(s, action), state({ filter: held }));
     expect(cleared.filter).toEqual({ ranges: {}, values: {}, scope: 'combined', pass: ['IS'], status: ['ok'] });
-    expect(clearActions(initialLabState.filter)).toEqual([{ type: 'SET_SCOPE', scope: 'combined' }]);
+    expect(clearActions(initialLabState.filter)).toEqual([{ type: 'SET_SCOPE', scope: 'combined' }, { type: 'SET_FAMILIES_PICK', pick: null }]);
+  });
+
+  it('counts only what it clears: the pass and status chips are the table\'s own and are not counted', () => {
+    expect(clearableCount(initialLabState.filter)).toBe(0);
+    expect(clearableCount(filter({ pass: ['IS'], status: ['ok', 'failed'] }))).toBe(0);
+    expect(clearableCount(filter({ ranges: { a: [1, 2] } }))).toBe(1);
+    expect(clearableCount(filter({ values: { a: 1 } }))).toBe(1);
+    expect(clearableCount(filter({ scope: 'short' }))).toBe(1);
+    expect(clearableCount(filter({ ranges: { a: [1, 2], b: [3, 4] }, values: { c: 1 }, scope: 'long', pass: ['IS'], status: ['ok'] }))).toBe(4);
+    // activeFilterCount still counts the chips: it is the chip's `Linked · k filters`.
+    expect(activeFilterCount(filter({ pass: ['IS'], status: ['ok'] }))).toBe(2);
+  });
+});
+
+describe('the picked trellis square', () => {
+  const pick: TrellisPick = { pair: 1, axes: ['long_side.indicators.ema.length', 'long_side.stop_loss_pct'], rows: [15, 15], cols: [3, 4], n: 120, snapshot: { generation: 2, chunk_watermark: 5 } };
+  const held = state({ source: EXP, familiesPick: pick });
+
+  it('is kept in the store, so leaving Screen E and coming back finds it', () => {
+    const picked = labReducer(initialLabState, { type: 'SET_FAMILIES_PICK', pick });
+    expect(picked.familiesPick).toBe(pick);
+    // Another view, another tab, a brush and a fixed value are not the square's business.
+    let later = labReducer(picked, { type: 'SET_VIEW', view: 'trials' });
+    later = labReducer(later, { type: 'SET_TAB', tab: 'pareto' });
+    later = labReducer(later, { type: 'SET_RANGE', path: 'a', range: [1, 2] });
+    later = labReducer(later, { type: 'FIX_VALUE', path: 'b', value: 3 });
+    expect(later.familiesPick).toBe(pick);
+    expect(labReducer(later, { type: 'SET_FAMILIES_PICK', pick: null }).familiesPick).toBeNull();
+  });
+
+  it('goes when the source changes: another source has other pairs', () => {
+    expect(labReducer(held, { type: 'OPEN_SOURCE', source: { kind: 'exp', id: 'e2' } }).familiesPick).toBeNull();
+    expect(labReducer(held, { type: 'OPEN_SOURCE', source: { kind: 'opt', id: 'j1' } }).familiesPick).toBeNull();
+    expect(labReducer(held, { type: 'SOURCE_FAILED', message: 'no such source' }).familiesPick).toBeNull();
+  });
+
+  it('goes with the filter\'s Clear, as the chip and the pinned filters dispatch it', () => {
+    const withBrush = state({ ...held, filter: filter({ ranges: { a: [1, 2] }, pass: ['IS'] }) });
+    const cleared = clearActions(withBrush.filter).reduce((s, action) => labReducer(s, action), withBrush);
+    expect(cleared.familiesPick).toBeNull();
+    expect(cleared.filter).toEqual({ ranges: {}, values: {}, scope: 'combined', pass: ['IS'], status: [] });
   });
 });

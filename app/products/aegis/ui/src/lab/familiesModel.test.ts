@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { Parameter, StrategySpec, Surface } from '../contracts';
-import type { LabMatrix, LabParameter, LabSquareStats } from '../results';
+import type { LabMatrix, LabParameter, LabSnapshot, LabSquareStats, LabTrellisConstants } from '../results';
 import { candidateCard, categoryA, categoryB, interactions, labCounts, pair, PATHS } from './analyticsFixtures';
 import { families } from './catalog';
 import {
@@ -18,24 +18,29 @@ import {
   neighbourhoodTitle,
   rangeText,
   refreshedPick,
+  arrowTarget,
+  rovingCell,
+  trellisLegend,
   familyTree,
   groupAxis,
   neighbourhoodModel,
   pickOf,
   pickFilter,
-  TRELLIS_MAX_SIDE,
-  TRELLIS_MIN_N,
   trellisModel,
   trellisPairs,
   trellisStat,
 } from './familiesModel';
 import { DrillCheck, FamiliesPage } from './FamiliesPage';
-import type { LabFilter } from './labStore';
+import { optBody, queryBody } from './labQuery';
+import { initialLabState, type LabFilter } from './labStore';
+import { metricName } from './metricRules';
 import { CrumbSteps } from './ScopeBreadcrumb';
 import { TrellisGrid } from './Trellis';
 import type { LabQueryData } from './useLabQuery';
 
 const NONE: LabFilter = { ranges: {}, values: {}, scope: 'combined', pass: [], status: [] };
+/** What the worker sends in a matrix's and the interactions' `constants`: the trellis reads these, it holds none of its own. */
+const C: LabTrellisConstants = { TRELLIS_MIN_N: 30, TRELLIS_MAX_SIDE: 16, TRELLIS_PAIRS: 6 };
 const ROWS_PATH = 'long_side.indicators.ema.length';
 const COLS_PATH = 'long_side.stop_loss_pct';
 const OTHER_PATH = 'long_side.indicators.sma.length';
@@ -58,6 +63,7 @@ function aggregate(rows: number[], cols: number[], at: (r: number, c: number) =>
     counts: squares.map((row) => row.map((s) => s.n)),
     basis: 'Aggregated from tested (n = 0)',
     legend: 'Aggregated n ≥ 8 / n < 8 low',
+    constants: C,
     stats: squares.map((row) => row.map((s) => (s.n > 0 ? stats(s.n, s.nulls ?? 0, { p25: s.p25 === undefined ? 1 : s.p25, p75: s.p75 === undefined ? 3 : s.p75 }) : null))),
   };
 }
@@ -66,35 +72,45 @@ const range = (from: number, to: number, step = 1) => Array.from({ length: Math.
 
 describe('the axes of a trellis square', () => {
   it('keeps a lattice of up to 16 values as it is, one square per value', () => {
-    expect(TRELLIS_MAX_SIDE).toBe(16);
-    const groups = groupAxis(range(5, 60, 5)); // 12 values
+    const groups = groupAxis(range(5, 60, 5), 16); // 12 values
     expect(groups).toHaveLength(12);
     expect(groups.every((g) => g.from === g.to && g.lo === g.hi)).toBe(true);
-    expect(groupAxis(range(1, 16))).toHaveLength(16);
+    expect(groupAxis(range(1, 16), 16)).toHaveLength(16);
   });
 
   it('merges neighbours past 16 into at most 16 contiguous groups that cover the lattice once, in order', () => {
     const values = range(1, 10, 0.5); // 19 values: the stop-loss axis of the benchmark
-    const groups = groupAxis(values);
+    const groups = groupAxis(values, 16);
     expect(groups).toHaveLength(10);
     expect(groups[0]).toEqual({ from: 0, to: 1, lo: 1, hi: 1.5 });
     expect(groups[9]).toEqual({ from: 18, to: 18, lo: 10, hi: 10 });
     for (const length of [17, 19, 33, 100, 199, 200]) {
-      const g = groupAxis(range(1, length));
+      const g = groupAxis(range(1, length), 16);
       expect(g.length).toBeLessThanOrEqual(16);
       expect(g[0].from).toBe(0);
       expect(g[g.length - 1].to).toBe(length - 1);
       for (let i = 1; i < g.length; i++) expect(g[i].from).toBe(g[i - 1].to + 1);
     }
-    expect(groupAxis([])).toEqual([]);
+    expect(groupAxis([], 16)).toEqual([]);
   });
 
   it('asks for the median, and for the mean only where merging will need a statistic that can be pooled', () => {
-    expect(trellisStat(12, 14)).toBe('median');
-    expect(trellisStat(16, 16)).toBe('median');
-    expect(trellisStat(19, 12)).toBe('mean');
-    expect(trellisStat(12, 17)).toBe('mean');
-    expect(trellisStat(null, 12)).toBe('median'); // a count not known: the pooled value is withheld rather than guessed
+    expect(trellisStat(12, 14, 16)).toBe('median');
+    expect(trellisStat(16, 16, 16)).toBe('median');
+    expect(trellisStat(19, 12, 16)).toBe('mean');
+    expect(trellisStat(12, 17, 16)).toBe('mean');
+    expect(trellisStat(null, 12, 16)).toBe('median'); // a count not known: the pooled value is withheld rather than guessed
+  });
+
+  it('takes the side from the worker: an axis merges past the limit it is given, not past a literal', () => {
+    expect(groupAxis(range(1, 12), 8)).toHaveLength(6); // 12 values in groups of 2
+    expect(groupAxis(range(1, 12), 16)).toHaveLength(12);
+    expect(trellisStat(10, 6, 8)).toBe('mean');
+    expect(trellisStat(10, 6, 16)).toBe('median');
+    const model = trellisModel(aggregate(range(1, 12), [1, 2], () => ({ n: 40, value: 1 })), 'mean', 'net_pnl', { ...C, TRELLIS_MAX_SIDE: 8 });
+    expect(model.merged).toBe(true);
+    expect(model.rows).toHaveLength(6);
+    expect(model.valueNote).toContain('merged past 8 per axis');
   });
 });
 
@@ -102,8 +118,15 @@ describe('a trellis pair\'s squares', () => {
   const rows = range(5, 60, 5);
   const cols = range(1, 8);
 
+  it('takes the floor from the worker: 20 trials draw when it says 20 and are hatched when it says 40', () => {
+    const one = aggregate([1], [1], () => ({ n: 20, value: 1 }));
+    expect(trellisModel(one, 'median', 'net_pnl', { ...C, TRELLIS_MIN_N: 20 }).cells[0][0].state).toBe('ok');
+    expect(trellisModel(one, 'median', 'net_pnl', { ...C, TRELLIS_MIN_N: 40 }).cells[0][0].state).toBe('thin');
+    expect(trellisModel(one, 'median', 'net_pnl', { ...C, TRELLIS_MIN_N: 40 })).toMatchObject({ minN: 40, maxSide: 16 });
+  });
+
   it('shows each square of a lattice up to 16 × 16 as the server sent it: its n and its median', () => {
-    const m = trellisModel(aggregate(rows, cols, (r, c) => ({ n: 40 + r, value: r * 10 + c })), 'median', 'net_pnl');
+    const m = trellisModel(aggregate(rows, cols, (r, c) => ({ n: 40 + r, value: r * 10 + c })), 'median', 'net_pnl', C);
     expect(m.merged).toBe(false);
     expect(m.rows).toHaveLength(12);
     expect(m.cols).toHaveLength(8);
@@ -112,39 +135,62 @@ describe('a trellis pair\'s squares', () => {
   });
 
   it('hatches a tested square under 30 trials and leaves it out of the scale: it carries no tone and sets no colour', () => {
-    expect(TRELLIS_MIN_N).toBe(30);
     // The best value sits in a thin square (n 10). Were it in the scale, 100 would not be the top third of the gains.
-    const m = trellisModel(aggregate([1, 2], [1, 2], (r, c) => ({ n: [[40, 10], [40, 35]][r][c], value: [[100, 5000], [-30, 50]][r][c] })), 'median', 'net_pnl');
+    const m = trellisModel(aggregate([1, 2], [1, 2], (r, c) => ({ n: [[40, 10], [40, 35]][r][c], value: [[100, 5000], [-30, 50]][r][c] })), 'median', 'net_pnl', C);
     expect(m.cells[0][1]).toMatchObject({ n: 10, state: 'thin', tone: 'empty' });
     expect(m.cells[0][1].value).toBe(5000); // kept for the hover, never drawn
     expect(m.cells[0][0].tone).toBe('hot');
     expect(m.cells[1][1].tone).toBe('gain');
     expect(m.thin).toBe(1);
     expect(m.included).toBe(3);
-    expect(trellisModel(aggregate([1], [1], () => ({ n: 29, value: 1 })), 'median', 'net_pnl').cells[0][0].state).toBe('thin');
-    expect(trellisModel(aggregate([1], [1], () => ({ n: 30, value: 1 })), 'median', 'net_pnl').cells[0][0].state).toBe('ok');
+    expect(trellisModel(aggregate([1], [1], () => ({ n: 29, value: 1 })), 'median', 'net_pnl', C).cells[0][0].state).toBe('thin');
+    expect(trellisModel(aggregate([1], [1], () => ({ n: 30, value: 1 })), 'median', 'net_pnl', C).cells[0][0].state).toBe('ok');
   });
 
   it('paints a losing square red whatever its rank: a P&L-signed value below zero is never green or best', () => {
-    const m = trellisModel(aggregate([1, 2], [1, 2], (r, c) => ({ n: 50, value: [[-5, -1], [-9, -3]][r][c] })), 'median', 'net_pnl');
+    const m = trellisModel(aggregate([1, 2], [1, 2], (r, c) => ({ n: 50, value: [[-5, -1], [-9, -3]][r][c] })), 'median', 'net_pnl', C);
     expect(m.cells.flat().every((cell) => cell.tone === 'loss')).toBe(true);
     // A drawdown has no profit sign: the lowest is the best, and nothing is a loss.
-    const dd = trellisModel(aggregate([1, 2], [1, 2], (r, c) => ({ n: 50, value: [[0.05, 0.3], [0.5, 0.2]][r][c] })), 'median', 'max_drawdown');
+    const dd = trellisModel(aggregate([1, 2], [1, 2], (r, c) => ({ n: 50, value: [[0.05, 0.3], [0.5, 0.2]][r][c] })), 'median', 'max_drawdown', C);
     expect(dd.cells[0][0].tone).toBe('hot');
     expect(dd.cells.flat().some((cell) => cell.tone === 'loss')).toBe(false);
   });
 
   it('leaves an untested square hatched with no value, and a tested square with no defined metric without a tone', () => {
-    const m = trellisModel(aggregate([1, 2], [1, 2], (r, c) => (r === 0 && c === 0 ? { n: 0 } : r === 0 ? { n: 50, value: null, nulls: 50 } : { n: 50, value: 3 })), 'median', 'mar');
+    const m = trellisModel(aggregate([1, 2], [1, 2], (r, c) => (r === 0 && c === 0 ? { n: 0 } : r === 0 ? { n: 50, value: null, nulls: 50 } : { n: 50, value: 3 })), 'median', 'mar', C);
     expect(m.cells[0][0]).toMatchObject({ n: 0, value: null, state: 'untested', tone: 'empty' });
     expect(m.cells[0][1]).toMatchObject({ n: 50, value: null, state: 'undefined', tone: 'empty' });
     expect(m.tested).toBe(3);
   });
 
+  it('draws a square only when 30 of its trials have a value: n is the trials, the tone rests on those with one', () => {
+    // 40 trials, 5 of them with a profit factor: hot on five values would be a colour on almost nothing.
+    const at = (r: number, c: number): Square => (r === 0 && c === 0 ? { n: 40, value: 900, nulls: 35 } : { n: 40, value: 1 + r * 2 + c });
+    const m = trellisModel(aggregate([1, 2], [1, 2], at), 'median', 'profit_factor', C);
+    expect(m.cells[0][0]).toMatchObject({ n: 40, defined: 5, state: 'thin', tone: 'empty', value: 900 });
+    expect(m.cells[0][1]).toMatchObject({ n: 40, defined: 40, state: 'ok' });
+    expect([m.thin, m.included, m.tested]).toEqual([1, 3, 4]);
+    // The best value sits in the thin square and sets no colour: the other three share the scale.
+    expect(m.cells[1][1].tone).toBe('hot');
+    const edge = (nulls: number) => trellisModel(aggregate([1], [1], () => ({ n: 100, value: nulls === 100 ? null : 3, nulls })), 'median', 'net_pnl', C).cells[0][0];
+    expect(edge(71)).toMatchObject({ n: 100, defined: 29, state: 'thin' });
+    expect(edge(70)).toMatchObject({ n: 100, defined: 30, state: 'ok' });
+    expect(edge(100)).toMatchObject({ n: 100, defined: 0, value: null, state: 'undefined' }); // no value at all is its own state, not a thin one
+  });
+
+  it('sums the trials with a value over a merged square', () => {
+    const wide = range(1, 17); // rows 0 and 1 merge
+    const two = (nulls: number) => trellisModel(aggregate(wide, [1], (r) => (r < 2 ? { n: 40, value: 5, nulls } : { n: 50, value: 1 })), 'mean', 'net_pnl', C).cells[0][0];
+    expect(two(20)).toMatchObject({ n: 80, defined: 40, state: 'ok' });
+    expect(two(30)).toMatchObject({ n: 80, defined: 20, state: 'thin' });
+    // A merged median is withheld, but how many trials have a value is still known: a few of them are thin, none is undefined.
+    expect(trellisModel(aggregate(wide, [1], (r) => (r < 2 ? { n: 40, value: 5, nulls: 30 } : { n: 50, value: 1 })), 'median', 'net_pnl', C).cells[0][0]).toMatchObject({ defined: 20, value: null, state: 'thin' });
+  });
+
   it('merges a lattice past 16 into groups whose n sums, so the trials are all still counted', () => {
     const wide = range(1, 10, 0.5); // 19
     const counts = (r: number, c: number) => 5 + ((r * 7 + c * 3) % 9);
-    const m = trellisModel(aggregate(wide, cols, (r, c) => ({ n: counts(r, c), value: r + c })), 'mean', 'net_pnl');
+    const m = trellisModel(aggregate(wide, cols, (r, c) => ({ n: counts(r, c), value: r + c })), 'mean', 'net_pnl', C);
     expect(m.merged).toBe(true);
     expect(m.rows).toHaveLength(10);
     expect(m.cols).toHaveLength(8);
@@ -158,29 +204,29 @@ describe('a trellis pair\'s squares', () => {
   it('pools a merged mean exactly, weighting each square by its trials with a value; a median cannot be pooled and is withheld', () => {
     const wide = range(1, 17); // 17 values: rows 0 and 1 merge
     const at = (r: number): Square => (r === 0 ? { n: 40, value: 10 } : r === 1 ? { n: 60, value: 20, nulls: 10 } : { n: 50, value: 1 });
-    const mean = trellisModel(aggregate(wide, [1], at), 'mean', 'net_pnl');
+    const mean = trellisModel(aggregate(wide, [1], at), 'mean', 'net_pnl', C);
     expect(mean.cells[0][0].n).toBe(100);
     expect(mean.cells[0][0].value).toBeCloseTo((10 * 40 + 20 * 50) / 90, 10); // 60 trials, 10 of them without a value
-    const median = trellisModel(aggregate(wide, [1], at), 'median', 'net_pnl');
+    const median = trellisModel(aggregate(wide, [1], at), 'median', 'net_pnl', C);
     expect(median.cells[0][0].n).toBe(100);
     expect(median.cells[0][0].value).toBeNull();
     expect(median.cells[0][0].state).toBe('undefined');
     expect(median.valueNote).toBe('squares merged past 16 per axis carry no value: a median cannot be built from the medians of its parts');
     expect(mean.valueNote).toBe('squares merged past 16 per axis show the mean of their parts, pooled exactly (a median of the whole cannot be built from its parts)');
-    expect(trellisModel(aggregate(range(1, 10), [1], () => ({ n: 40, value: 1 })), 'median', 'net_pnl').valueNote).toBeNull();
+    expect(trellisModel(aggregate(range(1, 10), [1], () => ({ n: 40, value: 1 })), 'median', 'net_pnl', C).valueNote).toBeNull();
   });
 
   it('a group of untested squares stays untested: nothing is filled from the squares beside it', () => {
     const wide = range(1, 17);
-    const m = trellisModel(aggregate(wide, [1], (r) => (r < 2 ? { n: 0 } : { n: 50, value: 4 })), 'mean', 'net_pnl');
+    const m = trellisModel(aggregate(wide, [1], (r) => (r < 2 ? { n: 0 } : { n: 50, value: 4 })), 'mean', 'net_pnl', C);
     expect(m.cells[0][0]).toMatchObject({ n: 0, value: null, state: 'untested' });
     expect(m.cells[1][0].state).toBe('ok');
   });
 
   it('names the pair\'s size and basis for the panel', () => {
-    const m = trellisModel(aggregate(rows, cols, () => ({ n: 40, value: 1 })), 'median', 'net_pnl');
+    const m = trellisModel(aggregate(rows, cols, () => ({ n: 40, value: 1 })), 'median', 'net_pnl', C);
     expect(m.summary).toBe('12 × 8 squares · 96 tested · 96 with n ≥ 30 · 0 hatched');
-    const merged = trellisModel(aggregate(range(1, 17), [1, 2], () => ({ n: 40, value: 1 })), 'mean', 'net_pnl');
+    const merged = trellisModel(aggregate(range(1, 17), [1, 2], () => ({ n: 40, value: 1 })), 'mean', 'net_pnl', C);
     expect(merged.summary).toBe('9 × 2 squares (merged from 17 × 2 values) · 18 tested · 18 with n ≥ 30 · 0 hatched');
   });
 });
@@ -216,7 +262,7 @@ describe('the drill-down keeps the count', () => {
   ];
   for (const [name, filter] of filters) {
     it(`a square's n is the page total for the filter plus that square: unmerged lattice, ${name}`, () => {
-      const m = trellisModel(matrixOf(filter, emas, range(1, 5, 0.5)), 'median', 'net_pnl'); // 12 × 9: nothing merges
+      const m = trellisModel(matrixOf(filter, emas, range(1, 5, 0.5)), 'median', 'net_pnl', C); // 12 × 9: nothing merges
       expect(m.merged).toBe(false);
       let checked = 0;
       for (const row of m.cells)
@@ -231,7 +277,7 @@ describe('the drill-down keeps the count', () => {
     });
 
     it(`a merged square's n is the page total for the filter plus its two ranges: 19 stop-loss values in 10 groups, ${name}`, () => {
-      const m = trellisModel(matrixOf(filter, emas, stops), 'mean', 'net_pnl');
+      const m = trellisModel(matrixOf(filter, emas, stops), 'mean', 'net_pnl', C);
       expect(m.merged).toBe(true);
       expect(m.cols).toHaveLength(10);
       let checked = 0;
@@ -275,19 +321,99 @@ describe('the drill-down keeps the count', () => {
   });
 
   it('a pick is the square\'s defining filter, with the n the matrix gave it', () => {
-    const m = trellisModel(matrixOf(NONE, emas, stops), 'mean', 'net_pnl');
+    const m = trellisModel(matrixOf(NONE, emas, stops), 'mean', 'net_pnl', C);
     const cell = m.cells[2][3];
     const pick = pickOf(1, m, cell);
-    expect(pick).toEqual({ pair: 1, axes: [ROWS_PATH, COLS_PATH], rows: [cell.rows.lo, cell.rows.hi], cols: [cell.cols.lo, cell.cols.hi], n: cell.n });
+    expect(pick).toEqual({ pair: 1, axes: [ROWS_PATH, COLS_PATH], rows: [cell.rows.lo, cell.rows.hi], cols: [cell.cols.lo, cell.cols.hi], n: cell.n, snapshot: null });
+    const read = trellisModel(matrixOf(NONE, emas, stops), 'mean', 'net_pnl', C, { generation: 2, chunk_watermark: 7 });
+    expect(pickOf(1, read, read.cells[2][3]).snapshot).toEqual({ generation: 2, chunk_watermark: 7 }); // the n of a pick is of a snapshot
     expect(pickFilter({ ...NONE, ranges: { [OTHER_PATH]: [30, 50] } }, pick)).toEqual(cellFilter({ ...NONE, ranges: { [OTHER_PATH]: [30, 50] } }, pick.axes, pick.rows, pick.cols));
   });
 
-  it('compares the square\'s n with the page total and says so when they differ', () => {
-    expect(drillCheck(120, 120)).toMatchObject({ match: true, text: 'the square\'s n and the table\'s total agree' });
-    expect(drillCheck(120, 118)).toMatchObject({ match: false });
-    expect(drillCheck(120, 118).text).toBe('the square says 120 and the table 118: they were read at different moments, or one of them is wrong');
-    expect(drillCheck(120, null)).toEqual({ match: null, text: 'reading the table\'s total…' });
+  it('compares the square\'s n with the page total when both were read at one snapshot, and says so when they differ', () => {
+    const at = { generation: 3, chunk_watermark: 12 };
+    expect(drillCheck(120, at, 120, { ...at })).toMatchObject({ match: true, text: 'the square\'s n and the table\'s total agree' });
+    expect(drillCheck(120, at, 118, at)).toEqual({ match: false, text: 'the square says 120 and the table 118: one of them is wrong' });
+    expect(drillCheck(120, at, null, null)).toEqual({ match: null, text: 'reading the table\'s total…' });
+    expect(drillCheck(120, null, 120, null).match).toBe(true); // a source without snapshots: its numbers are all there is to compare
+    expect(drillCheck(120, null, 118, null).match).toBe(false);
   });
+
+  it('does not compare numbers read at different snapshots: a running source moves between two reads', () => {
+    const s1: LabSnapshot = { generation: 3, chunk_watermark: 12 };
+    const s2: LabSnapshot = { generation: 3, chunk_watermark: 13 };
+    const differ = drillCheck(120, s1, 118, s2);
+    expect(differ).toEqual({ match: null, text: 'the square was read at snapshot gen 3 · chunk 12 and the table at gen 3 · chunk 13: compared when they agree' });
+    expect(drillCheck(120, s1, 120, s2).match).toBeNull(); // equal numbers at two snapshots prove nothing either
+    expect(drillCheck(120, { generation: 4, chunk_watermark: 12 }, 118, s1).match).toBeNull(); // another generation is another snapshot
+    expect(drillCheck(120, null, 118, s1)).toEqual({ match: null, text: 'the square was read at snapshot none and the table at gen 3 · chunk 12: compared when they agree' });
+  });
+});
+
+describe('the drill-down keeps the count on an opt: source', () => {
+  // The Lab keeps a job's brushes and fixed values under the job's own paths (`indicators.ema.length`); the trellis names its
+  // axes as the worker does (`long_side.indicators.ema.length`), and `optBody` prefixes the store's keys when it asks.
+  const bare = (path: string) => path.replace(/^long_side\./, '');
+  const asked = (store: LabFilter, extra: LabFilter) => optBody(queryBody({ ...initialLabState, filter: store }, 'page', { filter: extra }), 'long').filter;
+
+  it('cuts a held brush on a merged axis to the group, under the store\'s own key: one range, not a pair that collapses', () => {
+    const store: LabFilter = { ...NONE, ranges: { [bare(ROWS_PATH)]: [20, 40] } };
+    const f = cellFilter(store, [ROWS_PATH, COLS_PATH], [10, 30], [3, 3])!;
+    expect(Object.keys(f.ranges)).toEqual([bare(ROWS_PATH)]); // written where the store holds it
+    const request = asked(store, f);
+    expect(Object.keys(request.ranges)).toEqual([ROWS_PATH]);
+    expect(request.ranges[ROWS_PATH]).toEqual([20, 30]); // the brush and the group, not the group alone
+    expect(request.values).toEqual({ [COLS_PATH]: 3 });
+    // A group the store holds nothing for is written under the worker's path, as before.
+    const free = cellFilter(NONE, [ROWS_PATH, COLS_PATH], [10, 30], [3, 3])!;
+    expect(free.ranges).toEqual({ [ROWS_PATH]: [10, 30] });
+  });
+
+  it('keeps one entry for a fixed value on the square\'s axis', () => {
+    const store: LabFilter = { ...NONE, values: { [bare(COLS_PATH)]: 3 } };
+    const f = cellFilter(store, [ROWS_PATH, COLS_PATH], [15, 15], [3, 3])!;
+    expect(f.values).toEqual({ [ROWS_PATH]: 15, [bare(COLS_PATH)]: 3 });
+    expect(asked(store, f).values).toEqual({ [ROWS_PATH]: 15, [COLS_PATH]: 3 });
+    // The exp: source keeps the worker's own paths in the store, and nothing moves.
+    const exp: LabFilter = { ...NONE, ranges: { [ROWS_PATH]: [20, 40] } };
+    expect(cellFilter(exp, [ROWS_PATH, COLS_PATH], [10, 30], [3, 3])!.ranges).toEqual({ [ROWS_PATH]: [20, 30] });
+  });
+
+  // The trials as the worker holds them (its paths), the store's filters as an opt: source holds them (the job's paths).
+  const stops = range(1, 10, 0.5);
+  const emas = range(5, 60, 5);
+  const smas = range(20, 60, 10);
+  const trials: Array<Record<string, number>> = [];
+  stops.forEach((stop, i) => emas.forEach((ema, j) => smas.forEach((sma, k) => {
+    for (let copy = 0; copy < (i * 7 + j * 3 + k * 5) % 6; copy++) trials.push({ [COLS_PATH]: stop, [ROWS_PATH]: ema, [OTHER_PATH]: sma });
+  })));
+  const passing = (f: LabFilter) => trials.filter((t) => passes(t, f));
+  const matrixAsked = (server: LabFilter, rowVals: number[], colVals: number[]): LabMatrix => {
+    const kept = passing(server);
+    return aggregate(rowVals, colVals, (r, c) => ({ n: kept.filter((t) => t[ROWS_PATH] === rowVals[r] && t[COLS_PATH] === colVals[c]).length, value: r + c }));
+  };
+  const stores: Array<[string, LabFilter]> = [
+    ['no filter', NONE],
+    ['a range on a third parameter', { ...NONE, ranges: { [bare(OTHER_PATH)]: [30, 50] } }],
+    ['a brush across both axes', { ...NONE, ranges: { [bare(COLS_PATH)]: [2.5, 8], [bare(ROWS_PATH)]: [15, 45] } }],
+    ['a brush on the merged axis alone', { ...NONE, ranges: { [bare(COLS_PATH)]: [2.5, 8] } }],
+    ['a fixed value on a third parameter', { ...NONE, values: { [bare(OTHER_PATH)]: 40 } }],
+  ];
+  for (const [name, store] of stores)
+    for (const [shape, colVals] of [['unmerged', range(1, 5, 0.5)], ['merged', stops]] as const) {
+      it(`a square's n is the page total the worker is asked for: ${shape} lattice, ${name}`, () => {
+        const m = trellisModel(matrixAsked(asked(store, store), emas, colVals), 'mean', 'net_pnl', C);
+        expect(m.merged).toBe(shape === 'merged');
+        let checked = 0;
+        for (const row of m.cells)
+          for (const cell of row) {
+            const f = cellFilter(store, [ROWS_PATH, COLS_PATH], [cell.rows.lo, cell.rows.hi], [cell.cols.lo, cell.cols.hi]);
+            expect(f === null ? 0 : passing(asked(store, f)).length).toBe(cell.n);
+            checked += cell.n > 0 ? 1 : 0;
+          }
+        expect(checked).toBeGreaterThan(10);
+      });
+    }
 });
 
 describe('the pairs of the trellis', () => {
@@ -457,16 +583,23 @@ describe('what a square prints', () => {
   });
 
   it('titles a square with where it is and what it holds, or why it holds nothing', () => {
-    const m = trellisModel(aggregate([1, 2], [1, 2], (r, c) => ({ n: [[0, 10], [40, 40]][r][c], value: [[0, 5000], [-30, null as unknown as number]][r][c] })), 'median', 'net_pnl');
+    const m = trellisModel(aggregate([1, 2], [1, 2], (r, c) => ({ n: [[0, 10], [40, 40]][r][c], value: [[0, 5000], [-30, null as unknown as number]][r][c] })), 'median', 'net_pnl', C);
     expect(cellTitle(m, m.cells[0][0], 'net_pnl')).toBe('L ema.length = 1 / L stop_loss_pct = 1 · untested: no trial');
     expect(cellTitle(m, m.cells[0][1], 'net_pnl')).toBe('L ema.length = 1 / L stop_loss_pct = 2 · n 10: under 30, hatched and left out of the scale (median $5,000, not drawn)');
     expect(cellTitle(m, m.cells[1][0], 'net_pnl')).toBe('L ema.length = 2 / L stop_loss_pct = 1 · median -$30 · n 40');
     expect(cellTitle(m, m.cells[1][1], 'net_pnl')).toBe('L ema.length = 2 / L stop_loss_pct = 2 · n 40 · no net_pnl value');
   });
+
+  it('prints how many of the trials have a value when that is not all of them, and what it needs', () => {
+    const m = trellisModel(aggregate([1, 2], [1, 2], (r, c) => (r === 0 && c === 0 ? { n: 40, value: 900, nulls: 35 } : r === 0 ? { n: 60, value: 4, nulls: 15 } : { n: 40, value: 2 })), 'median', 'net_pnl', C);
+    expect(cellTitle(m, m.cells[0][0], 'net_pnl')).toBe('L ema.length = 1 / L stop_loss_pct = 1 · n 40 · 5 with a value (needs 30): hatched and left out of the scale (median $900, not drawn)');
+    expect(cellTitle(m, m.cells[0][1], 'net_pnl')).toBe('L ema.length = 1 / L stop_loss_pct = 2 · median $4 · n 60 · 45 with a value (needs 30)');
+    expect(cellTitle(m, m.cells[1][0], 'net_pnl')).toBe('L ema.length = 2 / L stop_loss_pct = 1 · median $2 · n 40'); // all of them: n alone
+  });
 });
 
 describe('the picked square', () => {
-  const m = trellisModel(aggregate(range(1, 17), [1, 2], () => ({ n: 40, value: 1 })), 'mean', 'net_pnl');
+  const m = trellisModel(aggregate(range(1, 17), [1, 2], () => ({ n: 40, value: 1 })), 'mean', 'net_pnl', C);
   const pick = pickOf(0, m, m.cells[2][1]);
 
   it('is the square with the same pair and the same ranges, and no other', () => {
@@ -474,16 +607,23 @@ describe('the picked square', () => {
     expect(isPicked(pick, m, m.cells[2][0])).toBe(false);
     expect(isPicked(pick, m, m.cells[3][1])).toBe(false);
     expect(isPicked(null, m, m.cells[2][1])).toBe(false);
-    const other = trellisModel({ ...aggregate(range(1, 17), [1, 2], () => ({ n: 40, value: 1 })), cols_path: 'long_side.take_profit_pct' }, 'mean', 'net_pnl');
+    const other = trellisModel({ ...aggregate(range(1, 17), [1, 2], () => ({ n: 40, value: 1 })), cols_path: 'long_side.take_profit_pct' }, 'mean', 'net_pnl', C);
     expect(isPicked(pick, other, other.cells[2][1])).toBe(false); // another pair
   });
 
   it('takes the n the square has now, and is the same object when it has not moved', () => {
     expect(refreshedPick(pick, m)).toBe(pick);
-    const grown = trellisModel(aggregate(range(1, 17), [1, 2], (r) => ({ n: r === 4 || r === 5 ? 55 : 40, value: 1 })), 'mean', 'net_pnl');
+    const grown = trellisModel(aggregate(range(1, 17), [1, 2], (r) => ({ n: r === 4 || r === 5 ? 55 : 40, value: 1 })), 'mean', 'net_pnl', C);
     expect(refreshedPick(pick, grown)).toEqual({ ...pick, n: 110 });
-    const gone = trellisModel(aggregate([1, 2], [1, 2], () => ({ n: 40, value: 1 })), 'mean', 'net_pnl');
+    const gone = trellisModel(aggregate([1, 2], [1, 2], () => ({ n: 40, value: 1 })), 'mean', 'net_pnl', C);
     expect(refreshedPick(pick, gone)).toBe(pick); // the lattice changed under it: nothing to read
+  });
+
+  it('takes the snapshot of the newer reading too, even where n has not moved', () => {
+    const later = trellisModel(aggregate(range(1, 17), [1, 2], () => ({ n: 40, value: 1 })), 'mean', 'net_pnl', C, { generation: 1, chunk_watermark: 9 });
+    const once = refreshedPick(pick, later);
+    expect(once).toEqual({ ...pick, snapshot: { generation: 1, chunk_watermark: 9 } });
+    expect(refreshedPick(once, later)).toBe(once); // and then it is the same object: nothing to write
   });
 });
 
@@ -496,13 +636,53 @@ function attribute(markup: string, id: string, name: string): string | undefined
 }
 
 describe('the trellis markup', () => {
-  const model = trellisModel(aggregate([1, 2], [1, 2, 3], (r, c) => ({ n: [[0, 10, 45], [1200, 29, 30]][r][c], value: [[0, 5000, 100], [-30, 7, 50]][r][c] })), 'median', 'net_pnl');
+  const model = trellisModel(aggregate([1, 2], [1, 2, 3], (r, c) => ({ n: [[0, 10, 45], [1200, 29, 30]][r][c], value: [[0, 5000, 100], [-30, 7, 50]][r][c] })), 'median', 'net_pnl', C);
   const html = renderToStaticMarkup(createElement(TrellisGrid, { model, index: 2, label: 'ema.length × stop_loss_pct', pick: pickOf(2, model, model.cells[1][0]), metric: 'net_pnl', onPick: () => undefined }));
 
   it('gives every square an id with its pair and place, and its exact n as data-n', () => {
     expect([[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2]].map(([r, c]) => attribute(html, `lab-families-cell-2-${r}-${c}`, 'data-n'))).toEqual(['0', '10', '45', '1200', '29', '30']);
     expect(attribute(html, 'lab-families-cell-2-1-0', 'data-rows')).toBe('2,2');
     expect(html).toContain('>1.2k<'); // the square prints a compact n
+  });
+
+  it('gives every square its trials with a value as data-defined, beside its exact n', () => {
+    const counted = trellisModel(aggregate([1], [1, 2], (_, c) => (c === 0 ? { n: 40, value: 3, nulls: 35 } : { n: 40, value: 3 })), 'median', 'net_pnl', C);
+    const markup = renderToStaticMarkup(createElement(TrellisGrid, { model: counted, index: 0, label: 'p', pick: null, metric: 'net_pnl', onPick: () => undefined }));
+    expect([0, 1].map((c) => [attribute(markup, `lab-families-cell-0-0-${c}`, 'data-n'), attribute(markup, `lab-families-cell-0-0-${c}`, 'data-defined')])).toEqual([['40', '5'], ['40', '40']]);
+    expect(attribute(markup, 'lab-families-cell-0-0-0', 'data-state')).toBe('thin');
+  });
+
+  it('has one tab stop per pair: the picked square, else the first tested one; the rest are reached by the arrow keys', () => {
+    const stops = (markup: string) => (markup.match(/tabindex="0"/g) ?? []).length;
+    expect(stops(html)).toBe(1);
+    expect((html.match(/tabindex="-1"/g) ?? []).length).toBe(5);
+    expect(attribute(html, 'lab-families-cell-2-1-0', 'tabindex')).toBe('0'); // the picked square
+    const unpicked = renderToStaticMarkup(createElement(TrellisGrid, { model, index: 2, label: 'p', pick: null, metric: 'net_pnl', onPick: () => undefined }));
+    expect(stops(unpicked)).toBe(1);
+    expect(attribute(unpicked, 'lab-families-cell-2-0-0', 'tabindex')).toBe('-1'); // untested: nothing to act on
+    expect(attribute(unpicked, 'lab-families-cell-2-0-1', 'tabindex')).toBe('0'); // the first tested one
+    // A pick on another pair's squares does not move this pair's stop.
+    const elsewhere = renderToStaticMarkup(createElement(TrellisGrid, { model, index: 2, label: 'p', pick: { ...pickOf(5, model, model.cells[1][0]), axes: ['x', 'y'] }, metric: 'net_pnl', onPick: () => undefined }));
+    expect(attribute(elsewhere, 'lab-families-cell-2-0-1', 'tabindex')).toBe('0');
+    expect(stops(elsewhere)).toBe(1);
+  });
+
+  it('knows which square is the pair\'s tab stop', () => {
+    expect(rovingCell(model, pickOf(2, model, model.cells[1][2]))).toEqual({ r: 1, c: 2 });
+    expect(rovingCell(model, null)).toEqual({ r: 0, c: 1 });
+    const none = trellisModel(aggregate([1, 2], [1], () => ({ n: 0 })), 'median', 'net_pnl', C);
+    expect(rovingCell(none, null)).toEqual({ r: 0, c: 0 }); // nothing tested: the grid is still reached
+  });
+
+  it('moves focus with the arrow keys to the neighbouring square and stops at the edge of the grid', () => {
+    expect(arrowTarget(2, 3, { r: 0, c: 1 }, 'ArrowDown')).toEqual({ r: 1, c: 1 });
+    expect(arrowTarget(2, 3, { r: 0, c: 1 }, 'ArrowRight')).toEqual({ r: 0, c: 2 });
+    expect(arrowTarget(2, 3, { r: 1, c: 2 }, 'ArrowRight')).toEqual({ r: 1, c: 2 }); // held at the edge
+    expect(arrowTarget(2, 3, { r: 0, c: 0 }, 'ArrowUp')).toEqual({ r: 0, c: 0 });
+    expect(arrowTarget(2, 3, { r: 1, c: 0 }, 'ArrowLeft')).toEqual({ r: 1, c: 0 });
+    expect(arrowTarget(2, 3, { r: 1, c: 1 }, 'ArrowUp')).toEqual({ r: 0, c: 1 });
+    expect(arrowTarget(2, 3, { r: 1, c: 1 }, 'Enter')).toBeNull(); // Enter and Space are the button's own: they pick
+    expect(arrowTarget(0, 0, { r: 0, c: 0 }, 'ArrowDown')).toBeNull();
   });
 
   it('marks each square\'s state: untested, thin at 29, drawn at 30, and the picked one', () => {
@@ -520,16 +700,31 @@ describe('the trellis markup', () => {
 
 describe('the drill-down markup', () => {
   it('prints the square\'s n and the table\'s total as exact attributes, and whether they match', () => {
-    const agree = renderToStaticMarkup(createElement(DrillCheck, { squareN: 1200, total: 1200 }));
+    const snap = { generation: 1, chunk_watermark: 4 };
+    const agree = renderToStaticMarkup(createElement(DrillCheck, { squareN: 1200, squareSnapshot: snap, total: 1200, tableSnapshot: snap }));
     expect(attribute(agree, 'lab-families-drill-n', 'data-n')).toBe('1200');
     expect(attribute(agree, 'lab-families-drill-total', 'data-total')).toBe('1200');
     expect(attribute(agree, 'lab-families-drill-check', 'data-match')).toBe('true');
     expect(agree).toContain('1,200');
-    const differ = renderToStaticMarkup(createElement(DrillCheck, { squareN: 1200, total: 1199 }));
+    const differ = renderToStaticMarkup(createElement(DrillCheck, { squareN: 1200, squareSnapshot: snap, total: 1199, tableSnapshot: snap }));
     expect(attribute(differ, 'lab-families-drill-check', 'data-match')).toBe('false');
-    const waiting = renderToStaticMarkup(createElement(DrillCheck, { squareN: 1200, total: null }));
+    const moved = renderToStaticMarkup(createElement(DrillCheck, { squareN: 1200, squareSnapshot: snap, total: 1199, tableSnapshot: { generation: 1, chunk_watermark: 5 } }));
+    expect(attribute(moved, 'lab-families-drill-check', 'data-match')).toBe(''); // not comparable: neither true nor false
+    expect(attribute(moved, 'lab-families-drill-total', 'data-total')).toBe('1199'); // the numbers are still printed
+    expect(moved).toContain('the square was read at snapshot gen 1 · chunk 4 and the table at gen 1 · chunk 5: compared when they agree');
+    const waiting = renderToStaticMarkup(createElement(DrillCheck, { squareN: 1200, squareSnapshot: snap, total: null, tableSnapshot: null }));
     expect(attribute(waiting, 'lab-families-drill-total', 'data-total')).toBe('');
     expect(attribute(waiting, 'lab-families-drill-check', 'data-match')).toBe('');
+  });
+});
+
+describe('the trellis legend', () => {
+  it('prints the floor and the side the worker sent, and no number before it has sent any', () => {
+    const text = trellisLegend('net_pnl', { ...C, TRELLIS_MIN_N: 25, TRELLIS_MAX_SIDE: 12 });
+    expect(text).toContain('more than 12 values');
+    expect(text).toContain('under 25 trials or under 25 with a value');
+    expect(text).toContain(metricName('net_pnl'));
+    expect(trellisLegend('net_pnl', null)).not.toMatch(/\d/);
   });
 });
 

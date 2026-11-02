@@ -76,6 +76,12 @@ export class ApiError extends Error {
   }
 }
 
+/** Whether a failure is the worker reading the request and saying no: a 4xx with its message, which asking again cannot change
+ *  (a 408 and a 429 are the worker or its proxy asking to wait, so they may pass). A network error and a 5xx may pass too. */
+export function isRefusal(error: unknown): boolean {
+  return error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429;
+}
+
 /** One line for the UI: the HTTP status and the worker's detail, or the transport error. */
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return `${error.status}: ${error.detail}`;

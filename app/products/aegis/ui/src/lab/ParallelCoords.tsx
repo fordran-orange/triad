@@ -2,19 +2,21 @@
 // parameters, one polyline per bundle through its bins' centres (opacity by count, colour by the bundle's median
 // through the dock's `Heatmap.cells()` tones, so a losing median is red), or, in the exact mode `#lab-parallel-mode`
 // asks for, a stratified sample of actual trials, one polyline each through its own values (coloured by its metric the
-// same way); the pinned trials as exact lines over either, and a brush per axis that writes the shared filter. Every
-// decision is `parallelBundles.ts`'s; this asks for the view, draws it and turns a drag into the filter. Two stacked
+// same way); the pinned trials as exact lines over either, and a brush per axis that writes the shared filter. The bundles are
+// asked again on the Lab's 2 s tick while the source runs, as they always were; the sample (up to 5,000 lines) is asked on the 30 s
+// rule instead (`useAskMark`). Every decision is `parallelBundles.ts`'s; this asks for the view, draws it and turns a drag into the filter. Two stacked
 // canvases: the axes and the lines are painted once per answer or size, as hairlines over a few frames; the brushes and
 // the pinned lines live on an overlay that a drag repaints alone, with no React state per mouse move.
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { errorMessage } from '../api/client';
 import { cells, profitKind } from '../components/Heatmap';
 import type { LabEnvelope, LabParallel } from '../results';
+import { AssumptionsLine } from './AssumptionsLine';
 import type { CatalogEntry } from './catalog';
 import { AXIS_COLOUR, Brush1D, CHART_FONT, hairline, LABEL_COLOUR, linearScale, observeResize, paintInFrames, setupCanvas, strokeLine, type Scale } from './charts/canvas';
 import { valueText, type Tone } from './labHeatmapModel';
 import { lowerIsBetter, objectiveText } from './metricRules';
-import { answered, panelLabel } from './labQuery';
+import { answered } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
 import { filterHash, type PinSlot } from './labStore';
 import { LabError } from './NotBuilt';
@@ -27,17 +29,17 @@ import {
   nearestAxis,
   opacityFor,
   PARALLEL_MAX_AXES,
-  parallelBasis,
+  parallelCaption,
   parallelRequest,
   parallelSummary,
   polyline,
   sampleLine,
-  sampleNote,
   sampleOrder,
   type ParallelMode,
 } from './parallelBundles';
+import { useAskMark } from './useAskMark';
 import type { LabQueryData, Stamped } from './useLabQuery';
-import { sourceFamilies, type TrialRow } from './useLabSource';
+import { sourceFamilies, sourceLive, type TrialRow } from './useLabSource';
 
 const PAD = 48; // the first and the last axis stand this far in from the canvas's edges
 const TOP = 36; // room above the axes for the `.parallel-axis` names and each axis's top value
@@ -190,6 +192,9 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
   // The view in hand answers this key; a refresh of the same key keeps it drawn while it updates, another filter,
   // metric, mode or parameter set waits for its own answer.
   const viewKey = source === null || axes.length === 0 ? null : [source, axes.join(','), metric, mode, filterHash(lab.filter)].join('|');
+  // The sample is up to 5,000 lines a time: in that mode the panel asks on the 30 s rule, not on every tick. The bundles keep the tick.
+  const askMark = useAskMark(viewKey, mode === 'sample' && sourceLive(loaded));
+  const cadence = mode === 'sample' ? askMark : tick;
 
   const [retry, setRetry] = useState(0);
   const [answer, setAnswer] = useState<Answer | null>(null);
@@ -198,7 +203,7 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
   const seq = useRef(0);
   const asked = useRef<string | null>(null);
   useEffect(() => {
-    const mark = viewKey === null ? null : `${viewKey}|${tick}|${retry}`;
+    const mark = viewKey === null ? null : `${viewKey}|${cadence}|${retry}`;
     if (mark !== null && asked.current === mark) return; // React's development double-run of the same ask
     asked.current = mark;
     const mine = ++seq.current;
@@ -219,9 +224,10 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
       });
     // The key stands for the source, the parameter set, the metric, the mode and the filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewKey, tick, retry]);
-  // Drawn: the answer for the view in hand. Described by the basis and the summary: that answer, else the last one
-  // this source gave, until the next lands (a pending query shows as `data-loading` and `#lab-parallel-loading`).
+  }, [viewKey, cadence, retry]);
+  // Drawn: the answer for the view in hand. The basis and the sentence about what a line is describe that answer alone and are
+  // blank while a new view loads, as the canvas is (after the mode is toggled they would describe the previous mode); the summary
+  // keeps the last answer this source gave until the next lands (a pending query shows as `data-loading` and `#lab-parallel-loading`).
   const current = answer !== null && answer.key === viewKey ? answer : null;
   const shown = answered(current, answer, source);
   const error = failure !== null && failure.key === viewKey ? failure.message : null;
@@ -303,7 +309,8 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
   };
 
   const pending = loaded === null ? data.loading : viewKey !== null && error === null && (current === null || asking);
-  const basis = shown !== null ? `${parallelBasis(shown.envelope.basis, pinsActive ? pinned.length : null)}${panelLabel(shown.envelope)}` : '';
+  const caption = parallelCaption(current === null ? null : current.envelope, pinsActive ? pinned.length : null);
+  const basis = caption.basis;
   const summary = shown !== null ? parallelSummary(shown.envelope, shown.metric, shown.metric === 'max_drawdown', (v) => objectiveText(shown.metric, v)) : '';
   const labelWidth = axes.length > 1 ? Math.max(xs[1] - xs[0] - 6, 24) : Math.max(size.w - 2 * PAD, 24);
 
@@ -341,8 +348,9 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
           </span>
         )}
       </div>
-      <div className="sub">
-        {shown !== null && isSampleView(shown.envelope) ? `Each line is one sampled trial through its own values (${sampleNote(shown.envelope)}); ` : 'Each line is a bundle of trials sharing a quantile bin on every axis; '}
+      <AssumptionsLine panel="parallel" />
+      <div className="sub" id="lab-parallel-note">
+        {caption.lead}
         drag along an axis to brush it into the shared filter, click an axis to clear its brush, Esc clears every brush.
         {entries.length > PARALLEL_MAX_AXES ? ` The first ${PARALLEL_MAX_AXES} of ${entries.length} parameters, in catalog order.` : ''}
       </div>

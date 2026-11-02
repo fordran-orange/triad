@@ -29,6 +29,7 @@ import {
 import { answered } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
 import { filterHash, type LabMode, type LabStat } from './labStore';
+import { AssumptionsLine } from './AssumptionsLine';
 import { LabError } from './NotBuilt';
 import type { LabQueryData, Stamped } from './useLabQuery';
 
@@ -437,6 +438,7 @@ export function LabHeatmap({ data }: { data: HeatmapData }) {
       <div className="sub" id="lab-heatmap-axes">
         Y (rows): {envelope?.rows_path ?? lab.axes?.[0] ?? DASH} · X (columns): {envelope?.cols_path ?? lab.axes?.[1] ?? DASH} · {metricName(metric)}
       </div>
+      <AssumptionsLine panel="heatmap" />
       {oneAxis && <div className="lab-empty">no matrix: the experiment varies fewer than two parameters</div>}
       {expMatrix.error !== null && <LabError message={`Matrix unavailable: ${expMatrix.error}`} onRetry={retryMatrix} />}
       {empty !== null && <div className="lab-empty heat-empty">{empty}</div>}

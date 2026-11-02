@@ -1027,6 +1027,26 @@ def test_interactions_and_triples_views_answer_from_the_task(client, monkeypatch
     assert triples["bounded"] is True and "truncated" not in triples
 
 
+TRELLIS = {"TRELLIS_MIN_N": 30, "TRELLIS_MAX_SIDE": 16, "TRELLIS_PAIRS": 6}
+
+
+def test_the_trellis_constants_reach_the_matrix_and_interactions_answers(client, monkeypatch):
+    """Screen E reads its three §5.5 constants from the response, never from a UI literal: the
+    squares' floor and side from each matrix answer (either mode), the number of pairs from the
+    interactions answer, which carries all three so the pair can pick its statistic before its
+    first matrix. The importance answer shares the task's constants, so it holds them too."""
+    c, _, _ = client
+    experiment_id = _finished_experiment(c, monkeypatch)
+    src = f"exp:{experiment_id}"
+    for mode in ("aggregate", "exact"):
+        answer = _view(c, src, "matrix", rows=DONCHIAN, cols=RSI, metric="net_pnl", mode=mode)
+        assert {k: answer["constants"][k] for k in TRELLIS} == TRELLIS, mode
+    importance = _done(c, src)
+    pairs = _view(c, src, "interactions")
+    assert {k: pairs["constants"][k] for k in TRELLIS} == TRELLIS
+    assert pairs["constants"] == importance["importance"]["constants"]
+
+
 def test_basis_counts_the_scheduled_uniform_configurations(client, monkeypatch):
     """N is the experiment's scheduled uniform configurations, its first pass: every valid cell
     when exhaustive; when sampled, the cells its Latin hypercube drew, or before the draw the

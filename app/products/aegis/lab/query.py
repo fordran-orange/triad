@@ -35,6 +35,9 @@ from products.aegis.lab.policy import (
     PARALLEL_BINS,
     PARALLEL_MAX_BUNDLES,
     TOP_LIMIT,
+    TRELLIS_MAX_SIDE,
+    TRELLIS_MIN_N,
+    TRELLIS_PAIRS,
 )
 from products.aegis.lab.store import snapshot_json
 from products.aegis.pool import METRICS, SCOPES
@@ -661,6 +664,12 @@ def matrix_view(
         "cols_path": cols,
         "rows": row_axis.tolist(),
         "cols": col_axis.tolist(),
+        # §5.5: the trellis's floor and side, read by the panel from here and never from a UI literal.
+        "constants": {
+            "TRELLIS_MIN_N": TRELLIS_MIN_N,
+            "TRELLIS_MAX_SIDE": TRELLIS_MAX_SIDE,
+            "TRELLIS_PAIRS": TRELLIS_PAIRS,
+        },
     }
     untested = None
     if fixed and not counts.any():

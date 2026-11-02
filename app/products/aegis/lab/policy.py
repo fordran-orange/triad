@@ -118,6 +118,14 @@ OBJECTIVES_MIN = 2
 OBJECTIVES_MAX = 3
 PARALLEL_MAX_LINES = 5_000
 PARALLEL_STRATA = 10
+# §5.5 Screen E's trellis, read by its panels from the `matrix` and `interactions` responses (a
+# UI never holds them). §5.5: "cells n < 30 hatched and excluded" (a square under this many
+# trials, or with this few a value, is hatched and left out of the scale).
+TRELLIS_MIN_N = 30
+# §5.5: "aggregated 16 × 16, n shown" (a trellis matrix shows at most this many squares per axis).
+TRELLIS_MAX_SIDE = 16
+# §5.5: "Trellis of top pairs" (the trellis draws this many of the top pairs by priority).
+TRELLIS_PAIRS = 6
 CONVERGENCE_BATCH = 5_000
 CONVERGENCE_TOP = 0.01
 CONVERGENCE_MAX_POINTS = 1_000

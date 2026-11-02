@@ -580,6 +580,15 @@ export interface LabSquareStats {
   histogram: { edges: number[]; counts: number[]; nulls: number };
 }
 
+/** Screen E's trellis constants (`lab/policy.py`, §5.5), in the `matrix` view's `constants` and in the `interactions`
+ *  view's (all three in both): the floor under which a square is hatched and left out, the most squares per axis, and the
+ *  pairs the trellis draws. A panel reads them from the response, never from a UI literal. */
+export interface LabTrellisConstants {
+  TRELLIS_MIN_N: number;
+  TRELLIS_MAX_SIDE: number;
+  TRELLIS_PAIRS: number;
+}
+
 /** The matrix view: exact squares carry their lowest trial's id and the duplicates beside it; aggregate squares
  *  carry their statistics instead. An untested square's value is null and its count 0. */
 export interface LabMatrix {
@@ -594,6 +603,7 @@ export interface LabMatrix {
   trial_ids?: Array<Array<string | null>>;
   duplicates?: number[][];
   stats?: Array<Array<LabSquareStats | null>>;
+  constants: LabTrellisConstants;
 }
 
 /** The page and square-trials views: one offset window of the filtered trials, `total` of them in all. */
@@ -785,7 +795,7 @@ export interface LabAvailability {
 
 /** The constants the rule and its panel print (`rule.CONSTANTS`, `lab/policy.py`): read from the response, never from a
  *  UI literal. Named key by key, so a misspelt one does not compile. */
-export interface LabImportanceConstants {
+export interface LabImportanceConstants extends LabTrellisConstants {
   /** The practical-significance floor, applied to upper bounds (§7.4a). */
   THETA_MIN: number;
   /** The residual's lower bound above which no `Deprioritized` proposal is made. */
