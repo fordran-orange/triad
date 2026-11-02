@@ -7,15 +7,21 @@ benchmark records, both measured through a scratch worker, never the product's.
     .venv-aegis\\Scripts\\python.exe tests\\products\\aegis\\lab_benchmark.py execute
         --base http://127.0.0.1:8103/aegis/ --pid-file logs\\aegis-scratch.pid --data-root <scratch>
         [--cases A,B,C]
+    .venv-aegis\\Scripts\\python.exe tests\\products\\aegis\\lab_benchmark.py analytics
+        --base http://127.0.0.1:8103/aegis/ --pid-file logs\\aegis-scratch.pid --data-root <scratch>
+        [--trials N] [--workers N]
 
 `explore` (Track A, result exploration) writes the DEMO synthetic layout-2 fixture into the
 scratch worker's data root when it is absent (`lab_fixture.py`, never through the engine) and
 times the Lab's interactions as the HTTP requests the UI issues, plus the worker's memory, the
 folder's size and a finalize-style compaction. `execute` (Track B, trial execution) runs the
-§9.1b configurations through the worker's own API on the real engine. Each writes
+§9.1b configurations through the worker's own API on the real engine. `analytics` (Phase 3, spec
+§9.4) runs the importance task on the 1M fixture beside a running job (case A, back to back until
+the task is done) and records the task's time, its fine-grid stage, the job's throughput loss
+over the overlap and the Pareto and neighbourhood views. Each writes
 `logs/lab-benchmark-<mode>-<stamp>.json` and prints `evaluate()` and `retest_due()`. A number
 is labelled by what measured it: `http` through the scratch worker, `inprocess` as a proxy.
-Both modes refuse the product store and the product port before anything else.
+Every mode refuses the product store and the product port before anything else.
 
 The module level imports only the standard library, numpy and `products.aegis.strategy` (which
 imports only `kinds`), so the walk can import `bench_strategy` and `BENCH_SURFACE` on the Core
@@ -104,7 +110,21 @@ TRACK_A_BUDGETS_MS = {
     "exact_slice": 300,
     "parallel": 800,
     "progress_poll": 100,
+    "pareto": 800,  # two objectives
+    "neighbourhood": 150,  # one trial's, or one candidate's robustness
 }
+# §9.6a, the importance analytics task (spec:1145): in total, and its fine-grid stage, measured by
+# `analytics` beside a running job on the 1M fixture (10 parameters, no blocks).
+TRACK_ANALYTICS_LIMITS = {"importance_task_s": 180.0, "fine_stage_s": 30.0}
+ANALYTICS_NOT_MEASURED = (
+    "the 1M fixture has 10 parameters and no blocks, so the per-block mains (stage 2's K x 200 "
+    "cheap passes) and the d = 20 cost are not measured here"
+)
+# The task is measured beside a job when the job's runs cover at least this share of its window.
+BESIDE_JOB_MIN_COVERAGE = 0.9
+ANALYTICS_POLL_S = 0.5  # the importance view, polled as the Lab polls it (every 2 s), faster
+ANALYTICS_TASK_TIMEOUT_S = 900.0  # five times the budget: past it the task is cancelled
+ANALYTICS_MAX_RUNS = 12  # case A runs, back to back, at most (the task is done long before)
 # §9.6a resources (spec:1151-1154): the worker's additional memory with the 1M experiment open,
 # the <id>.cells folder, the finalize-style compaction at 1M rows and the browser tab's heap,
 # which explore (HTTP only) never sees: the walk measures it on the 12,000-trial slice.
@@ -450,8 +470,9 @@ def host_record() -> dict:
 
 
 def new_record(mode: str) -> dict:
-    """A record's head: the mode, the host, the engine build and the commit, and the section its
-    measurements go in (`operations` for explore, `cases` for execute)."""
+    """A record's head: the mode, the host, the engine build and the commit, and the sections its
+    measurements go in (`operations` for explore, `cases` for execute, both for analytics: the
+    two views' timings and the quiet and loaded runs)."""
     host = host_record()
     record = {
         "mode": mode,
@@ -460,7 +481,10 @@ def new_record(mode: str) -> dict:
         "git_head": host["git_head"],
         "measured_at": host["measured_at"],
     }
-    record["operations" if mode == "explore" else "cases"] = {}
+    for section in {"explore": ("operations",), "analytics": ("operations", "cases")}.get(
+        mode, ("cases",)
+    ):
+        record[section] = {}
     return record
 
 
@@ -540,6 +564,24 @@ def _evaluate_execute(record: dict) -> dict[str, bool | str]:
     return out
 
 
+def _evaluate_analytics(record: dict) -> dict[str, bool | str]:
+    """The task's two lines (its total, its fine-grid stage), `absent` unless it was measured
+    beside a running job (a task on an idle worker proves nothing about one beside a job), and
+    the two views' §9.6a budgets (Pareto, neighbourhood). The job's throughput loss is recorded,
+    never judged: the spec sets no line for it."""
+    task = record.get("task") or {}
+    beside = task.get("beside_job") is True
+    out: dict[str, bool | str] = {}
+    for key, limit in TRACK_ANALYTICS_LIMITS.items():
+        measured = task.get("task_s" if key == "importance_task_s" else key)
+        out[key] = _at_most(measured, limit) if beside else ABSENT
+    operations = record.get("operations") or {}
+    for key in ("pareto", "neighbourhood"):
+        measured = (operations.get(key) or {}).get("http_ms") or {}
+        out[key] = _at_most(measured.get("p95"), TRACK_A_BUDGETS_MS[key])
+    return out
+
+
 def evaluate(record: dict) -> dict[str, bool | str]:
     """One key per threshold or budget of the record's mode: True / False when measured,
     `absent` when not (always for an explore record's `browser_heap_mb`, and for every latency
@@ -550,6 +592,8 @@ def evaluate(record: dict) -> dict[str, bool | str]:
         return _evaluate_explore(record)
     if mode == "execute":
         return _evaluate_execute(record)
+    if mode == "analytics":
+        return _evaluate_analytics(record)
     raise ValueError(f"unknown record mode {mode!r}")
 
 
@@ -810,6 +854,9 @@ def _operations(document, total: int, seed: int) -> dict[str, Callable[[int], li
     }
     middle = values[paths[2]][len(values[paths[2]]) // 2]
     offsets = np.random.default_rng(seed).integers(0, max(1, total - PAGE_ROWS), size=4096)
+    # The neighbourhood's trials: seeded, one a run (every trial of the fixture completed), so no
+    # run is the previous one's answer again.
+    candidates = np.random.default_rng([seed, 7_000_007]).integers(0, max(1, total), size=4096)
 
     def query(flt: dict | None = None, **body) -> Step:
         return ("POST", f"{lab}/query", {"filter": flt or {}, **body})
@@ -828,6 +875,16 @@ def _operations(document, total: int, seed: int) -> dict[str, Callable[[int], li
         "exact_slice": lambda i: [query(**matrix | {"mode": "exact", "fixed": {paths[2]: middle}})],
         "parallel": lambda i: [query(view="parallel", axes=paths[:6], metric=objective)],
         "progress_poll": lambda i: [("GET", f"experiments/{document.id}", None)],
+        "pareto": lambda i: [
+            query(view="pareto", objectives=[objective, "max_drawdown"])  # two objectives
+        ],
+        "neighbourhood": lambda i: [
+            query(
+                view="neighbourhood",
+                trial=f"exp:{document.id}#{int(candidates[i % len(candidates)])}",
+                metric=objective,
+            )
+        ],
     }
 
 
@@ -1189,7 +1246,7 @@ def _run_case(
     data_root: Path,
     listener: int,
     expected_workers: int,
-    queries: _QueryLoad | None = None,
+    queries: _QueryLoad | _TaskLoad | None = None,
 ) -> dict:
     """One §9.1b case through the worker's API, polled every second until it finishes; with
     `queries`, that load runs against this very experiment from its creation to its end."""
@@ -1217,6 +1274,7 @@ def _run_case(
         polls: list[float] = []
         write_ms: dict[str, float] = {}
         before_finalize = None
+        final_at = None
         deadline = time.monotonic() + 1800 + case.trials * 0.1
         while True:
             tick = time.perf_counter()
@@ -1224,6 +1282,7 @@ def _run_case(
             polls.append((time.perf_counter() - tick) * 1000)
             _write_ms(cells_dir, write_ms)
             if document["status"] in FINAL:
+                final_at = time.time()
                 break
             done = int((document.get("progress") or {}).get("cells_done") or 0)
             if before_finalize is None and done >= 0.9 * planned:
@@ -1258,6 +1317,8 @@ def _run_case(
     record = {
         "experiment_id": experiment_id,
         "status": document["status"],
+        "created_at": round(started, 3),  # epoch seconds: the job's interval, for `analytics`
+        "final_at": None if final_at is None else round(final_at, 3),
         "timeframe": case.timeframe,
         "range": [case.start.isoformat(), case.end.isoformat()],
         "trials": case.trials,
@@ -1490,6 +1551,388 @@ def execute(
     return record
 
 
+# --- analytics (Phase 3): the importance task beside a running job ----------------------------
+
+
+def throughput_loss(quiet: float | None, loaded: float | None) -> float | None:
+    """`1 - loaded / quiet`: the share of the job's rate the task cost it (negative when the
+    loaded rate was the higher, kept as measured); None when either rate is missing."""
+    if not quiet or loaded is None:
+        return None
+    return 1 - loaded / quiet
+
+
+def overlap_rate(runs: Sequence[tuple[Sequence[float], Sequence[int]]], start: float, end: float):
+    """The job's steady rate over the window [start, end] (epoch seconds). `runs` are each run's
+    (chunk commit times, chunk rows). Per run, the chunks committed inside the window count, the
+    first one's rows left out (its work began before the window, as `_run_case`'s own rate leaves
+    the run's first chunk out), over the seconds between the first and the last; the runs add up.
+    A run with one chunk inside adds nothing; with no seconds counted the rate is None."""
+    rows_total, seconds_total, per_run = 0, 0.0, []
+    for times, rows in runs:
+        inside = [(t, r) for t, r in sorted(zip(times, rows, strict=True)) if start <= t <= end]
+        counted = sum(r for _, r in inside[1:])
+        seconds = inside[-1][0] - inside[0][0] if len(inside) > 1 else 0.0
+        per_run.append({"chunks": len(inside), "rows": counted, "seconds": round(seconds, 3)})
+        rows_total += counted
+        seconds_total += seconds
+    return {
+        "trials_per_s": rows_total / seconds_total if seconds_total > 0 else None,
+        "rows": rows_total,
+        "seconds": seconds_total,
+        "runs": per_run,
+    }
+
+
+def window_offsets(
+    intervals: Sequence[tuple[float, float]], start: float, end: float
+) -> list[tuple[float, float]]:
+    """The window [start, end] as offsets from each job interval's creation, for the intervals it
+    overlaps (the window's part inside `(created, final)`), in the intervals' order."""
+    offsets = []
+    for created, final in intervals:
+        low, high = max(start, created), min(end, final)
+        if high > low:
+            offsets.append((low - created, high - created))
+    return offsets
+
+
+def matched_rate(
+    series: tuple[Sequence[float], Sequence[int]],
+    created: float,
+    offsets: Sequence[tuple[float, float]],
+) -> dict:
+    """`overlap_rate` of one run (a quiet one, created at `created`) over the same offsets from its
+    creation: what the quiet run did at the point of its job the task's window sat at, so start-up
+    and compaction pauses weigh as they do in the loaded run's window. The windows add up."""
+    parts = [overlap_rate([series], created + low, created + high) for low, high in offsets]
+    rows = sum(part["rows"] for part in parts)
+    seconds = sum(part["seconds"] for part in parts)
+    return {
+        "trials_per_s": rows / seconds if seconds > 0 else None,
+        "rows": rows,
+        "seconds": seconds,
+        "windows": [part["runs"][0] for part in parts],
+    }
+
+
+def fine_stage(stages: dict[str, dict]) -> tuple[float | None, str | None]:
+    """The fine-grid stage's time from the stages a poll read (`stage -> {wall_s, elapsed_s}`):
+    stage 1's own server `elapsed_s` when it was read; else the first stage that was read, which
+    stage 1 finished before (an upper bound, named as one); else nothing."""
+    elapsed = {k: e["elapsed_s"] for k, e in stages.items() if e.get("elapsed_s") is not None}
+    if not elapsed:
+        return None, None
+    first = min(elapsed, key=int)
+    if first == "1":
+        return elapsed["1"], "server elapsed_s of stage 1"
+    return elapsed[first], (
+        f"server elapsed_s of stage {first}, the first stage a poll read "
+        "(stage 1 finished before it: an upper bound)"
+    )
+
+
+def job_coverage(intervals: Sequence[tuple[float, float]], start: float, end: float) -> float:
+    """The share of the window [start, end] that some job interval covers (their union)."""
+    if end <= start:
+        return 0.0
+    covered, cursor = 0.0, start
+    for low, high in sorted(intervals):
+        low, high = max(low, cursor), min(high, end)
+        if high > low:
+            covered += high - low
+            cursor = high
+    return covered / (end - start)
+
+
+class _TaskLoad:
+    """The importance task on the 1M fixture, started from a thread once the job has committed
+    its first chunk and polled to its end as the Lab polls it: the `importance` view, which
+    answers the latest stage delivered and the task's status. `_run_case` calls it as it calls a
+    `_QueryLoad`: the first `start` (the first loaded run's experiment) launches the thread, later
+    runs find it going, `stop` does nothing (the load outlives one run). `finished` is set when
+    the task ended, was cancelled at the timeout, or the thread failed; the caller then runs no
+    further case."""
+
+    def __init__(self, base: str, source: str, seed: int, timeout_s: float) -> None:
+        self.base, self.source, self.seed, self.timeout_s = base, source, seed, timeout_s
+        self.finished = threading.Event()
+        self.result: dict = {}
+        self.window: tuple[float, float] | None = None  # epoch seconds: asked, then seen ended
+        self.error: str | None = None
+        self._job: str | None = None
+        self._thread: threading.Thread | None = None
+
+    def start(self, job_source: str) -> None:
+        if self._thread is None:
+            self._job = job_source.removeprefix("exp:")
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+
+    def stop(self) -> None:
+        return None
+
+    def join(self) -> None:
+        if self._thread is not None:
+            self._thread.join(timeout=self.timeout_s + 120)
+
+    def _wait_for_job(self, http_client: _Http) -> None:
+        """Until the job has committed a chunk (or ended, or 3 minutes have passed)."""
+        deadline = time.monotonic() + 180
+        while time.monotonic() < deadline:
+            document = http_client.get(f"api/experiments/{self._job}")
+            if document["status"] in FINAL or (document.get("progress") or {}).get("cells_done"):
+                return
+            time.sleep(0.5)
+
+    def _run(self) -> None:
+        http_client = _Http(self.base)
+        path = f"api/lab/{quote(self.source, safe=':')}/query"
+        body = {"filter": {}, "view": "importance", "seed": self.seed}
+        stages: dict[str, dict] = {}
+        began = time.time()
+        timer = time.perf_counter()
+        try:
+            self._wait_for_job(http_client)
+            began, timer = time.time(), time.perf_counter()
+            answer = http_client.post(path, body)
+            first = answer.get("task") or {}
+            polls, status, cancelled = 0, first, False
+            while True:
+                polls += 1
+                status = answer.get("task") or {}
+                if not status:  # the worker requested no task: its reason is the finding
+                    raise RuntimeError(f"no importance task: {answer.get('reason')}")
+                shown = answer.get("importance") or {}
+                stage = shown.get("stage")
+                if stage and str(stage) not in stages:  # the first answer that carries the stage
+                    stages[str(stage)] = {
+                        "wall_s": round(time.perf_counter() - timer, 3),
+                        "elapsed_s": shown.get("elapsed_s"),
+                    }
+                if status.get("state") in ("done", "failed", "cancelled"):
+                    break
+                if time.perf_counter() - timer > self.timeout_s:
+                    http_client.post(
+                        f"api/lab/{quote(self.source, safe=':')}/tasks/{status['id']}/cancel", {}
+                    )
+                    cancelled = True
+                    break
+                time.sleep(ANALYTICS_POLL_S)
+                answer = http_client.post(path, body)
+            ended, wall = time.time(), time.perf_counter() - timer
+            final = answer.get("importance") or {}
+            done = status.get("state") == "done" and final.get("stage") == final.get("stages")
+            fine, fine_basis = fine_stage(stages)
+            self.window = (began, ended)
+            self.result = {
+                "source": self.source,
+                "task_id": status.get("id"),
+                "seed": self.seed,
+                "state": status.get("state"),
+                "stages": final.get("stages"),
+                "stages_seen": stages,
+                "cached_at_request": first.get("state") == "done",
+                "cancelled_at_timeout": cancelled,
+                "polls": polls,
+                "task_s": final.get("elapsed_s") if done else None,
+                "task_wall_s": round(wall, 3),
+                # Stage 1's own elapsed time when a poll read it; else the elapsed time of the
+                # first stage a poll did read, which stage 1 finished before (an upper bound).
+                "fine_stage_s": fine,
+                "fine_stage_basis": fine_basis,
+                "snapshot": final.get("snapshot"),
+                "n": final.get("n"),
+                "status": status,
+                "error": status.get("error"),
+            }
+        except Exception as exc:  # noqa: BLE001 - recorded: the run reports why it has no task
+            self.error = f"{type(exc).__name__}: {exc}"[:500]
+            self.window = (began, time.time())
+        finally:
+            http_client.close()
+            self.finished.set()
+
+
+def analytics(
+    data_root: Path,
+    *,
+    base: str,
+    pid_file: Path,
+    trials: int = 1_000_000,
+    seed: int = 1,
+    task_seed: int = 1,
+    runs: int = 20,
+    workers: int = 10,
+    max_runs: int = ANALYTICS_MAX_RUNS,
+    task_timeout_s: float = ANALYTICS_TASK_TIMEOUT_S,
+) -> dict:
+    """The importance task on the 1M fixture beside a running job (spec §9.4, R3.5): the Pareto
+    and neighbourhood views timed over HTTP (`runs` each) on the idle worker; case A alone, the
+    quiet run; then case A back to back, a thread starting the task once the first run commits a
+    chunk and polling it to done, the last run finishing after it. The record keeps the task's
+    time and its fine-grid stage (the server's own `elapsed_s` of stages 3 and 1), the job's
+    throughput over the chunks committed while the task ran against the quiet run's, and says
+    what the 1M fixture (10 parameters, no blocks) leaves unmeasured. Refuses the product store
+    and the product worker before anything else, as `main` does."""
+    refuse_product_targets(data_root, base)
+    from trading_core.process_power import opt_out_of_power_throttling
+
+    data_root = Path(data_root)
+    opt_out_of_power_throttling()
+    _require_worker_root(base, data_root)
+    worker = worker_process(base, pid_file)
+    listener = worker["listener_pid"]
+    experiment_id = fixture_id(trials)
+    source = f"exp:{experiment_id}"
+    record = new_record("analytics")
+    document, written_s = _fixture(data_root, experiment_id, trials, seed)
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    http_client = _Http(base)
+    strategy = http_client.post(
+        "api/strategies",
+        {"name": f"lab-bench-10p-{stamp}", "spec": bench_strategy().model_dump(mode="json")},
+    )
+    record.update(
+        {
+            "basis": HTTP_BASIS,
+            "base": base,
+            "data_root": str(data_root),
+            "experiment_id": experiment_id,
+            "trials": trials,
+            "parameters": len(document.surface.parameters),
+            "blocks": int(getattr(document, "blocks", 0) or 0),
+            "not_measured": ANALYTICS_NOT_MEASURED,
+            "seed": seed,
+            "task_seed": task_seed,
+            "runs": runs,
+            "fixture_write_s": written_s,
+            "workers_expected": workers,
+            "strategy_id": strategy["id"],
+            "worker": worker,
+            "worker_engine_build": http_client.get("api/lab/build")["engine_build"],
+        }
+    )
+
+    def over_http(method: str, path: str, body: dict | None) -> Any:
+        return http_client.call(method, "api/" + path, body)
+
+    operations = _operations(document, trials, seed)
+    for name in ("pareto", "neighbourhood"):
+        record["operations"][name] = _timed(over_http, operations[name], runs, "http")
+
+    quiet = _run_case(
+        http_client, "A", strategy["id"], f"{stamp}-quiet", data_root, listener, workers
+    )
+    load = _TaskLoad(base, source, task_seed, task_timeout_s)
+    loaded_runs: list[dict] = []
+    try:
+        for n in range(max_runs):
+            loaded_runs.append(
+                _run_case(
+                    http_client,
+                    "A",
+                    strategy["id"],
+                    f"{stamp}-loaded-{n + 1}",
+                    data_root,
+                    listener,
+                    workers,
+                    queries=load,
+                )
+            )
+            if load.finished.is_set():
+                break
+    finally:
+        load.join()
+        http_client.close()
+
+    began, ended = load.window or (0.0, 0.0)
+    series = []
+    for run in loaded_runs:
+        _, rows, times = _chunk_times(data_root / "experiments" / f"{run['experiment_id']}.cells")
+        series.append((times, rows))
+    overlap = overlap_rate(series, began, ended)
+    intervals = [
+        (run["created_at"], run["final_at"]) for run in loaded_runs if run["final_at"] is not None
+    ]
+    coverage = job_coverage(intervals, began, ended)
+    task = load.result | {
+        "window_epoch_s": [round(began, 3), round(ended, 3)],
+        "job_coverage": round(coverage, 4),
+        "job_coverage_min": BESIDE_JOB_MIN_COVERAGE,
+        "error": load.error or load.result.get("error"),
+    }
+    task["beside_job"] = (
+        bool(load.result)
+        and not task.get("cached_at_request")
+        and coverage >= BESIDE_JOB_MIN_COVERAGE
+    )
+    quiet_rate, loaded_rate = quiet["trials_per_s"], overlap["trials_per_s"]
+    loss = throughput_loss(quiet_rate, loaded_rate)
+    _, quiet_rows, quiet_times = _chunk_times(
+        data_root / "experiments" / f"{quiet['experiment_id']}.cells"
+    )
+    matched = matched_rate(
+        (quiet_times, quiet_rows), quiet["created_at"], window_offsets(intervals, began, ended)
+    )
+    matched_loss = throughput_loss(matched["trials_per_s"], loaded_rate)
+    record["task"] = task
+    record["cases"] = {
+        "quiet": quiet,
+        "quiet_matched": {
+            "trials_per_s": None
+            if matched["trials_per_s"] is None
+            else round(matched["trials_per_s"], 3),
+            "basis": "the quiet run's chunks at the same offsets from its creation as the task's "
+            "window sat from each loaded run's (its start-up and its compaction pause weigh the "
+            "same way); the same rule as the loaded rate",
+            "counted_rows": matched["rows"],
+            "counted_seconds": round(matched["seconds"], 3),
+            "windows": matched["windows"],
+        },
+        "loaded": {
+            "trials_per_s": None if loaded_rate is None else round(loaded_rate, 3),
+            "basis": "steady rows of the chunks committed while the task ran, over their span, "
+            "per run, summed (the quiet run's rule: each run's first chunk is left out)",
+            "window_s": round(ended - began, 3),
+            "counted_rows": overlap["rows"],
+            "counted_seconds": round(overlap["seconds"], 3),
+            "overlap_runs": overlap["runs"],
+            "runs": [
+                {
+                    "experiment_id": run["experiment_id"],
+                    "status": run["status"],
+                    "trials_per_s_whole_run": run["trials_per_s"],
+                    "created_at": run["created_at"],
+                    "final_at": run["final_at"],
+                    "pool_workers": run["pool_workers"],
+                }
+                for run in loaded_runs
+            ],
+        },
+    }
+    record["throughput_loss"] = None if loss is None else round(loss, 4)
+    record["throughput_loss_basis"] = "1 - loaded.trials_per_s / quiet.trials_per_s"
+    # The quiet run's whole-run rate carries its start-up and a compaction pause that a short
+    # window may not: the same loss against the quiet run's rate over the matched window.
+    record["throughput_loss_matched"] = None if matched_loss is None else round(matched_loss, 4)
+    record["throughput_loss_matched_basis"] = (
+        "1 - loaded.trials_per_s / quiet_matched.trials_per_s: the quiet run at the same offsets"
+    )
+    record["worker"]["power_throttling"] = {
+        "host": throttling_state(listener),
+        "child": next(
+            (
+                c["child_power_throttling"]
+                for c in (quiet, *loaded_runs)
+                if c["child_power_throttling"]
+            ),
+            None,
+        ),
+    }
+    return record
+
+
 # --- the command line -------------------------------------------------------------------------
 
 
@@ -1526,6 +1969,30 @@ def main(argv: Sequence[str]) -> int:
         help="the pool size expected (the launcher's -Workers); a different observed pool is "
         "noted in the record, and the measured cost always uses the observed one",
     )
+    analytics_args = modes.add_parser(
+        "analytics", help="Phase 3: the importance task beside a running job, and two views"
+    )
+    analytics_args.add_argument("--base", required=True)
+    analytics_args.add_argument("--pid-file", type=Path, required=True)
+    analytics_args.add_argument("--data-root", type=Path, required=True)
+    analytics_args.add_argument("--trials", type=int, default=1_000_000)
+    analytics_args.add_argument("--seed", type=int, default=1)
+    analytics_args.add_argument(
+        "--task-seed",
+        type=int,
+        default=1,
+        help="the importance task's resample seed; a task this worker already computed for the "
+        "same seed answers from its cache and is recorded as such (restart the worker, or pass "
+        "another seed, for a measurement beside the job)",
+    )
+    analytics_args.add_argument("--runs", type=int, default=20)
+    analytics_args.add_argument(
+        "--workers",
+        type=int,
+        default=10,
+        help="the pool size expected (the launcher's -Workers); a different observed pool is "
+        "noted in the record",
+    )
     args = parser.parse_args(list(argv))
     pid_file = args.pid_file if args.pid_file.is_absolute() else ROOT / args.pid_file
     try:
@@ -1539,6 +2006,17 @@ def main(argv: Sequence[str]) -> int:
                 seed=args.seed,
                 runs=args.runs,
                 inprocess=args.inprocess,
+            )
+        elif args.mode == "analytics":
+            record = analytics(
+                args.data_root,
+                base=args.base,
+                pid_file=pid_file,
+                trials=args.trials,
+                seed=args.seed,
+                task_seed=args.task_seed,
+                runs=args.runs,
+                workers=args.workers,
             )
         else:
             record = execute(

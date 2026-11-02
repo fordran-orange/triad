@@ -5,7 +5,7 @@ items, the 5 limits items, the 5 Mission 10 items, the 2 Mission 11 items, the 2
 Items 51 and 63 restart the scratch worker through tools/start_aegis_scratch.ps1 -Stop and require --pid-file.
 Item 98 reads one sentence with Claude through Core, for real: the walk needs the product key
 issued and Claude routable (Mission 14 spec §5); item 101 needs Codex offered.
-The 13 Optimization Lab items (LAB_ITEMS) follow, numbered after whatever precedes them; they make
+The 16 Optimization Lab items (LAB_ITEMS) follow, numbered after whatever precedes them; they make
 their own fixtures, so `--only lab` runs them alone and never restarts the worker.
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
@@ -169,10 +169,11 @@ ITEMS = [
     "the provider chosen is remembered across a reload, then set back as found; the save mode untouched",
     "governance: Core changed since the Mission 14 plan only in its own files and the two fixes merged from main, nothing under the platform host or Triad, the key only in the ignored .env; exchange CLOSED, schedule disabled, items 1–101 pass",
 ]
-# Optimization Lab v2, Phase 1 (plan Task 7, and the final review's fix wave) and Phase 2 (Task 12,
-# the five on the real 12,000-trial experiment): thirteen items numbered after whatever precedes
-# them, so each title starts with its nominal number (or the review row it answers); run_lab()
-# registers them from ITEMS.index(...) + 1. Governance stays last.
+# Optimization Lab v2, Phase 1 (plan Task 7, and the final review's fix wave), Phase 2 (Task 12,
+# the five on the real 12,000-trial experiment) and Phase 3 (Task 12: 111, 112 and 124): sixteen
+# items numbered after whatever precedes them, so each title starts with its nominal number (or
+# the review row it answers); run_lab() registers them from ITEMS.index(...) + 1. Governance
+# stays last.
 LAB_ITEMS = [
     "(103) Expand Lab opens the Optimization Lab with the dock's axes, metric and selection kept",
     "(104) the Lab's sub-nav keeps the filter, the selection and the pins across Trial Lab → Parameter Families → Run Monitor → Trial Lab, and a trip to Charts and back keeps them too",
@@ -186,6 +187,9 @@ LAB_ITEMS = [
     "(109) counts are identical across the heatmap, the table and the header",
     "(110) a brush updates the heatmap, the parallel coordinates, the table and the counts together on the real 12k experiment",
     "(104b) the Lab's sub-nav keeps the filter, the selection and the pins on the real 12,000-trial experiment",
+    "(111) a spike and a plateau are labelled: the bench's Robustness tab ranks by peak and by robustness and its top peak shows category A with its inputs (untested surroundings, never a peak), and a fully tested grid's plateau reads stable local with its inputs",
+    "(112) Parameter Families on the 10-parameter bench: the family tree and its search, the trellis with n per square, maximize and Esc, and a square's n equals the drill-down table's total, count-preserving (unmerged, thin and merged squares)",
+    "(124) a candidate card shows four categories with tested / unknown states and the reason for each: C reads unresolved · selection-period only beside its informational finding, D reads no replay yet (stage 2)",
     "governance unchanged since the Optimization Lab v2 plan (LAB_BASE) but Mission 14's fix pass merged from main, and the Lab items pass",
 ]
 ITEMS += LAB_ITEMS
@@ -227,7 +231,7 @@ LAB_SECONDARY = [  # the text item (106) holds to 4.5:1 against its nearest opaq
     ".lab-tab:not(.active)",
     "button:disabled",  # measured with its opacity; inactive controls are recorded, not asserted
 ]
-LAB_PLACEHOLDER_VIEWS = ["monitor", "families", "walkforward", "lineage", "compare"]
+LAB_PLACEHOLDER_VIEWS = ["monitor", "walkforward", "lineage", "compare"]  # Screens F-H, Phases 5-6
 LAB_TABS = ["heatmap", "interactions", "parallel", "pareto", "importance", "robustness"]
 WORKFLOW_LABELS = [  # workflow.ts WORKFLOW_LABELS, in strip order
     "Define variables",
@@ -321,6 +325,105 @@ LAB_KPI_TRIALS = (  # [primary, the filtered sub line or null] of the Trials KPI
     " return [n(k.querySelector('.kpi-value')?.innerText ?? ''), sub ? n(sub[1]) : null]; })()"
 )
 LAB_LINKED = "(document.getElementById('lab-linked')?.innerText ?? '')"
+# The screening blocks of the exhaustive grid that items 111 and 124 read (§7.3a: SCREEN_BLOCKS).
+LAB_BLOCKS = 4
+# The Robustness tab as the page shows it (Task 10's ids): both rankings' rows, the agreement line,
+# the stable candidate, τ and the basis. A row's text is its rank, trial, value and verdict.
+LAB_ROBUST_READ = """
+(() => {
+  const flat = (el) => (el?.innerText ?? '').replace(/\\s*\\n\\s*/g, ' ').trim();
+  const rows = (id) => [...document.querySelectorAll(`#${id} button.robust-row`)].map((b) => ({
+    trial: b.dataset.trial, state: b.dataset.state, ranked: b.dataset.rankedBy, text: flat(b) }));
+  const stable = document.getElementById('lab-robustness-stable');
+  return {
+    peak: rows('lab-robustness-peak'), robust: rows('lab-robustness-robust'),
+    agreement: flat(document.getElementById('lab-robustness-agreement')),
+    disagree: document.getElementById('lab-robustness-agreement')?.dataset.disagree ?? null,
+    stable: flat(stable), stableTrial: stable?.dataset.trial ?? '',
+    tolerance: flat(document.getElementById('lab-robustness-tolerance')),
+    axes: flat(document.getElementById('lab-robustness-axes')),
+    basis: flat(document.getElementById('lab-robustness-basis')),
+    assumptions: flat(document.getElementById('lab-assumptions-robustness')) };
+})()
+"""
+# One candidate card as the page shows it (Task 10's ids): per category its state, its tag, its
+# verdict and its inputs (dt → dd), the C finding apart, the one-line summary and the assumptions.
+LAB_CARD_READ = """
+(() => {
+  const card = document.getElementById('lab-candidate');
+  if (!card) return null;
+  const flat = (el) => (el?.innerText ?? '').replace(/\\s*\\n\\s*/g, ' ').trim();
+  const cats = {};
+  for (const k of ['A', 'B', 'C', 'D']) {
+    const el = document.getElementById('lab-candidate-' + k);
+    if (!el) { cats[k] = null; continue; }
+    const inputs = {};
+    for (const d of el.querySelectorAll(':scope > dl.candidate-inputs > div')) {
+      inputs[flat(d.querySelector('dt'))] = flat(d.querySelector('dd'));
+    }
+    cats[k] = { state: el.dataset.state, tag: flat(el.querySelector('.candidate-state')),
+      title: flat(el.querySelector('.candidate-title')),
+      verdict: flat(el.querySelector(':scope > .candidate-verdict')), inputs };
+  }
+  const finding = document.getElementById('lab-candidate-C-finding');
+  return { loading: card.dataset.loading, summary: flat(document.getElementById('lab-candidate-summary')),
+    header: flat(document.getElementById('lab-candidate-header')), cats,
+    finding: finding ? { title: flat(finding.querySelector('.sub')),
+      verdict: flat(finding.querySelector(':scope > .candidate-verdict')) } : null,
+    assumptions: flat(document.getElementById('lab-assumptions-candidate')) };
+})()
+"""
+# Screen E's pairs and their squares (Task 11's ids, as later fix rounds left them), as data.
+LAB_FAMILIES_PAIRS = (
+    "(() => [...document.querySelectorAll('[id^=lab-families-pair-]')]"
+    ".filter((e) => /^lab-families-pair-\\d+$/.test(e.id)).map((pair) => ({"
+    " k: Number(pair.id.split('-').pop()), rows: pair.dataset.rows, cols: pair.dataset.cols,"
+    " stat: pair.dataset.stat, merged: pair.dataset.merged, total: pair.dataset.total,"
+    " loading: pair.dataset.loading,"
+    " basis: document.getElementById(pair.id + '-basis')?.innerText ?? '',"
+    " cells: [...pair.querySelectorAll('button[id^=lab-families-cell-]')].map((c) => ({ id: c.id,"
+    " r: Number(c.dataset.r), c: Number(c.dataset.c), n: c.dataset.n, defined: c.dataset.defined,"
+    " state: c.dataset.state, rows: c.dataset.rows, cols: c.dataset.cols,"
+    " disabled: c.getAttribute('aria-disabled'), text: c.innerText.trim(), tab: c.tabIndex })) })))()"
+)
+LAB_FAMILIES_READY = (  # every pair asked for is in: its matrix landed and its squares are drawn
+    f"(() => {{ const p = {LAB_FAMILIES_PAIRS};"
+    " return p.length > 0 && p.every((x) => x.loading === 'false' && x.cells.length > 0); })()"
+)
+# §7.11's assumptions line, as the AssumptionsLine prints it (Task 11): three static clauses on
+# every analytic panel, the uniform-design clause only where the view ranks from uniform rows.
+LAB_ASSUMPTION_CLAUSES = (
+    "Discrete grids: every parameter has a step",
+    "Metrics are in-sample on the selection partition",
+    "Raw archives, not research-eligible",
+)
+LAB_ASSUMPTION_UNIFORM = "Uniform-design rows"
+
+
+def lab_money(text: str) -> float:
+    """`-$14,948` or `$99` as a number."""
+    found = re.fullmatch(r"(-?)\$([\d,]+(?:\.\d+)?)", text.strip())
+    assert found, f"not a money text: {text!r}"
+    return float(found.group(2).replace(",", "")) * (-1 if found.group(1) else 1)
+
+
+def lab_a_rule(category: dict) -> str:
+    """§7.6's category A read back from its own inputs (the worker's card): the state it must be in
+    and the classification those inputs give. Returns the classification, or `unresolved`."""
+    i = category["inputs"]
+    short = i["coverage"] < i["min_coverage"] or i["n"] < i["required_n"]
+    if not category["resolved"]:
+        if (category["reason"] or "").startswith("untested surroundings"):
+            assert short, category  # untested surroundings name evidence that fell short
+        return "unresolved"
+    assert not short, category  # a resolved A has the coverage and the n the rule asks for
+    stable = i["distance"] <= i["tau"]
+    peak = i["value"] > i["peak_line"]  # both oriented like the neighbourhood
+    expected = "stable local" if stable else "isolated peak" if peak else "mixed"
+    assert category["classification"] == expected, (category["classification"], expected, i)
+    return expected
+
+
 # Item 106's scroll guard: every element's scroll offsets (the catalog lists excepted) and the
 # window's, kept before the clipping checks, then the ones that moved.
 LAB_SCROLL_SNAPSHOT = (
@@ -4817,12 +4920,13 @@ class Acceptance:
         self.item(102, item102)
 
     # -- Optimization Lab v2, Phase 1: plumbing -------------------------------------------------
-    def lab_experiment_body(self, name: str, surface) -> dict:
-        """An exhaustive experiment over `surface` on the built-in document and LAB_RANGE."""
+    def lab_experiment_body(self, name: str, surface, blocks: int = 0) -> dict:
+        """An exhaustive experiment over `surface` on the built-in document and LAB_RANGE, with
+        `blocks` screening blocks per configuration (§7.3a) when given."""
         runs = 1
         for _, start, stop, step in surface:
             runs *= (stop - start) // step + 1
-        return {
+        body = {
             "name": name,
             "strategy_id": LAB_STRATEGY,
             "data": {
@@ -4842,6 +4946,9 @@ class Acceptance:
             "tolerance": 0.15,
             "seed": 1,
         }
+        if blocks:
+            body["blocks"] = blocks
+        return body
 
     def lab_experiment_fixture(self) -> None:
         """The block's own experiment, made through the API: the 3 × 3 surface on the built-in
@@ -5260,9 +5367,225 @@ class Acceptance:
             f"table row, the clicked trial"
         )
 
+    # -- Optimization Lab v2, Phase 3 (Task 12): the cards, Screen E and their fixtures ------------------
+    def lab_blocks_fixture(self) -> None:
+        """The cards' own experiment (items 111 and 124): LAB_SURFACE exhaustively with LAB_BLOCKS
+        screening blocks, finished, named lab-walk-<stamp>-blocks. Its nine cells are all tested, so
+        every neighbourhood is fully tested (category A resolves) and its blocks leave category C
+        `unresolved · selection-period only` (§7.6); block 0 is the whole range, the same nine
+        trials as the plain experiment's."""
+        body = self.lab_experiment_body(
+            f"{self.lab_fixtures['name']}-blocks", LAB_SURFACE, blocks=LAB_BLOCKS
+        )
+        started = self.post("experiments", body)
+        assert started.status == 202, started.text()
+        exp_id = started.json()["experiment_id"]
+        self.lab_fixtures["blocks_started"] = exp_id
+        assert self.wait_until(
+            lambda: self.experiment(exp_id)["status"] in ("done", "failed", "cancelled"), 300, 1
+        )
+        document = self.experiment(exp_id)
+        assert document["status"] == "done", document.get("error")
+        assert document.get("blocks") == LAB_BLOCKS, document.get("blocks")
+        self.lab_fixtures["blocks"] = exp_id
+
+    def lab_robustness_read(self, source: str) -> dict:
+        """The Robustness tab of the open `source`, read once its answer is in: both lists drawn,
+        and every row a trial of this source (never the previous source's panel)."""
+        self.page.locator("#lab-tab-robustness").click()
+        self.lab_wait(
+            "(() => { const rows = [...document.querySelectorAll('#lab-robustness button.robust-row')];"
+            " return document.getElementById('lab-robustness')?.dataset.loading === 'false'"
+            " && rows.length > 0 && rows.every((b) => b.dataset.trial.startsWith("
+            + json.dumps(source + "#")
+            + ")); })()",
+            60_000,
+        )
+        return self.page.evaluate(LAB_ROBUST_READ)
+
+    def lab_robustness_api(self, source: str) -> dict:
+        """The worker's two rankings for `source` (no filter): the page's rows are checked
+        against them."""
+        answer = self.post(f"lab/{source}/query", {"filter": {}, "view": "robustness"})
+        assert answer.ok, answer.text()[:300]
+        return answer.json()["rankings"]
+
+    def lab_card_api(self, source: str, trial: str) -> dict:
+        """The worker's candidate card for `trial` (the four categories, as the card prints
+        them), for the checks that read a verdict back from its inputs."""
+        answer = self.post(
+            f"lab/{source}/query", {"filter": {}, "view": "robustness", "trial": trial}
+        )
+        assert answer.ok, answer.text()[:300]
+        return answer.json()["card"]
+
+    def lab_check_rankings(self, read: dict, rankings: dict) -> str:
+        """Both lists as the page shows them against the worker's: the same trials in the same
+        order, each row `<rank> trial <n> <value> <verdict>` where the verdict is the worker's reason
+        (unresolved) or its classification `by <category>` (resolved), the agreement line and the
+        stable candidate; and every `untested surroundings (coverage c of 0.5)` row has c < 0.5 and
+        is never labelled a peak, stable or mixed. Returns the labels the rows carry."""
+        assert read["disagree"] == str(rankings["disagree"]).lower(), (read, rankings["disagree"])
+        if rankings["disagree"]:
+            assert "disagree" in read["agreement"], read["agreement"]
+        else:
+            assert read["agreement"].startswith("Peak and robust agree on trial"), read["agreement"]
+        if rankings["stable"] is None:
+            assert rankings["stable_reason"] in read["stable"], (read["stable"], rankings)
+            assert read["stableTrial"] == "", read["stableTrial"]
+        else:
+            assert read["stableTrial"], read["stable"]
+        labels: set[str] = set()
+        for name, key in (("peak", "peak_ranked"), ("robust", "ranked")):
+            rows, api = read[name], rankings[key]
+            assert len(rows) == len(api) == len(rankings["peak"]), (name, len(rows), len(api))
+            assert 0 < len(rows) <= rankings["k"], (name, len(rows), rankings["k"])
+            for place, (row, ref) in enumerate(zip(rows, api, strict=True), 1):
+                assert row["trial"] == ref["trial_id"], (name, place, row, ref)
+                found = re.fullmatch(r"(\d+) trial (\d+) (-?\$[\d,]+) (.+)", row["text"])
+                assert found, row
+                rank, number, value, verdict = found.groups()
+                assert int(rank) == place and row["trial"].endswith(f"#{number}"), row
+                assert abs(lab_money(value) - ref["value"]) <= 1.0, (row, ref["value"])
+                resolved = ref["classification"] is not None
+                assert row["state"] == ("resolved" if resolved else "unresolved"), (row, ref)
+                if resolved:
+                    assert verdict == f"{ref['classification']} by {ref['ranked_by']}", (row, ref)
+                    labels.add(ref["classification"])
+                else:
+                    assert verdict == ref["reason"], (row, ref)
+                    held = re.fullmatch(
+                        r"untested surroundings \(coverage ([\d.]+) of 0\.5\)", ref["reason"]
+                    )
+                    if held:
+                        assert float(held.group(1)) < 0.5, row  # untested: below the 0.5 line
+        return ", ".join(sorted(labels)) or "none"
+
+    def lab_pick_candidate(self, list_id: str, trial: str) -> dict:
+        """Click `trial`'s row of one Robustness list and read its candidate card once the card is
+        the trial's own (its header names the trial number and it has finished loading)."""
+        number = trial.rsplit("#", 1)[1]
+        self.page.locator(f'#{list_id} button.robust-row[data-trial="{trial}"]').click()
+        self.lab_wait(
+            "(() => { const c = document.getElementById('lab-candidate');"
+            " return c?.dataset.loading === 'false'"
+            f" && (document.getElementById('lab-candidate-header')?.innerText ?? '').startsWith('trial {number} ')"
+            f" && (document.getElementById('lab-selected')?.innerText ?? '').includes({json.dumps(trial)}); }})()",
+            60_000,
+        )
+        card = self.page.evaluate(LAB_CARD_READ)
+        assert card is not None and set(card["cats"]) == set("ABCD"), card
+        return card
+
+    def lab_check_card(self, source: str, trial: str, card: dict) -> dict:
+        """The card on screen against the worker's card for the same trial: the states, each
+        category's verdict (its classification, or its reason verbatim), the tested / unknown line
+        that never sums, and category A's inputs read back through §7.6's rule. Returns the worker's
+        card."""
+        api = self.lab_card_api(source, trial)
+        cats = api["categories"]
+        for key in "ABCD":
+            seen, ref = card["cats"][key], cats[key]
+            assert seen["state"] == ("resolved" if ref["resolved"] else "unresolved"), (key, seen)
+            assert seen["tag"] == ("tested" if ref["resolved"] else "unknown"), (key, seen)
+            verdict = ref["classification"] if ref["resolved"] else ref["reason"]
+            assert seen["verdict"] == verdict, (key, seen, verdict)
+        tested = ", ".join(api["tested"]) or "none"
+        unknown = ", ".join(api["unknown"]) or "none"
+        assert (
+            card["summary"] == f"Tested: {tested} · Unknown: {unknown} · never summed, no score"
+        ), (
+            card["summary"],
+            api["tested"],
+            api["unknown"],
+        )
+        assert sorted(api["tested"] + api["unknown"]) == list("ABCD")
+        lab_a_rule(cats["A"])
+        a, inputs = card["cats"]["A"]["inputs"], cats["A"]["inputs"]
+        assert a["n"] == f"{inputs['n']} (needs {inputs['required_n']})", (a, inputs)
+        assert abs(float(a["coverage"].split()[0]) - inputs["coverage"]) <= 0.005, (a, inputs)
+        assert a["coverage"].endswith("(needs 0.5)"), a
+        if inputs["p25"] is not None:  # a neighbourhood with tested trials prints its quartiles
+            for field, name in (("P25", "p25"), ("P75", "p75"), ("IQR", "iqr"), ("τ", "tau")):
+                assert abs(lab_money(a[field]) - inputs[name]) <= 1.0, (field, a, inputs)
+        return api
+
+    def lab_square_filter(self, pair: dict, cell: dict) -> dict:
+        """A square's defining filter, from its own data attributes and the Lab's filter in force: the
+        value it stands for on each axis (a range where the square merges neighbouring values). The
+        walk asks the worker for its trial count through this and not through the printed text."""
+        flt = json.loads(json.dumps(self.lab_active_filter()))
+        for path, span in ((pair["rows"], cell["rows"]), (pair["cols"], cell["cols"])):
+            low, high = (float(v) for v in span.split(","))
+            assert path not in (flt.get("values") or {}) and path not in (
+                flt.get("ranges") or {}
+            ), (
+                path,
+                flt,
+            )  # the square's own axes are not in the Lab's filter here
+            if low == high:
+                flt.setdefault("values", {})[path] = low
+            else:
+                flt.setdefault("ranges", {})[path] = [low, high]
+        return flt
+
+    def lab_drill(self, source: str, pair: dict, cell: dict) -> dict:
+        """Click one Screen E square and read its drill-down once the check has settled: the square's
+        n (a data attribute of the square), the table's total as the worker counted it for the pick's
+        snapshot, the check, the table's own `N of M trials`, and a `page` query's total for the
+        square's filter built from the square's attributes alone. All of them are equal (the
+        drill-down is count-preserving)."""
+        page = self.page
+        n = int(cell["n"])
+        before = page.locator("#lab-families-drill-square").count()
+        previous = page.locator("#lab-families-drill-square").inner_text() if before else ""
+        page.locator(f"#{cell['id']}").click()
+        self.lab_wait(
+            "(() => { const sq = document.getElementById('lab-families-drill-square')?.innerText ?? '';"
+            f" return sq !== '' && sq !== {json.dumps(previous)}"
+            f" && document.getElementById('lab-families-drill')?.dataset.n === '{n}'"
+            " && document.getElementById('lab-families-drill-check')?.dataset.match === 'true'"
+            f" && document.getElementById('lab-families-drill-total')?.dataset.total === '{n}'"
+            f" && document.querySelector('#lab-families-drill .trial-count')?.dataset.filtered === '{n}'; }})()",
+            90_000,
+        )
+        facts = page.evaluate(
+            "({ square: document.getElementById('lab-families-drill-square').innerText,"
+            " verdict: document.getElementById('lab-families-drill-verdict')?.innerText ?? '',"
+            " filter: document.getElementById('lab-families-drill-filter')?.innerText ?? '',"
+            " check: document.getElementById('lab-families-drill-check').dataset.match,"
+            " total: document.getElementById('lab-families-drill-total').dataset.total,"
+            " filtered: document.querySelector('#lab-families-drill .trial-count').dataset.filtered,"
+            " rows: document.querySelectorAll('#lab-families-drill tr[data-trial]').length,"
+            " picked: document.getElementById("
+            + json.dumps(cell["id"])
+            + ").classList.contains('selected') })"
+        )
+        counted = self.post(
+            f"lab/{source}/query",
+            {"filter": self.lab_square_filter(pair, cell), "view": "page", "limit": 1},
+        )
+        assert counted.ok, counted.text()[:300]
+        asked = counted.json()["total"]
+        assert asked == n and facts["picked"] and facts["check"] == "true", (n, asked, facts)
+        assert 0 < facts["rows"] <= max(n, 1) and "agree" in facts["verdict"], facts
+        facts["asked"] = asked
+        return facts
+
+    def lab_assumptions(self, panels, uniform=()) -> str:
+        """`#lab-assumptions-<panel>` of each panel on screen: the three static clauses of §7.11 (and
+        the uniform-design clause where the panel ranks from uniform rows), one line each."""
+        for panel in panels:
+            line = self.page.locator(f"#lab-assumptions-{panel}")
+            assert line.count() == 1, f"#lab-assumptions-{panel}: {line.count()} on screen"
+            text = line.inner_text()
+            assert all(clause in text for clause in LAB_ASSUMPTION_CLAUSES), (panel, text)
+            assert (LAB_ASSUMPTION_UNIFORM in text) == (panel in uniform), (panel, text)
+        return ", ".join(panels)
+
     # -- Optimization Lab v2, Phase 1: the items --------------------------------------------------
     def run_lab(self, first: int):
-        """The Lab block on its own fixtures, items first … first + 12. It never restarts the worker
+        """The Lab block on its own fixtures, items first … first + 15. It never restarts the worker
         and never touches port 8102's process."""
         page = self.page
         self.lab_fixtures = {"name": f"lab-walk-{self.stamp}"}
@@ -5299,17 +5622,42 @@ class Acceptance:
             assert "bench" in fixtures, fixtures.get("bench_error")
             return fixtures["bench"]
 
-        def bench_source() -> str:
-            """`exp:<bench>`, listed in the Lab's picker: the Lab fetches its experiment list as it
+        def listed(source: str) -> str:
+            """`source` listed in the Lab's picker: the Lab fetches its experiment list as it
             mounts, so an experiment made since is listed after a trip to Charts and back."""
-            source = f"exp:{bench_id()}"
-            listed = (
+            present = (
                 "t => [...document.querySelectorAll('#lab-source option')].some(o => o.value === t)"
             )
-            if not page.evaluate(listed, source):
+            if not page.evaluate(present, source):
                 self.lab_round_trip()
-                page.wait_for_function(listed, arg=source, timeout=15_000)
+                page.wait_for_function(present, arg=source, timeout=15_000)
             return source
+
+        def bench_source() -> str:
+            """`exp:<bench>`, listed in the Lab's picker."""
+            return listed(f"exp:{bench_id()}")
+
+        def blocks_id() -> str:
+            """The exhaustive grid with screening blocks (items 111 and 124), made by the first
+            item that needs it; a failure is kept, so every later item reports the same reason."""
+            if "blocks" not in fixtures and "blocks_error" not in fixtures:
+                try:
+                    self.lab_blocks_fixture()
+                except Exception as exc:  # noqa: BLE001 - the items that need it report why
+                    fixtures["blocks_error"] = f"{type(exc).__name__}: {exc}"
+            assert "blocks" in fixtures, fixtures.get("blocks_error")
+            return fixtures["blocks"]
+
+        def blocks_source() -> str:
+            return listed(f"exp:{blocks_id()}")
+
+        def open_source(source: str) -> None:
+            """`source` open on Trial Lab, its rows in the table."""
+            self.lab_view("trials")
+            if page.locator("#lab-source").input_value() != source:
+                self.lab_open(source)
+            else:
+                self.lab_wait_rows(source)
 
         def bench_open() -> str:
             """The bench experiment open on Trial Lab, its rows in the table."""
@@ -5323,7 +5671,8 @@ class Acceptance:
 
         def tab_placeholders(canvases: dict[str, str]) -> dict[str, list[str]]:
             """Each centre tab's `.not-built` lines, the tab selected first; a tab named in
-            `canvases` waits for its canvas there."""
+            `canvases` waits for its panel there, and then for its §7.11 assumptions line
+            (`#lab-assumptions-<tab>`, which every analytic tab carries)."""
             found: dict[str, list[str]] = {}
             for tab in LAB_TABS:
                 page.locator(f"#lab-tab-{tab}").click()
@@ -5334,6 +5683,7 @@ class Acceptance:
                 )
                 if tab in canvases:
                     page.wait_for_selector(f"#lab-panel {canvases[tab]}", timeout=30_000)
+                    page.wait_for_selector(f"#lab-panel #lab-assumptions-{tab}", timeout=30_000)
                 found[tab] = page.locator("#lab-panel .not-built").all_inner_texts()
             page.locator("#lab-tab-heatmap").click()
             return found
@@ -5466,14 +5816,20 @@ class Acceptance:
             assert texts["events"] == "Event windows: feed unavailable", texts
             assert texts["partition"].startswith("Partition: none"), texts
             assert "Phase 8" in texts["ai"], texts
-            # An experiment: the heatmap and the parallel coordinates are canvases now (Phase 2);
-            # exactly three tabs are still placeholders, each naming Phase 3.
-            canvases = {"heatmap": "#lab-heatmap-canvas", "parallel": "#lab-parallel-canvas"}
-            exp_tabs = tab_placeholders(canvases)
+            # An experiment: all six centre tabs are panels now (the heatmap and the parallel
+            # coordinates in Phase 2, the other four in Phase 3): a canvas or the panel's own root,
+            # each with its §7.11 assumptions line, and no tab is a placeholder.
+            panels = {
+                "heatmap": "#lab-heatmap-canvas",
+                "parallel": "#lab-parallel-canvas",
+                "interactions": "#lab-interactions",
+                "pareto": "#lab-pareto",
+                "importance": "#lab-importance",
+                "robustness": "#lab-robustness",
+            }
+            exp_tabs = tab_placeholders(panels)
             held = {tab: lines for tab, lines in exp_tabs.items() if lines}
-            assert sorted(held) == ["interactions", "pareto", "robustness"], exp_tabs
-            unphased = [t for lines in held.values() for t in lines if "Phase 3" not in t]
-            assert all(len(lines) == 1 for lines in held.values()) and not unphased, held
+            assert not held and sorted(exp_tabs) == sorted(LAB_TABS), exp_tabs
             views = []
             for view in LAB_PLACEHOLDER_VIEWS:
                 self.lab_view(view)
@@ -5482,7 +5838,6 @@ class Acceptance:
             self.lab_wait_rows(source)
             vague = [t for t in views if not re.search(r"Phase \d", t)]
             assert len(views) == len(LAB_PLACEHOLDER_VIEWS) and not vague, (views, vague)
-            placeholders = [t for lines in held.values() for t in lines] + views
             report = self.api(f"experiments/{exp_id}/report")
             page.wait_for_function(
                 "n => (document.querySelector('#lab-findings .rail-title')?.innerText ?? '')"
@@ -5501,12 +5856,11 @@ class Acceptance:
             self.lab_open(f"opt:{job_id()}")
             opt_title = refine.get_attribute("title") or ""
             assert refine.is_disabled() and opt_title, opt_title
-            # A grid job: its parallel coordinates are live too (ruling P12 amended at Task 11);
-            # its importance is a placeholder naming Phase 3.
-            opt_tabs = tab_placeholders({"parallel": "#lab-parallel-canvas"})
-            importance = opt_tabs["importance"]
-            assert importance and all("Phase 3" in t for t in importance), opt_tabs
-            assert not opt_tabs["parallel"], opt_tabs
+            # A grid job: its parallel coordinates are live too (ruling P12 amended at Task 11),
+            # and its importance is the Phase 3 panel (the task runs on a finished grid): no
+            # centre tab is a placeholder.
+            opt_tabs = tab_placeholders({**panels, "heatmap": ".lab-matrix"})
+            assert not any(opt_tabs.values()), opt_tabs
             page.evaluate(
                 "() => { const o = document.createElement('option');"
                 " o.value = o.textContent = 'exp:does-not-exist'; o.id = 'lab-walk-bogus';"
@@ -5524,11 +5878,11 @@ class Acceptance:
             assert kept == panels, kept
             return (
                 f"{texts['gate']} · {texts['regime']} · {texts['events']} · {texts['partition']} · "
-                f"'{texts['ai']}'; the experiment's heatmap and parallel tabs draw their canvases, "
-                f"its placeholders are {', '.join(sorted(held))} (Phase 3) and the "
-                f"{len(views)} views, {len(placeholders)} in all, each naming its phase; refine "
-                f"for report {report['report_id']} {refine_state}; for the grid job disabled: "
-                f"'{opt_title}', its parallel tab a canvas and importance '{importance[0]}'; the "
+                f"'{texts['ai']}'; the experiment's six tabs ({', '.join(LAB_TABS)}) are all panels "
+                f"with an assumptions line and none a placeholder; the {len(views)} later views "
+                f"({', '.join(LAB_PLACEHOLDER_VIEWS)}) are the placeholders, each naming its phase; "
+                f"refine for report {report['report_id']} {refine_state}; for the grid job disabled: "
+                f"'{opt_title}', its six tabs panels too (importance included); the "
                 f"bogus source: '{error}' with {retry}, {', '.join(kept)} still in place"
             )
 
@@ -5745,6 +6099,7 @@ class Acceptance:
             later = [s for s in steps[1:] if s["state"] != "disabled"]
             unexplained = [s for s in steps[1:] if not re.search(r"Phase \d", s["title"])]
             assert not later and not unexplained, (later, unexplained)
+            self.lab_assumptions(["variables"])  # §7.11: one line for the screen
             return f"6 steps in order; {steps[0]['label']} {steps[0]['state']}; " + "; ".join(
                 f"{s['label']}: '{s['title']}'" for s in steps[1:]
             )
@@ -5912,12 +6267,21 @@ class Acceptance:
             )
             findings = page.locator("#lab-findings").inner_text().splitlines()[-1]
             page.locator("#lab-tab-importance").click()
+            # Phase 3: the Importance tab asks the worker for its importance task, whose line it
+            # prints (`Importance · queued`, `· stage k of 3`, `· done in …`); the report's
+            # main effects under it are still the report's, and there is none yet.
+            page.wait_for_selector("#lab-panel #lab-importance-task .lab-task-line", timeout=30_000)
+            task_line = page.locator("#lab-importance-task .lab-task-line").inner_text()
+            task_state = page.locator("#lab-importance-task").get_attribute("data-state")
+            assert re.match(
+                r"Importance · (queued|stage \d of 3|done|cancelled|failed)", task_line
+            ), (task_line, task_state)
+            assert task_state in ("queued", "running", "done", "cancelled", "failed"), task_state
             page.wait_for_function(
                 "(document.getElementById('lab-panel')?.innerText ?? '')"
                 ".includes('no report yet: recompute it on the Experiments page')",
                 timeout=10_000,
             )
-            importance = page.locator("#lab-panel").inner_text()
             still = page.locator("#lab-status").inner_text()
             assert still.startswith("PROVISIONAL"), (
                 f"the experiment finished during the running checks ({still}): give "
@@ -5944,7 +6308,8 @@ class Acceptance:
             page.locator("#lab-tab-heatmap").click()
             return (
                 f"{source[:16]}… ({planned} cells, posted and opened at once): '{shown}', "
-                f"findings '{findings}', Importance '{importance.strip()}'; the table counted "
+                f"findings '{findings}', Importance task line '{task_line}' ({task_state}) above "
+                f"the report's 'no report yet'; the table counted "
                 f"{' → '.join(str(c) for c in counts)} trials as the 2 s refresh ran, the chip "
                 f"settled to '{status}' with {after} = planned, and the page never reloaded"
             )
@@ -6244,6 +6609,523 @@ class Acceptance:
 
         self.item(first + 11, lab104b)
 
+        # -- Phase 3 (Task 12): the cards and Screen E ----------------------------------------------
+        def lab111():
+            source = bench_open()
+            page.locator("#optlab-page").focus()
+            page.keyboard.press("Escape")  # 104b left a range in force: the rankings are unfiltered
+            self.lab_wait(f"{LAB_LINKED} === 'Linked · 0 filters'")
+            # The 12,000-trial bench is a sampled surface in a 2.9 × 10¹¹-cell space: a neighbourhood
+            # of a trial is all but untested, so no candidate can be called a peak or stable (§7.6).
+            bench = self.lab_robustness_read(source)
+            rankings = self.lab_robustness_api(source)
+            assert rankings["k"] == 20 and rankings["pool"] == 300, rankings
+            assert len(bench["peak"]) == len(bench["robust"]) == 20, bench  # the bench has 12,000
+            bench_labels = self.lab_check_rankings(bench, rankings)
+            assert "ranks the top 300 by peak" in bench["basis"], bench["basis"]
+            assert bench["tolerance"].startswith(
+                "τ = tolerance 0.15 × (P90 − P10) of the metric"
+            ), bench
+            assert bench["peak"][0]["trial"] == rankings["peak"][0], rankings["peak"][:2]
+            top = bench["peak"][0]
+            card = self.lab_pick_candidate("lab-robustness-peak", top["trial"])
+            self.lab_check_card(source, top["trial"], card)
+            a = card["cats"]["A"]
+            held = re.fullmatch(
+                r"untested surroundings \(coverage ([\d.]+) of 0\.5\)", a["verdict"]
+            )
+            assert held or a["verdict"] == "isolated peak", a  # the plan's two readings of A
+            coverage = float(held.group(1)) if held else None
+            if held:  # never called a peak and never stable on untested surroundings
+                assert a["state"] == "unresolved" and a["tag"] == "unknown" and coverage < 0.5, a
+                assert float(a["inputs"]["coverage"].split()[0]) < 0.5, a["inputs"]
+                assert a["inputs"]["reach"] == "1 step in at most 2 parameters", a[
+                    "inputs"
+                ]  # m = 2
+            assert (
+                card["cats"]["C"]["verdict"] == "no blocks or folds" and card["finding"] is None
+            ), card
+            assert card["cats"]["D"]["verdict"] == "no replay yet (stage 2)", card["cats"]["D"]
+            bench_card = (
+                f"{top['trial'].split('#')[-1]}: A '{a['verdict']}' (n {a['inputs']['n']}, coverage "
+                f"{a['inputs']['coverage']}, reach {a['inputs']['reach']}); {card['summary']}"
+            )
+            bench_assumptions = self.lab_assumptions(["robustness", "candidate"])
+            # -- an exhaustive grid is fully tested: its neighbourhoods resolve (nine cells, blocks) --
+            grid = blocks_source()
+            open_source(grid)
+            plateau = self.lab_robustness_read(grid)
+            grid_rankings = self.lab_robustness_api(grid)
+            grid_labels = self.lab_check_rankings(plateau, grid_rankings)
+            stable_rows = [r for r in plateau["robust"] if r["text"].endswith("stable local by A")]
+            assert stable_rows, plateau[
+                "robust"
+            ]  # a plateau: stable local, with every input printed
+            order = ["stable local" in r["text"] for r in plateau["robust"]]
+            assert order == sorted(order, reverse=True), order  # stable cells first
+            assert plateau["robust"][0]["ranked"] == "A", plateau["robust"][0]
+            plateau_card = self.lab_pick_candidate("lab-robustness-robust", stable_rows[0]["trial"])
+            plateau_api = self.lab_check_card(grid, stable_rows[0]["trial"], plateau_card)
+            p = plateau_card["cats"]["A"]
+            inputs = plateau_api["categories"]["A"]["inputs"]
+            assert p["state"] == "resolved" and p["verdict"] == "stable local", p
+            assert inputs["coverage"] >= 0.5 and inputs["n"] >= inputs["required_n"], inputs
+            assert inputs["distance"] <= inputs["tau"], inputs  # P25 within τ of the value
+            assert set(p["inputs"]) >= {"n", "coverage", "P25", "P75", "IQR", "τ", "reach"}, p
+            # The peak list of the same grid: its labels are the worker's, each read back from its
+            # inputs by §7.6's rule (an `isolated peak` would need a value above P75 + 3 × IQR).
+            for ref in grid_rankings["peak_ranked"] + grid_rankings["ranked"]:
+                lab_a_rule(self.lab_card_api(grid, ref["trial_id"])["categories"]["A"])
+            grid_assumptions = self.lab_assumptions(["robustness"])
+            return (
+                f"bench {source[:24]}…: Robustness tab, peak and robust lists of {rankings['k']} rows "
+                f"each over the top {rankings['pool']} by peak equal the worker's ('{bench['agreement']}' "
+                f"{bench['stable']}), classification labels on screen: {bench_labels} (every row is "
+                f"unresolved on untested surroundings); top peak trial {bench_card}; its C "
+                f"'no blocks or folds', D 'no replay yet (stage 2)'; every row on untested "
+                f"surroundings has coverage < 0.5; exhaustive grid {grid[:24]}… with {LAB_BLOCKS} "
+                f"blocks: {len(stable_rows)} trials read stable local by A, listed first in the robust "
+                f"ranking ('{plateau['agreement']}'), the first one trial "
+                f"{stable_rows[0]['trial'].split('#')[-1]}: A resolved, stable local with n "
+                f"{p['inputs']['n']}, coverage {p['inputs']['coverage']}, P25 {p['inputs']['P25']}, "
+                f"P75 {p['inputs']['P75']}, IQR {p['inputs']['IQR']}, τ {p['inputs']['τ']} "
+                f"(P25 within τ of the value); the grid's labels {grid_labels} (no spike occurs on "
+                f"this smooth surface, so no `isolated peak` is on screen: that label is the "
+                f"unit tests'), every label read back from its inputs; assumptions line on "
+                f"{bench_assumptions}, {grid_assumptions}"
+            )
+
+        self.item(first + 12, lab111)
+
+        def lab112():
+            source = bench_open()
+            page.locator("#optlab-page").focus()
+            page.keyboard.press("Escape")  # 104b left a range in force
+            self.lab_wait(f"{LAB_LINKED} === 'Linked · 0 filters'")
+            params = {p["path"]: p for p in self.api(f"lab/{source}/summary")["parameters"]}
+            assert len(params) == 10, len(params)  # decision 11: the bench has ten
+            scope = self.lab_counts(source, {})
+            completed = scope["completed"]
+            self.lab_view("families")
+            page.wait_for_selector("#lab-families", timeout=30_000)
+            where = (
+                page.locator("#lab-families-catalog").count(),
+                page.locator("#lab-catalog").count(),
+            )
+            assert where == (1, 0), where  # the family tree in place of the plain catalog
+
+            # 1. The scope breadcrumb: completed → valid unique → filtered → brushed, exact counts.
+            names = ("completed", "unique", "filtered", "brushed")
+            crumbs_js = (
+                "['completed', 'unique', 'filtered', 'brushed'].map((k) =>"
+                " document.getElementById('lab-families-crumb-' + k)?.dataset.n ?? '')"
+            )
+            self.lab_wait(f"{crumbs_js}.every((n) => n !== '')")
+            counted = page.evaluate(crumbs_js)
+            want = [str(completed), str(scope["unique"]), str(completed), str(completed)]
+            assert counted == want, (counted, want)
+            notes = [page.locator(f"#lab-families-crumb-{k}").inner_text() for k in names]
+            assert "no filter" in notes[2] and "no brush" in notes[3], notes
+
+            # 2. The family tree by side and indicator, with the search.
+            tree = (
+                "[...document.querySelectorAll('section.family[id^=lab-families-family-]')]"
+                ".map((e) => ({ id: e.id, family: e.dataset.family, side: e.dataset.side,"
+                " parameters: Number(e.dataset.parameters), values: Number(e.dataset.values),"
+                " tested: e.dataset.tested }))"
+            )
+            families = page.evaluate(tree)
+            assert len(families) == 10 and sum(f["parameters"] for f in families) == 10, families
+            by_family = {f["family"]: f for f in families}
+            assert len(by_family) == 10, families
+            for path, info in params.items():
+                found = by_family[info["family"]]
+                tested = sum(1 for t in info["tested_per_value"] if t)
+                assert found["values"] == info["n_values"] and found["tested"] == str(tested), (
+                    path,
+                    found,
+                    info["n_values"],
+                    tested,
+                )
+            search = page.locator("#lab-families-search")
+            search.fill("rsi")
+            self.lab_wait(
+                "document.getElementById('lab-families-matches')?.dataset.families === '2'"
+            )
+            matches = page.evaluate(
+                "({ ...document.getElementById('lab-families-matches').dataset })"
+            )
+            left = sorted(f["id"] for f in page.evaluate(tree))
+            assert matches == {"families": "2", "parameters": "2"}, matches
+            assert left == ["lab-families-family-long-rsi", "lab-families-family-short-rsi"], left
+            search.fill("")
+            self.lab_wait(
+                "document.querySelectorAll('section.family[id^=lab-families-family-]').length === 10"
+                " && !document.getElementById('lab-families-matches')"
+            )
+            search.fill("zzz")
+            self.lab_wait("!!document.getElementById('lab-families-no-match')")
+            search.fill("")
+            self.lab_wait("!document.getElementById('lab-families-no-match')")
+
+            # 3. The trellis of the top resolved pairs, the importance task's order, n per square.
+            self.lab_wait(
+                "document.getElementById('lab-families-task')?.dataset.state === 'done'", 180_000
+            )
+            interactions = self.post(f"lab/{source}/query", {"filter": {}, "view": "interactions"})
+            assert interactions.ok, interactions.text()[:300]
+            answer = interactions.json()
+            consts = answer["constants"]
+            resolved = [p["pair"] for p in answer["pairs"] if not p["unresolved"]]
+            want_pairs = resolved[: consts["TRELLIS_PAIRS"]]
+            self.lab_wait(
+                f"(() => {{ const p = {LAB_FAMILIES_PAIRS};"
+                f" return p.length === {len(want_pairs)} && p.every((x) => x.loading === 'false'"
+                " && x.cells.length > 0); })()",
+                120_000,
+            )
+            pairs = page.evaluate(LAB_FAMILIES_PAIRS)
+            assert [[p["rows"], p["cols"]] for p in pairs] == want_pairs, (pairs, want_pairs)
+            legend = page.locator("#lab-families-legend").inner_text()
+            assert f"under {consts['TRELLIS_MIN_N']} trials" in legend, (
+                legend
+            )  # the worker's constants
+            assert f"more than {consts['TRELLIS_MAX_SIDE']} values" in legend, legend
+            floor, side = consts["TRELLIS_MIN_N"], consts["TRELLIS_MAX_SIDE"]
+            states = {"ok": 0, "thin": 0, "undefined": 0, "untested": 0}
+            merged_pairs = []
+            for pair in pairs:
+                cells = pair["cells"]
+                axes = [params[pair["rows"]]["n_values"], params[pair["cols"]]["n_values"]]
+                grid = (max(c["r"] for c in cells) + 1, max(c["c"] for c in cells) + 1)
+                assert grid[0] <= side and grid[1] <= side, (pair["k"], grid)
+                assert pair["merged"] == str(max(axes) > side).lower(), (pair["k"], axes)
+                assert pair["stat"] == ("mean" if max(axes) > side else "median"), pair
+                for k, axis in enumerate(axes):  # an axis within the side keeps every value
+                    assert axis > side or grid[k] == axis, (pair["k"], grid, axes)
+                    assert axis <= side or 1 < grid[k] <= side, (pair["k"], grid, axes)
+                assert sum(int(c["n"]) for c in cells) == int(pair["total"]) == completed, pair["k"]
+                assert sum(1 for c in cells if c["tab"] == 0) == 1, pair["k"]  # one tab stop a pair
+                for c in cells:
+                    assert re.fullmatch(r"\d+", c["n"]) and re.fullmatch(r"\d*", c["defined"]), c
+                    n, defined = int(c["n"]), int(c["defined"] or 0)
+                    states[c["state"]] += 1
+                    if n == 0:
+                        assert c["state"] == "untested" and c["disabled"] == "true", c
+                    else:
+                        assert c["disabled"] == "false", c
+                    if c["state"] == "ok":
+                        assert n >= floor and defined >= floor, c
+                    elif c["state"] == "thin":
+                        assert n < floor or defined < floor, c
+                    elif c["state"] == "undefined":
+                        assert defined == 0 and n > 0, c
+                    if n:
+                        assert c["text"] == str(n), c  # the number on a square is its n
+                if pair["merged"] == "true":
+                    merged_pairs.append(pair)
+            assert merged_pairs, "no pair merges its stop-loss axis (19 values)"
+            for pair in merged_pairs:
+                assert "merged from" in pair["basis"], pair["basis"]
+            trellis_text = (
+                f"{len(pairs)} pairs of {answer['total_pairs']}, {sum(states.values())} squares "
+                f"({states['ok']} ok, {states['thin']} thin), n per square summing to {completed:,} "
+                f"in every pair, ≤ {side} a side, {len(merged_pairs)} pair merging a 19-value axis"
+            )
+
+            # 4. Drill-downs, count-preserving: an ordinary square, then a merged one.
+            first = next(c for c in pairs[0]["cells"] if c["state"] == "ok")
+            plain = self.lab_drill(source, pairs[0], first)
+            merged = merged_pairs[0]
+            wide = next(
+                c
+                for c in merged["cells"]
+                if c["state"] == "ok" and c["cols"].split(",")[0] != c["cols"].split(",")[1]
+            )
+            ranged = self.lab_drill(source, merged, wide)
+            assert "∈ [" in ranged["filter"], ranged["filter"]  # a merged square is a range filter
+
+            # 5. A trial of the drill-down is the candidate of the neighbourhood map and the rail.
+            row = page.locator("#lab-families-drill tr[data-trial]").first
+            trial = row.get_attribute("data-trial")
+            row.click()
+            self.lab_wait(
+                f"document.getElementById('lab-families-candidate')?.dataset.trial === {json.dumps(trial)}"
+                " && document.getElementById('lab-families-neighbourhood')?.dataset.loading === 'false'"
+                " && document.getElementById('lab-candidate')?.dataset.loading === 'false'"
+                " && !!document.getElementById('lab-families-candidate-A')?.dataset.state"
+                " && !!document.getElementById('lab-families-candidate-B')?.dataset.state",
+                60_000,
+            )
+            states_map = page.evaluate(
+                "['A', 'B'].map((k) => [document.getElementById('lab-families-candidate-' + k).dataset.state,"
+                " document.getElementById('lab-candidate-' + k).dataset.state])"
+            )
+            mapped = {"tested": "resolved", "unknown": "unresolved"}
+            assert all(mapped[a] == b for a, b in states_map), states_map
+
+            # 6. The parallel coordinates: aggregated by default, the sampled lines on request.
+            def parallel_in(mode: str):
+                self.lab_wait(
+                    f"document.getElementById('lab-parallel-mode')?.dataset.mode === '{mode}'"
+                    f" && {LAB_PARALLEL_READY} && {LAB_PARALLEL_BASIS} !== ''"
+                    " && (document.getElementById('lab-parallel-summary')?.innerText ?? '') !== ''"
+                    " && (document.getElementById('lab-parallel-canvas')?.getAttribute('aria-label') ?? '') !== ''",
+                    60_000,
+                )
+                return page.evaluate(
+                    "({ basis: document.getElementById('lab-parallel-basis').innerText,"
+                    " summary: document.getElementById('lab-parallel-summary').innerText,"
+                    " aria: document.getElementById('lab-parallel-canvas').getAttribute('aria-label') })"
+                )
+
+            bundles = parallel_in("bundles")
+            assert bundles["basis"].startswith("Aggregated"), bundles
+            page.locator("#lab-parallel-mode-sample").click()
+            sampled = parallel_in("sample")
+            assert re.fullmatch(
+                r"Sampled \d+ of \d+ \(stratified by decile of net_pnl\)", sampled["basis"]
+            ), sampled
+            lines, of = (int(v) for v in re.findall(r"\d+", sampled["basis"])[:2])
+            assert of == completed and 0 < lines <= 5_000, sampled
+            page.locator("#lab-parallel-mode-bundles").click()
+            again = parallel_in("bundles")
+            assert again["basis"].startswith("Aggregated"), again
+
+            # 7. The convergence chart of the rail: the best so far and the robust median per batch.
+            self.lab_wait(
+                "document.getElementById('lab-convergence')?.dataset.loading === 'false'"
+                " && (document.getElementById('lab-convergence-summary')?.innerText ?? '') !== ''"
+            )
+            convergence = self.post(
+                f"lab/{source}/query", {"filter": {}, "view": "convergence"}
+            ).json()
+            drawn = page.evaluate(
+                "({ d: { ...document.getElementById('lab-convergence').dataset },"
+                " robust: document.getElementById('lab-convergence-robust').dataset.robust,"
+                " robustText: document.getElementById('lab-convergence-robust').innerText,"
+                " basis: document.getElementById('lab-convergence-basis').innerText,"
+                " summary: document.getElementById('lab-convergence-summary').innerText })"
+            )
+            assert drawn["d"]["provisional"] == "false", drawn
+            assert drawn["basis"].startswith("Tested (exact)"), drawn["basis"]
+            assert f"after {convergence['best_total']:,} trials" in drawn["summary"], drawn[
+                "summary"
+            ]
+            assert drawn["robust"] == ("drawn" if convergence["batches"] >= 2 else "empty"), drawn
+            assert f"{convergence['batches']} batches" in drawn["robustText"], drawn["robustText"]
+
+            # 8. The assumptions line on each analytic panel of the page (§7.11).
+            assumed = self.lab_assumptions(
+                [
+                    "parallel",
+                    "trellis",
+                    "importance",
+                    "neighbourhood",
+                    "drill",
+                    "findings",
+                    "convergence",
+                ],
+                uniform=("trellis", "importance"),
+            )
+
+            # 9. Maximize, and Esc restores it; with a filter in force Esc clears it first.
+            page.locator("#lab-families-clear").click()  # the pick of step 4 goes with its filter
+            self.lab_wait("document.getElementById('lab-families-drill')?.dataset.n === ''")
+            page.locator("#lab-families-maximize").click()
+            self.lab_wait(
+                "document.getElementById('lab-families')?.dataset.maximized === 'true'"
+                " && !!document.querySelector('.lab-body.maximized')"
+                " && document.getElementById('lab-families-catalog')?.hidden === true"
+            )
+            assert page.evaluate(f"{LAB_FAMILIES_PAIRS}.length") == len(
+                want_pairs
+            )  # the trellis stays
+            page.locator("#optlab-page").focus()
+            page.keyboard.press("Escape")
+            self.lab_wait(
+                "document.getElementById('lab-families')?.dataset.maximized === 'false'"
+                " && !document.querySelector('.lab-body.maximized')"
+                " && document.getElementById('lab-families-catalog')?.hidden === false"
+            )
+            # A brush on a ten-parameter experiment leaves 25 % of the trials: every square of every
+            # pair falls under 30 trials (thin) and a thin square drills down count-preserving too.
+            brush = 'input.range-lo[data-path="long_side.indicators.ema.length"]'
+            page.locator(f"#lab-families-catalog {brush}").fill("50")
+            self.lab_wait(f"{LAB_LINKED} === 'Linked · 1 filter'")
+            wanted = self.lab_counts(source, self.lab_active_filter())["filtered"]
+            self.lab_wait(
+                f"document.getElementById('lab-families-crumb-brushed')?.dataset.n === '{wanted}'"
+                f" && (() => {{ const p = {LAB_FAMILIES_PAIRS};"
+                f" return p.length === {len(want_pairs)} && p.every((x) => x.loading === 'false'"
+                f" && x.total === '{wanted}' && x.cells.length > 0); }})()",
+                120_000,
+            )
+            assert 0 < wanted < completed, (wanted, completed)
+            pairs = page.evaluate(LAB_FAMILIES_PAIRS)
+            squares = [c for pair in pairs for c in pair["cells"]]
+            thin_share = sum(c["state"] == "thin" for c in squares) / len(squares)
+            assert thin_share >= 0.9, (
+                thin_share
+            )  # a quarter of the trials: nearly every square is thin
+            thin = next(c for c in pairs[0]["cells"] if c["state"] == "thin" and int(c["n"]) > 0)
+            small = self.lab_drill(source, pairs[0], thin)
+            assert int(thin["n"]) < floor and small["asked"] == int(thin["n"]), (thin, small)
+            # The chip's Clear leaves the picked square; Esc clears the brush before the maximize.
+            page.locator("#lab-linked").click()
+            page.locator("#lab-linked-clear").click()
+            self.lab_wait(f"{LAB_LINKED} === 'Linked · 0 filters'")
+            assert page.locator("#lab-families-drill").get_attribute("data-n") != "", (
+                "the pick went"
+            )
+            page.locator(f"#lab-families-catalog {brush}").fill("50")
+            self.lab_wait(f"{LAB_LINKED} === 'Linked · 1 filter'")
+            page.locator("#lab-families-maximize").click()  # the button: Esc would clear the brush
+            self.lab_wait("document.getElementById('lab-families')?.dataset.maximized === 'true'")
+            page.locator("#optlab-page").focus()
+            page.keyboard.press("Escape")
+            self.lab_wait(f"{LAB_LINKED} === 'Linked · 0 filters'")
+            assert page.locator("#lab-families").get_attribute("data-maximized") == "true"
+            page.keyboard.press("Escape")
+            self.lab_wait(
+                "document.getElementById('lab-families')?.dataset.maximized === 'false'"
+                " && !document.querySelector('.lab-body.maximized')"
+            )
+            page.locator("#lab-families-clear").click()  # the pick goes: the page is left clean
+            self.lab_wait("document.getElementById('lab-families-drill')?.dataset.n === ''")
+
+            # 10. Leaving the page asks for no importance task: over two of the Lab's 2 s ticks
+            # (an absence has no event to wait for) no task view is requested from Trial Lab.
+            asked: list[str] = []
+
+            def note(request):
+                if request.method == "POST" and "/query" in request.url:
+                    try:
+                        asked.append(json.loads(request.post_data or "{}").get("view"))
+                    except ValueError:
+                        pass
+
+            page.on("request", note)
+            try:
+                self.lab_view("trials")
+                page.locator("#lab-tab-heatmap").click()
+                self.lab_wait_rows(source)
+                page.wait_for_timeout(4_500)
+            finally:
+                page.remove_listener("request", note)
+            assert asked and not {"importance", "interactions", "triples"} & set(asked), asked
+            return (
+                f"{source[:24]}… ({completed:,} trials, {len(params)} parameters): the family tree "
+                f"(10 families, values and tested counts equal the summary's; 'rsi' keeps 2, 'zzz' "
+                f"none); breadcrumb {', '.join(counted)} = the counts view; trellis {trellis_text}; "
+                f"legend printing the worker's {floor} and {side}; square n = table total = counts "
+                f"view's: unmerged '{plain['square']}' {plain['asked']} = {plain['total']}, merged "
+                f"'{ranged['square']}' {ranged['asked']} = {ranged['total']} (a range filter), thin "
+                f"'{small['square']}' {small['asked']} = {small['total']} under a brush of {wanted:,} "
+                f"trials ({thin_share:.0%} of the squares thin); the drill-down's trial is the map's and the rail's candidate "
+                f"(A, B {states_map}); parallel '{bundles['basis']}' ↔ '{sampled['basis']}'; "
+                f"convergence '{drawn['robustText']}'; assumptions on {assumed}; maximize hid the "
+                f"catalog and kept the trellis, Esc restored it, and with a brush in force Esc "
+                f"cleared the brush first and the maximize second, the chip's Clear keeping the pick; "
+                f"leaving for Trial Lab asked for {sorted(set(asked))} and no task view"
+            )
+
+        self.item(first + 13, lab112)
+
+        def lab124():
+            source = blocks_source()
+            open_source(source)
+            read = self.lab_robustness_read(source)
+            # The candidate with the most to say: the plateau's first trial (A resolved), on a
+            # source with blocks. B waits for an importance result of this snapshot: unknown.
+            trial = next(r["trial"] for r in read["robust"] if r["text"].endswith("by A"))
+            card = self.lab_pick_candidate("lab-robustness-robust", trial)
+            api = self.lab_check_card(source, trial, card)
+            cats = card["cats"]
+            assert [cats[k]["state"] for k in "ABCD"] == [
+                "resolved",
+                "unresolved",
+                "unresolved",
+                "unresolved",
+            ]
+            assert [cats[k]["tag"] for k in "ABCD"] == ["tested", "unknown", "unknown", "unknown"]
+            assert card["summary"] == "Tested: A · Unknown: B, C, D · never summed, no score", card[
+                "summary"
+            ]
+            for key, name in zip(
+                "ABCD", ("local parameter", "sampled-region", "temporal", "execution")
+            ):
+                assert cats[key]["title"].startswith(name), cats[key]
+            # C: the blocks alone leave it unresolved, selection-period only, with its own finding.
+            assert cats["C"]["verdict"] == "unresolved · selection-period only", cats["C"]
+            assert cats["C"]["inputs"]["blocks"] == str(LAB_BLOCKS), cats["C"]["inputs"]
+            assert cats["C"]["inputs"]["folds"].startswith("0 (needs 3"), cats["C"]["inputs"]
+            finding = card["finding"]
+            ref = api["findings"][0]
+            assert finding is not None and len(api["findings"]) == 1, (finding, api["findings"])
+            assert finding["title"].startswith("selection-period consistency · informational"), (
+                finding
+            )
+            assert "never changes C" in finding["title"], finding
+            assert finding["verdict"] == (ref["classification"] or ref["reason"]), (finding, ref)
+            # D: no stage-2 replay exists in this phase.
+            assert cats["D"]["verdict"] == "no replay yet (stage 2)", cats["D"]
+            assert cats["D"]["inputs"]["scenarios"] == "none yet", cats["D"]["inputs"]
+            # B: its reason is the worker's, verbatim (no importance result for this snapshot).
+            assert cats["B"]["verdict"] == api["categories"]["B"]["reason"], cats["B"]
+            # Screen E's neighbourhood map prints A and B of the same trial: A tested, B unknown.
+            self.lab_view("families")
+            self.lab_wait(
+                "document.getElementById('lab-families-candidate')?.dataset.trial === "
+                + json.dumps(trial)
+                + " && document.getElementById('lab-families-neighbourhood')?.dataset.loading === 'false'"
+                " && !!document.getElementById('lab-families-candidate-A')?.dataset.state",
+                60_000,
+            )
+            on_map = page.evaluate(
+                "['A', 'B'].map((k) => document.getElementById('lab-families-candidate-' + k).dataset.state)"
+            )
+            assert on_map == ["tested", "unknown"], on_map
+            # The same card, on the bench (sampled, no blocks): A unresolved, C without blocks.
+            bench = bench_open()
+            page.locator("#lab-tab-heatmap").click()
+            first_row = page.locator("#trial-table tbody tr[data-trial]").first
+            bench_trial = first_row.get_attribute("data-trial")
+            first_row.click()
+            self.lab_wait(
+                "(() => { const c = document.getElementById('lab-candidate');"
+                " return c?.dataset.loading === 'false' && (document.getElementById('lab-candidate-header')"
+                f"?.innerText ?? '').startsWith('trial {bench_trial.rsplit('#', 1)[1]} '); }})()",
+                60_000,
+            )
+            bench_card = page.evaluate(LAB_CARD_READ)
+            self.lab_check_card(bench, bench_trial, bench_card)
+            assert bench_card["cats"]["C"]["verdict"] == "no blocks or folds", bench_card["cats"][
+                "C"
+            ]
+            assert bench_card["finding"] is None, bench_card["finding"]
+            assert bench_card["cats"]["D"]["verdict"] == "no replay yet (stage 2)"
+            tested = [k for k in "ABCD" if bench_card["cats"][k]["state"] == "resolved"]
+            assert bench_card["summary"].startswith("Tested: " + (", ".join(tested) or "none")), (
+                bench_card
+            )
+            return (
+                f"{source[:24]}… ({LAB_BLOCKS} blocks, exhaustive 3 × 3) trial {trial.split('#')[-1]}: "
+                f"'{card['summary']}'; A {cats['A']['state']} '{cats['A']['verdict']}' (n "
+                f"{cats['A']['inputs']['n']}, coverage {cats['A']['inputs']['coverage']}), B "
+                f"{cats['B']['state']} '{cats['B']['verdict']}', C {cats['C']['state']} "
+                f"'{cats['C']['verdict']}' (blocks {cats['C']['inputs']['blocks']}, folds "
+                f"{cats['C']['inputs']['folds']}) beside its informational finding '"
+                f"{finding['title'].split(' · ')[0]}: {finding['verdict']}', D {cats['D']['state']} "
+                f"'{cats['D']['verdict']}'; each verdict is the worker's classification or reason "
+                f"verbatim and A reads back through §7.6's rule; Parameter Families' map prints "
+                f"A {on_map[0]}, B {on_map[1]} for it; the bench's trial "
+                f"{bench_trial.split('#')[-1]}: '{bench_card['summary']}', C "
+                f"'{bench_card['cats']['C']['verdict']}' with no finding"
+            )
+
+        self.item(first + 14, lab124)
+
         def lab_governance():
             served = ""
             if self.pid_file is not None:  # a scratch worker: this checkout's code, the given store
@@ -6269,17 +7151,17 @@ class Acceptance:
                 committed,
                 pending,
             )
-            earlier = [r for r in self.results if first <= r["item"] < first + 12]
+            earlier = [r for r in self.results if first <= r["item"] < first + 15]
             failed = [r["item"] for r in earlier if r["status"] != "PASS"]
-            assert len(earlier) == 12 and not failed, failed
+            assert len(earlier) == 15 and not failed, failed
             return (
                 f"aegis {state['mode']} / {state['exchange']}; DailySchedule {schedule['id'][:8]} "
                 f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
                 f"{LAB_BASE} but Mission 14's {len(LAB_MAIN_CORE_FILES)} fix-pass files merged from "
-                f"main; Lab items {first}–{first + 11} PASS; fixtures {fixtures}{served}"
+                f"main; Lab items {first}–{first + 14} PASS; fixtures {fixtures}{served}"
             )
 
-        self.item(first + 12, lab_governance)
+        self.item(first + 15, lab_governance)
 
 
 def nested(condition: dict, depth: int) -> dict:

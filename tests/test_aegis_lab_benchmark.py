@@ -135,6 +135,8 @@ def test_lab_benchmark_record():
         "exact_slice": 300,
         "parallel": 800,
         "progress_poll": 100,
+        "pareto": 800,
+        "neighbourhood": 150,
     }
     assert TRACK_A_LIMITS == {
         "worker_rss_delta_mb": 450.0,
@@ -644,3 +646,216 @@ def test_bench_strategy_validates_and_has_ten_ranged_paths():
     _run(sys.executable, "import sys; sys.modules['numba'] = None; " + CORE_BODY)
     if CORE_INTERPRETER.exists():
         _run(CORE_INTERPRETER, CORE_BODY)
+
+
+# --- analytics (Phase 3, Task 12) --------------------------------------------------------------
+
+ANALYTICS = {
+    "mode": "analytics",
+    "host": {"cpu": {"name": "test cpu", "logical": 12}, "os": "test os", "ram_gb": 15.8},
+    "engine_build": "e" * 64,
+    "git_head": "0" * 40,
+    "basis": "http (scratch worker)",
+    "operations": {
+        "pareto": {"basis": "http", "http_ms": {"p95": 500.0}},
+        "neighbourhood": {"basis": "http", "http_ms": {"p95": 90.0}},
+    },
+    "task": {"task_s": 120.0, "fine_stage_s": 20.0, "beside_job": True},
+    "cases": {"quiet": {"trials_per_s": 180.0}, "loaded": {"trials_per_s": 135.0}},
+}
+# One number per key pushed just past its line (§9.6a: the task budget, the fine stage, two views).
+ANALYTICS_PAST = {
+    "importance_task_s": ("task", "task_s", 180.5),
+    "fine_stage_s": ("task", "fine_stage_s", 30.5),
+    "pareto": ("operations", "pareto", 801.0),
+    "neighbourhood": ("operations", "neighbourhood", 151.0),
+}
+
+
+def _analytics_past(record: dict, key: str) -> None:
+    section, name, value = ANALYTICS_PAST[key]
+    if section == "task":
+        record["task"][name] = value
+    else:
+        record["operations"][name]["http_ms"]["p95"] = value
+
+
+def test_analytics_record(monkeypatch):
+    # The constants: the two views' budgets join §9.6a's table, the task has its own two lines.
+    assert TRACK_A_BUDGETS_MS["pareto"] == 800 and TRACK_A_BUDGETS_MS["neighbourhood"] == 150
+    assert lab_benchmark.TRACK_ANALYTICS_LIMITS == {
+        "importance_task_s": 180.0,
+        "fine_stage_s": 30.0,
+    }
+
+    # A record that meets every line; each number pushed past its line fails it alone.
+    verdict = evaluate(ANALYTICS)
+    assert verdict == {key: True for key in ANALYTICS_PAST}, verdict
+    for key in ANALYTICS_PAST:
+        record = copy.deepcopy(ANALYTICS)
+        _analytics_past(record, key)
+        result = evaluate(record)
+        assert result[key] is False, key
+        assert all(result[k] is True for k in ANALYTICS_PAST if k != key), key
+    # The lines themselves pass (<=), and a missing measurement is absent, never passed.
+    edge = copy.deepcopy(ANALYTICS)
+    edge["task"].update(task_s=180.0, fine_stage_s=30.0)
+    assert evaluate(edge)["importance_task_s"] is True and evaluate(edge)["fine_stage_s"] is True
+    assert all(value == "absent" for value in evaluate({"mode": "analytics"}).values())
+    assert set(evaluate({"mode": "analytics"})) == set(ANALYTICS_PAST)
+    # The task's rows are measured beside a running job or not at all: a task that ran on an
+    # idle worker (cached, or the job ended first) is absent, not passed with a quiet number.
+    idle = copy.deepcopy(ANALYTICS)
+    idle["task"]["beside_job"] = False
+    result = evaluate(idle)
+    assert result["importance_task_s"] == "absent" and result["fine_stage_s"] == "absent"
+    assert result["pareto"] is True and result["neighbourhood"] is True
+    # The job's throughput loss is recorded, never judged: no key of the verdict carries it.
+    assert not [key for key in verdict if "loss" in key or "throughput" in key]
+
+    # throughput_loss = 1 - loaded / quiet; a faster loaded run is a negative loss, kept as
+    # measured; a missing rate is None.
+    assert lab_benchmark.throughput_loss(180.0, 135.0) == pytest.approx(0.25)
+    assert lab_benchmark.throughput_loss(100.0, 105.0) == pytest.approx(-0.05)
+    assert lab_benchmark.throughput_loss(None, 135.0) is None
+    assert lab_benchmark.throughput_loss(180.0, None) is None
+    assert lab_benchmark.throughput_loss(0.0, 135.0) is None
+
+    # The loaded rate counts only the chunks committed while the task ran: per run, those inside
+    # the window, the first one's rows left out (its work began before the window), rows over the
+    # seconds between the first and the last; runs add up. A run with one chunk in the window
+    # adds nothing, and nothing inside the window is None.
+    run_a = ([float(t) for t in range(10)], [200] * 10)  # 200 rows a second, t = 0 .. 9
+    run_b = ([20.0, 20.5, 21.0, 21.5, 40.0], [100, 100, 100, 100, 100])  # 200 rows a second
+    window = lab_benchmark.overlap_rate([run_a, run_b], 2.5, 21.2)
+    # run_a: t = 3 .. 9 -> 6 later chunks of 200 over 6 s; run_b: t = 20 .. 21 -> 2 of 100 over 1 s
+    assert window["rows"] == 1_400 and window["seconds"] == pytest.approx(7.0)
+    assert window["trials_per_s"] == pytest.approx(200.0)
+    assert [r["chunks"] for r in window["runs"]] == [7, 3]
+    one = lab_benchmark.overlap_rate([run_a], 2.5, 3.5)
+    assert one["trials_per_s"] is None and one["rows"] == 0 and one["runs"][0]["chunks"] == 1
+    assert lab_benchmark.overlap_rate([run_a], 50.0, 60.0)["trials_per_s"] is None
+    slow = ([0.0, 2.0, 4.0], [200, 200, 200])  # 100 rows a second
+    both = lab_benchmark.overlap_rate([run_a, slow], 0.0, 9.0)
+    assert both["rows"] == 1_800 + 400 and both["seconds"] == pytest.approx(9.0 + 4.0)
+
+    # "Beside a job" is a share of the task's window that the job's runs cover (their union):
+    # back-to-back runs with a gap between them leave it short of 1.
+    assert lab_benchmark.job_coverage([(0.0, 10.0), (12.0, 20.0)], 5.0, 15.0) == pytest.approx(0.8)
+    assert lab_benchmark.job_coverage([(0.0, 100.0)], 5.0, 15.0) == pytest.approx(1.0)
+    assert lab_benchmark.job_coverage([(0.0, 10.0), (5.0, 12.0)], 0.0, 12.0) == pytest.approx(1.0)
+    assert lab_benchmark.job_coverage([], 0.0, 10.0) == 0.0
+    assert lab_benchmark.job_coverage([(20.0, 30.0)], 0.0, 10.0) == 0.0
+    assert lab_benchmark.job_coverage([(0.0, 10.0)], 5.0, 5.0) == 0.0
+
+    # The loaded rate is judged against the quiet run over the same offsets from its creation: a
+    # run's whole-run rate carries its start-up and its compaction pause, which a short window may
+    # not. Per loaded run, the window's part inside its [created, final], as offsets from creation.
+    assert lab_benchmark.window_offsets([(100.0, 180.0)], 110.0, 122.0) == [(10.0, 22.0)]
+    assert lab_benchmark.window_offsets([(100.0, 180.0)], 90.0, 190.0) == [(0.0, 80.0)]
+    two = [(100.0, 130.0), (135.0, 200.0)]  # back to back, a gap between them
+    assert lab_benchmark.window_offsets(two, 120.0, 150.0) == [(20.0, 30.0), (0.0, 15.0)]
+    assert lab_benchmark.window_offsets(two, 131.0, 134.0) == []
+    assert lab_benchmark.window_offsets([(100.0, 130.0)], 200.0, 210.0) == []
+    quiet = ([10.0 + t for t in range(60)], [200] * 60)  # a quiet run created at 0
+    matched = lab_benchmark.matched_rate(quiet, 0.0, [(10.0, 22.0), (0.0, 15.0)])
+    # (10, 22): chunks at 10 .. 22, 12 of 200 over 12 s; (0, 15): chunks at 10 .. 15, 5 over 5 s
+    assert matched["rows"] == 12 * 200 + 5 * 200 and matched["seconds"] == pytest.approx(17.0)
+    assert matched["trials_per_s"] == pytest.approx(200.0)
+    assert lab_benchmark.matched_rate(quiet, 0.0, [])["trials_per_s"] is None
+
+    # The fine-grid stage: stage 1's own elapsed time when a poll read it; when stage 2 had already
+    # landed, the first stage read is an upper bound and says so; nothing read, nothing claimed.
+    both = {"1": {"wall_s": 6.0, "elapsed_s": 5.5}, "2": {"wall_s": 7.0, "elapsed_s": 6.5}}
+    assert lab_benchmark.fine_stage(both) == (5.5, "server elapsed_s of stage 1")
+    late = {"3": {"wall_s": 12.0, "elapsed_s": 11.4}, "2": {"wall_s": 7.4, "elapsed_s": 6.7}}
+    value, basis = lab_benchmark.fine_stage(late)
+    assert value == 6.7 and "stage 2" in basis and "upper bound" in basis, (value, basis)
+    assert lab_benchmark.fine_stage({}) == (None, None)
+    assert lab_benchmark.fine_stage({"2": {"wall_s": 7.0, "elapsed_s": None}}) == (None, None)
+
+    # The two views' requests, as the UI sends them: a Pareto front of the objective against max
+    # drawdown, and the neighbourhood of a seeded trial (a different one every run).
+    document = type(
+        "Doc",
+        (),
+        {
+            "id": "demo-synthetic-1m",
+            "objective": "net_pnl",
+            "surface": lab_benchmark.bench_surface(),
+        },
+    )()
+    operations = lab_benchmark._operations(document, 1_000_000, 1)
+    lab = "lab/exp:demo-synthetic-1m"
+    assert operations["pareto"](0) == [
+        (
+            "POST",
+            f"{lab}/query",
+            {"filter": {}, "view": "pareto", "objectives": ["net_pnl", "max_drawdown"]},
+        )
+    ]
+    trials = []
+    for i in range(20):
+        ((method, path, body),) = operations["neighbourhood"](i)
+        assert (method, path) == ("POST", f"{lab}/query"), (method, path)
+        assert set(body) == {"filter", "view", "trial", "metric"}, body
+        assert body["view"] == "neighbourhood" and body["filter"] == {}
+        assert body["metric"] == "net_pnl"
+        prefix, _, number = body["trial"].partition("#")
+        assert prefix == "exp:demo-synthetic-1m" and 0 <= int(number) < 1_000_000
+        trials.append(int(number))
+    assert len(set(trials)) == 20  # a different trial every run
+    again = lab_benchmark._operations(document, 1_000_000, 1)["neighbourhood"]
+    assert [int(again(i)[0][2]["trial"].partition("#")[2]) for i in range(20)] == trials
+    other = lab_benchmark._operations(document, 1_000_000, 2)["neighbourhood"]
+    assert [int(other(i)[0][2]["trial"].partition("#")[2]) for i in range(20)] != trials
+    # explore times both beside the Phase 2 rows, from the one budget table.
+    assert set(TRACK_A_BUDGETS_MS) - {"open_cold"} <= set(operations)  # open_cold is open, once
+
+    # An analytics record as the command builds it: the host, the engine build, the commit, the
+    # operations (the two views) and the cases (the quiet run and the loaded rate).
+    record = lab_benchmark.new_record("analytics")
+    assert record["mode"] == "analytics" and "operations" in record and "cases" in record
+    assert len(record["engine_build"]) == 64 and len(record["git_head"]) == 40
+    # It says what it does not measure: the fixture has no blocks and ten parameters.
+    note = lab_benchmark.ANALYTICS_NOT_MEASURED
+    assert "10 parameters" in note and "no blocks" in note
+    assert "per-block mains" in note and "d = 20" in note
+    # The re-test triggers read it like the others (rates from its cases).
+    due = retest_due(
+        ANALYTICS | {"host": PREVIOUS["host"]}, PREVIOUS | {"cases": ANALYTICS["cases"]}
+    )
+    assert set(due) == RETEST_KEYS
+
+    # analytics refuses the product targets itself, before any request, process or file; and the
+    # command refuses before anything else.
+    for name in PAST_THE_REFUSAL:
+        monkeypatch.setattr(lab_benchmark, name, _past_the_refusal)
+    monkeypatch.setattr(lab_benchmark, "health_live", _no_network)
+    pid_file = Path("none.pid")
+    text = _refused(
+        lambda: lab_benchmark.analytics(
+            product_root(), base="http://127.0.0.1:8103/aegis/", pid_file=pid_file
+        )
+    )
+    assert text == "refused: --data-root is the product root; pass --data-root <scratch>"
+    scratch = Path("scratch-not-written")
+    text = _refused(
+        lambda: lab_benchmark.analytics(
+            scratch, base="http://127.0.0.1:8102/aegis/", pid_file=pid_file
+        )
+    )
+    assert text == "refused: the worker on port 8102 is the product worker"
+    assert not scratch.exists()
+    argv = [
+        "analytics",
+        "--data-root",
+        str(product_root()),
+        "--base",
+        "http://127.0.0.1:8103/aegis/",
+        "--pid-file",
+        "logs/none.pid",
+    ]
+    logs = sorted((CHECKOUT / "logs").glob("lab-benchmark-*.json"))
+    assert lab_benchmark.main(argv) == 2
+    assert sorted((CHECKOUT / "logs").glob("lab-benchmark-*.json")) == logs
