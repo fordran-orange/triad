@@ -55,6 +55,9 @@ const PIN_COLOUR: Record<PinSlot, string> = { A: '#f5bd51', B: '#2da7ff', C: '#b
 const PIN_SLOTS: PinSlot[] = ['A', 'B', 'C'];
 const BRUSH_FILL = 'rgba(45, 167, 255, 0.18)';
 const BRUSH_EDGE = '#2da7ff';
+/** The note under the toolbar is blank while a new view loads; it keeps a line of height, so the plot below does not lose it and
+ *  get it back when the answer lands (and repaint its base layer twice). */
+export const NOTE_STYLE = { minHeight: '1.35em', lineHeight: 1.35 } as const;
 
 /** An answered view and what it was asked for: the basis, the note and the summary describe it, and only it. */
 type Answer = { key: string; source: string; metric: string; mode: ParallelMode; envelope: Stamped<LabEnvelope<LabParallel>> };
@@ -346,7 +349,7 @@ export function ParallelCoords({ data }: { data: LabQueryData }) {
         )}
       </div>
       <AssumptionsLine panel="parallel" />
-      <div className="sub" id="lab-parallel-note">
+      <div className="sub" id="lab-parallel-note" style={NOTE_STYLE}>
         {note}
       </div>
       {loaded !== null && axes.length === 0 && <div className="lab-empty">no parameters to draw: this source varies none</div>}

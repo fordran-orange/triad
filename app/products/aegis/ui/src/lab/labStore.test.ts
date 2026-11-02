@@ -586,7 +586,7 @@ describe('clearActions', () => {
   });
 
   it('keeps the picked trellis square: the chip lists filters, not selections', () => {
-    const pick: TrellisPick = { pair: 0, axes: ['a', 'b'], rows: [1, 1], cols: [2, 2], n: 40, snapshot: null };
+    const pick: TrellisPick = { pair: 0, axes: ['a', 'b'], rows: [1, 1], cols: [2, 2], n: 40, snapshot: null, filterKey: null };
     const held = state({ familiesPick: pick, filter: filter({ ranges: { a: [1, 2] }, pass: ['IS'] }) });
     const cleared = clearActions(held.filter).reduce((s, action) => labReducer(s, action), held);
     expect(cleared.familiesPick).toBe(pick);
@@ -607,7 +607,7 @@ describe('clearActions', () => {
   });
 
   it('counts a picked square as something Screen E\'s Clear takes away, when it is given one', () => {
-    const pick: TrellisPick = { pair: 0, axes: ['a', 'b'], rows: [1, 1], cols: [2, 2], n: 40, snapshot: null };
+    const pick: TrellisPick = { pair: 0, axes: ['a', 'b'], rows: [1, 1], cols: [2, 2], n: 40, snapshot: null, filterKey: null };
     expect(clearableCount(initialLabState.filter, pick)).toBe(1);
     expect(clearableCount(filter({ ranges: { a: [1, 2] } }), pick)).toBe(2);
     expect(clearableCount(filter({ pass: ['IS'] }), null)).toBe(0);
@@ -616,7 +616,7 @@ describe('clearActions', () => {
 });
 
 describe('Screen E\'s Clear', () => {
-  const pick: TrellisPick = { pair: 0, axes: ['a', 'b'], rows: [1, 1], cols: [2, 2], n: 40, snapshot: null };
+  const pick: TrellisPick = { pair: 0, axes: ['a', 'b'], rows: [1, 1], cols: [2, 2], n: 40, snapshot: null, filterKey: null };
 
   it('is the filter\'s Clear and the picked square with it', () => {
     const held = state({ familiesPick: pick, filter: filter({ ranges: { a: [1, 2] }, values: { b: 2 }, scope: 'long', pass: ['IS'], status: ['ok'] }) });
@@ -628,7 +628,7 @@ describe('Screen E\'s Clear', () => {
 });
 
 describe('the picked trellis square', () => {
-  const pick: TrellisPick = { pair: 1, axes: ['long_side.indicators.ema.length', 'long_side.stop_loss_pct'], rows: [15, 15], cols: [3, 4], n: 120, snapshot: { generation: 2, chunk_watermark: 5 } };
+  const pick: TrellisPick = { pair: 1, axes: ['long_side.indicators.ema.length', 'long_side.stop_loss_pct'], rows: [15, 15], cols: [3, 4], n: 120, snapshot: { generation: 2, chunk_watermark: 5 }, filterKey: 'f0000001' };
   const held = state({ source: EXP, familiesPick: pick });
 
   it('is kept in the store, so leaving Screen E and coming back finds it', () => {

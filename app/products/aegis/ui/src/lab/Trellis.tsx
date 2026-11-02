@@ -41,7 +41,8 @@ import type { LabQueryData, Stamped } from './useLabQuery';
 import { sourceFamilies, sourceLive } from './useLabSource';
 import { useTaskView } from './useTaskView';
 
-type Answer = { key: string; envelope: Stamped<LabEnvelope<LabMatrix>> };
+/** An answered matrix with the hash of the Lab's filter it was asked under (a pick takes it with its n). */
+type Answer = { key: string; envelope: Stamped<LabEnvelope<LabMatrix>>; filterKey: string };
 
 /** The squares of one pair as the DOM the walk reads: one button per square, carrying its exact trial count (`data-n`), the trials
  *  among them with a value (`data-defined`), its state (`untested`, `thin`, `undefined`, `ok`) and the two value ranges it stands
@@ -140,10 +141,11 @@ function Pair({
     asked.current = mark;
     const mine = ++seq.current;
     if (viewKey === null) return;
+    const under = filterHash(lab.filter);
     query<LabMatrix>('matrix', { rows, cols, mode: 'aggregate', stat })
       .then((envelope) => {
         if (mine !== seq.current || envelope === null) return; // a newer ask owns the pair, or the filter moved on
-        setAnswer({ key: viewKey, envelope });
+        setAnswer({ key: viewKey, envelope, filterKey: under });
         setFailure(null);
       })
       .catch((e: unknown) => mine === seq.current && setFailure({ key: viewKey, ...askFailure(e) }));
@@ -153,12 +155,12 @@ function Pair({
   const current = answer !== null && answer.key === viewKey ? answer : null;
   const error = failure !== null && failure.key === viewKey ? failure : null;
   const model: TrellisModel | null = useMemo(
-    () => (current === null ? null : trellisModel(current.envelope, stat, lab.metric, current.envelope.constants, current.envelope.snapshot)),
+    () => (current === null ? null : trellisModel(current.envelope, stat, lab.metric, current.envelope.constants, current.envelope.snapshot, current.filterKey)),
     [current, stat, lab.metric],
   );
 
-  // A running source moves the picked square's n: the pick takes the new one (and its snapshot), so the drill-down compares
-  // against it.
+  // A running source moves the picked square's n, and a brush moves the filter it was read under: the pick takes the new n with its
+  // snapshot and filter, so the drill-down compares against it.
   useEffect(() => {
     if (model === null || pick === null) return;
     const next = refreshedPick(pick, model);

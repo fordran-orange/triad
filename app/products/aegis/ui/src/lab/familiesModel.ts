@@ -83,8 +83,10 @@ export interface TrellisModel {
   /** The worker's floor and side this model was built with (TRELLIS_MIN_N, TRELLIS_MAX_SIDE). */
   minN: number;
   maxSide: number;
-  /** The snapshot the matrix was read at; a pick carries it, so the drill-down compares like with like. */
+  /** The snapshot the matrix was read at, and the hash of the Lab's filter it was read under; a pick carries both, so the
+   *  drill-down compares like with like. */
   snapshot: LabSnapshot | null;
+  filterKey: string | null;
   rows: AxisGroup[];
   cols: AxisGroup[];
   merged: boolean;
@@ -130,7 +132,14 @@ function pool(matrix: LabMatrix, rows: AxisGroup, cols: AxisGroup, stat: Trellis
 
 /** An aggregate matrix answer as the trellis draws it: at most `TRELLIS_MAX_SIDE` × `TRELLIS_MAX_SIDE` squares. `constants` is what
  *  the worker sent with the answer (the floor and the side) and `snapshot` the snapshot it was read at. */
-export function trellisModel(matrix: LabMatrix, stat: TrellisStat, metric: string, constants: LabTrellisConstants, snapshot: LabSnapshot | null = null): TrellisModel {
+export function trellisModel(
+  matrix: LabMatrix,
+  stat: TrellisStat,
+  metric: string,
+  constants: LabTrellisConstants,
+  snapshot: LabSnapshot | null = null,
+  filterKey: string | null = null,
+): TrellisModel {
   const minN = constants.TRELLIS_MIN_N;
   const maxSide = constants.TRELLIS_MAX_SIDE;
   const rows = groupAxis(matrix.rows, maxSide);
@@ -173,6 +182,7 @@ export function trellisModel(matrix: LabMatrix, stat: TrellisStat, metric: strin
     minN,
     maxSide,
     snapshot,
+    filterKey,
     rows,
     cols,
     merged,
@@ -226,9 +236,9 @@ export function cellFilter(base: LabFilter, axes: readonly [string, string], row
 }
 
 /** The square as a pick (the Lab's store keeps it, see `TrellisPick`): its pair, axes and ranges, the n the matrix gave it and the
- *  snapshot that matrix was read at. */
+ *  snapshot and the filter that matrix was read under. */
 export function pickOf(pair: number, model: TrellisModel, cell: TrellisCell): TrellisPick {
-  return { pair, axes: [model.rowsPath, model.colsPath], rows: [cell.rows.lo, cell.rows.hi], cols: [cell.cols.lo, cell.cols.hi], n: cell.n, snapshot: model.snapshot };
+  return { pair, axes: [model.rowsPath, model.colsPath], rows: [cell.rows.lo, cell.rows.hi], cols: [cell.cols.lo, cell.cols.hi], n: cell.n, snapshot: model.snapshot, filterKey: model.filterKey };
 }
 
 /** Whether `cell` of `model` is the picked square: the same pair of parameters and the same two value ranges. */
@@ -244,11 +254,13 @@ export function isPicked(pick: TrellisPick | null, model: TrellisModel, cell: Tr
   );
 }
 
-/** The pick with the n its square has now and the snapshot it was read at, when `model` is a newer answer for the same pair and
- *  either moved (a running source); the same object when nothing changed, so the caller writes nothing. */
+/** The pick with the n its square has now and the snapshot and filter it was read under, when `model` is a newer answer for the
+ *  same pair and any of them moved (a running source, a brush); the same object when nothing changed, so the caller writes
+ *  nothing. */
 export function refreshedPick(pick: TrellisPick, model: TrellisModel): TrellisPick {
   const now = model.cells.flat().find((cell) => isPicked(pick, model, cell));
-  return now === undefined || (now.n === pick.n && sameSnapshot(pick.snapshot, model.snapshot)) ? pick : { ...pick, n: now.n, snapshot: model.snapshot };
+  if (now === undefined || (now.n === pick.n && sameSnapshot(pick.snapshot, model.snapshot) && pick.filterKey === model.filterKey)) return pick;
+  return { ...pick, n: now.n, snapshot: model.snapshot, filterKey: model.filterKey };
 }
 
 /** The drill-down's filter: the Lab's filter plus the picked square (null: it holds no trial, see `cellFilter`). */
@@ -266,25 +278,51 @@ export function snapshotText(snapshot: LabSnapshot | null): string {
   return snapshot === null ? 'none' : `gen ${snapshot.generation} · chunk ${snapshot.chunk_watermark}`;
 }
 
-/** The key of the drill-down's total: the source, the metric, the square's defining filter and the snapshot its n was read at (null
- *  without a source, a pick or a filter for it). The snapshot is in it so that when a pair refreshes the pick (`refreshedPick`) the
- *  total is read again at once, and is compared with that same snapshot's n; with no timer of its own the total moves with the
- *  pair, and a finished source is read once more when its pair is settled. */
-export function drillKey(source: string | null, metric: string, filter: LabFilter | null, pick: TrellisPick | null): string | null {
+/** Which total the drill-down is about: the source, the metric and the square's defining filter (null without a source, a pick or a
+ *  filter for it). A total read for one scope is shown beside a pick of the same scope, whatever snapshot the pick has moved to. */
+export function drillScope(source: string | null, metric: string, filter: LabFilter | null, pick: TrellisPick | null): string | null {
   if (source === null || filter === null || pick === null) return null;
-  const at = pick.snapshot === null ? 'none' : `${pick.snapshot.generation}.${pick.snapshot.chunk_watermark}`;
-  return [source, metric, filterHash(filter), at].join('|');
+  return [source, metric, filterHash(filter)].join('|');
 }
 
-/** Whether the table's total is the square's n. `total` is null while the table's total is being read. On a running source the
- *  two answers can come from different snapshots, and numbers read at two snapshots are not comparable (neither true nor false:
- *  `match` is null, and the text says so); read at one snapshot they are equal, or one of them is wrong. */
-export function drillCheck(squareN: number, squareSnapshot: LabSnapshot | null, total: number | null, tableSnapshot: LabSnapshot | null): { match: boolean | null; text: string } {
-  if (total === null) return { match: null, text: "reading the table's total…" };
-  if (!sameSnapshot(squareSnapshot, tableSnapshot))
-    return { match: null, text: `the square was read at snapshot ${snapshotText(squareSnapshot)} and the table at ${snapshotText(tableSnapshot)}: compared when they agree` };
-  if (total === squareN) return { match: true, text: "the square's n and the table's total agree" };
-  return { match: false, text: `the square says ${count(squareN)} and the table ${count(total)}: one of them is wrong` };
+/** The key of the drill-down's total: its scope and the snapshot the pick's n was read at. The snapshot is in it so that when a pair
+ *  refreshes the pick (`refreshedPick`) the total is read again at once, and is compared with that same snapshot's n; with no timer
+ *  of its own the total moves with the pair, and a finished source is read once more when its pair is settled. */
+export function drillKey(source: string | null, metric: string, filter: LabFilter | null, pick: TrellisPick | null): string | null {
+  const scope = drillScope(source, metric, filter, pick);
+  if (scope === null || pick === null) return null;
+  return `${scope}|${pick.snapshot === null ? 'none' : `${pick.snapshot.generation}.${pick.snapshot.chunk_watermark}`}`;
+}
+
+/** The drill-down's total as read: for which scope, its value, the snapshot it was read at and the hash of the Lab's filter it was
+ *  asked under. */
+export interface DrillAnswer {
+  scope: string;
+  total: number;
+  snapshot: LabSnapshot | null;
+  filterKey: string | null;
+}
+
+/** The last total read, while it is still about the square now picked: kept when only the snapshot moved (a new read is on its
+ *  way, and the number does not blink out), dropped for another square, filter, metric or source. */
+export function drillHeld(answer: DrillAnswer | null, scope: string | null): DrillAnswer | null {
+  return answer !== null && scope !== null && answer.scope === scope ? answer : null;
+}
+
+/** Whether the table's total is the square's n. `total` is null while the table's total is being read. Two reads are compared only
+ *  when they were made under one filter (a brush moved under the held pick, and the cheap total landed before the matrix) and at
+ *  one snapshot (a running source moves between two reads): otherwise `match` is null, neither true nor false, and the text says
+ *  which. Under one filter at one snapshot they are equal, or one of them is wrong. */
+export function drillCheck(
+  square: { n: number; snapshot: LabSnapshot | null; filterKey: string | null },
+  table: { total: number | null; snapshot: LabSnapshot | null; filterKey: string | null },
+): { match: boolean | null; text: string } {
+  if (table.total === null) return { match: null, text: "reading the table's total…" };
+  if (square.filterKey !== table.filterKey) return { match: null, text: 'the square was read under another filter: compared when they agree' };
+  if (!sameSnapshot(square.snapshot, table.snapshot))
+    return { match: null, text: `the square was read at snapshot ${snapshotText(square.snapshot)} and the table at ${snapshotText(table.snapshot)}: compared when they agree` };
+  if (table.total === square.n) return { match: true, text: "the square's n and the table's total agree" };
+  return { match: false, text: `the square says ${count(square.n)} and the table ${count(table.total)}: one of them is wrong` };
 }
 
 // --- the pairs ------------------------------------------------------------------------------------------------------

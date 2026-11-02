@@ -18,7 +18,9 @@ import {
   neighbourhoodTitle,
   rangeText,
   refreshedPick,
+  drillHeld,
   drillKey,
+  drillScope,
   arrowTarget,
   rovingCell,
   trellisLegend,
@@ -325,19 +327,39 @@ describe('the drill-down keeps the count', () => {
     const m = trellisModel(matrixOf(NONE, emas, stops), 'mean', 'net_pnl', C);
     const cell = m.cells[2][3];
     const pick = pickOf(1, m, cell);
-    expect(pick).toEqual({ pair: 1, axes: [ROWS_PATH, COLS_PATH], rows: [cell.rows.lo, cell.rows.hi], cols: [cell.cols.lo, cell.cols.hi], n: cell.n, snapshot: null });
-    const read = trellisModel(matrixOf(NONE, emas, stops), 'mean', 'net_pnl', C, { generation: 2, chunk_watermark: 7 });
+    expect(pick).toEqual({ pair: 1, axes: [ROWS_PATH, COLS_PATH], rows: [cell.rows.lo, cell.rows.hi], cols: [cell.cols.lo, cell.cols.hi], n: cell.n, snapshot: null, filterKey: null });
+    const read = trellisModel(matrixOf(NONE, emas, stops), 'mean', 'net_pnl', C, { generation: 2, chunk_watermark: 7 }, 'f0000001');
     expect(pickOf(1, read, read.cells[2][3]).snapshot).toEqual({ generation: 2, chunk_watermark: 7 }); // the n of a pick is of a snapshot
+    expect(pickOf(1, read, read.cells[2][3]).filterKey).toBe('f0000001'); // and of the filter it was read under
     expect(pickFilter({ ...NONE, ranges: { [OTHER_PATH]: [30, 50] } }, pick)).toEqual(cellFilter({ ...NONE, ranges: { [OTHER_PATH]: [30, 50] } }, pick.axes, pick.rows, pick.cols));
   });
 
+  // What the square's n and the table's total were read at: the snapshot of the source and the hash of the Lab's filter.
+  const F = 'f0000001';
+  const G = 'f0000002';
+  const sq = (n: number, snapshot: LabSnapshot | null, filterKey: string | null = F) => ({ n, snapshot, filterKey });
+  const tb = (total: number | null, snapshot: LabSnapshot | null, filterKey: string | null = F) => ({ total, snapshot, filterKey });
+
   it('compares the square\'s n with the page total when both were read at one snapshot, and says so when they differ', () => {
     const at = { generation: 3, chunk_watermark: 12 };
-    expect(drillCheck(120, at, 120, { ...at })).toMatchObject({ match: true, text: 'the square\'s n and the table\'s total agree' });
-    expect(drillCheck(120, at, 118, at)).toEqual({ match: false, text: 'the square says 120 and the table 118: one of them is wrong' });
-    expect(drillCheck(120, at, null, null)).toEqual({ match: null, text: 'reading the table\'s total…' });
-    expect(drillCheck(120, null, 120, null).match).toBe(true); // a source without snapshots: its numbers are all there is to compare
-    expect(drillCheck(120, null, 118, null).match).toBe(false);
+    expect(drillCheck(sq(120, at), tb(120, { ...at }))).toMatchObject({ match: true, text: 'the square\'s n and the table\'s total agree' });
+    expect(drillCheck(sq(120, at), tb(118, at))).toEqual({ match: false, text: 'the square says 120 and the table 118: one of them is wrong' });
+    expect(drillCheck(sq(120, at), tb(null, null, null))).toEqual({ match: null, text: 'reading the table\'s total…' });
+    expect(drillCheck(sq(120, null), tb(120, null)).match).toBe(true); // a source without snapshots: its numbers are all there is to compare
+    expect(drillCheck(sq(120, null), tb(118, null)).match).toBe(false);
+  });
+
+  it('does not compare numbers read under different filters: a brush moved under a held pick, the total landed first', () => {
+    const at = { generation: 3, chunk_watermark: 12 };
+    // The page total is the cheaper ask and lands before the pair's matrix: on a finished source the snapshots agree, and a red
+    // "one of them is wrong" would be a false alarm until the pick takes the new n.
+    expect(drillCheck(sq(120, at, F), tb(118, at, G))).toEqual({ match: null, text: 'the square was read under another filter: compared when they agree' });
+    expect(drillCheck(sq(120, at, F), tb(120, at, G)).match).toBeNull(); // equal numbers under two filters prove nothing either
+    // It is asked before the snapshots are: both differ, and the filter is what is said.
+    expect(drillCheck(sq(120, { generation: 3, chunk_watermark: 11 }, F), tb(118, at, G)).text).toBe('the square was read under another filter: compared when they agree');
+    expect(drillCheck(sq(120, at, F), tb(null, null, null)).text).toBe('reading the table\'s total…'); // nothing read yet: still reading
+    expect(drillCheck(sq(120, at, null), tb(120, at, F)).match).toBeNull(); // a pick without its filter is not the filter of the total
+    expect(drillCheck(sq(120, at, G), tb(118, at, G)).match).toBe(false); // the same filter: the numbers decide
   });
 
   it('asks for the table\'s total again whenever the pick takes a newer snapshot, and not otherwise', () => {
@@ -366,11 +388,43 @@ describe('the drill-down keeps the count', () => {
   it('does not compare numbers read at different snapshots: a running source moves between two reads', () => {
     const s1: LabSnapshot = { generation: 3, chunk_watermark: 12 };
     const s2: LabSnapshot = { generation: 3, chunk_watermark: 13 };
-    const differ = drillCheck(120, s1, 118, s2);
+    const differ = drillCheck(sq(120, s1), tb(118, s2));
     expect(differ).toEqual({ match: null, text: 'the square was read at snapshot gen 3 · chunk 12 and the table at gen 3 · chunk 13: compared when they agree' });
-    expect(drillCheck(120, s1, 120, s2).match).toBeNull(); // equal numbers at two snapshots prove nothing either
-    expect(drillCheck(120, { generation: 4, chunk_watermark: 12 }, 118, s1).match).toBeNull(); // another generation is another snapshot
-    expect(drillCheck(120, null, 118, s1)).toEqual({ match: null, text: 'the square was read at snapshot none and the table at gen 3 · chunk 12: compared when they agree' });
+    expect(drillCheck(sq(120, s1), tb(120, s2)).match).toBeNull(); // equal numbers at two snapshots prove nothing either
+    expect(drillCheck(sq(120, { generation: 4, chunk_watermark: 12 }), tb(118, s1)).match).toBeNull(); // another generation is another snapshot
+    expect(drillCheck(sq(120, null), tb(118, s1))).toEqual({ match: null, text: 'the square was read at snapshot none and the table at gen 3 · chunk 12: compared when they agree' });
+  });
+
+  it('keeps the last total while the same square is read again at a newer snapshot, and reads null meanwhile; another square drops it', () => {
+    const s1: LabSnapshot = { generation: 2, chunk_watermark: 7 };
+    const s2: LabSnapshot = { generation: 2, chunk_watermark: 8 };
+    const first = trellisModel(matrixOf(NONE, emas, stops), 'mean', 'net_pnl', C, s1, F);
+    const pick = pickOf(1, first, first.cells[2][3]);
+    // The scope is of the square's defining filter (the Lab's plus the square), as the drill-down builds it.
+    const scopeOf = (p: typeof pick, base: LabFilter = NONE, metric = 'net_pnl', source: string | null = 'exp:e1') => drillScope(source, metric, pickFilter(base, p), p);
+    // The total was read at s1 beside the pick's n.
+    const answer = { scope: scopeOf(pick)!, total: pick.n, snapshot: s1, filterKey: F };
+    expect(drillHeld(answer, scopeOf(pick))).toBe(answer);
+    expect(drillCheck(pick, drillHeld(answer, scopeOf(pick))!).match).toBe(true);
+    // The pair refreshes the pick at s2: the drill key moves (a new read is asked) but the scope does not, so the last total is
+    // still held, with its own snapshot; the comparison reads null (different snapshots), not blank, and the total keeps its value.
+    const later = trellisModel(matrixOf(NONE, emas, stops), 'mean', 'net_pnl', C, s2, F);
+    const moved = refreshedPick(pick, later);
+    expect(drillKey('exp:e1', 'net_pnl', NONE, moved)).not.toBe(drillKey('exp:e1', 'net_pnl', NONE, pick));
+    expect(scopeOf(moved)).toBe(scopeOf(pick));
+    const held = drillHeld(answer, scopeOf(moved))!;
+    expect(held.total).toBe(pick.n);
+    expect(drillCheck(moved, held)).toEqual({ match: null, text: 'the square was read at snapshot gen 2 · chunk 8 and the table at gen 2 · chunk 7: compared when they agree' });
+    // Another square, filter, metric or source is another total: the old one is not held for it.
+    const other = pickOf(1, first, first.cells[3][3]);
+    expect(drillHeld(answer, scopeOf(other))).toBeNull();
+    expect(drillHeld(answer, scopeOf(pick, { ...NONE, ranges: { [OTHER_PATH]: [30, 50] } }))).toBeNull();
+    expect(drillHeld(answer, scopeOf(pick, NONE, 'mar'))).toBeNull();
+    expect(drillHeld(answer, scopeOf(pick, NONE, 'net_pnl', 'exp:e2'))).toBeNull();
+    expect(drillHeld(answer, null)).toBeNull();
+    expect(drillHeld(null, scopeOf(pick))).toBeNull();
+    expect(drillScope(null, 'net_pnl', NONE, pick)).toBeNull();
+    expect(drillScope('exp:e1', 'net_pnl', NONE, null)).toBeNull();
   });
 });
 
@@ -649,6 +703,17 @@ describe('the picked square', () => {
     expect(once).toEqual({ ...pick, snapshot: { generation: 1, chunk_watermark: 9 } });
     expect(refreshedPick(once, later)).toBe(once); // and then it is the same object: nothing to write
   });
+
+  it('takes the filter of the newer reading too: a brush moved, and the pair has read the matrix under it', () => {
+    const under = (filterKey: string | null) => trellisModel(aggregate(range(1, 17), [1, 2], () => ({ n: 40, value: 1 })), 'mean', 'net_pnl', C, null, filterKey);
+    const first = under('f0000001');
+    const held = pickOf(0, first, first.cells[2][1]);
+    expect(held.filterKey).toBe('f0000001');
+    expect(refreshedPick(held, first)).toBe(held);
+    const brushed = refreshedPick(held, under('f0000002'));
+    expect(brushed).toEqual({ ...held, filterKey: 'f0000002' }); // n has not moved, the filter has
+    expect(refreshedPick(brushed, under('f0000002'))).toBe(brushed);
+  });
 });
 
 // --- the markup the walk reads (Ruling P3: `lab-families-<part>`) --------------------------------------------------------
@@ -725,18 +790,25 @@ describe('the trellis markup', () => {
 describe('the drill-down markup', () => {
   it('prints the square\'s n and the table\'s total as exact attributes, and whether they match', () => {
     const snap = { generation: 1, chunk_watermark: 4 };
-    const agree = renderToStaticMarkup(createElement(DrillCheck, { squareN: 1200, squareSnapshot: snap, total: 1200, tableSnapshot: snap }));
+    const square = { n: 1200, snapshot: snap, filterKey: 'f0000001' };
+    const agree = renderToStaticMarkup(createElement(DrillCheck, { square, table: { total: 1200, snapshot: snap, filterKey: 'f0000001' } }));
     expect(attribute(agree, 'lab-families-drill-n', 'data-n')).toBe('1200');
     expect(attribute(agree, 'lab-families-drill-total', 'data-total')).toBe('1200');
     expect(attribute(agree, 'lab-families-drill-check', 'data-match')).toBe('true');
     expect(agree).toContain('1,200');
-    const differ = renderToStaticMarkup(createElement(DrillCheck, { squareN: 1200, squareSnapshot: snap, total: 1199, tableSnapshot: snap }));
+    const differ = renderToStaticMarkup(createElement(DrillCheck, { square, table: { total: 1199, snapshot: snap, filterKey: 'f0000001' } }));
     expect(attribute(differ, 'lab-families-drill-check', 'data-match')).toBe('false');
-    const moved = renderToStaticMarkup(createElement(DrillCheck, { squareN: 1200, squareSnapshot: snap, total: 1199, tableSnapshot: { generation: 1, chunk_watermark: 5 } }));
+    const moved = renderToStaticMarkup(createElement(DrillCheck, { square, table: { total: 1199, snapshot: { generation: 1, chunk_watermark: 5 }, filterKey: 'f0000001' } }));
     expect(attribute(moved, 'lab-families-drill-check', 'data-match')).toBe(''); // not comparable: neither true nor false
     expect(attribute(moved, 'lab-families-drill-total', 'data-total')).toBe('1199'); // the numbers are still printed
     expect(moved).toContain('the square was read at snapshot gen 1 · chunk 4 and the table at gen 1 · chunk 5: compared when they agree');
-    const waiting = renderToStaticMarkup(createElement(DrillCheck, { squareN: 1200, squareSnapshot: snap, total: null, tableSnapshot: null }));
+    // A brush moved under the held pick and the cheap total landed first: the numbers differ, and neither true nor false is said.
+    const refiltered = renderToStaticMarkup(createElement(DrillCheck, { square, table: { total: 1199, snapshot: snap, filterKey: 'f0000002' } }));
+    expect(attribute(refiltered, 'lab-families-drill-check', 'data-match')).toBe('');
+    expect(attribute(refiltered, 'lab-families-drill-total', 'data-total')).toBe('1199');
+    expect(refiltered).toContain('the square was read under another filter: compared when they agree');
+    expect(refiltered).not.toContain('one of them is wrong');
+    const waiting = renderToStaticMarkup(createElement(DrillCheck, { square, table: { total: null, snapshot: null, filterKey: null } }));
     expect(attribute(waiting, 'lab-families-drill-total', 'data-total')).toBe('');
     expect(attribute(waiting, 'lab-families-drill-check', 'data-match')).toBe('');
   });

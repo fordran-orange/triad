@@ -42,8 +42,8 @@ export type LabSelection = { trials: string[] } | { square: SquareSelection } | 
 export type PinSlot = 'A' | 'B' | 'C';
 
 /** Screen E's picked trellis square: which pair, its two axes (the worker's paths) and value ranges (equal ends: one value),
- *  the n the matrix gave it and the snapshot that matrix was read at (the drill-down compares its table's total with that n only
- *  when both were read at one snapshot). The square is its defining filter (§7.8); the Lab keeps it, so leaving the page does not
+ *  the n the matrix gave it, and the snapshot and the hash of the Lab's filter that matrix was read under (the drill-down compares
+ *  its table's total with that n only when both were read at one snapshot under one filter). The square is its defining filter (§7.8); the Lab keeps it, so leaving the page does not
  *  lose it. */
 export interface TrellisPick {
   pair: number;
@@ -52,6 +52,8 @@ export interface TrellisPick {
   cols: [number, number];
   n: number;
   snapshot: LabSnapshot | null;
+  /** `filterHash` of the Lab's filter the n was read under; null when not known. */
+  filterKey: string | null;
 }
 
 export interface LabState {

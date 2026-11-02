@@ -43,6 +43,16 @@ function attribute(markup: string, id: string, name: string): string | undefined
 
 const filter = (over: Partial<LabFilter>): LabFilter => ({ ...initialLabState.filter, ...over });
 
+describe('the parallel panel\'s note', () => {
+  it('is still rendered while it is blank, with a line of height of its own, so the plot does not jump', () => {
+    // No answer yet (and so on every key change): the note is blank, and the element stays, holding one line.
+    const markup = page({});
+    expect(attribute(markup, 'lab-parallel-note', 'id')).toBe('lab-parallel-note');
+    expect(attribute(markup, 'lab-parallel-note', 'style')).toBe('min-height:1.35em;line-height:1.35');
+    expect(markup).toContain('id="lab-parallel-note" style="min-height:1.35em;line-height:1.35"></div>'); // blank, and rendered
+  });
+});
+
 describe('Maximize', () => {
   it('keeps the parameter tree mounted and hides it, so its search and collapsed families survive a Restore', () => {
     const maximized = page({ maximized: true });
@@ -68,7 +78,7 @@ describe('Clear in the pinned filters', () => {
   });
 
   it('is enabled by a picked square, which it also drops, and its tooltip says so', () => {
-    const pick: TrellisPick = { pair: 0, axes: ['long_side.indicators.ema.length', 'long_side.stop_loss_pct'], rows: [15, 15], cols: [2, 2.5], n: 120, snapshot: null };
+    const pick: TrellisPick = { pair: 0, axes: ['long_side.indicators.ema.length', 'long_side.stop_loss_pct'], rows: [15, 15], cols: [2, 2.5], n: 120, snapshot: null, filterKey: null };
     vi.spyOn(console, 'error').mockImplementation(() => undefined); // the table under the drill-down: a layout effect in a static render
     expect(disabled({ familiesPick: pick })).toBe(false);
     const title = (state: Partial<LabState>) => attribute(page(state), 'lab-families-clear', 'title');
@@ -89,7 +99,7 @@ describe('Clear in the pinned filters', () => {
 
 describe('the picked square', () => {
   afterEach(() => vi.restoreAllMocks());
-  const pick: TrellisPick = { pair: 0, axes: ['long_side.indicators.ema.length', 'long_side.stop_loss_pct'], rows: [15, 15], cols: [2, 2.5], n: 120, snapshot: null };
+  const pick: TrellisPick = { pair: 0, axes: ['long_side.indicators.ema.length', 'long_side.stop_loss_pct'], rows: [15, 15], cols: [2, 2.5], n: 120, snapshot: null, filterKey: null };
 
   it('is read from the Lab\'s store, so the drill-down still shows it when the page is opened again', () => {
     const empty = page({});

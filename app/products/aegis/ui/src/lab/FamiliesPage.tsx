@@ -10,7 +10,7 @@ import { errorMessage } from '../api/client';
 import { DASH } from '../format';
 import type { LabPage, LabSnapshot } from '../results';
 import { AssumptionsLine } from './AssumptionsLine';
-import { drillCheck, drillKey, pickFilter, rangeText, type TrellisPick } from './familiesModel';
+import { drillCheck, drillHeld, drillKey, drillScope, pickFilter, rangeText, type DrillAnswer, type TrellisPick } from './familiesModel';
 import { ImportanceView } from './ImportanceView';
 import { NeighbourhoodMap } from './NeighbourhoodMap';
 import { ParallelCoords } from './ParallelCoords';
@@ -20,22 +20,30 @@ import { Trellis } from './Trellis';
 import { TrialTable, type ScrollMemory, type TrialSort } from './TrialTable';
 import { filterLines } from './labQuery';
 import { useLab, useLabDispatch } from './labState';
-import { sourceText } from './labStore';
+import { filterHash, sourceText } from './labStore';
 import { LabError } from './NotBuilt';
 import { axisLabel } from './parallelBundles';
 import type { LabQueryData } from './useLabQuery';
 import { sourceFamilies, type TrialRow } from './useLabSource';
 
 /** The square's n beside the table's total, and whether they agree (§7.8): both exact numbers as attributes, for the walk. Each
- *  was read at a snapshot; on a running source they can differ, and then the two are not compared (`data-match` is empty). */
-export function DrillCheck({ squareN, squareSnapshot, total, tableSnapshot }: { squareN: number; squareSnapshot: LabSnapshot | null; total: number | null; tableSnapshot: LabSnapshot | null }) {
-  const check = drillCheck(squareN, squareSnapshot, total, tableSnapshot);
+ *  was read at a snapshot and under a filter; when either differs (a running source, a brush moved) the two are not compared and
+ *  `data-match` is empty. */
+export function DrillCheck({
+  square,
+  table,
+}: {
+  square: { n: number; snapshot: LabSnapshot | null; filterKey: string | null };
+  table: { total: number | null; snapshot: LabSnapshot | null; filterKey: string | null };
+}) {
+  const check = drillCheck(square, table);
   const match = check.match === null ? '' : String(check.match);
+  const { total } = table;
   return (
     <div className="drill-check" id="lab-families-drill-check" data-match={match}>
       square n{' '}
-      <b id="lab-families-drill-n" data-n={squareN}>
-        {squareN.toLocaleString('en-US')}
+      <b id="lab-families-drill-n" data-n={square.n}>
+        {square.n.toLocaleString('en-US')}
       </b>{' '}
       · table total{' '}
       <b id="lab-families-drill-total" data-total={total ?? ''}>
@@ -49,7 +57,8 @@ export function DrillCheck({ squareN, squareSnapshot, total, tableSnapshot }: { 
 /** The contributing trials of the picked square: the worker's `page` of the Lab's filter plus the square. Its total is read
  *  on its own (a page of one row) and printed beside the square's n; the table below pages the same filter. The total has no
  *  cadence of its own: its key carries the snapshot the pick's n was read at (`drillKey`), so it is read again when the pair
- *  refreshes the pick, and is compared against that snapshot; it keeps the snapshot it was read at. */
+ *  refreshes the pick, and is compared against that snapshot; it keeps the snapshot and the filter it was read at, and the last
+ *  total stays on show while the same square is read again. */
 function Drilldown({
   data,
   pick,
@@ -70,9 +79,10 @@ function Drilldown({
   const source = loaded ? sourceText(loaded) : null;
   const filter = useMemo(() => (pick === null ? null : pickFilter(lab.filter, pick)), [lab.filter, pick]);
   const key = drillKey(source, lab.metric, filter, pick);
+  const scope = drillScope(source, lab.metric, filter, pick);
 
   const [retry, setRetry] = useState(0);
-  const [answer, setAnswer] = useState<{ key: string; total: number; snapshot: LabSnapshot | null } | null>(null);
+  const [answer, setAnswer] = useState<DrillAnswer | null>(null);
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
   const seq = useRef(0);
   const asked = useRef<string | null>(null);
@@ -81,19 +91,22 @@ function Drilldown({
     if (mark !== null && asked.current === mark) return; // React's development double-run of the same ask
     asked.current = mark;
     const mine = ++seq.current;
-    if (key === null || filter === null) return;
+    if (key === null || scope === null || filter === null) return;
+    const under = filterHash(lab.filter); // the Lab's filter this total is asked under (an answer for another one is dropped by `query`)
     query<LabPage>('page', { filter, offset: 0, limit: 1 })
       .then((envelope) => {
         if (mine !== seq.current || envelope === null) return; // a newer ask owns the total, or the filter moved on
-        setAnswer({ key, total: envelope.total, snapshot: envelope.snapshot });
+        setAnswer({ scope, total: envelope.total, snapshot: envelope.snapshot, filterKey: under });
         setFailure(null);
       })
       .catch((e: unknown) => mine === seq.current && setFailure({ key, message: errorMessage(e) }));
     // The key stands for the source, the metric, the drill-down's filter and the snapshot of the pick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, retry]);
-  const total = answer !== null && answer.key === key ? answer.total : null;
-  const tableSnapshot = answer !== null && answer.key === key ? answer.snapshot : null;
+  // The last total read stays on show while the same square is read again at a newer snapshot (it is compared with nothing until the
+  // new read lands: the comparison reads null, the number does not blink out); another square, filter, metric or source drops it.
+  const held = drillHeld(answer, scope);
+  const table = { total: held === null ? null : held.total, snapshot: held === null ? null : held.snapshot, filterKey: held === null ? null : held.filterKey };
   const error = failure !== null && failure.key === key ? failure.message : null;
 
   if (pick === null || filter === null)
@@ -107,15 +120,15 @@ function Drilldown({
       </div>
     );
   const lines = filterLines(filter);
-  const match = drillCheck(pick.n, pick.snapshot, total, tableSnapshot).match;
+  const match = drillCheck(pick, table).match;
   return (
-    <div className="lab-drill" id="lab-families-drill" data-total={total ?? ''} data-n={pick.n} data-match={match === null ? '' : String(match)}>
+    <div className="lab-drill" id="lab-families-drill" data-total={table.total ?? ''} data-n={pick.n} data-match={match === null ? '' : String(match)}>
       <div className="families-title">Contributing trials</div>
       <AssumptionsLine panel="drill" />
       <div className="sub" id="lab-families-drill-square">
         {axisLabel(pick.axes[0])} = {rangeText(pick.rows)} · {axisLabel(pick.axes[1])} = {rangeText(pick.cols)}
       </div>
-      <DrillCheck squareN={pick.n} squareSnapshot={pick.snapshot} total={total} tableSnapshot={tableSnapshot} />
+      <DrillCheck square={pick} table={table} />
       {error !== null && <LabError id="lab-families-drill-error" message={`The table's total is unavailable: ${error}`} onRetry={() => setRetry((n) => n + 1)} />}
       <div className="sub" id="lab-families-drill-filter" title="the Lab's filter plus the square: what the worker was asked for">
         defining filter: {lines.join(' · ')}
