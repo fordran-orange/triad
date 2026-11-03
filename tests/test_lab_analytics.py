@@ -712,13 +712,15 @@ def test_case01_strong_first_order(seed):
 
 
 @pytest.mark.parametrize("seed", at_seeds())
-def test_case01_at_5000_rows_proposes_nothing_honestly(seed, capsys):
+def test_case01_at_5000_rows_reports_what_is_proposable(seed, capsys):
     """Case 1 on §20's 5,000 rows, the brief's companion with Ruling P11's (amended) assertion.
-    A noise own-direction increment's upper bound sits ≈ 0.004 above its point at 5,000 rows, so
-    the rule proposes a seed-dependent subset of the noise parameters, each with every bound below
-    θ_min; it never detects one. x₁ is `Active · detected` and not proposable; every noise
-    parameter not proposed is blocked by a practical bound on a pair or a triple: its `failing`
-    names condition 2 or 3. The proposable counts are printed."""
+    It does not assert that nothing is proposed. A noise own-direction increment's upper bound
+    sits ≈ 0.004 above its point at 5,000 rows, so the rule proposes a seed-dependent subset of
+    the noise parameters (the QA saw 3, 7 and 1 of 7 at seeds 1-3), each with every bound below
+    θ_min; it never detects one. x₁ is `Active · detected` and not proposable. Each noise
+    parameter must be either `Deprioritized · proposable`, or `Active · not detected` and blocked
+    by a practical bound on a pair or a triple: its `failing` names condition 2 or 3. The
+    proposable counts are printed, not pinned."""
     _, _, result = assessed("01@5000", seed)
     found = by_path(result)
     first, *noise = result.paths
