@@ -680,3 +680,22 @@ and added two Aegis routes (P21's status route and the task cancel route) withou
 the whole-branch review's verdict into it makes 94. That review (Fable 5.1, 2026-11-03, over `8c522bb..62ad67f`; section 11) found no Critical and nothing in a hard-gate
 category, re-ran both suites green, and read **ready for Randall's R3.5 decision**; it opened no fix round. What Randall decides on is this branch as it stands, with the
 twenty-two questions of section 12; a merge is a milestone and runs `tools\verify.ps1` on `main` across all three scopes, the frontend tests and the browser acceptance before it lands.
+
+## 14. Merged
+
+Randall's decision on 2026-11-03: "Merge into main". `main` was fast-forwarded from `1737ea0` (Mission 14's merge) to `6655c24` (94 commits; main's
+head was the merge base, so there is no merge commit), then took two commits of its own: `689f293` (the walk's item 73 waits for the experiment row
+after a study opens) and the record commit that adds this section. The milestone gate on `main`:
+
+| Check | Result |
+|---|---|
+| `tools/verify.ps1` on main (at `6655c24`) | exit 0 in 862 s: lint and format clean (110 files); inventory core 603, triad 1058, aegis 1274; core 413 passed / 190 skipped; triad 634 / 424 with 209 subtests; aegis 1273 / 1; all three scopes green. The later commits touch only the walk and this note, neither a pytest module. |
+| `npm test -- --run` and `npm run build` on main | 715 / 715 in 48 files; the build clean, the bundle identical in name and size to the branch's (`index-_8t04GXK.js`, `vela-CThRMBD9.js`, `index-DDH0Tl65.css`). |
+| The product worker on 8102 | restarted detached on the merged code (`.venv-aegis`, pid 29408); `/health/live` reports the app and data roots; status ACTIVE_DEVELOPMENT, exchange CLOSED, human-directed; the workstation loads through the gateway with no console error. |
+| The whole browser acceptance | on a scratch worker started from `main` on 8103 against the scratch root, since the Lab-era walk refuses restart and trash items against the product worker (Phase 2's R3 fix). Run 1 at `6655c24`: 108/118, page errors 0 (every Lab item 103 to 118 passed; 82, 87 and 93 wanted store history the scratch store lacked; 73 a timing assertion; the six governance items listing them). Run 2 after seeding the scratch store with eight plain 1h runs saved 2026-10-10 and three pre-builder Donchian strategies, copied read-only from the product store: 111/118 (73 alone, with its cascade). Run 3 at `689f293`: **118/118 PASS, 0 FAIL, page errors 0** in 904 s, `docs/evidence/aegis-acceptance-20261103T181534Z.json`. |
+| Item 73 | the study row renders from the experiment document, the experiment row from the experiments list, which lands later on a large store (a probe on the 134-experiment scratch store: 0 rows at the instant the study row was selected, the row selected 30 ms after); the assertion became a wait in `689f293`. `ExperimentsPage.tsx` and `ExperimentStudies.tsx` are unchanged since Mission 14; the page's selection logic was never wrong. |
+| The product store | never a data root of the gate; its only writes in the window were the 8102 worker's own (section 9). |
+
+The Lab worktree (`C:/Triad/.claude/worktrees/zen-thompson-50e9bb`) and the branch `claude/zen-thompson-50e9bb` stand behind `main` at `6655c24`; the phase's ledger and
+walk evidence are copied under the main checkout's ignored `.superpowers/sdd/2026-10-29-aegis-optimization-lab-v2-phase3/` and `logs/lab-phase3-worktree/`. Nothing is
+pushed; the push, the worktree's removal and the scratch root's deletion (section 9) are Randall's.
