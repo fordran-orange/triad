@@ -6,14 +6,14 @@
    "logical": 12
   },
   "ram_gb": 17.0,
-  "free_memory_gb_at_start": 2.6,
+  "free_memory_gb_at_start": 2.57,
   "os": "Windows-11-10.0.26200-SP0",
   "python": "3.12.10",
   "numba": "0.68.0",
   "numpy": "2.5.3",
   "pyarrow": "23.0.1",
   "engine_build": "f416bb177cdbd0d532b469c98dfc7fbdff0e305c8ed1db08215afc0474e6b6bc",
-  "git_head": "4278af309fa0d60017097356743c6bee914715f8",
+  "git_head": "6bfd40ca3aa72b9614c7e345a8a190faf0539f31",
   "app_root": "C:\\Triad\\.claude\\worktrees\\zen-thompson-50e9bb\\app",
   "workers": 10,
   "power_throttling": {
@@ -26,7 +26,7 @@
    "C": true,
    "A100k": false
   },
-  "measured_at": "2026-11-02T23:15:43.343239+00:00",
+  "measured_at": "2026-11-03T01:05:14.639745+00:00",
   "indicators_per_side": 4,
   "ranged_parameters": 10,
   "bars_max": 46034,
@@ -38,71 +38,515 @@
   ]
  },
  "engine_build": "f416bb177cdbd0d532b469c98dfc7fbdff0e305c8ed1db08215afc0474e6b6bc",
- "git_head": "4278af309fa0d60017097356743c6bee914715f8",
- "measured_at": "2026-11-02T23:15:43.343239+00:00",
+ "git_head": "6bfd40ca3aa72b9614c7e345a8a190faf0539f31",
+ "measured_at": "2026-11-03T01:05:14.639745+00:00",
  "operations": {
-  "pareto": {
+  "neighbourhood": {
    "basis": "http",
    "http_ms": {
     "n": 20,
-    "p50": 233.695,
-    "p95": 268.432,
-    "max": 1518.262,
+    "p50": 15.39,
+    "p95": 23.553,
+    "max": 1182.671,
     "samples": [
-     1518.262,
-     268.432,
-     237.595,
-     245.412,
-     242.076,
-     227.092,
-     228.519,
-     229.816,
-     238.224,
-     215.463,
-     221.567,
-     226.253,
-     233.999,
-     233.695,
-     221.974,
-     235.83,
-     244.644,
-     238.174,
-     227.306,
-     221.903
+     1182.671,
+     23.553,
+     14.533,
+     14.446,
+     15.39,
+     16.432,
+     14.886,
+     14.433,
+     15.329,
+     15.404,
+     16.401,
+     16.374,
+     15.817,
+     16.248,
+     16.041,
+     15.245,
+     16.005,
+     14.558,
+     15.015,
+     15.104
+    ]
+   },
+   "cold_ms": 1182.671,
+   "warm_ms": {
+    "n": 19,
+    "p50": 15.39,
+    "p95": 23.553,
+    "max": 23.553,
+    "samples": [
+     23.553,
+     14.533,
+     14.446,
+     15.39,
+     16.432,
+     14.886,
+     14.433,
+     15.329,
+     15.404,
+     16.401,
+     16.374,
+     15.817,
+     16.248,
+     16.041,
+     15.245,
+     16.005,
+     14.558,
+     15.015,
+     15.104
     ]
    },
    "requests": [
     "POST lab/exp:demo-synthetic-1m/query"
    ]
   },
-  "neighbourhood": {
+  "convergence": {
    "basis": "http",
    "http_ms": {
     "n": 20,
-    "p50": 13.129,
-    "p95": 14.468,
-    "max": 397.162,
+    "p50": 17.728,
+    "p95": 51.558,
+    "max": 335.72,
     "samples": [
-     397.162,
-     11.755,
-     11.241,
-     13.393,
-     12.446,
-     14.417,
-     12.641,
-     12.076,
-     12.477,
-     12.298,
-     12.323,
-     12.429,
-     13.408,
-     14.045,
-     13.893,
-     14.468,
-     13.206,
-     13.129,
-     13.682,
-     13.308
+     335.72,
+     20.215,
+     17.527,
+     17.411,
+     17.823,
+     17.728,
+     18.643,
+     17.973,
+     19.464,
+     17.635,
+     18.383,
+     17.715,
+     16.845,
+     17.53,
+     51.558,
+     19.925,
+     17.513,
+     17.532,
+     17.739,
+     17.064
+    ]
+   },
+   "cold_ms": 335.72,
+   "warm_ms": {
+    "n": 19,
+    "p50": 17.728,
+    "p95": 51.558,
+    "max": 51.558,
+    "samples": [
+     20.215,
+     17.527,
+     17.411,
+     17.823,
+     17.728,
+     18.643,
+     17.973,
+     19.464,
+     17.635,
+     18.383,
+     17.715,
+     16.845,
+     17.53,
+     51.558,
+     19.925,
+     17.513,
+     17.532,
+     17.739,
+     17.064
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "rankings": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 72.021,
+    "p95": 86.517,
+    "max": 251.316,
+    "samples": [
+     251.316,
+     76.962,
+     74.494,
+     74.287,
+     65.487,
+     86.517,
+     73.632,
+     72.021,
+     65.942,
+     66.029,
+     72.035,
+     68.927,
+     71.824,
+     75.212,
+     67.979,
+     68.713,
+     72.091,
+     70.422,
+     72.618,
+     68.904
+    ]
+   },
+   "cold_ms": 251.316,
+   "warm_ms": {
+    "n": 19,
+    "p50": 72.021,
+    "p95": 86.517,
+    "max": 86.517,
+    "samples": [
+     76.962,
+     74.494,
+     74.287,
+     65.487,
+     86.517,
+     73.632,
+     72.021,
+     65.942,
+     66.029,
+     72.035,
+     68.927,
+     71.824,
+     75.212,
+     67.979,
+     68.713,
+     72.091,
+     70.422,
+     72.618,
+     68.904
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "pareto": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 250.341,
+    "p95": 266.378,
+    "max": 335.646,
+    "samples": [
+     335.646,
+     248.812,
+     265.678,
+     257.147,
+     264.769,
+     266.378,
+     257.055,
+     236.344,
+     222.007,
+     237.375,
+     257.945,
+     251.992,
+     263.992,
+     245.907,
+     234.733,
+     236.515,
+     250.341,
+     252.842,
+     249.637,
+     242.532
+    ]
+   },
+   "cold_ms": 335.646,
+   "warm_ms": {
+    "n": 19,
+    "p50": 250.341,
+    "p95": 266.378,
+    "max": 266.378,
+    "samples": [
+     248.812,
+     265.678,
+     257.147,
+     264.769,
+     266.378,
+     257.055,
+     236.344,
+     222.007,
+     237.375,
+     257.945,
+     251.992,
+     263.992,
+     245.907,
+     234.733,
+     236.515,
+     250.341,
+     252.842,
+     249.637,
+     242.532
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "pareto_3": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 724.121,
+    "p95": 870.798,
+    "max": 899.864,
+    "samples": [
+     868.799,
+     710.886,
+     867.987,
+     870.798,
+     792.831,
+     683.237,
+     724.542,
+     860.1,
+     867.137,
+     695.774,
+     708.678,
+     899.864,
+     792.712,
+     783.13,
+     697.661,
+     695.388,
+     675.434,
+     634.78,
+     703.203,
+     724.121
+    ]
+   },
+   "cold_ms": 868.799,
+   "warm_ms": {
+    "n": 19,
+    "p50": 724.121,
+    "p95": 899.864,
+    "max": 899.864,
+    "samples": [
+     710.886,
+     867.987,
+     870.798,
+     792.831,
+     683.237,
+     724.542,
+     860.1,
+     867.137,
+     695.774,
+     708.678,
+     899.864,
+     792.712,
+     783.13,
+     697.661,
+     695.388,
+     675.434,
+     634.78,
+     703.203,
+     724.121
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "pareto_widest": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 232.904,
+    "p95": 286.502,
+    "max": 375.616,
+    "samples": [
+     375.616,
+     273.562,
+     286.502,
+     259.625,
+     260.182,
+     240.183,
+     231.321,
+     239.201,
+     232.208,
+     232.904,
+     212.603,
+     219.24,
+     229.63,
+     229.005,
+     238.886,
+     232.326,
+     237.301,
+     221.338,
+     230.177,
+     235.642
+    ]
+   },
+   "cold_ms": 375.616,
+   "warm_ms": {
+    "n": 19,
+    "p50": 232.904,
+    "p95": 286.502,
+    "max": 286.502,
+    "samples": [
+     273.562,
+     286.502,
+     259.625,
+     260.182,
+     240.183,
+     231.321,
+     239.201,
+     232.208,
+     232.904,
+     212.603,
+     219.24,
+     229.63,
+     229.005,
+     238.886,
+     232.326,
+     237.301,
+     221.338,
+     230.177,
+     235.642
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ],
+   "pair": [
+    "expectancy",
+    "trade_count"
+   ],
+   "front_size": 57,
+   "pairs_probed": 55,
+   "front_sizes": {
+    "expectancy|trade_count": 57,
+    "profit_factor|trade_count": 43,
+    "trade_count|sharpe_trade": 36,
+    "win_rate|exposure": 21,
+    "win_rate|sharpe_trade": 20,
+    "mar|win_rate": 19,
+    "max_drawdown|exposure": 18,
+    "profit_factor|exposure": 16
+   }
+  },
+  "rankings_importance": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 244.158,
+    "p95": 255.761,
+    "max": 282.848,
+    "samples": [
+     282.848,
+     255.456,
+     246.959,
+     242.358,
+     244.158,
+     232.204,
+     231.854,
+     239.773,
+     249.535,
+     245.338,
+     246.272,
+     245.128,
+     255.761,
+     245.736,
+     247.395,
+     234.709,
+     239.938,
+     239.401,
+     242.262,
+     243.118
+    ]
+   },
+   "cold_ms": 282.848,
+   "warm_ms": {
+    "n": 19,
+    "p50": 244.158,
+    "p95": 255.761,
+    "max": 255.761,
+    "samples": [
+     255.456,
+     246.959,
+     242.358,
+     244.158,
+     232.204,
+     231.854,
+     239.773,
+     249.535,
+     245.338,
+     246.272,
+     245.128,
+     255.761,
+     245.736,
+     247.395,
+     234.709,
+     239.938,
+     239.401,
+     242.262,
+     243.118
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "candidate": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 81.282,
+    "p95": 89.127,
+    "max": 94.765,
+    "samples": [
+     74.207,
+     94.765,
+     81.204,
+     78.751,
+     83.585,
+     83.321,
+     83.347,
+     86.226,
+     82.425,
+     81.282,
+     80.83,
+     79.449,
+     78.151,
+     82.393,
+     89.127,
+     78.485,
+     86.271,
+     84.903,
+     78.533,
+     79.397
+    ]
+   },
+   "cold_ms": 74.207,
+   "warm_ms": {
+    "n": 19,
+    "p50": 82.393,
+    "p95": 94.765,
+    "max": 94.765,
+    "samples": [
+     94.765,
+     81.204,
+     78.751,
+     83.585,
+     83.321,
+     83.347,
+     86.226,
+     82.425,
+     81.282,
+     80.83,
+     79.449,
+     78.151,
+     82.393,
+     89.127,
+     78.485,
+     86.271,
+     84.903,
+     78.533,
+     79.397
     ]
    },
    "requests": [
@@ -112,10 +556,19 @@
  },
  "cases": {
   "quiet": {
-   "experiment_id": "lab-bench-a-20261102t231543z-quiet",
+   "experiment_id": "lab-bench-a-20261103t010514z-quiet",
    "status": "done",
-   "created_at": 1793661350.931,
-   "final_at": 1793661449.553,
+   "blocks": 0,
+   "rate_unit": "trials",
+   "plan": {
+    "estimate_seconds": 53.18139637501176,
+    "ms_per_cell_bar": 0.016344647368424666,
+    "workers": 10,
+    "evaluations": 10000,
+    "price_source": "measured"
+   },
+   "created_at": 1793667970.524,
+   "final_at": 1793668072.119,
    "timeframe": "1h",
    "range": [
     "2024-01-01",
@@ -126,120 +579,279 @@
    "bars": 2603,
    "bars_nominal": 2603,
    "bars_drift": 0.0,
-   "free_memory_gb_at_start": 2.62,
+   "free_memory_gb_at_start": 2.21,
    "workers_expected": 10,
    "pool_workers": 10,
    "pool_workers_source": "sampled pool children (the most alive at once)",
    "chunks": 51,
-   "trials_per_s": 151.048,
-   "first_chunk_s": 10.185,
-   "wall_s": 75.065,
-   "chunk_write_ms_p95": 11.206,
-   "chunk_write_ms_n": 50,
-   "compaction_s": 0.321,
+   "trials_per_s": 149.454,
+   "first_chunk_s": 10.778,
+   "wall_s": 76.35,
+   "chunk_write_ms_p95": 14.345,
+   "chunk_write_ms_n": 51,
+   "compaction_s": 0.348,
    "generations": 2,
    "resume_read_s": {
     "before_finalize": {
-     "s": 0.252,
+     "s": 0.324,
      "at_cells_done": 9067,
      "chunk_files": 46,
      "parts": 0
     },
-    "after_finalize": 0.011
+    "after_finalize": 0.018
    },
-   "worker_peak_mb": 155.021,
+   "worker_peak_mb": 154.759,
    "pool_children": [
     {
-     "pid": 15208,
-     "peak_working_set_mb": 154.796
+     "pid": 19992,
+     "peak_working_set_mb": 154.575
     },
     {
-     "pid": 19644,
-     "peak_working_set_mb": 154.55
+     "pid": 27632,
+     "peak_working_set_mb": 154.591
     },
     {
-     "pid": 5304,
-     "peak_working_set_mb": 155.021
+     "pid": 1016,
+     "peak_working_set_mb": 154.358
     },
     {
-     "pid": 1360,
-     "peak_working_set_mb": 154.448
+     "pid": 28452,
+     "peak_working_set_mb": 154.505
     },
     {
-     "pid": 9660,
-     "peak_working_set_mb": 154.485
+     "pid": 27780,
+     "peak_working_set_mb": 154.661
     },
     {
-     "pid": 8172,
-     "peak_working_set_mb": 154.44
+     "pid": 26968,
+     "peak_working_set_mb": 154.759
     },
     {
-     "pid": 26864,
-     "peak_working_set_mb": 154.931
+     "pid": 2120,
+     "peak_working_set_mb": 154.624
     },
     {
-     "pid": 764,
-     "peak_working_set_mb": 154.604
+     "pid": 10588,
+     "peak_working_set_mb": 154.493
     },
     {
-     "pid": 3564,
-     "peak_working_set_mb": 154.952
+     "pid": 21856,
+     "peak_working_set_mb": 154.464
     },
     {
-     "pid": 18060,
-     "peak_working_set_mb": 154.534
+     "pid": 25248,
+     "peak_working_set_mb": 154.227
     }
    ],
-   "host_growth_mb": 124.146,
+   "host_growth_mb": 93.311,
    "host_working_set_mb": {
-    "before_job": 592.179,
-    "peak_during_job": 716.325
+    "before_job": 733.397,
+    "peak_during_job": 826.708
    },
-   "samples": 81,
+   "samples": 83,
    "child_power_throttling": "system managed",
    "invalid": 0,
    "failed": 0,
    "completed": 10000,
-   "progress_poll_ms_p95": 68.333,
-   "progress_polls": 99,
+   "progress_poll_ms_p95": 55.597,
+   "progress_polls": 102,
    "model_ms_per_trial": 47.564,
-   "measured_worker_ms_per_trial": 66.204,
-   "measured_to_model": 1.392
+   "measured_worker_ms_per_trial": 66.91,
+   "measured_to_model": 1.407,
+   "basis": "case A alone on the idle worker: steady rows over the run's chunks, its first chunk left out; a whole-run rate, with the run's start-up gap and its compaction pause in it"
   },
   "quiet_matched": {
-   "trials_per_s": 197.726,
-   "basis": "the quiet run's chunks at the same offsets from its creation as the task's window sat from each loaded run's (its start-up and its compaction pause weigh the same way); the same rule as the loaded rate",
+   "trials_per_s": 193.494,
+   "basis": "the quiet run's chunks at the same positions (indices in commit order) as the loaded window's, read by the loaded rate's own rule (the window's first chunk left out, rows over the seconds between its first and last chunk)",
    "counted_rows": 1600,
-   "counted_seconds": 8.092,
+   "counted_seconds": 8.269,
    "windows": [
     {
      "chunks": 9,
      "rows": 1600,
-     "seconds": 8.092
+     "seconds": 8.269,
+     "indices": [
+      1,
+      9
+     ]
+    }
+   ]
+  },
+  "quiet_matched_by_time": {
+   "trials_per_s": 155.696,
+   "basis": "the quiet run's chunks at the same offsets from its creation as the task's window sat from the loaded run's; a start-up gap landing at the window's edge moves it across the window",
+   "counted_rows": 1800,
+   "counted_seconds": 11.561,
+   "windows": [
+    {
+     "chunks": 10,
+     "rows": 1800,
+     "seconds": 11.561
     }
    ]
   },
   "loaded": {
-   "trials_per_s": 184.186,
-   "basis": "steady rows of the chunks committed while the task ran, over their span, per run, summed (the quiet run's rule: each run's first chunk is left out)",
-   "window_s": 11.922,
-   "counted_rows": 1400,
-   "counted_seconds": 7.601,
+   "trials_per_s": 179.533,
+   "basis": "steady rows of the chunks committed while the task ran, over their span, per run, summed (each run's first chunk in the window is left out): a window, 9 chunks in the first run",
+   "window_s": 12.52,
+   "window_offsets_from_creation_s": [
+    [
+     10.555,
+     23.075
+    ]
+   ],
+   "counted_rows": 1600,
+   "counted_seconds": 8.912,
    "overlap_runs": [
     {
-     "chunks": 8,
-     "rows": 1400,
-     "seconds": 7.601
+     "chunks": 9,
+     "rows": 1600,
+     "seconds": 8.912
     }
    ],
    "runs": [
     {
-     "experiment_id": "lab-bench-a-20261102t231543z-loaded-1",
+     "experiment_id": "lab-bench-a-20261103t010514z-loaded-1",
      "status": "done",
-     "trials_per_s_whole_run": 147.873,
-     "created_at": 1793661450.443,
-     "final_at": 1793661552.053,
+     "trials_per_s_whole_run": 145.095,
+     "created_at": 1793668073.035,
+     "final_at": 1793668174.632,
      "pool_workers": 10
+    }
+   ]
+  },
+  "quiet_after": {
+   "experiment_id": "lab-bench-a-20261103t010514z-quiet-after",
+   "status": "done",
+   "blocks": 0,
+   "rate_unit": "trials",
+   "plan": {
+    "estimate_seconds": 54.90319555000057,
+    "ms_per_cell_bar": 0.01687382114483306,
+    "workers": 10,
+    "evaluations": 10000,
+    "price_source": "measured"
+   },
+   "created_at": 1793668175.514,
+   "final_at": 1793668277.125,
+   "timeframe": "1h",
+   "range": [
+    "2024-01-01",
+    "2025-06-30"
+   ],
+   "trials": 10000,
+   "planned_runs": 10000,
+   "bars": 2603,
+   "bars_nominal": 2603,
+   "bars_drift": 0.0,
+   "free_memory_gb_at_start": 2.4,
+   "workers_expected": 10,
+   "pool_workers": 10,
+   "pool_workers_source": "sampled pool children (the most alive at once)",
+   "chunks": 51,
+   "trials_per_s": 145.773,
+   "first_chunk_s": 10.296,
+   "wall_s": 77.524,
+   "chunk_write_ms_p95": 14.014,
+   "chunk_write_ms_n": 51,
+   "compaction_s": 0.398,
+   "generations": 2,
+   "resume_read_s": {
+    "before_finalize": {
+     "s": 0.268,
+     "at_cells_done": 9067,
+     "chunk_files": 46,
+     "parts": 0
+    },
+    "after_finalize": 0.02
+   },
+   "worker_peak_mb": 154.948,
+   "pool_children": [
+    {
+     "pid": 10716,
+     "peak_working_set_mb": 154.571
+    },
+    {
+     "pid": 20956,
+     "peak_working_set_mb": 154.333
+    },
+    {
+     "pid": 28300,
+     "peak_working_set_mb": 154.636
+    },
+    {
+     "pid": 20464,
+     "peak_working_set_mb": 154.726
+    },
+    {
+     "pid": 24020,
+     "peak_working_set_mb": 154.427
+    },
+    {
+     "pid": 12620,
+     "peak_working_set_mb": 154.362
+    },
+    {
+     "pid": 6304,
+     "peak_working_set_mb": 154.477
+    },
+    {
+     "pid": 24108,
+     "peak_working_set_mb": 154.345
+    },
+    {
+     "pid": 25344,
+     "peak_working_set_mb": 154.948
+    },
+    {
+     "pid": 21328,
+     "peak_working_set_mb": 154.391
+    }
+   ],
+   "host_growth_mb": 66.417,
+   "host_working_set_mb": {
+    "before_job": 814.842,
+    "peak_during_job": 881.258
+   },
+   "samples": 84,
+   "child_power_throttling": "system managed",
+   "invalid": 0,
+   "failed": 0,
+   "completed": 10000,
+   "progress_poll_ms_p95": 56.375,
+   "progress_polls": 102,
+   "model_ms_per_trial": 47.564,
+   "measured_worker_ms_per_trial": 68.6,
+   "measured_to_model": 1.442,
+   "basis": "case A alone on the idle worker: steady rows over the run's chunks, its first chunk left out; a whole-run rate, with the run's start-up gap and its compaction pause in it; run after the loaded pass"
+  },
+  "quiet_after_matched": {
+   "trials_per_s": 196.078,
+   "basis": "the quiet run's chunks at the same positions (indices in commit order) as the loaded window's, read by the loaded rate's own rule (the window's first chunk left out, rows over the seconds between its first and last chunk)",
+   "counted_rows": 1600,
+   "counted_seconds": 8.16,
+   "windows": [
+    {
+     "chunks": 9,
+     "rows": 1600,
+     "seconds": 8.16,
+     "indices": [
+      1,
+      9
+     ]
+    }
+   ]
+  },
+  "quiet_after_matched_by_time": {
+   "trials_per_s": 196.807,
+   "basis": "the quiet run's chunks at the same offsets from its creation as the task's window sat from the loaded run's; a start-up gap landing at the window's edge moves it across the window",
+   "counted_rows": 1800,
+   "counted_seconds": 9.146,
+   "windows": [
+    {
+     "chunks": 10,
+     "rows": 1800,
+     "seconds": 9.146
     }
    ]
   }
@@ -251,82 +863,537 @@
  "trials": 1000000,
  "parameters": 10,
  "blocks": 0,
- "not_measured": "the 1M fixture has 10 parameters and no blocks, so the per-block mains (stage 2's K x 200 cheap passes) and the d = 20 cost are not measured here",
  "seed": 1,
  "task_seed": 1,
  "runs": 20,
  "fixture_write_s": null,
  "workers_expected": 10,
- "strategy_id": "lab-bench-10p-20261102t231543z",
+ "strategy_id": "lab-bench-10p-20261103t010514z",
  "worker": {
   "port": 8103,
-  "listener_pid": 16916,
+  "listener_pid": 25364,
   "pid_file": "C:\\Triad\\.claude\\worktrees\\zen-thompson-50e9bb\\logs\\aegis-scratch.pid",
-  "pid_file_pid": 19720,
+  "pid_file_pid": 10720,
   "power_throttling": {
    "host": "never throttled",
    "child": "system managed"
   }
  },
  "worker_engine_build": "f416bb177cdbd0d532b469c98dfc7fbdff0e305c8ed1db08215afc0474e6b6bc",
+ "cache_entries_before": 0,
+ "poll_cadence_s": 0.5,
+ "resources": {
+  "first_call_rss_delta_mb": {
+   "neighbourhood": 6.992,
+   "convergence": 2.093,
+   "rankings": 4.403
+  },
+  "first_call_rss_note": "the worker's working set before and after each first call, in this order; the three views read one cached table (design, pass, the ten paths, pos.k, the metric), so the first call pays for it",
+  "worker_working_set_mb": {
+   "before_the_views": 535.937,
+   "after_the_views": 733.397
+  }
+ },
+ "ranking_pool": {
+  "pool": 300,
+  "k": 20,
+  "candidates_drawn_from": 300,
+  "b_max": 20
+ },
+ "blocked": {
+  "blocks": 4,
+  "plan": {
+   "estimate_seconds": 194.46965462685344,
+   "ms_per_cell_bar": 0.017084968559354576,
+   "workers": 10,
+   "evaluations": 50000,
+   "planned_runs": 10000,
+   "bars": 2603,
+   "price_source": "measured"
+  },
+  "plan_vs_actual": {
+   "estimate_s": 194.46965462685344,
+   "actual_s": 265.516,
+   "actual_over_estimate": 1.365
+  },
+  "k0_plan_vs_actual": {
+   "estimate_s": 53.18139637501176,
+   "actual_s": 76.35,
+   "actual_over_estimate": 1.436
+  },
+  "case": {
+   "experiment_id": "lab-bench-a-20261103t010514z-k4",
+   "status": "done",
+   "blocks": 4,
+   "rate_unit": "evaluations",
+   "plan": {
+    "estimate_seconds": 194.46965462685344,
+    "ms_per_cell_bar": 0.017084968559354576,
+    "workers": 10,
+    "evaluations": 50000,
+    "price_source": "measured"
+   },
+   "created_at": 1793668285.334,
+   "final_at": 1793668576.987,
+   "timeframe": "1h",
+   "range": [
+    "2024-01-01",
+    "2025-06-30"
+   ],
+   "trials": 10000,
+   "planned_runs": 10000,
+   "bars": 2603,
+   "bars_nominal": 2603,
+   "bars_drift": 0.0,
+   "free_memory_gb_at_start": 2.25,
+   "workers_expected": 10,
+   "pool_workers": 10,
+   "pool_workers_source": "sampled pool children (the most alive at once)",
+   "chunks": 51,
+   "trials_per_s": 193.91,
+   "first_chunk_s": 12.821,
+   "wall_s": 265.516,
+   "chunk_write_ms_p95": 16.192,
+   "chunk_write_ms_n": 51,
+   "compaction_s": 0.453,
+   "generations": 2,
+   "resume_read_s": {
+    "before_finalize": {
+     "s": 0.285,
+     "at_cells_done": 9067,
+     "chunk_files": 46,
+     "parts": 0
+    },
+    "after_finalize": 0.016
+   },
+   "worker_peak_mb": 157.454,
+   "pool_children": [
+    {
+     "pid": 21240,
+     "peak_working_set_mb": 156.971
+    },
+    {
+     "pid": 21192,
+     "peak_working_set_mb": 157.127
+    },
+    {
+     "pid": 22512,
+     "peak_working_set_mb": 157.024
+    },
+    {
+     "pid": 9264,
+     "peak_working_set_mb": 156.807
+    },
+    {
+     "pid": 2576,
+     "peak_working_set_mb": 157.016
+    },
+    {
+     "pid": 27840,
+     "peak_working_set_mb": 157.037
+    },
+    {
+     "pid": 23040,
+     "peak_working_set_mb": 157.454
+    },
+    {
+     "pid": 17356,
+     "peak_working_set_mb": 157.135
+    },
+    {
+     "pid": 17872,
+     "peak_working_set_mb": 156.991
+    },
+    {
+     "pid": 11148,
+     "peak_working_set_mb": 156.852
+    }
+   ],
+   "host_growth_mb": 113.385,
+   "host_working_set_mb": {
+    "before_job": 808.874,
+    "peak_during_job": 922.259
+   },
+   "samples": 239,
+   "child_power_throttling": "system managed",
+   "invalid": 0,
+   "failed": 0,
+   "completed": 10000,
+   "progress_poll_ms_p95": 67.077,
+   "progress_polls": 292,
+   "model_ms_per_trial": 47.564,
+   "measured_worker_ms_per_trial": 51.57,
+   "measured_to_model": 1.084
+  },
+  "basis": "the K = 4 case-A experiment (10,000 trials, each also scored on 4 blocks) against the planner's own estimate (POST /experiments/plan, the endpoint the planner uses) and the K = 0 quiet run's; rows of this run are evaluations (5 a trial). The price model is Task 2's; a gap here is an R3.5 finding"
+ },
+ "wide": {
+  "values_per_parameter": 20,
+  "experiment_id": "demo-synthetic-1m-20v",
+  "parameters": 10,
+  "fixture_write_s": null,
+  "fixture": "reused: written by an earlier run into the scratch root",
+  "task": {
+   "source": "exp:demo-synthetic-1m-20v",
+   "task_id": "9c32a586a27f4d84b20682b3cbe5bf26",
+   "seed": 1,
+   "state": "done",
+   "stages": 3,
+   "stages_seen": {
+    "2": {
+     "wall_s": 7.543,
+     "elapsed_s": 6.882
+    },
+    "3": {
+     "wall_s": 13.107,
+     "elapsed_s": 12.639
+    }
+   },
+   "cached_at_request": false,
+   "cancelled_at_timeout": false,
+   "polls": 20,
+   "task_s": 12.639,
+   "task_wall_s": 13.107,
+   "fine_stage_s": 6.882,
+   "fine_stage_basis": "server elapsed_s of stage 2, the first stage a poll read (stage 1 finished before it: an upper bound)",
+   "fine_stage_is_bound": true,
+   "poll_ms": {
+    "n": 20,
+    "p50": 165.153,
+    "p95": 285.096,
+    "max": 565.772,
+    "samples": [
+     565.772,
+     102.642,
+     112.723,
+     81.154,
+     159.719,
+     82.454,
+     166.682,
+     88.449,
+     164.692,
+     155.507,
+     175.883,
+     183.096,
+     166.254,
+     165.153,
+     233.516,
+     227.051,
+     167.238,
+     285.096,
+     106.332,
+     210.168
+    ]
+   },
+   "poll_ms_after_first": {
+    "n": 19,
+    "p50": 165.153,
+    "p95": 285.096,
+    "max": 285.096,
+    "samples": [
+     102.642,
+     112.723,
+     81.154,
+     159.719,
+     82.454,
+     166.682,
+     88.449,
+     164.692,
+     155.507,
+     175.883,
+     183.096,
+     166.254,
+     165.153,
+     233.516,
+     227.051,
+     167.238,
+     285.096,
+     106.332,
+     210.168
+    ]
+   },
+   "poll_cadence_s": 0.5,
+   "snapshot": {
+    "generation": 10,
+    "chunk_watermark": 4999
+   },
+   "n": 50000,
+   "status": {
+    "id": "9c32a586a27f4d84b20682b3cbe5bf26",
+    "label": "importance",
+    "state": "done",
+    "stage": 3,
+    "stages": 3,
+    "progress": 1.0,
+    "error": null,
+    "started_at": "2026-11-03T01:16:29.340911+00:00",
+    "finished_at": "2026-11-03T01:16:41.983874+00:00",
+    "sharing_cpu": false
+   },
+   "error": null,
+   "window_epoch_s": [
+    1793668589.084,
+    1793668602.191
+   ],
+   "job_coverage": 1.0,
+   "job_coverage_min": 0.9,
+   "beside_job": true
+  },
+  "runs": [
+   {
+    "experiment_id": "lab-bench-a-20261103t010514z-wide-1",
+    "status": "done",
+    "created_at": 1793668578.015,
+    "final_at": 1793668685.641,
+    "trials_per_s": 133.96
+   }
+  ],
+  "basis": "the importance task on a 1,000,000-trial fixture with 20 values on each of its 10 parameters, beside case A, as the first pass; 10 parameters, not 20"
+ },
+ "not_measured": [
+  {
+   "row": "the importance task at d = 20 and K = 20 blocks (\u00a79.4's 180 s budget at its stated scale)",
+   "why": "the 1M fixtures have 10 parameters and no blocks, so the per-block mains (stage 2's K x 200 cheap passes) and the d = 20 cost are not measured here; the task is a 10-parameter, 50,000-row one",
+   "owner": "Phase 4's 20-parameter fixture (the Task 13 R3.5 note states the budget unmeasured at its scale until then)"
+  },
+  {
+   "row": "the robustness ranking and a candidate's view at d = 20 (the cache entry, the 840 probes at m = 2)",
+   "why": "the fixtures have 10 parameters",
+   "owner": "Phase 4's 20-parameter fixture"
+  },
+  {
+   "row": "the Pareto all-on-front worst case",
+   "why": "not constructible over HTTP: a metric cannot be named twice (the view refuses `an objective is named twice`) and no pair of the fixture's metrics is anti-correlated; the widest front among all pairs is recorded as `pareto_widest` instead",
+   "owner": "R3.5 (a synthetic anti-correlated fixture) or the Pareto unit tests"
+  },
+  {
+   "row": "the `opt:` source's importance poll at MAX_CELLS over HTTP",
+   "why": "needs a finished 100,000-cell grid job in the store; `opt_frame_rebuild` is an in-process proxy for the per-poll frame rebuild, without the view on top of it",
+   "owner": "R3.5"
+  },
+  {
+   "row": "plan against actual at K = 20 blocks",
+   "why": "the blocked run is K = 4",
+   "owner": "Task 2's price model; an R3.5 finding"
+  }
+ ],
  "task": {
   "source": "exp:demo-synthetic-1m",
-  "task_id": "f6a07d4d03834426b3dc5af38b4bfefe",
+  "task_id": "9f6a6fb6a61647528de4b8f0c4106c28",
   "seed": 1,
   "state": "done",
   "stages": 3,
   "stages_seen": {
+   "1": {
+    "wall_s": 7.3,
+    "elapsed_s": 6.936
+   },
    "2": {
-    "wall_s": 7.352,
-    "elapsed_s": 6.761
+    "wall_s": 7.932,
+    "elapsed_s": 7.059
    },
    "3": {
-    "wall_s": 11.921,
-    "elapsed_s": 11.471
+    "wall_s": 12.52,
+    "elapsed_s": 11.832
    }
   },
   "cached_at_request": false,
   "cancelled_at_timeout": false,
-  "polls": 19,
-  "task_s": 11.471,
-  "task_wall_s": 11.921,
-  "fine_stage_s": 6.761,
-  "fine_stage_basis": "server elapsed_s of stage 2, the first stage a poll read (stage 1 finished before it: an upper bound)",
+  "polls": 20,
+  "task_s": 11.832,
+  "task_wall_s": 12.52,
+  "fine_stage_s": 6.936,
+  "fine_stage_basis": "server elapsed_s of stage 1",
+  "fine_stage_is_bound": false,
+  "poll_ms": {
+   "n": 20,
+   "p50": 159.315,
+   "p95": 189.291,
+   "max": 291.282,
+   "samples": [
+    291.282,
+    86.536,
+    129.864,
+    87.061,
+    166.538,
+    81.975,
+    170.385,
+    131.716,
+    169.146,
+    133.051,
+    189.291,
+    159.315,
+    132.259,
+    163.587,
+    168.545,
+    160.644,
+    172.281,
+    111.906,
+    169.434,
+    137.159
+   ]
+  },
+  "poll_ms_after_first": {
+   "n": 19,
+   "p50": 159.315,
+   "p95": 189.291,
+   "max": 189.291,
+   "samples": [
+    86.536,
+    129.864,
+    87.061,
+    166.538,
+    81.975,
+    170.385,
+    131.716,
+    169.146,
+    133.051,
+    189.291,
+    159.315,
+    132.259,
+    163.587,
+    168.545,
+    160.644,
+    172.281,
+    111.906,
+    169.434,
+    137.159
+   ]
+  },
+  "poll_cadence_s": 0.5,
   "snapshot": {
    "generation": 10,
    "chunk_watermark": 4999
   },
   "n": 50000,
   "status": {
-   "id": "f6a07d4d03834426b3dc5af38b4bfefe",
+   "id": "9f6a6fb6a61647528de4b8f0c4106c28",
    "label": "importance",
    "state": "done",
    "stage": 3,
    "stages": 3,
    "progress": 1.0,
    "error": null,
-   "started_at": "2026-11-02T23:17:41.193319+00:00",
-   "finished_at": "2026-11-02T23:17:52.666272+00:00",
+   "started_at": "2026-11-03T01:08:03.780371+00:00",
+   "finished_at": "2026-11-03T01:08:15.620985+00:00",
    "sharing_cpu": false
   },
   "error": null,
   "window_epoch_s": [
-   1793661461.003,
-   1793661472.925
+   1793668083.59,
+   1793668096.11
   ],
   "job_coverage": 1.0,
   "job_coverage_min": 0.9,
   "beside_job": true
  },
- "throughput_loss": -0.2194,
- "throughput_loss_basis": "1 - loaded.trials_per_s / quiet.trials_per_s",
- "throughput_loss_matched": 0.0685,
- "throughput_loss_matched_basis": "1 - loaded.trials_per_s / quiet_matched.trials_per_s: the quiet run at the same offsets",
+ "throughput_loss": -0.2013,
+ "throughput_loss_basis": "1 - loaded.trials_per_s / quiet.trials_per_s. quiet.trials_per_s 149.5 (and quiet_after.trials_per_s 145.8) are whole-run rates, a run's start-up gap and its compaction pause in them; loaded.trials_per_s 179.5 is the rate of a 9-chunk window (8.9 s) while the task ran. They are not comparable here (the loaded window sits clear of the pauses, so this figure reads as the job speeding up): read throughput_loss_matched, the window against the quiet run at the same offsets",
+ "throughput_loss_matched": 0.0721,
+ "throughput_loss_matched_after": 0.0844,
+ "throughput_loss_matched_basis": "1 - loaded.trials_per_s / quiet_matched.trials_per_s (and / quiet_after_matched's, `throughput_loss_matched_after`): the quiet run read at the same chunk positions as the loaded window ([{'chunks': 9, 'rows': 1600, 'seconds': 8.269, 'indices': [1, 9]}]), 1,600 rows over 8.3 s in 1 window against 1,600 rows over 8.9 s of the loaded window, which sat [(10.6, 23.1)] seconds from the loaded run's creation. A short window of about 9 chunks, so a range, not a point; `quiet_run_to_run` is how far the two quiet runs differ over those very chunks, the noise this loss has to be read against; the same windows aligned by time from creation are `quiet_matched_by_time` (they straddle the start-up gap when a first chunk lands at a window's edge)",
+ "quiet_run_to_run": -0.0134,
+ "importance_poll": {
+  "poll_ms": {
+   "n": 20,
+   "p50": 159.315,
+   "p95": 189.291,
+   "max": 291.282,
+   "samples": [
+    291.282,
+    86.536,
+    129.864,
+    87.061,
+    166.538,
+    81.975,
+    170.385,
+    131.716,
+    169.146,
+    133.051,
+    189.291,
+    159.315,
+    132.259,
+    163.587,
+    168.545,
+    160.644,
+    172.281,
+    111.906,
+    169.434,
+    137.159
+   ]
+  },
+  "poll_ms_after_first": {
+   "n": 19,
+   "p50": 159.315,
+   "p95": 189.291,
+   "max": 189.291,
+   "samples": [
+    86.536,
+    129.864,
+    87.061,
+    166.538,
+    81.975,
+    170.385,
+    131.716,
+    169.146,
+    133.051,
+    189.291,
+    159.315,
+    132.259,
+    163.587,
+    168.545,
+    160.644,
+    172.281,
+    111.906,
+    169.434,
+    137.159
+   ]
+  },
+  "cadence_s": 0.5,
+  "basis": "the importance view's HTTP latency over the first pass's task (an `exp:` source: its frame is cached, so a poll reads it and answers the stage); the first sample is the request that placed the task. Polled every 0.5 s, four times the Lab's 2 s tick. The `opt:` source's per-poll frame rebuild is this record's `opt_frame_rebuild`"
+ },
+ "opt_frame_rebuild": {
+  "basis": "in-process (no HTTP): the rebuild alone, without the view on top of it",
+  "cells": 99856,
+  "max_cells": 100000,
+  "rows": 99856,
+  "ms": {
+   "n": 3,
+   "p50": 1308.622,
+   "p95": 1465.522,
+   "max": 1465.522,
+   "samples": [
+    1264.747,
+    1308.622,
+    1465.522
+   ]
+  }
+ },
+ "row_bases": {
+  "pareto": "20 HTTP runs, two objectives (the objective against max_drawdown), cold first included; judged at \u00a79.6a's 800 ms",
+  "pareto_3": "20 HTTP runs, three objectives (adding trade_count); recorded beside the 800 ms row, never judged",
+  "pareto_widest": "the pair of the fixture's metrics with the widest front among all pairs (20 HTTP runs of it); the true all-on-front worst case is not constructible over HTTP (see not_measured)",
+  "neighbourhood": "20 HTTP runs of the neighbourhood view, a different seeded trial each, cold first included; judged at \u00a79.6a's 150 ms",
+  "convergence": "20 HTTP runs at 1,000,000 trials, d = 10: the first is cold (the payload is cached after it), the rest warm; recorded with spec \u00a79.6's \u2248 2 s line of the Task 8 ruling in view, no \u00a79.6a line is stated for it",
+  "rankings": "the robustness view's ranking (pool 300, k 20, B on the top 20) before any importance result exists, so B is not run: 20 HTTP runs, the first cold",
+  "rankings_importance": "the same ranking with the importance task's result at this snapshot (seed 1), so B runs on the top 20: the costly half; recorded",
+  "candidate": "20 HTTP runs of one candidate's robustness view (A plus B's region read, the importance result live), a different seeded trial of the ranking's pool of 300 each, cold first included; judged at \u00a79.6a's 150 ms row 'neighbourhood of one trial / robustness of one candidate'"
+ },
  "evaluate": {
   "importance_task_s": true,
   "fine_stage_s": true,
+  "fine_stage_20_s": true,
   "pareto": true,
-  "neighbourhood": true
+  "neighbourhood": true,
+  "candidate": true
+ },
+ "evaluate_basis": {
+  "importance_task_s": "stage 3's server elapsed_s, the whole task from before its frame opened, measured beside a job (absent otherwise)",
+  "fine_stage_s": "the fine-grid stage at the 1M fixture's value counts: measured, stage 1's own server elapsed_s",
+  "fine_stage_20_s": "the fine-grid stage at 20 values per parameter, 10 parameters: an upper bound, not a measurement: stage 1 finished before the first poll that read a stage, so the first stage read bounds it from above (a pass is sound, a fail would be conservative)",
+  "pareto": "p95 of the HTTP runs, two objectives, cold first included, against 800 ms",
+  "neighbourhood": "p95 of the HTTP runs of one trial's neighbourhood against 150 ms",
+  "candidate": "p95 of the HTTP runs of one candidate's robustness view (A plus B's region read, the importance result live) against the 150 ms of \u00a79.6a's row 'neighbourhood of one trial / robustness of one candidate'"
  },
  "retest_due": {
   "engine_build_changed": false,

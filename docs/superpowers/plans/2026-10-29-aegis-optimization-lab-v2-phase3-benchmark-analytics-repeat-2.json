@@ -1,0 +1,340 @@
+{
+ "mode": "analytics",
+ "host": {
+  "cpu": {
+   "name": "12th Gen Intel(R) Core(TM) i7-1255U",
+   "logical": 12
+  },
+  "ram_gb": 17.0,
+  "free_memory_gb_at_start": 2.53,
+  "os": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.10",
+  "numba": "0.68.0",
+  "numpy": "2.5.3",
+  "pyarrow": "23.0.1",
+  "engine_build": "f416bb177cdbd0d532b469c98dfc7fbdff0e305c8ed1db08215afc0474e6b6bc",
+  "git_head": "4278af309fa0d60017097356743c6bee914715f8",
+  "app_root": "C:\\Triad\\.claude\\worktrees\\zen-thompson-50e9bb\\app",
+  "workers": 10,
+  "power_throttling": {
+   "host": "never throttled",
+   "child": null
+  },
+  "curves_kept": {
+   "A": true,
+   "B": true,
+   "C": true,
+   "A100k": false
+  },
+  "measured_at": "2026-11-02T23:19:40.205571+00:00",
+  "indicators_per_side": 4,
+  "ranged_parameters": 10,
+  "bars_max": 46034,
+  "kinds": [
+   "EMA",
+   "MACD",
+   "RSI",
+   "SMA"
+  ]
+ },
+ "engine_build": "f416bb177cdbd0d532b469c98dfc7fbdff0e305c8ed1db08215afc0474e6b6bc",
+ "git_head": "4278af309fa0d60017097356743c6bee914715f8",
+ "measured_at": "2026-11-02T23:19:40.205571+00:00",
+ "operations": {
+  "pareto": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 225.578,
+    "p95": 275.435,
+    "max": 1365.473,
+    "samples": [
+     1365.473,
+     215.948,
+     218.775,
+     225.578,
+     219.579,
+     226.244,
+     220.425,
+     224.285,
+     218.573,
+     214.318,
+     223.585,
+     227.1,
+     221.197,
+     262.617,
+     253.971,
+     258.995,
+     263.202,
+     275.435,
+     252.35,
+     235.203
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "neighbourhood": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 12.826,
+    "p95": 16.135,
+    "max": 436.448,
+    "samples": [
+     436.448,
+     12.415,
+     12.572,
+     12.571,
+     12.681,
+     13.915,
+     12.951,
+     14.256,
+     16.135,
+     13.779,
+     14.281,
+     13.575,
+     13.455,
+     12.276,
+     12.889,
+     12.826,
+     12.609,
+     12.083,
+     12.544,
+     12.376
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  }
+ },
+ "cases": {
+  "quiet": {
+   "experiment_id": "lab-bench-a-20261102t231940z-quiet",
+   "status": "done",
+   "created_at": 1793661587.936,
+   "final_at": 1793661687.513,
+   "timeframe": "1h",
+   "range": [
+    "2024-01-01",
+    "2025-06-30"
+   ],
+   "trials": 10000,
+   "planned_runs": 10000,
+   "bars": 2603,
+   "bars_nominal": 2603,
+   "bars_drift": 0.0,
+   "free_memory_gb_at_start": 2.51,
+   "workers_expected": 10,
+   "pool_workers": 10,
+   "pool_workers_source": "sampled pool children (the most alive at once)",
+   "chunks": 51,
+   "trials_per_s": 149.163,
+   "first_chunk_s": 10.006,
+   "wall_s": 75.706,
+   "chunk_write_ms_p95": 19.854,
+   "chunk_write_ms_n": 50,
+   "compaction_s": 0.363,
+   "generations": 2,
+   "resume_read_s": {
+    "before_finalize": {
+     "s": 0.148,
+     "at_cells_done": 9067,
+     "chunk_files": 47,
+     "parts": 0
+    },
+    "after_finalize": 0.023
+   },
+   "worker_peak_mb": 154.907,
+   "pool_children": [
+    {
+     "pid": 25328,
+     "peak_working_set_mb": 154.681
+    },
+    {
+     "pid": 8384,
+     "peak_working_set_mb": 154.649
+    },
+    {
+     "pid": 1784,
+     "peak_working_set_mb": 154.321
+    },
+    {
+     "pid": 27608,
+     "peak_working_set_mb": 154.501
+    },
+    {
+     "pid": 23960,
+     "peak_working_set_mb": 154.907
+    },
+    {
+     "pid": 27008,
+     "peak_working_set_mb": 154.522
+    },
+    {
+     "pid": 12264,
+     "peak_working_set_mb": 154.444
+    },
+    {
+     "pid": 7672,
+     "peak_working_set_mb": 154.616
+    },
+    {
+     "pid": 25112,
+     "peak_working_set_mb": 154.403
+    },
+    {
+     "pid": 10352,
+     "peak_working_set_mb": 154.112
+    }
+   ],
+   "host_growth_mb": 105.185,
+   "host_working_set_mb": {
+    "before_job": 594.125,
+    "peak_during_job": 699.31
+   },
+   "samples": 82,
+   "child_power_throttling": "system managed",
+   "invalid": 0,
+   "failed": 0,
+   "completed": 10000,
+   "progress_poll_ms_p95": 70.922,
+   "progress_polls": 100,
+   "model_ms_per_trial": 47.564,
+   "measured_worker_ms_per_trial": 67.041,
+   "measured_to_model": 1.409
+  },
+  "quiet_matched": {
+   "trials_per_s": 198.413,
+   "basis": "the quiet run's chunks at the same offsets from its creation as the task's window sat from each loaded run's (its start-up and its compaction pause weigh the same way); the same rule as the loaded rate",
+   "counted_rows": 1800,
+   "counted_seconds": 9.072,
+   "windows": [
+    {
+     "chunks": 10,
+     "rows": 1800,
+     "seconds": 9.072
+    }
+   ]
+  },
+  "loaded": {
+   "trials_per_s": 177.8,
+   "basis": "steady rows of the chunks committed while the task ran, over their span, per run, summed (the quiet run's rule: each run's first chunk is left out)",
+   "window_s": 12.205,
+   "counted_rows": 1400,
+   "counted_seconds": 7.874,
+   "overlap_runs": [
+    {
+     "chunks": 8,
+     "rows": 1400,
+     "seconds": 7.874
+    }
+   ],
+   "runs": [
+    {
+     "experiment_id": "lab-bench-a-20261102t231940z-loaded-1",
+     "status": "done",
+     "trials_per_s_whole_run": 147.346,
+     "created_at": 1793661688.496,
+     "final_at": 1793661791.093,
+     "pool_workers": 10
+    }
+   ]
+  }
+ },
+ "basis": "http (scratch worker)",
+ "base": "http://127.0.0.1:8103/aegis/",
+ "data_root": "C:\\Triad\\data\\temp\\lab-scratch",
+ "experiment_id": "demo-synthetic-1m",
+ "trials": 1000000,
+ "parameters": 10,
+ "blocks": 0,
+ "not_measured": "the 1M fixture has 10 parameters and no blocks, so the per-block mains (stage 2's K x 200 cheap passes) and the d = 20 cost are not measured here",
+ "seed": 1,
+ "task_seed": 2,
+ "runs": 20,
+ "fixture_write_s": null,
+ "workers_expected": 10,
+ "strategy_id": "lab-bench-10p-20261102t231940z",
+ "worker": {
+  "port": 8103,
+  "listener_pid": 26792,
+  "pid_file": "C:\\Triad\\.claude\\worktrees\\zen-thompson-50e9bb\\logs\\aegis-scratch.pid",
+  "pid_file_pid": 2972,
+  "power_throttling": {
+   "host": "never throttled",
+   "child": "system managed"
+  }
+ },
+ "worker_engine_build": "f416bb177cdbd0d532b469c98dfc7fbdff0e305c8ed1db08215afc0474e6b6bc",
+ "task": {
+  "source": "exp:demo-synthetic-1m",
+  "task_id": "9ca508c96e174c6a846e66304076f093",
+  "seed": 2,
+  "state": "done",
+  "stages": 3,
+  "stages_seen": {
+   "2": {
+    "wall_s": 7.511,
+    "elapsed_s": 6.851
+   },
+   "3": {
+    "wall_s": 12.203,
+    "elapsed_s": 11.556
+   }
+  },
+  "cached_at_request": false,
+  "cancelled_at_timeout": false,
+  "polls": 19,
+  "task_s": 11.556,
+  "task_wall_s": 12.203,
+  "fine_stage_s": 6.851,
+  "fine_stage_basis": "server elapsed_s of stage 2, the first stage a poll read (stage 1 finished before it: an upper bound)",
+  "snapshot": {
+   "generation": 10,
+   "chunk_watermark": 4999
+  },
+  "n": 50000,
+  "status": {
+   "id": "9ca508c96e174c6a846e66304076f093",
+   "label": "importance",
+   "state": "done",
+   "stage": 3,
+   "stages": 3,
+   "progress": 1.0,
+   "error": null,
+   "started_at": "2026-11-02T23:21:39.248817+00:00",
+   "finished_at": "2026-11-02T23:21:50.808081+00:00",
+   "sharing_cpu": false
+  },
+  "error": null,
+  "window_epoch_s": [
+   1793661699.005,
+   1793661711.211
+  ],
+  "job_coverage": 1.0,
+  "job_coverage_min": 0.9,
+  "beside_job": true
+ },
+ "throughput_loss": -0.192,
+ "throughput_loss_basis": "1 - loaded.trials_per_s / quiet.trials_per_s",
+ "throughput_loss_matched": 0.1039,
+ "throughput_loss_matched_basis": "1 - loaded.trials_per_s / quiet_matched.trials_per_s: the quiet run at the same offsets",
+ "evaluate": {
+  "importance_task_s": true,
+  "fine_stage_s": true,
+  "pareto": true,
+  "neighbourhood": true
+ },
+ "retest_due": {
+  "engine_build_changed": false,
+  "surface_larger": false,
+  "bars_over_50k": false,
+  "new_kind": false,
+  "rate_drift_over_15pct": false,
+  "free_memory_under_2gb": false,
+  "new_host": false
+ }
+}
