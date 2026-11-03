@@ -1,0 +1,1474 @@
+{
+ "mode": "analytics",
+ "host": {
+  "cpu": {
+   "name": "12th Gen Intel(R) Core(TM) i7-1255U",
+   "logical": 12
+  },
+  "ram_gb": 17.0,
+  "free_memory_gb_at_start": 4.11,
+  "os": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.10",
+  "numba": "0.68.0",
+  "numpy": "2.5.3",
+  "pyarrow": "23.0.1",
+  "engine_build": "f416bb177cdbd0d532b469c98dfc7fbdff0e305c8ed1db08215afc0474e6b6bc",
+  "git_head": "7a63a5233fbc520f4b32e17699a865b6108fe4df",
+  "app_root": "C:\\Triad\\.claude\\worktrees\\zen-thompson-50e9bb\\app",
+  "workers": 10,
+  "power_throttling": {
+   "host": "never throttled",
+   "child": null
+  },
+  "curves_kept": {
+   "A": true,
+   "B": true,
+   "C": true,
+   "A100k": false
+  },
+  "measured_at": "2026-11-03T15:13:16.142513+00:00",
+  "indicators_per_side": 4,
+  "ranged_parameters": 10,
+  "bars_max": 46034,
+  "kinds": [
+   "EMA",
+   "MACD",
+   "RSI",
+   "SMA"
+  ]
+ },
+ "engine_build": "f416bb177cdbd0d532b469c98dfc7fbdff0e305c8ed1db08215afc0474e6b6bc",
+ "git_head": "7a63a5233fbc520f4b32e17699a865b6108fe4df",
+ "measured_at": "2026-11-03T15:13:16.142513+00:00",
+ "operations": {
+  "neighbourhood": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 13.294,
+    "p95": 15.332,
+    "max": 602.586,
+    "samples": [
+     602.586,
+     14.526,
+     14.105,
+     13.449,
+     12.777,
+     11.983,
+     12.812,
+     12.701,
+     12.536,
+     12.186,
+     12.071,
+     12.75,
+     14.118,
+     15.15,
+     15.332,
+     13.337,
+     14.056,
+     14.41,
+     13.294,
+     13.199
+    ]
+   },
+   "cold_ms": 602.586,
+   "warm_ms": {
+    "n": 19,
+    "p50": 13.294,
+    "p95": 15.332,
+    "max": 15.332,
+    "samples": [
+     14.526,
+     14.105,
+     13.449,
+     12.777,
+     11.983,
+     12.812,
+     12.701,
+     12.536,
+     12.186,
+     12.071,
+     12.75,
+     14.118,
+     15.15,
+     15.332,
+     13.337,
+     14.056,
+     14.41,
+     13.294,
+     13.199
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "convergence": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 17.255,
+    "p95": 43.499,
+    "max": 312.674,
+    "samples": [
+     312.674,
+     17.575,
+     18.23,
+     17.255,
+     16.789,
+     16.807,
+     16.501,
+     16.553,
+     16.848,
+     16.792,
+     17.946,
+     17.194,
+     17.284,
+     16.689,
+     17.031,
+     43.499,
+     28.908,
+     18.753,
+     17.897,
+     17.953
+    ]
+   },
+   "cold_ms": 312.674,
+   "warm_ms": {
+    "n": 19,
+    "p50": 17.255,
+    "p95": 43.499,
+    "max": 43.499,
+    "samples": [
+     17.575,
+     18.23,
+     17.255,
+     16.789,
+     16.807,
+     16.501,
+     16.553,
+     16.848,
+     16.792,
+     17.946,
+     17.194,
+     17.284,
+     16.689,
+     17.031,
+     43.499,
+     28.908,
+     18.753,
+     17.897,
+     17.953
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "rankings": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 65.313,
+    "p95": 68.069,
+    "max": 251.841,
+    "samples": [
+     251.841,
+     66.38,
+     64.052,
+     65.612,
+     64.05,
+     67.212,
+     67.938,
+     64.881,
+     65.31,
+     65.729,
+     63.462,
+     63.254,
+     63.617,
+     65.313,
+     64.877,
+     65.285,
+     66.268,
+     68.069,
+     67.858,
+     67.852
+    ]
+   },
+   "cold_ms": 251.841,
+   "warm_ms": {
+    "n": 19,
+    "p50": 65.313,
+    "p95": 68.069,
+    "max": 68.069,
+    "samples": [
+     66.38,
+     64.052,
+     65.612,
+     64.05,
+     67.212,
+     67.938,
+     64.881,
+     65.31,
+     65.729,
+     63.462,
+     63.254,
+     63.617,
+     65.313,
+     64.877,
+     65.285,
+     66.268,
+     68.069,
+     67.858,
+     67.852
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "pareto": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 231.174,
+    "p95": 266.626,
+    "max": 322.876,
+    "samples": [
+     322.876,
+     208.955,
+     228.197,
+     220.121,
+     217.359,
+     228.318,
+     219.452,
+     209.928,
+     228.137,
+     249.269,
+     257.491,
+     231.036,
+     232.214,
+     231.174,
+     266.626,
+     245.902,
+     248.296,
+     251.817,
+     259.377,
+     251.679
+    ]
+   },
+   "cold_ms": 322.876,
+   "warm_ms": {
+    "n": 19,
+    "p50": 231.174,
+    "p95": 266.626,
+    "max": 266.626,
+    "samples": [
+     208.955,
+     228.197,
+     220.121,
+     217.359,
+     228.318,
+     219.452,
+     209.928,
+     228.137,
+     249.269,
+     257.491,
+     231.036,
+     232.214,
+     231.174,
+     266.626,
+     245.902,
+     248.296,
+     251.817,
+     259.377,
+     251.679
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "pareto_3": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 710.516,
+    "p95": 937.724,
+    "max": 957.811,
+    "samples": [
+     817.632,
+     710.516,
+     865.849,
+     933.055,
+     751.163,
+     692.444,
+     957.811,
+     937.724,
+     816.935,
+     643.549,
+     665.501,
+     747.662,
+     770.996,
+     764.561,
+     649.439,
+     654.067,
+     633.182,
+     603.708,
+     641.962,
+     649.979
+    ]
+   },
+   "cold_ms": 817.632,
+   "warm_ms": {
+    "n": 19,
+    "p50": 710.516,
+    "p95": 957.811,
+    "max": 957.811,
+    "samples": [
+     710.516,
+     865.849,
+     933.055,
+     751.163,
+     692.444,
+     957.811,
+     937.724,
+     816.935,
+     643.549,
+     665.501,
+     747.662,
+     770.996,
+     764.561,
+     649.439,
+     654.067,
+     633.182,
+     603.708,
+     641.962,
+     649.979
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "pareto_widest": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 217.405,
+    "p95": 250.671,
+    "max": 325.91,
+    "samples": [
+     325.91,
+     217.25,
+     225.747,
+     212.496,
+     250.671,
+     217.725,
+     211.765,
+     223.882,
+     208.226,
+     214.163,
+     210.499,
+     223.929,
+     225.401,
+     212.977,
+     217.405,
+     207.57,
+     227.289,
+     221.836,
+     205.0,
+     217.557
+    ]
+   },
+   "cold_ms": 325.91,
+   "warm_ms": {
+    "n": 19,
+    "p50": 217.405,
+    "p95": 250.671,
+    "max": 250.671,
+    "samples": [
+     217.25,
+     225.747,
+     212.496,
+     250.671,
+     217.725,
+     211.765,
+     223.882,
+     208.226,
+     214.163,
+     210.499,
+     223.929,
+     225.401,
+     212.977,
+     217.405,
+     207.57,
+     227.289,
+     221.836,
+     205.0,
+     217.557
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ],
+   "pair": [
+    "expectancy",
+    "trade_count"
+   ],
+   "front_size": 57,
+   "pairs_probed": 55,
+   "front_sizes": {
+    "expectancy|trade_count": 57,
+    "profit_factor|trade_count": 43,
+    "trade_count|sharpe_trade": 36,
+    "win_rate|exposure": 21,
+    "win_rate|sharpe_trade": 20,
+    "mar|win_rate": 19,
+    "max_drawdown|exposure": 18,
+    "profit_factor|exposure": 16
+   }
+  },
+  "rankings_importance": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 240.344,
+    "p95": 253.571,
+    "max": 256.616,
+    "samples": [
+     240.344,
+     248.42,
+     242.949,
+     240.465,
+     232.995,
+     234.249,
+     242.849,
+     256.616,
+     234.488,
+     238.662,
+     241.927,
+     242.173,
+     243.066,
+     233.412,
+     233.223,
+     237.74,
+     253.571,
+     234.987,
+     235.712,
+     247.088
+    ]
+   },
+   "cold_ms": 240.344,
+   "warm_ms": {
+    "n": 19,
+    "p50": 240.465,
+    "p95": 256.616,
+    "max": 256.616,
+    "samples": [
+     248.42,
+     242.949,
+     240.465,
+     232.995,
+     234.249,
+     242.849,
+     256.616,
+     234.488,
+     238.662,
+     241.927,
+     242.173,
+     243.066,
+     233.412,
+     233.223,
+     237.74,
+     253.571,
+     234.987,
+     235.712,
+     247.088
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  },
+  "candidate": {
+   "basis": "http",
+   "http_ms": {
+    "n": 20,
+    "p50": 72.392,
+    "p95": 79.144,
+    "max": 93.931,
+    "samples": [
+     79.144,
+     93.931,
+     72.316,
+     72.768,
+     71.759,
+     71.381,
+     72.148,
+     70.209,
+     71.583,
+     74.298,
+     71.674,
+     73.69,
+     77.106,
+     73.687,
+     72.996,
+     71.313,
+     74.049,
+     72.951,
+     72.392,
+     71.715
+    ]
+   },
+   "cold_ms": 79.144,
+   "warm_ms": {
+    "n": 19,
+    "p50": 72.392,
+    "p95": 93.931,
+    "max": 93.931,
+    "samples": [
+     93.931,
+     72.316,
+     72.768,
+     71.759,
+     71.381,
+     72.148,
+     70.209,
+     71.583,
+     74.298,
+     71.674,
+     73.69,
+     77.106,
+     73.687,
+     72.996,
+     71.313,
+     74.049,
+     72.951,
+     72.392,
+     71.715
+    ]
+   },
+   "requests": [
+    "POST lab/exp:demo-synthetic-1m/query"
+   ]
+  }
+ },
+ "cases": {
+  "quiet": {
+   "experiment_id": "lab-bench-a-20261103t151316z-quiet",
+   "status": "done",
+   "blocks": 0,
+   "rate_unit": "trials",
+   "plan": {
+    "estimate_seconds": 51.55507851042745,
+    "ms_per_cell_bar": 0.015844818597134828,
+    "workers": 10,
+    "evaluations": 10000,
+    "price_source": "measured"
+   },
+   "created_at": 1793718849.684,
+   "final_at": 1793718945.235,
+   "timeframe": "1h",
+   "range": [
+    "2024-01-01",
+    "2025-06-30"
+   ],
+   "trials": 10000,
+   "planned_runs": 10000,
+   "bars": 2603,
+   "bars_nominal": 2603,
+   "bars_drift": 0.0,
+   "free_memory_gb_at_start": 3.88,
+   "workers_expected": 10,
+   "pool_workers": 10,
+   "pool_workers_source": "sampled pool children (the most alive at once)",
+   "chunks": 51,
+   "trials_per_s": 157.255,
+   "first_chunk_s": 9.532,
+   "wall_s": 71.851,
+   "chunk_write_ms_p95": 14.324,
+   "chunk_write_ms_n": 50,
+   "compaction_s": 0.313,
+   "generations": 2,
+   "resume_read_s": {
+    "before_finalize": {
+     "s": 0.265,
+     "at_cells_done": 9067,
+     "chunk_files": 46,
+     "parts": 0
+    },
+    "after_finalize": 0.01
+   },
+   "worker_peak_mb": 154.751,
+   "pool_children": [
+    {
+     "pid": 3652,
+     "peak_working_set_mb": 154.657
+    },
+    {
+     "pid": 18592,
+     "peak_working_set_mb": 154.64
+    },
+    {
+     "pid": 30456,
+     "peak_working_set_mb": 154.391
+    },
+    {
+     "pid": 30612,
+     "peak_working_set_mb": 154.493
+    },
+    {
+     "pid": 24068,
+     "peak_working_set_mb": 154.497
+    },
+    {
+     "pid": 30072,
+     "peak_working_set_mb": 154.722
+    },
+    {
+     "pid": 25960,
+     "peak_working_set_mb": 154.382
+    },
+    {
+     "pid": 13472,
+     "peak_working_set_mb": 154.677
+    },
+    {
+     "pid": 23068,
+     "peak_working_set_mb": 154.751
+    },
+    {
+     "pid": 6392,
+     "peak_working_set_mb": 154.649
+    }
+   ],
+   "host_growth_mb": 118.563,
+   "host_working_set_mb": {
+    "before_job": 715.178,
+    "peak_during_job": 833.741
+   },
+   "samples": 75,
+   "child_power_throttling": "system managed",
+   "invalid": 0,
+   "failed": 0,
+   "completed": 10000,
+   "progress_poll_ms_p95": 57.037,
+   "progress_polls": 96,
+   "model_ms_per_trial": 47.564,
+   "measured_worker_ms_per_trial": 63.591,
+   "measured_to_model": 1.337,
+   "basis": "case A alone on the idle worker: steady rows over the run's chunks, its first chunk left out; a whole-run rate, with the run's start-up gap and its compaction pause in it"
+  },
+  "quiet_matched": {
+   "trials_per_s": 206.978,
+   "basis": "the quiet run's chunks at the same positions (indices in commit order) as the loaded window's, read by the loaded rate's own rule (the window's first chunk left out, rows over the seconds between its first and last chunk)",
+   "counted_rows": 1400,
+   "counted_seconds": 6.764,
+   "windows": [
+    {
+     "chunks": 8,
+     "rows": 1400,
+     "seconds": 6.764,
+     "indices": [
+      1,
+      8
+     ]
+    }
+   ]
+  },
+  "quiet_matched_by_time": {
+   "trials_per_s": 207.565,
+   "basis": "the quiet run's chunks at the same offsets from its creation as the task's window sat from the loaded run's; a start-up gap landing at the window's edge moves it across the window",
+   "counted_rows": 1800,
+   "counted_seconds": 8.672,
+   "windows": [
+    {
+     "chunks": 10,
+     "rows": 1800,
+     "seconds": 8.672
+    }
+   ]
+  },
+  "loaded": {
+   "trials_per_s": 192.891,
+   "basis": "steady rows of the chunks committed while the task ran, over their span, per run, summed (each run's first chunk in the window is left out): a window, 8 chunks in the first run",
+   "window_s": 11.34,
+   "window_offsets_from_creation_s": [
+    [
+     9.956,
+     21.297
+    ]
+   ],
+   "counted_rows": 1400,
+   "counted_seconds": 7.258,
+   "overlap_runs": [
+    {
+     "chunks": 8,
+     "rows": 1400,
+     "seconds": 7.258
+    }
+   ],
+   "runs": [
+    {
+     "experiment_id": "lab-bench-a-20261103t151316z-loaded-1",
+     "status": "done",
+     "trials_per_s_whole_run": 155.897,
+     "created_at": 1793718946.094,
+     "final_at": 1793719041.705,
+     "pool_workers": 10
+    }
+   ]
+  },
+  "quiet_after": {
+   "experiment_id": "lab-bench-a-20261103t151316z-quiet-after",
+   "status": "done",
+   "blocks": 0,
+   "rate_unit": "trials",
+   "plan": {
+    "estimate_seconds": 50.655817199924066,
+    "ms_per_cell_bar": 0.015568441705700825,
+    "workers": 10,
+    "evaluations": 10000,
+    "price_source": "measured"
+   },
+   "created_at": 1793719042.609,
+   "final_at": 1793719138.22,
+   "timeframe": "1h",
+   "range": [
+    "2024-01-01",
+    "2025-06-30"
+   ],
+   "trials": 10000,
+   "planned_runs": 10000,
+   "bars": 2603,
+   "bars_nominal": 2603,
+   "bars_drift": 0.0,
+   "free_memory_gb_at_start": 4.01,
+   "workers_expected": 10,
+   "pool_workers": 10,
+   "pool_workers_source": "sampled pool children (the most alive at once)",
+   "chunks": 51,
+   "trials_per_s": 159.207,
+   "first_chunk_s": 9.231,
+   "wall_s": 70.786,
+   "chunk_write_ms_p95": 15.456,
+   "chunk_write_ms_n": 50,
+   "compaction_s": 0.339,
+   "generations": 2,
+   "resume_read_s": {
+    "before_finalize": {
+     "s": 0.274,
+     "at_cells_done": 9067,
+     "chunk_files": 46,
+     "parts": 0
+    },
+    "after_finalize": 0.019
+   },
+   "worker_peak_mb": 154.956,
+   "pool_children": [
+    {
+     "pid": 4044,
+     "peak_working_set_mb": 154.706
+    },
+    {
+     "pid": 29828,
+     "peak_working_set_mb": 154.956
+    },
+    {
+     "pid": 8548,
+     "peak_working_set_mb": 154.554
+    },
+    {
+     "pid": 12064,
+     "peak_working_set_mb": 154.677
+    },
+    {
+     "pid": 23052,
+     "peak_working_set_mb": 154.677
+    },
+    {
+     "pid": 7420,
+     "peak_working_set_mb": 154.927
+    },
+    {
+     "pid": 28496,
+     "peak_working_set_mb": 154.382
+    },
+    {
+     "pid": 20896,
+     "peak_working_set_mb": 154.624
+    },
+    {
+     "pid": 8968,
+     "peak_working_set_mb": 154.735
+    },
+    {
+     "pid": 27180,
+     "peak_working_set_mb": 154.591
+    }
+   ],
+   "host_growth_mb": 57.762,
+   "host_working_set_mb": {
+    "before_job": 821.121,
+    "peak_during_job": 878.883
+   },
+   "samples": 76,
+   "child_power_throttling": "system managed",
+   "invalid": 0,
+   "failed": 0,
+   "completed": 10000,
+   "progress_poll_ms_p95": 55.22,
+   "progress_polls": 96,
+   "model_ms_per_trial": 47.564,
+   "measured_worker_ms_per_trial": 62.811,
+   "measured_to_model": 1.321,
+   "basis": "case A alone on the idle worker: steady rows over the run's chunks, its first chunk left out; a whole-run rate, with the run's start-up gap and its compaction pause in it; run after the loaded pass"
+  },
+  "quiet_after_matched": {
+   "trials_per_s": 200.861,
+   "basis": "the quiet run's chunks at the same positions (indices in commit order) as the loaded window's, read by the loaded rate's own rule (the window's first chunk left out, rows over the seconds between its first and last chunk)",
+   "counted_rows": 1400,
+   "counted_seconds": 6.97,
+   "windows": [
+    {
+     "chunks": 8,
+     "rows": 1400,
+     "seconds": 6.97,
+     "indices": [
+      1,
+      8
+     ]
+    }
+   ]
+  },
+  "quiet_after_matched_by_time": {
+   "trials_per_s": 202.384,
+   "basis": "the quiet run's chunks at the same offsets from its creation as the task's window sat from the loaded run's; a start-up gap landing at the window's edge moves it across the window",
+   "counted_rows": 1800,
+   "counted_seconds": 8.894,
+   "windows": [
+    {
+     "chunks": 10,
+     "rows": 1800,
+     "seconds": 8.894
+    }
+   ]
+  }
+ },
+ "basis": "http (scratch worker)",
+ "base": "http://127.0.0.1:8103/aegis/",
+ "data_root": "C:\\Triad\\data\\temp\\lab-scratch",
+ "experiment_id": "demo-synthetic-1m",
+ "trials": 1000000,
+ "parameters": 10,
+ "blocks": 0,
+ "seed": 1,
+ "task_seed": 1,
+ "runs": 20,
+ "fixture_write_s": null,
+ "workers_expected": 10,
+ "strategy_id": "lab-bench-10p-20261103t151316z",
+ "worker": {
+  "port": 8103,
+  "listener_pid": 21144,
+  "pid_file": "C:\\Triad\\.claude\\worktrees\\zen-thompson-50e9bb\\logs\\aegis-scratch.pid",
+  "pid_file_pid": 19740,
+  "power_throttling": {
+   "host": "never throttled",
+   "child": "system managed"
+  }
+ },
+ "worker_engine_build": "f416bb177cdbd0d532b469c98dfc7fbdff0e305c8ed1db08215afc0474e6b6bc",
+ "cache_entries_before": 0,
+ "poll_cadence_s": 0.5,
+ "resources": {
+  "first_call_memory": {
+   "neighbourhood": {
+    "working_set_delta_mb": 237.249,
+    "peak_working_set_mb": 687.227,
+    "cache_bytes_before": 0,
+    "cache_bytes_after": 194004187,
+    "cache_delta_mb": 194.004,
+    "cache_entries_before": 0,
+    "cache_entries_after": 4
+   },
+   "convergence": {
+    "working_set_delta_mb": 0.75,
+    "peak_working_set_mb": 735.531,
+    "cache_bytes_before": 194004187,
+    "cache_bytes_after": 194246683,
+    "cache_delta_mb": 0.242,
+    "cache_entries_before": 4,
+    "cache_entries_after": 5
+   },
+   "rankings": {
+    "working_set_delta_mb": 4.047,
+    "peak_working_set_mb": 735.531,
+    "cache_bytes_before": 194246683,
+    "cache_bytes_after": 194246683,
+    "cache_delta_mb": 0.0,
+    "cache_entries_before": 5,
+    "cache_entries_after": 5
+   },
+   "rankings_importance": {
+    "working_set_delta_mb": 2.691,
+    "peak_working_set_mb": 1147.13,
+    "cache_bytes_before": 372004220,
+    "cache_bytes_after": 372004220,
+    "cache_delta_mb": 0.0,
+    "cache_entries_before": 6,
+    "cache_entries_after": 6
+   },
+   "candidate": {
+    "working_set_delta_mb": 0.336,
+    "peak_working_set_mb": 1147.13,
+    "cache_bytes_before": 372004220,
+    "cache_bytes_after": 372004220,
+    "cache_delta_mb": 0.0,
+    "cache_entries_before": 6,
+    "cache_entries_after": 6
+   }
+  },
+  "first_call_memory_note": "the worker's memory around each row's first (cold) call, in this order. `working_set_delta_mb` is a post-call working-set reading and noisy (Windows trims it between calls: the same code read +231 and +7 MB for one call): read `peak_working_set_mb` (the process's PeakWorkingSet64, its high-water mark) and the cache bytes (`cache_delta_mb`, deterministic) instead. The three views read one cached table (design, pass, the ten paths, pos.k, the metric), so the first call pays for it",
+  "worker_working_set_mb": {
+   "before_the_views": 341.307,
+   "after_the_views": 715.051
+  },
+  "worker_peak_working_set_mb": {
+   "before_the_views": 619.368,
+   "after_the_views": 908.993,
+   "after_the_candidate_rows": 1147.13
+  },
+  "lab_cache": {
+   "before_the_views": {
+    "bytes": 0,
+    "entries": 0
+   },
+   "after_the_views": {
+    "bytes": 367629196,
+    "entries": 9
+   },
+   "after_the_candidate_rows": {
+    "bytes": 372004220,
+    "entries": 6
+   }
+  }
+ },
+ "candidate_b": {
+  "cards": 20,
+  "b_resolved": 20,
+  "b_ran": 20,
+  "b_reasons": {}
+ },
+ "ranking_pool": {
+  "pool": 300,
+  "k": 20,
+  "candidates_drawn_from": 300,
+  "b_max": 20
+ },
+ "blocked": {
+  "blocks": 4,
+  "plan": {
+   "estimate_seconds": 175.903835190179,
+   "ms_per_cell_bar": 0.015453884049214056,
+   "workers": 10,
+   "evaluations": 50000,
+   "planned_runs": 10000,
+   "bars": 2603,
+   "price_source": "measured"
+  },
+  "plan_vs_actual": {
+   "estimate_s": 175.903835190179,
+   "actual_s": 219.011,
+   "actual_over_estimate": 1.245
+  },
+  "k0_plan_vs_actual": {
+   "estimate_s": 51.55507851042745,
+   "actual_s": 71.851,
+   "actual_over_estimate": 1.394
+  },
+  "case": {
+   "experiment_id": "lab-bench-a-20261103t151316z-k4",
+   "status": "done",
+   "blocks": 4,
+   "rate_unit": "evaluations",
+   "plan": {
+    "estimate_seconds": 175.903835190179,
+    "ms_per_cell_bar": 0.015453884049214056,
+    "workers": 10,
+    "evaluations": 50000,
+    "price_source": "measured"
+   },
+   "created_at": 1793719150.011,
+   "final_at": 1793719393.581,
+   "timeframe": "1h",
+   "range": [
+    "2024-01-01",
+    "2025-06-30"
+   ],
+   "trials": 10000,
+   "planned_runs": 10000,
+   "bars": 2603,
+   "bars_nominal": 2603,
+   "bars_drift": 0.0,
+   "free_memory_gb_at_start": 3.64,
+   "workers_expected": 10,
+   "pool_workers": 10,
+   "pool_workers_source": "sampled pool children (the most alive at once)",
+   "chunks": 51,
+   "trials_per_s": 236.287,
+   "first_chunk_s": 11.636,
+   "wall_s": 219.011,
+   "chunk_write_ms_p95": 16.51,
+   "chunk_write_ms_n": 50,
+   "compaction_s": 0.454,
+   "generations": 2,
+   "resume_read_s": {
+    "before_finalize": {
+     "s": 0.236,
+     "at_cells_done": 9067,
+     "chunk_files": 46,
+     "parts": 0
+    },
+    "after_finalize": 0.01
+   },
+   "worker_peak_mb": 157.389,
+   "pool_children": [
+    {
+     "pid": 7608,
+     "peak_working_set_mb": 157.09
+    },
+    {
+     "pid": 29176,
+     "peak_working_set_mb": 157.004
+    },
+    {
+     "pid": 24432,
+     "peak_working_set_mb": 157.278
+    },
+    {
+     "pid": 18784,
+     "peak_working_set_mb": 156.959
+    },
+    {
+     "pid": 25888,
+     "peak_working_set_mb": 157.016
+    },
+    {
+     "pid": 30492,
+     "peak_working_set_mb": 157.377
+    },
+    {
+     "pid": 19220,
+     "peak_working_set_mb": 157.114
+    },
+    {
+     "pid": 12752,
+     "peak_working_set_mb": 157.389
+    },
+    {
+     "pid": 15024,
+     "peak_working_set_mb": 156.996
+    },
+    {
+     "pid": 30092,
+     "peak_working_set_mb": 157.245
+    }
+   ],
+   "host_growth_mb": 124.191,
+   "host_working_set_mb": {
+    "before_job": 804.52,
+    "peak_during_job": 928.711
+   },
+   "samples": 196,
+   "child_power_throttling": "system managed",
+   "invalid": 0,
+   "failed": 0,
+   "completed": 10000,
+   "progress_poll_ms_p95": 62.437,
+   "progress_polls": 244,
+   "model_ms_per_trial": 47.564,
+   "measured_worker_ms_per_trial": 42.321,
+   "measured_to_model": 0.89
+  },
+  "basis": "the K = 4 case-A experiment (10,000 trials, each also scored on 4 blocks) against the planner's own estimate (POST /experiments/plan, the endpoint the planner uses) and the K = 0 quiet run's; rows of this run are evaluations (5 a trial). The price model is Task 2's; a gap here is an R3.5 finding"
+ },
+ "wide": {
+  "values_per_parameter": 20,
+  "experiment_id": "demo-synthetic-1m-20v",
+  "parameters": 10,
+  "fixture_write_s": null,
+  "fixture": "reused: written by an earlier run into the scratch root",
+  "task": {
+   "source": "exp:demo-synthetic-1m-20v",
+   "task_id": "67321c28ad984bbbaa3f73ca59384541",
+   "seed": 1,
+   "state": "done",
+   "stages": 3,
+   "stages_seen": {
+    "1": {
+     "wall_s": 7.114,
+     "elapsed_s": 6.474
+    },
+    "2": {
+     "wall_s": 7.709,
+     "elapsed_s": 6.586
+    },
+    "3": {
+     "wall_s": 12.293,
+     "elapsed_s": 11.201
+    }
+   },
+   "cached_at_request": false,
+   "cancelled_at_timeout": false,
+   "polls": 19,
+   "task_s": 11.201,
+   "task_wall_s": 12.294,
+   "fine_stage_s": 6.474,
+   "fine_stage_basis": "server elapsed_s of stage 1",
+   "fine_stage_is_bound": false,
+   "poll_ms": {
+    "n": 19,
+    "p50": 155.981,
+    "p95": 695.498,
+    "max": 695.498,
+    "samples": [
+     695.498,
+     84.859,
+     118.637,
+     84.475,
+     163.902,
+     173.537,
+     138.816,
+     180.814,
+     153.451,
+     148.095,
+     169.533,
+     94.543,
+     157.651,
+     155.981,
+     117.371,
+     165.443,
+     172.4,
+     148.862,
+     163.756
+    ]
+   },
+   "poll_ms_after_first": {
+    "n": 18,
+    "p50": 153.451,
+    "p95": 180.814,
+    "max": 180.814,
+    "samples": [
+     84.859,
+     118.637,
+     84.475,
+     163.902,
+     173.537,
+     138.816,
+     180.814,
+     153.451,
+     148.095,
+     169.533,
+     94.543,
+     157.651,
+     155.981,
+     117.371,
+     165.443,
+     172.4,
+     148.862,
+     163.756
+    ]
+   },
+   "poll_cadence_s": 0.5,
+   "snapshot": {
+    "generation": 10,
+    "chunk_watermark": 4999
+   },
+   "n": 50000,
+   "status": {
+    "id": "67321c28ad984bbbaa3f73ca59384541",
+    "label": "importance",
+    "state": "done",
+    "stage": 3,
+    "stages": 3,
+    "progress": 1.0,
+    "error": null,
+    "started_at": "2026-11-03T15:23:24.242611+00:00",
+    "finished_at": "2026-11-03T15:23:35.447327+00:00",
+    "sharing_cpu": false
+   },
+   "error": null,
+   "window_epoch_s": [
+    1793719403.849,
+    1793719416.143
+   ],
+   "job_coverage": 1.0,
+   "job_coverage_min": 0.9,
+   "beside_job": true
+  },
+  "runs": [
+   {
+    "experiment_id": "lab-bench-a-20261103t151316z-wide-1",
+    "status": "done",
+    "created_at": 1793719394.437,
+    "final_at": 1793719495.968,
+    "trials_per_s": 142.097
+   }
+  ],
+  "basis": "the importance task on a 1,000,000-trial fixture with 20 values on each of its 10 parameters, beside case A, as the first pass; 10 parameters, not 20"
+ },
+ "not_measured": [
+  {
+   "row": "the importance task at d = 20 with blocks (K = 4 by default, up to 8) (\u00a79.4's 180 s budget at its stated scale)",
+   "why": "the 1M fixtures have 10 parameters and no blocks, so the per-block mains (stage 2's K x 200 cheap passes) and the d = 20 cost are not measured here; the task is a 10-parameter, 50,000-row one",
+   "owner": "Phase 4's 20-parameter fixture (the Task 13 R3.5 note states the budget unmeasured at its scale until then)"
+  },
+  {
+   "row": "the robustness ranking and a candidate's view at d = 20 (the cache entry, the 840 probes at m = 2)",
+   "why": "the fixtures have 10 parameters",
+   "owner": "Phase 4's 20-parameter fixture"
+  },
+  {
+   "row": "the Pareto all-on-front worst case",
+   "why": "not constructible over HTTP: a metric cannot be named twice (the view refuses `an objective is named twice`) and no pair of the fixture's metrics is anti-correlated; the widest front among all pairs is recorded as `pareto_widest` instead",
+   "owner": "R3.5 (a synthetic anti-correlated fixture) or the Pareto unit tests"
+  },
+  {
+   "row": "the `opt:` source's importance poll at MAX_CELLS over HTTP",
+   "why": "needs a finished 100,000-cell grid job in the store; `opt_frame_rebuild` is an in-process proxy for the per-poll frame rebuild, without the view on top of it",
+   "owner": "R3.5"
+  },
+  {
+   "row": "plan against actual at d = 20 with blocks (K = 4 by default, up to 8)",
+   "why": "the blocked run is K = 4 at d = 10",
+   "owner": "Task 2's price model; an R3.5 finding"
+  },
+  {
+   "row": "the fine stage at d = 20 with 20 values per parameter beside a job",
+   "why": "Task 4 measured 24-41 s alone against the 30 s line; `fine_stage_20_s` is the 10-parameter, 20-value row, which at d = 10 reads as it does at 12-19 values",
+   "owner": "Phase 4's 20-parameter fixture"
+  },
+  {
+   "row": "a candidate's card on a blocked experiment",
+   "why": "`trial_blocks` reads the trial's block rows only when K > 0 and no K = 0 fixture exercises it; the card's C finding is not timed",
+   "owner": "R3.5 or the blocked fixture"
+  }
+ ],
+ "task": {
+  "source": "exp:demo-synthetic-1m",
+  "task_id": "2336c7b7af504573957bb6bfcb3950c5",
+  "seed": 1,
+  "state": "done",
+  "stages": 3,
+  "stages_seen": {
+   "2": {
+    "wall_s": 6.709,
+    "elapsed_s": 6.273
+   },
+   "3": {
+    "wall_s": 11.34,
+    "elapsed_s": 10.86
+   }
+  },
+  "cached_at_request": false,
+  "cancelled_at_timeout": false,
+  "polls": 18,
+  "task_s": 10.86,
+  "task_wall_s": 11.34,
+  "fine_stage_s": 6.273,
+  "fine_stage_basis": "server elapsed_s of stage 2, the first stage a poll read (stage 1 finished before it: an upper bound)",
+  "fine_stage_is_bound": true,
+  "poll_ms": {
+   "n": 18,
+   "p50": 158.862,
+   "p95": 258.824,
+   "max": 258.824,
+   "samples": [
+    258.824,
+    80.348,
+    133.828,
+    83.71,
+    163.585,
+    93.304,
+    208.471,
+    173.726,
+    178.78,
+    156.168,
+    174.158,
+    158.933,
+    164.789,
+    158.59,
+    172.777,
+    158.862,
+    157.993,
+    149.169
+   ]
+  },
+  "poll_ms_after_first": {
+   "n": 17,
+   "p50": 158.862,
+   "p95": 208.471,
+   "max": 208.471,
+   "samples": [
+    80.348,
+    133.828,
+    83.71,
+    163.585,
+    93.304,
+    208.471,
+    173.726,
+    178.78,
+    156.168,
+    174.158,
+    158.933,
+    164.789,
+    158.59,
+    172.777,
+    158.862,
+    157.993,
+    149.169
+   ]
+  },
+  "poll_cadence_s": 0.5,
+  "snapshot": {
+   "generation": 10,
+   "chunk_watermark": 4999
+  },
+  "n": 50000,
+  "status": {
+   "id": "2336c7b7af504573957bb6bfcb3950c5",
+   "label": "importance",
+   "state": "done",
+   "stage": 3,
+   "stages": 3,
+   "progress": 1.0,
+   "error": null,
+   "started_at": "2026-11-03T15:15:56.226270+00:00",
+   "finished_at": "2026-11-03T15:16:07.089833+00:00",
+   "sharing_cpu": false
+  },
+  "error": null,
+  "window_epoch_s": [
+   1793718956.05,
+   1793718967.391
+  ],
+  "job_coverage": 1.0,
+  "job_coverage_min": 0.9,
+  "beside_job": true
+ },
+ "throughput_loss": -0.2266,
+ "throughput_loss_basis": "1 - loaded.trials_per_s / quiet.trials_per_s. quiet.trials_per_s 157.3 (and quiet_after.trials_per_s 159.2) are whole-run rates, a run's start-up gap and its compaction pause in them; loaded.trials_per_s 192.9 is the rate of the 8-chunk window (7.3 s) while the task ran. They are not comparable here (the loaded window sits clear of the pauses, so this figure reads as the job speeding up): read throughput_loss_matched, the window against the quiet run at the same chunk positions",
+ "throughput_loss_matched": 0.0681,
+ "throughput_loss_matched_after": 0.0397,
+ "throughput_loss_matched_basis": "1 - loaded.trials_per_s / quiet_matched.trials_per_s (and / quiet_after_matched's, `throughput_loss_matched_after`): the quiet run read at the same chunk positions as the loaded window ([{'chunks': 8, 'rows': 1400, 'seconds': 6.764, 'indices': [1, 8]}]), 1,400 rows over 6.8 s in 1 window against 1,400 rows over 7.3 s of the loaded window, which sat [(10.0, 21.3)] seconds from the loaded run's creation. A short window of about 8 chunks, so a range, not a point; `quiet_run_to_run` is how far the two quiet runs differ over those very chunks, the noise this loss has to be read against; the same windows aligned by time from creation are `quiet_matched_by_time` (they straddle the start-up gap when a first chunk lands at a window's edge)",
+ "quiet_run_to_run": 0.0296,
+ "importance_poll": {
+  "poll_ms": {
+   "n": 18,
+   "p50": 158.862,
+   "p95": 258.824,
+   "max": 258.824,
+   "samples": [
+    258.824,
+    80.348,
+    133.828,
+    83.71,
+    163.585,
+    93.304,
+    208.471,
+    173.726,
+    178.78,
+    156.168,
+    174.158,
+    158.933,
+    164.789,
+    158.59,
+    172.777,
+    158.862,
+    157.993,
+    149.169
+   ]
+  },
+  "poll_ms_after_first": {
+   "n": 17,
+   "p50": 158.862,
+   "p95": 208.471,
+   "max": 208.471,
+   "samples": [
+    80.348,
+    133.828,
+    83.71,
+    163.585,
+    93.304,
+    208.471,
+    173.726,
+    178.78,
+    156.168,
+    174.158,
+    158.933,
+    164.789,
+    158.59,
+    172.777,
+    158.862,
+    157.993,
+    149.169
+   ]
+  },
+  "cadence_s": 0.5,
+  "basis": "the importance view's HTTP latency over the first pass's task (an `exp:` source: its frame is cached, so a poll reads it and answers the stage); the first sample is the request that placed the task. Polled every 0.5 s, four times the Lab's 2 s tick. The `opt:` source's per-poll frame rebuild is this record's `opt_frame_rebuild`"
+ },
+ "opt_frame_rebuild": {
+  "basis": "in-process (no HTTP): the rebuild alone, without the view on top of it",
+  "cells": 99856,
+  "max_cells": 100000,
+  "rows": 99856,
+  "ms": {
+   "n": 3,
+   "p50": 1269.507,
+   "p95": 1364.058,
+   "max": 1364.058,
+   "samples": [
+    1364.058,
+    1269.507,
+    1268.532
+   ]
+  }
+ },
+ "row_bases": {
+  "pareto": "20 HTTP runs, two objectives (the objective against max_drawdown), cold first included; judged at \u00a79.6a's 800 ms",
+  "pareto_3": "20 HTTP runs, three objectives (adding trade_count); recorded beside the 800 ms row, never judged",
+  "pareto_widest": "the pair of the fixture's metrics with the widest front among all pairs (20 HTTP runs of it); the true all-on-front worst case is not constructible over HTTP (see not_measured)",
+  "neighbourhood": "20 HTTP runs of the neighbourhood view, a different seeded trial each, cold first included; judged at \u00a79.6a's 150 ms",
+  "convergence": "20 HTTP runs at 1,000,000 trials, d = 10: the first is cold (the payload is cached after it), the rest warm; recorded with the \u2248 2 s of the Task 8 ruling in view; \u00a79.6a states no line for it",
+  "rankings": "the robustness view's ranking (pool 300, k 20, B on the top 20) before any importance result exists, so B is not run: 20 HTTP runs, the first cold",
+  "rankings_importance": "the same ranking with the importance task's result at this snapshot (seed 1), so B runs on the top 20: the costly half; recorded",
+  "candidate": "20 HTTP runs of one candidate's robustness view (A plus B's region read, the importance result live), a different seeded trial of the ranking's pool of 300 each, cold first included; judged at \u00a79.6a's 150 ms row 'neighbourhood of one trial / robustness of one candidate'"
+ },
+ "evaluate": {
+  "importance_task_s": true,
+  "fine_stage_s": true,
+  "fine_stage_20_s": true,
+  "pareto": true,
+  "neighbourhood": true,
+  "candidate": true
+ },
+ "evaluate_basis": {
+  "importance_task_s": "stage 3's server elapsed_s, the whole task from before its frame opened, measured beside a job (absent otherwise)",
+  "fine_stage_s": "the fine-grid stage at the 1M fixture's value counts: an upper bound, not a measurement: stage 1 finished before the first poll that read a stage, so the first stage read bounds it from above (a pass is sound, a fail would be conservative)",
+  "fine_stage_20_s": "the fine-grid stage at 20 values per parameter, 10 parameters: measured, stage 1's own server elapsed_s",
+  "pareto": "p95 of the HTTP runs, two objectives, cold first included, against 800 ms",
+  "neighbourhood": "p95 of the HTTP runs of one trial's neighbourhood against 150 ms",
+  "candidate": "p95 of the HTTP runs of one candidate's robustness view (A plus B's region read, the importance result live) against the 150 ms of \u00a79.6a's row 'neighbourhood of one trial / robustness of one candidate'"
+ },
+ "retest_due": {
+  "engine_build_changed": false,
+  "surface_larger": false,
+  "bars_over_50k": false,
+  "new_kind": false,
+  "rate_drift_over_15pct": false,
+  "free_memory_under_2gb": false,
+  "new_host": false
+ }
+}
