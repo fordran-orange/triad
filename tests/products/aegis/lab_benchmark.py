@@ -161,9 +161,13 @@ QUIET_BASIS = (
     "out; a whole-run rate, with the run's start-up gap and its compaction pause in it"
 )
 QUIET_MATCHED_BASIS = (
-    "the quiet run's chunks at the same offsets from its creation as the task's window sat "
-    "from the loaded run's: start-up and compaction weigh as they do in the loaded window; the "
-    "same rule as the loaded rate"
+    "the quiet run's chunks at the same positions (indices in commit order) as the loaded "
+    "window's, read by the loaded rate's own rule (the window's first chunk left out, rows over "
+    "the seconds between its first and last chunk)"
+)
+QUIET_BY_TIME_BASIS = (
+    "the quiet run's chunks at the same offsets from its creation as the task's window sat from "
+    "the loaded run's; a start-up gap landing at the window's edge moves it across the window"
 )
 # The task is measured beside a job when the job's runs cover at least this share of its window.
 BESIDE_JOB_MIN_COVERAGE = 0.9
@@ -1880,6 +1884,53 @@ def a_rule(category: dict) -> str:
     return expected
 
 
+def chunk_window(
+    series: tuple[Sequence[float], Sequence[int]], start: float, end: float
+) -> tuple[int, int] | None:
+    """The chunks of one run (by position, in commit order) committed inside [start, end]: their
+    first and last index, or None when there is none."""
+    times = sorted(series[0])
+    inside = [i for i, t in enumerate(times) if start <= t <= end]
+    return (inside[0], inside[-1]) if inside else None
+
+
+def matched_chunks(
+    series: tuple[Sequence[float], Sequence[int]],
+    windows: Sequence[tuple[int, int] | None],
+) -> dict:
+    """The rate of one run (a quiet one) over the same chunk positions a loaded run's windows
+    held: per window, the rows of the chunks after its first over the seconds between its first
+    and last (`overlap_rate`'s rule), read at those indices whatever the run's own timing. A
+    start-up gap landing a fraction of a second either side of a window's edge moves a window
+    aligned by time across it, and not one aligned by chunk position; the windows add up."""
+    pairs = sorted(zip(series[0], series[1], strict=True))
+    rows_total, seconds_total, per_window = 0, 0.0, []
+    for window in windows:
+        if window is None:
+            continue
+        first, last = window[0], min(window[1], len(pairs) - 1)
+        if first >= len(pairs):
+            continue
+        rows = sum(r for _, r in pairs[first + 1 : last + 1])
+        seconds = pairs[last][0] - pairs[first][0]
+        per_window.append(
+            {
+                "chunks": last - first + 1,
+                "rows": rows,
+                "seconds": round(seconds, 3),
+                "indices": [first, last],
+            }
+        )
+        rows_total += rows
+        seconds_total += seconds
+    return {
+        "trials_per_s": rows_total / seconds_total if seconds_total > 0 else None,
+        "rows": rows_total,
+        "seconds": seconds_total,
+        "windows": per_window,
+    }
+
+
 def job_coverage(intervals: Sequence[tuple[float, float]], start: float, end: float) -> float:
     """The share of the window [start, end] that some job interval covers (their union)."""
     if end <= start:
@@ -2424,17 +2475,21 @@ def analytics(
     overlap = overlap_rate(first["series"], began, ended)
     offsets = window_offsets(first["intervals"], began, ended)
     loaded_rate = overlap["trials_per_s"]
-    matched = matched_rate(_quiet_series(data_root, quiet), quiet["created_at"], offsets)
-    matched_after = matched_rate(
-        _quiet_series(data_root, quiet_after), quiet_after["created_at"], offsets
-    )
+    quiet_series = _quiet_series(data_root, quiet)
+    after_series = _quiet_series(data_root, quiet_after)
+    ranges = [chunk_window(s, began, ended) for s in first["series"]]
+    matched = matched_chunks(quiet_series, ranges)
+    matched_after = matched_chunks(after_series, ranges)
+    by_time = matched_rate(quiet_series, quiet["created_at"], offsets)
+    by_time_after = matched_rate(after_series, quiet_after["created_at"], offsets)
     loss = throughput_loss(quiet["trials_per_s"], loaded_rate)
     quiet["basis"] = QUIET_BASIS
     quiet_after["basis"] = QUIET_BASIS + "; run after the loaded pass"
     record["task"] = task
     record["cases"] = {
         "quiet": quiet,
-        "quiet_matched": _matched_json(matched),
+        "quiet_matched": _matched_json(matched, QUIET_MATCHED_BASIS),
+        "quiet_matched_by_time": _matched_json(by_time, QUIET_BY_TIME_BASIS),
         "loaded": {
             "trials_per_s": None if loaded_rate is None else round(loaded_rate, 3),
             "basis": "steady rows of the chunks committed while the task ran, over their span, "
@@ -2458,7 +2513,8 @@ def analytics(
             ],
         },
         "quiet_after": quiet_after,
-        "quiet_after_matched": _matched_json(matched_after),
+        "quiet_after_matched": _matched_json(matched_after, QUIET_MATCHED_BASIS),
+        "quiet_after_matched_by_time": _matched_json(by_time_after, QUIET_BY_TIME_BASIS),
     }
     rate_after = quiet_after["trials_per_s"]
     record["throughput_loss"] = None if loss is None else round(loss, 4)
@@ -2478,12 +2534,23 @@ def analytics(
     rounded = [(round(a, 1), round(b, 1)) for a, b in offsets]
     record["throughput_loss_matched_basis"] = (
         "1 - loaded.trials_per_s / quiet_matched.trials_per_s (and / quiet_after_matched's, "
-        "`throughput_loss_matched_after`): the quiet run read at the same offsets from its "
-        f"creation as the task's window sat from the loaded run's, {rounded} seconds, "
-        f"{matched['rows']:,} rows over {matched['seconds']:.1f} s in {len(matched['windows'])} "
-        f"window against {overlap['rows']:,} rows over {overlap['seconds']:.1f} s of the loaded "
-        "window: a short window, so a range, not a point"
+        "`throughput_loss_matched_after`): the quiet run read at the same chunk positions as the "
+        f"loaded window ({matched['windows']}), {matched['rows']:,} rows over "
+        f"{matched['seconds']:.1f} s in {len(matched['windows'])} window against "
+        f"{overlap['rows']:,} rows over {overlap['seconds']:.1f} s of the loaded window, which sat "
+        f"{rounded} seconds from the loaded run's creation. A short window of about "
+        f"{overlap['runs'][0]['chunks'] if overlap['runs'] else 0} chunks, so a range, not a point; "
+        "`quiet_run_to_run` is how far the two quiet runs differ over those very chunks, the noise "
+        "this loss has to be read against; the same windows aligned by time from creation are "
+        "`quiet_matched_by_time` (they straddle the start-up gap when a first chunk lands at a "
+        "window's edge)"
     )
+    spread = (
+        None
+        if not (matched["trials_per_s"] and matched_after["trials_per_s"])
+        else round(1 - matched_after["trials_per_s"] / matched["trials_per_s"], 4)
+    )
+    record["quiet_run_to_run"] = spread
     record["importance_poll"] = {
         "poll_ms": task.get("poll_ms"),
         "cadence_s": ANALYTICS_POLL_S,
@@ -2516,12 +2583,12 @@ def _quiet_series(data_root: Path, run: dict) -> tuple[list[float], list[int]]:
     return times, rows
 
 
-def _matched_json(matched: dict) -> dict:
+def _matched_json(matched: dict, basis: str) -> dict:
     return {
         "trials_per_s": None
         if matched["trials_per_s"] is None
         else round(matched["trials_per_s"], 3),
-        "basis": QUIET_MATCHED_BASIS,
+        "basis": basis,
         "counted_rows": matched["rows"],
         "counted_seconds": round(matched["seconds"], 3),
         "windows": matched["windows"],

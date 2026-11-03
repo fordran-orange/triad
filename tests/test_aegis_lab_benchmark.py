@@ -835,6 +835,33 @@ def test_analytics_record(monkeypatch):
     # Dropping the creation from the window (reading it from the epoch) finds no chunk at all.
     assert lab_benchmark.matched_rate(quiet, 0.0, [(10.0, 22.0)])["trials_per_s"] is None
 
+    # The matched baseline by chunk position: the loaded window's chunks, by index in their run, read
+    # at the same indices of a quiet run, whatever the quiet run's own timing (a start-up gap landing
+    # a fraction of a second either side of a window's edge moves a time-aligned window across it).
+    loaded = ([100.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0, 130.0], [200] * 9)
+    assert lab_benchmark.chunk_window(loaded, 101.0, 109.5) == (1, 6)  # chunks at 104 .. 109
+    assert lab_benchmark.chunk_window(loaded, 111.0, 120.0) is None
+    shifted = (
+        [1_200.0, 1_203.0, 1_204.2, 1_205.4, 1_206.6, 1_207.8, 1_209.0, 1_210.2, 1_230.0],
+        [200] * 9,
+    )
+    chunks = lab_benchmark.matched_chunks(shifted, [(1, 6)])
+    # chunks 2 .. 6 (5 x 200 rows) over 1,203 .. 1,209 (6 s): a slower quiet window, the same chunks
+    assert chunks["rows"] == 1_000 and chunks["seconds"] == pytest.approx(6.0)
+    assert chunks["trials_per_s"] == pytest.approx(1_000 / 6.0)
+    assert chunks["windows"] == [{"chunks": 6, "rows": 1_000, "seconds": 6.0, "indices": [1, 6]}]
+    earlier = ([t - 1_100.0 for t in shifted[0]], shifted[1])  # the same run, created elsewhere
+    assert lab_benchmark.matched_chunks(earlier, [(1, 6)])["trials_per_s"] == pytest.approx(
+        chunks["trials_per_s"]
+    )
+    two = lab_benchmark.matched_chunks(shifted, [(1, 6), (7, 8)])  # two loaded runs' windows add up
+    assert two["rows"] == 1_000 + 200 and two["seconds"] == pytest.approx(6.0 + 19.8)
+    assert lab_benchmark.matched_chunks(shifted, [None, (3, 3)])["trials_per_s"] is None  # no span
+    assert lab_benchmark.matched_chunks(shifted, [(5, 99)])["windows"][0]["indices"] == [5, 8]
+    # The loaded rate is the same rule: overlap_rate over the window equals the chunk rate of it.
+    assert lab_benchmark.overlap_rate([loaded], 101.0, 109.5)["trials_per_s"] == pytest.approx(
+        lab_benchmark.matched_chunks(loaded, [(1, 6)])["trials_per_s"]
+    )
     # The fine-grid stage: stage 1's own elapsed time when a poll read it; when stage 2 had already
     # landed, the first stage read is an upper bound and says so; nothing read, nothing claimed.
     both = {"1": {"wall_s": 6.0, "elapsed_s": 5.5}, "2": {"wall_s": 7.0, "elapsed_s": 6.5}}
