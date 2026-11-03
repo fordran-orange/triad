@@ -35,3 +35,8 @@ task; "drive-by" means a small change that rides with Phase 4's first UI task.
 Also open, outside the twenty-two: the scratch root (`C:/Triad/data/temp/lab-scratch`, 1.08 GB; the R3 note's question 11) can be deleted at any time and is rebuilt by `lab_fixture` and the walks in minutes; the `compassionate-knuth-45703f` worktree (the Grok reading work, merged) can be removed.
 
 **What one round of answers unlocks.** With these answered, Phase 4's plan can be written against the spec's §8 (persisted variable statuses, proposals, apply, focus and re-screen children, budgets), the 20-parameter fixture and `MAX_PARAMETERS = 20`, the binned matrix (question 1), the §8.4 reading (question 17), the price model (question 13) and the benchmark rows (questions 7 and 11), with the spec amendments (questions 2, 8, 14 to 16, 18) as its first task.
+
+## Accepted
+
+Randall, 2026-11-03: "Accept all". All twenty-two recommended answers stand as decisions; Phase 4's plan is written from them, with the
+spec amendments (questions 2, 8, 14, 15, 16, 18) as its first task. The scratch root and the merged Grok worktree stay until he says otherwise.
