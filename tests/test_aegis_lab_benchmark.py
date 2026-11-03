@@ -1001,6 +1001,30 @@ def test_analytics_record(monkeypatch):
         ANALYTICS | {"host": PREVIOUS["host"]}, PREVIOUS | {"cases": ANALYTICS["cases"]}
     )
     assert set(due) == RETEST_KEYS
+    # §9.1c's rate-drift trigger reads the runs' own rates; the derived series of a record (the
+    # loaded window, the matched baselines, which move with a window's alignment) are no runs.
+    base = PREVIOUS["host"]
+    before = {
+        "mode": "analytics",
+        "host": base,
+        "cases": {
+            "quiet": {"trials_per_s": 150.0},
+            "quiet_matched_by_time": {"trials_per_s": 180.0},
+        },
+    }
+    after = {
+        "mode": "analytics",
+        "host": base,
+        "cases": {
+            "quiet": {"trials_per_s": 152.0},
+            "quiet_matched_by_time": {"trials_per_s": 120.0},
+            "loaded": {"trials_per_s": 90.0},
+            "quiet_matched": {"trials_per_s": 100.0},
+        },
+    }
+    assert retest_due(after, before)["rate_drift_over_15pct"] is False
+    after["cases"]["quiet"]["trials_per_s"] = 110.0  # a real run 27 % slower
+    assert retest_due(after, before)["rate_drift_over_15pct"] is True
 
     # The task thread over scripted answers: it waits for the job, requests the task, polls to
     # done, keeps the stages it read (stage 1 missed: a bound), the poll latencies and the window.
@@ -1021,6 +1045,7 @@ def test_analytics_record(monkeypatch):
     assert result["fine_stage_s"] == 6.5 and result["fine_stage_is_bound"] is True, result
     assert result["cached_at_request"] is False and sorted(result["stages_seen"]) == ["2", "3"]
     assert len(result["poll_ms"]["samples"]) == 3 and result["poll_cadence_s"] == 0.0
+    assert result["poll_ms_after_first"]["n"] == 2  # the polls, the placing request left out
     assert load.window is not None and load.window[1] >= load.window[0]
     assert all(body["view"] == "importance" for _, body in _ScriptedHttp.posts)
     # A worker that answers no task: the thread records why and stops the loop.

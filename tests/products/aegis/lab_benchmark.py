@@ -691,11 +691,23 @@ def evaluate(record: dict) -> dict[str, bool | str]:
     raise ValueError(f"unknown record mode {mode!r}")
 
 
+# The cases of an analytics record that are series derived from its runs, not runs: the loaded
+# window and the quiet baselines read at the loaded window's chunks or offsets. They move with a
+# window's alignment, so §9.1c's rate-drift trigger does not read them.
+DERIVED_CASES = (
+    "loaded",
+    "quiet_matched",
+    "quiet_after_matched",
+    "quiet_matched_by_time",
+    "quiet_after_matched_by_time",
+)
+
+
 def _rates(record: dict) -> dict[str, float]:
     return {
         label: case["trials_per_s"]
         for label, case in (record.get("cases") or {}).items()
-        if case.get("trials_per_s")
+        if case.get("trials_per_s") and label not in DERIVED_CASES
     }
 
 
@@ -2045,7 +2057,8 @@ class _TaskLoad:
                 "fine_stage_s": fine,
                 "fine_stage_basis": fine_basis,
                 "fine_stage_is_bound": fine_bound,
-                "poll_ms": _stats(latencies),
+                "poll_ms": _stats(latencies),  # every post, the placing request first
+                "poll_ms_after_first": _stats(latencies[1:]) if len(latencies) > 1 else None,
                 "poll_cadence_s": ANALYTICS_POLL_S,
                 "snapshot": final.get("snapshot"),
                 "n": final.get("n"),
@@ -2441,6 +2454,9 @@ def analytics(
             "experiment_id": wide_id,
             "parameters": len(wide_document.surface.parameters),
             "fixture_write_s": wide_written,
+            "fixture": "written by this run"
+            if wide_written is not None
+            else "reused: written by an earlier run into the scratch root",
             "task": wide_pass["task"],
             "runs": [
                 {
@@ -2553,12 +2569,13 @@ def analytics(
     record["quiet_run_to_run"] = spread
     record["importance_poll"] = {
         "poll_ms": task.get("poll_ms"),
+        "poll_ms_after_first": task.get("poll_ms_after_first"),
         "cadence_s": ANALYTICS_POLL_S,
         "basis": "the importance view's HTTP latency over the first pass's task (an `exp:` "
         "source: its frame is cached, so a poll reads it and answers the stage); the first "
         f"sample is the request that placed the task. Polled every {ANALYTICS_POLL_S} s, four "
         f"times the Lab's {LAB_TICK_S:g} s tick. The `opt:` source's per-poll frame rebuild is "
-        "`operations`-side: `opt_frame_rebuild`",
+        "this record's `opt_frame_rebuild`",
     }
     record["opt_frame_rebuild"] = opt_frame_rebuild()
     record["row_bases"] = _row_bases(trials, runs, task_seed)
