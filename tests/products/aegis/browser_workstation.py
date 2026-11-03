@@ -10,6 +10,12 @@ their own fixtures, so `--only lab` runs them alone and never restarts the worke
 
 Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--base URL] [--headed]
       [--only lab] [--port N] [--data-root PATH] [--pid-file PATH]
+The Lab block against a scratch worker (never the product's; -Workers 10 only speeds the bench
+fixture's build, no asserted value reads it):
+      tools\\start_aegis_scratch.ps1 -Port 8103 -DataRoot C:\\Triad\\data\temp\\lab-scratch -Workers 10
+      C:\\Triad\\.venv\\Scripts\\python.exe tests\\products\aegis\browser_workstation.py
+        --base http://127.0.0.1:8103/aegis/ --only lab --data-root C:\\Triad\\data\temp\\lab-scratch
+        --pid-file logs\aegis-scratch.pid
 Exit code 0 only when every item run PASSES with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """
@@ -29,6 +35,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 ROOT = Path(__file__).resolve().parents[3]
 # This checkout's code and the Lab benchmark module first (as engine_golden.py does): the walk runs on
@@ -326,6 +333,20 @@ LAB_KPI_TRIALS = (  # [primary, the filtered sub line or null] of the Trials KPI
 )
 LAB_LINKED = "(document.getElementById('lab-linked')?.innerText ?? '')"
 # The screening blocks of the exhaustive grid that items 111 and 124 read (§7.3a: SCREEN_BLOCKS).
+# The Lab's own timing, which item 112's leave-the-page check watches for: the ask cadence of the
+# pairs, the map, the sampled parallel view and the chart while a source runs (refreshRule.ts:
+# CONVERGENCE_REFRESH_MS, 30 s) and the Lab's refresh tick (lab_benchmark.LAB_TICK_S, 2 s).
+LAB_ASK_CADENCE_S = 30.0
+# Item 106's primary controls of Parameter Families (all above its fold at both widths), and of
+# the page maximized (its catalog, with the search and Clear, is hidden then).
+LAB_FAMILIES_PRIMARY = (
+    "#lab-subnav button, #lab-source, #lab-families-search, #lab-families-maximize, "
+    "#lab-families-clear, #lab-parallel-mode-bundles, #lab-parallel-mode-sample"
+)
+LAB_FAMILIES_MAXIMIZED_PRIMARY = (
+    "#lab-subnav button, #lab-source, #lab-families-maximize, #lab-parallel-mode-bundles, "
+    "#lab-parallel-mode-sample"
+)
 LAB_BLOCKS = 4
 # The Robustness tab as the page shows it (Task 10's ids): both rankings' rows, the agreement line,
 # the stable candidate, τ and the basis. A row's text is its rank, trial, value and verdict.
@@ -407,21 +428,9 @@ def lab_money(text: str) -> float:
     return float(found.group(2).replace(",", "")) * (-1 if found.group(1) else 1)
 
 
-def lab_a_rule(category: dict) -> str:
-    """§7.6's category A read back from its own inputs (the worker's card): the state it must be in
-    and the classification those inputs give. Returns the classification, or `unresolved`."""
-    i = category["inputs"]
-    short = i["coverage"] < i["min_coverage"] or i["n"] < i["required_n"]
-    if not category["resolved"]:
-        if (category["reason"] or "").startswith("untested surroundings"):
-            assert short, category  # untested surroundings name evidence that fell short
-        return "unresolved"
-    assert not short, category  # a resolved A has the coverage and the n the rule asks for
-    stable = i["distance"] <= i["tau"]
-    peak = i["value"] > i["peak_line"]  # both oriented like the neighbourhood
-    expected = "stable local" if stable else "isolated peak" if peak else "mixed"
-    assert category["classification"] == expected, (category["classification"], expected, i)
-    return expected
+def plural(count: int, word: str) -> str:
+    """The card's own wording of a count (`1 step`, `2 parameters`)."""
+    return f"{count} {word}" if count == 1 else f"{count} {word}s"
 
 
 # Item 106's scroll guard: every element's scroll offsets (the catalog lists excepted) and the
@@ -5403,12 +5412,20 @@ class Acceptance:
         )
         return self.page.evaluate(LAB_ROBUST_READ)
 
+    def lab_shot(self, label: str) -> str:
+        """A screenshot of the viewport as it is, `<label>-<w>x<h>`, beside the walk's report."""
+        size = self.page.viewport_size or {"width": 0, "height": 0}
+        path = self.screenshot_path(f"{label}-{size['width']}x{size['height']}")
+        self.page.screenshot(path=str(path))
+        return path.name
+
     def lab_robustness_api(self, source: str) -> dict:
-        """The worker's two rankings for `source` (no filter): the page's rows are checked
-        against them."""
+        """The worker's whole `robustness` answer for `source` (no filter): the two rankings the
+        page's rows are checked against and the `constants` (§7.6's policy) the page's numbers
+        are compared with, never a literal of the walk's."""
         answer = self.post(f"lab/{source}/query", {"filter": {}, "view": "robustness"})
         assert answer.ok, answer.text()[:300]
-        return answer.json()["rankings"]
+        return answer.json()
 
     def lab_card_api(self, source: str, trial: str) -> dict:
         """The worker's candidate card for `trial` (the four categories, as the card prints
@@ -5419,12 +5436,19 @@ class Acceptance:
         assert answer.ok, answer.text()[:300]
         return answer.json()["card"]
 
-    def lab_check_rankings(self, read: dict, rankings: dict) -> str:
-        """Both lists as the page shows them against the worker's: the same trials in the same
-        order, each row `<rank> trial <n> <value> <verdict>` where the verdict is the worker's reason
-        (unresolved) or its classification `by <category>` (resolved), the agreement line and the
-        stable candidate; and every `untested surroundings (coverage c of 0.5)` row has c < 0.5 and
-        is never labelled a peak, stable or mixed. Returns the labels the rows carry."""
+    def lab_check_rankings(self, read: dict, answer: dict) -> str:
+        """Both lists as the page shows them against the worker's answer: the same trials in the
+        same order, each row `<rank> trial <n> <value> <verdict>` where the verdict is the worker's
+        reason (unresolved) or its classification `by <category>` (resolved), the agreement line
+        and the stable candidate; the list length and the pool the page prints are the answer's
+        RANKING_K and RANK_POOL; and every `untested surroundings (coverage c of <line>)` row has
+        c below the answer's PLATEAU_MIN_COVERAGE. Returns the labels the rows carry."""
+        rankings, consts = answer["rankings"], answer["constants"]
+        line = consts["PLATEAU_MIN_COVERAGE"]
+        # The pool is the policy's RANK_POOL top rows by peak, or every trial of a smaller source.
+        assert rankings["k"] <= consts["RANKING_K"], (rankings["k"], consts)
+        assert 0 < rankings["pool"] <= consts["RANK_POOL"], (rankings["pool"], consts)
+        assert f"ranks the top {rankings['pool']} by peak" in read["basis"], read["basis"]
         assert read["disagree"] == str(rankings["disagree"]).lower(), (read, rankings["disagree"])
         if rankings["disagree"]:
             assert "disagree" in read["agreement"], read["agreement"]
@@ -5439,7 +5463,7 @@ class Acceptance:
         for name, key in (("peak", "peak_ranked"), ("robust", "ranked")):
             rows, api = read[name], rankings[key]
             assert len(rows) == len(api) == len(rankings["peak"]), (name, len(rows), len(api))
-            assert 0 < len(rows) <= rankings["k"], (name, len(rows), rankings["k"])
+            assert 0 < len(rows) <= consts["RANKING_K"], (name, len(rows), consts["RANKING_K"])
             for place, (row, ref) in enumerate(zip(rows, api, strict=True), 1):
                 assert row["trial"] == ref["trial_id"], (name, place, row, ref)
                 found = re.fullmatch(r"(\d+) trial (\d+) (-?\$[\d,]+) (.+)", row["text"])
@@ -5455,10 +5479,11 @@ class Acceptance:
                 else:
                     assert verdict == ref["reason"], (row, ref)
                     held = re.fullmatch(
-                        r"untested surroundings \(coverage ([\d.]+) of 0\.5\)", ref["reason"]
+                        rf"untested surroundings \(coverage ([\d.]+) of {re.escape(str(line))}\)",
+                        ref["reason"],
                     )
                     if held:
-                        assert float(held.group(1)) < 0.5, row  # untested: below the 0.5 line
+                        assert float(held.group(1)) < line, row  # untested: below the line
         return ", ".join(sorted(labels)) or "none"
 
     def lab_pick_candidate(self, list_id: str, trial: str) -> dict:
@@ -5477,11 +5502,15 @@ class Acceptance:
         assert card is not None and set(card["cats"]) == set("ABCD"), card
         return card
 
-    def lab_check_card(self, source: str, trial: str, card: dict) -> dict:
+    def lab_check_card(
+        self, source: str, trial: str, card: dict, consts: dict, *, sampled: bool
+    ) -> dict:
         """The card on screen against the worker's card for the same trial: the states, each
         category's verdict (its classification, or its reason verbatim), the tested / unknown line
-        that never sums, and category A's inputs read back through §7.6's rule. Returns the worker's
-        card."""
+        that never sums, category A's inputs read back through §7.6's rule, and every number the
+        card prints read from the card's own inputs, which are themselves the answer's `consts`
+        (the coverage line, the reach r and m of a sampled or an exhaustive surface, B's region
+        and n, C's folds). Returns the worker's card."""
         api = self.lab_card_api(source, trial)
         cats = api["categories"]
         for key in "ABCD":
@@ -5500,11 +5529,32 @@ class Acceptance:
             api["unknown"],
         )
         assert sorted(api["tested"] + api["unknown"]) == list("ABCD")
-        lab_a_rule(cats["A"])
+        lab_benchmark.a_rule(cats["A"])
         a, inputs = card["cats"]["A"]["inputs"], cats["A"]["inputs"]
+        assert inputs["min_coverage"] == consts["PLATEAU_MIN_COVERAGE"], (inputs, consts)
+        assert inputs["r"] == consts["NEIGHBOUR_R"], (inputs, consts)
+        want_m = consts["NEIGHBOUR_M_SAMPLED"] if sampled else consts["NEIGHBOUR_M_GRID"]
+        assert inputs["m"] == want_m, (inputs, consts, sampled)
         assert a["n"] == f"{inputs['n']} (needs {inputs['required_n']})", (a, inputs)
         assert abs(float(a["coverage"].split()[0]) - inputs["coverage"]) <= 0.005, (a, inputs)
-        assert a["coverage"].endswith("(needs 0.5)"), a
+        assert a["coverage"].endswith(f"(needs {inputs['min_coverage']})"), a
+        assert (
+            a["reach"]
+            == f"{plural(inputs['r'], 'step')} in at most {plural(inputs['m'], 'parameter')}"
+        )
+        b, binputs = card["cats"]["B"]["inputs"], cats["B"]["inputs"]
+        assert (
+            binputs["min_n"] == consts["REGION_MIN_N"]
+            and binputs["radius"] == consts["REGION_RADIUS"]
+        )
+        assert b["n"] == f"{binputs['n']} (needs {binputs['min_n']})", (b, binputs)
+        c, cinputs = card["cats"]["C"]["inputs"], cats["C"]["inputs"]
+        assert cinputs["folds_min"] == consts["FOLDS_MIN"], (cinputs, consts)
+        assert cinputs["fold_min_trades"] == consts["FOLD_MIN_TRADES"], (cinputs, consts)
+        assert c["folds"] == (
+            f"{cinputs['folds']} (needs {cinputs['folds_min']}, each with ≥ "
+            f"{cinputs['fold_min_trades']} trades)"
+        ), (c, cinputs)
         if inputs["p25"] is not None:  # a neighbourhood with tested trials prints its quartiles
             for field, name in (("P25", "p25"), ("P75", "p75"), ("IQR", "iqr"), ("τ", "tau")):
                 assert abs(lab_money(a[field]) - inputs[name]) <= 1.0, (field, a, inputs)
@@ -5902,8 +5952,8 @@ class Acceptance:
                     ratios[sample["selector"]].append(sample)
                 return len(sizes)
 
-            def unclipped(w: int, h: int) -> int:
-                controls = page.locator(LAB_PRIMARY).all()
+            def unclipped(w: int, h: int, selector: str = LAB_PRIMARY, minimum: int = 18) -> int:
+                controls = page.locator(selector).all()
                 bad = []
                 page.evaluate(LAB_SCROLL_SNAPSHOT)
                 for control in controls:
@@ -5934,7 +5984,7 @@ class Acceptance:
                 )
                 # A page or ancestor scroll is reported as itself, before any clipping.
                 assert not moved, f"scrolled besides the catalog list: {moved}"
-                assert len(controls) >= 18 and not bad, (len(controls), bad)
+                assert len(controls) >= minimum and not bad, (len(controls), bad)
                 wide = self.js("document.documentElement.scrollWidth")
                 assert wide <= w, f"the page scrolls sideways: {wide} > {w}"
                 return len(controls)
@@ -6038,11 +6088,54 @@ class Acceptance:
                     seen.append(shot.name)
                     bench_controls = unclipped(w, h)
                     texts += sweep()
+                    # Screens B and E at this width (Phase 3): the bench's Robustness tab with a
+                    # candidate card open, then Parameter Families, maximized and not, each swept
+                    # for clipping, sub-11 px text, contrast and sideways scroll like the rest.
+                    ranked = self.lab_robustness_read(bench)
+                    self.lab_pick_candidate("lab-robustness-peak", ranked["peak"][0]["trial"])
+                    card_controls = unclipped(w, h)
+                    texts += sweep()
+                    shot = self.screenshot_path(f"robustness-{w}x{h}")
+                    page.screenshot(path=str(shot))
+                    seen.append(shot.name)
+                    self.lab_view("families")
+                    self.lab_wait(
+                        "document.getElementById('lab-families-task')?.dataset.state === 'done'"
+                        f" && {LAB_FAMILIES_READY}",
+                        180_000,
+                    )
+                    families_controls = unclipped(w, h, LAB_FAMILIES_PRIMARY, 12)
+                    texts += sweep()
+                    shot = self.screenshot_path(f"families-{w}x{h}")
+                    page.screenshot(path=str(shot))
+                    seen.append(shot.name)
+                    page.locator("#lab-families-maximize").click()
+                    self.lab_wait(
+                        "document.getElementById('lab-families')?.dataset.maximized === 'true'"
+                    )
+                    maximized_controls = unclipped(w, h, LAB_FAMILIES_MAXIMIZED_PRIMARY, 10)
+                    texts += sweep()
+                    shot = self.screenshot_path(f"families-max-{w}x{h}")
+                    page.screenshot(path=str(shot))
+                    seen.append(shot.name)
+                    page.locator("#lab-families-maximize").click()
+                    self.lab_wait(
+                        "document.getElementById('lab-families')?.dataset.maximized === 'false'"
+                    )
+                    # Back to the bench's heatmap, which the second size's redraw check reads.
+                    self.lab_view("trials")
+                    page.locator("#lab-tab-heatmap").click()
+                    self.lab_wait(
+                        f"/n = \\d+/.test({LAB_HEAT_BASIS}) && {LAB_HEAT_READY}"
+                        " && !!document.getElementById('lab-heatmap-canvas')?.getAttribute('width')"
+                    )
                     lines.append(
                         f"{w}×{h}: {controls} controls inside and on top, {texts} texts checked, "
                         f"the fixture renders {fixture_rows[0]} rows for {fixture_rows[1]} "
                         f"visible{window}; the bench by the keyboard: square '{square}' open, "
-                        f"{bench_controls} controls inside and on top"
+                        f"{bench_controls} controls inside and on top; its Robustness tab with a "
+                        f"card open {card_controls}, Parameter Families {families_controls} and "
+                        f"maximized {maximized_controls} controls inside and on top"
                     )
             finally:
                 page.set_viewport_size({"width": 1600, "height": 1000})
@@ -6270,13 +6363,31 @@ class Acceptance:
             # Phase 3: the Importance tab asks the worker for its importance task, whose line it
             # prints (`Importance · queued`, `· stage k of 3`, `· done in …`); the report's
             # main effects under it are still the report's, and there is none yet.
-            page.wait_for_selector("#lab-panel #lab-importance-task .lab-task-line", timeout=30_000)
-            task_line = page.locator("#lab-importance-task .lab-task-line").inner_text()
-            task_state = page.locator("#lab-importance-task").get_attribute("data-state")
-            assert re.match(
-                r"Importance · (queued|stage \d of 3|done|cancelled|failed)", task_line
-            ), (task_line, task_state)
-            assert task_state in ("queued", "running", "done", "cancelled", "failed"), task_state
+            # labTask.ts prints `sharing CPU with the running job` only while the task is queued
+            # or running (its status's `sharing_cpu` is read for an active task alone): so it is
+            # asserted on the first line read while the source is PROVISIONAL and the task active.
+            try:
+                task_state, task_line = page.wait_for_function(
+                    "() => { const t = document.getElementById('lab-importance-task');"
+                    " const s = document.getElementById('lab-status')?.innerText ?? '';"
+                    " return t && ['queued', 'running'].includes(t.dataset.state)"
+                    " && s.startsWith('PROVISIONAL')"
+                    " ? [t.dataset.state, t.querySelector('.lab-task-line')?.innerText ?? ''] : null; }",
+                    timeout=30_000,
+                ).json_value()
+            except PlaywrightTimeout as exc:
+                raise AssertionError(
+                    "no queued or running importance task was seen while the source was "
+                    "PROVISIONAL: give LAB_RUNNING_SURFACE more cells"
+                ) from exc
+            assert re.match(r"Importance · (queued|stage \d of 3)", task_line), (
+                task_line,
+                task_state,
+            )
+            assert task_line.endswith(" · sharing CPU with the running job"), (
+                task_line,
+                task_state,
+            )
             page.wait_for_function(
                 "(document.getElementById('lab-panel')?.innerText ?? '')"
                 ".includes('no report yet: recompute it on the Experiments page')",
@@ -6618,30 +6729,35 @@ class Acceptance:
             # The 12,000-trial bench is a sampled surface in a 2.9 × 10¹¹-cell space: a neighbourhood
             # of a trial is all but untested, so no candidate can be called a peak or stable (§7.6).
             bench = self.lab_robustness_read(source)
-            rankings = self.lab_robustness_api(source)
-            assert rankings["k"] == 20 and rankings["pool"] == 300, rankings
-            assert len(bench["peak"]) == len(bench["robust"]) == 20, bench  # the bench has 12,000
-            bench_labels = self.lab_check_rankings(bench, rankings)
-            assert "ranks the top 300 by peak" in bench["basis"], bench["basis"]
+            answer = self.lab_robustness_api(source)
+            rankings, consts = answer["rankings"], answer["constants"]
+            line = consts["PLATEAU_MIN_COVERAGE"]
+            # The bench has 12,000 trials: the lists are as long as the policy allows.
+            assert rankings["k"] == consts["RANKING_K"], (rankings["k"], consts)
+            assert rankings["pool"] == consts["RANK_POOL"], (rankings["pool"], consts)
+            assert len(bench["peak"]) == len(bench["robust"]) == consts["RANKING_K"], bench
+            bench_labels = self.lab_check_rankings(bench, answer)
+            assert bench_labels == "none", bench_labels  # every bench row is unresolved: no class
             assert bench["tolerance"].startswith(
                 "τ = tolerance 0.15 × (P90 − P10) of the metric"
             ), bench
             assert bench["peak"][0]["trial"] == rankings["peak"][0], rankings["peak"][:2]
             top = bench["peak"][0]
             card = self.lab_pick_candidate("lab-robustness-peak", top["trial"])
-            self.lab_check_card(source, top["trial"], card)
+            top_api = self.lab_check_card(source, top["trial"], card, consts, sampled=True)
+            robustness_shot = self.lab_shot("robustness")
             a = card["cats"]["A"]
-            held = re.fullmatch(
-                r"untested surroundings \(coverage ([\d.]+) of 0\.5\)", a["verdict"]
-            )
-            assert held or a["verdict"] == "isolated peak", a  # the plan's two readings of A
-            coverage = float(held.group(1)) if held else None
-            if held:  # never called a peak and never stable on untested surroundings
-                assert a["state"] == "unresolved" and a["tag"] == "unknown" and coverage < 0.5, a
-                assert float(a["inputs"]["coverage"].split()[0]) < 0.5, a["inputs"]
-                assert a["inputs"]["reach"] == "1 step in at most 2 parameters", a[
-                    "inputs"
-                ]  # m = 2
+            # The top peak reads any A the §7.6 rule verifies from the card's own inputs: the plan's
+            # `isolated peak` or `untested surroundings (coverage c of <line>)`, and as well
+            # `untested surroundings (n x of y)` or `no spread in the metric (τ = 0)`.
+            reading = lab_benchmark.a_rule(top_api["categories"]["A"])
+            coverage = top_api["categories"]["A"]["inputs"]["coverage"]
+            if a["verdict"].startswith("untested surroundings"):
+                # never called a peak and never stable on untested surroundings
+                assert reading == "unresolved" and a["state"] == "unresolved", a
+                assert a["tag"] == "unknown", a
+                if "coverage" in a["verdict"]:
+                    assert coverage < line, (coverage, line)
             assert (
                 card["cats"]["C"]["verdict"] == "no blocks or folds" and card["finding"] is None
             ), card
@@ -6655,8 +6771,9 @@ class Acceptance:
             grid = blocks_source()
             open_source(grid)
             plateau = self.lab_robustness_read(grid)
-            grid_rankings = self.lab_robustness_api(grid)
-            grid_labels = self.lab_check_rankings(plateau, grid_rankings)
+            grid_answer = self.lab_robustness_api(grid)
+            grid_rankings, grid_consts = grid_answer["rankings"], grid_answer["constants"]
+            grid_labels = self.lab_check_rankings(plateau, grid_answer)
             stable_rows = [r for r in plateau["robust"] if r["text"].endswith("stable local by A")]
             assert stable_rows, plateau[
                 "robust"
@@ -6665,25 +6782,30 @@ class Acceptance:
             assert order == sorted(order, reverse=True), order  # stable cells first
             assert plateau["robust"][0]["ranked"] == "A", plateau["robust"][0]
             plateau_card = self.lab_pick_candidate("lab-robustness-robust", stable_rows[0]["trial"])
-            plateau_api = self.lab_check_card(grid, stable_rows[0]["trial"], plateau_card)
+            plateau_api = self.lab_check_card(
+                grid, stable_rows[0]["trial"], plateau_card, grid_consts, sampled=False
+            )
             p = plateau_card["cats"]["A"]
             inputs = plateau_api["categories"]["A"]["inputs"]
             assert p["state"] == "resolved" and p["verdict"] == "stable local", p
-            assert inputs["coverage"] >= 0.5 and inputs["n"] >= inputs["required_n"], inputs
+            assert inputs["coverage"] >= inputs["min_coverage"], inputs
+            assert inputs["n"] >= inputs["required_n"], inputs
             assert inputs["distance"] <= inputs["tau"], inputs  # P25 within τ of the value
             assert set(p["inputs"]) >= {"n", "coverage", "P25", "P75", "IQR", "τ", "reach"}, p
             # The peak list of the same grid: its labels are the worker's, each read back from its
             # inputs by §7.6's rule (an `isolated peak` would need a value above P75 + 3 × IQR).
             for ref in grid_rankings["peak_ranked"] + grid_rankings["ranked"]:
-                lab_a_rule(self.lab_card_api(grid, ref["trial_id"])["categories"]["A"])
+                lab_benchmark.a_rule(self.lab_card_api(grid, ref["trial_id"])["categories"]["A"])
             grid_assumptions = self.lab_assumptions(["robustness"])
             return (
                 f"bench {source[:24]}…: Robustness tab, peak and robust lists of {rankings['k']} rows "
                 f"each over the top {rankings['pool']} by peak equal the worker's ('{bench['agreement']}' "
-                f"{bench['stable']}), classification labels on screen: {bench_labels} (every row is "
-                f"unresolved on untested surroundings); top peak trial {bench_card}; its C "
+                f"{bench['stable']}), classification labels on screen: {bench_labels} (asserted: "
+                f"every row is unresolved); top peak trial {bench_card}; its C "
                 f"'no blocks or folds', D 'no replay yet (stage 2)'; every row on untested "
-                f"surroundings has coverage < 0.5; exhaustive grid {grid[:24]}… with {LAB_BLOCKS} "
+                f"surroundings has coverage below the answer's {line}; the page's numbers (the "
+                f"coverage line, reach, k, pool, B's n, C's folds) are read from the answer and the "
+                f"card's inputs, not typed; exhaustive grid {grid[:24]}… with {LAB_BLOCKS} "
                 f"blocks: {len(stable_rows)} trials read stable local by A, listed first in the robust "
                 f"ranking ('{plateau['agreement']}'), the first one trial "
                 f"{stable_rows[0]['trial'].split('#')[-1]}: A resolved, stable local with n "
@@ -6692,7 +6814,7 @@ class Acceptance:
                 f"(P25 within τ of the value); the grid's labels {grid_labels} (no spike occurs on "
                 f"this smooth surface, so no `isolated peak` is on screen: that label is the "
                 f"unit tests'), every label read back from its inputs; assumptions line on "
-                f"{bench_assumptions}, {grid_assumptions}"
+                f"{bench_assumptions}, {grid_assumptions}; screenshot {robustness_shot}"
             )
 
         self.item(first + 12, lab111)
@@ -6833,6 +6955,7 @@ class Acceptance:
                 f"in every pair, ≤ {side} a side, {len(merged_pairs)} pair merging a 19-value axis"
             )
 
+            families_shot = self.lab_shot("families")
             # 4. Drill-downs, count-preserving: an ordinary square, then a merged one.
             first = next(c for c in pairs[0]["cells"] if c["state"] == "ok")
             plain = self.lab_drill(source, pairs[0], first)
@@ -6887,7 +7010,14 @@ class Acceptance:
                 r"Sampled \d+ of \d+ \(stratified by decile of net_pnl\)", sampled["basis"]
             ), sampled
             lines, of = (int(v) for v in re.findall(r"\d+", sampled["basis"])[:2])
-            assert of == completed and 0 < lines <= 5_000, sampled
+            drawn_lines = self.post(
+                f"lab/{source}/query",
+                {"filter": {}, "view": "parallel", "parallel_mode": "sample"},
+            ).json()
+            cap = drawn_lines["constants"]["PARALLEL_MAX_LINES"]  # the worker's cap, not a literal
+            assert of == completed == drawn_lines["sampled_from"], (of, completed, drawn_lines)
+            assert lines == len(drawn_lines["lines"]) and 0 < lines <= cap, (sampled, cap)
+            assert drawn_lines["strata"] == drawn_lines["constants"]["PARALLEL_STRATA"], drawn_lines
             page.locator("#lab-parallel-mode-bundles").click()
             again = parallel_in("bundles")
             assert again["basis"].startswith("Aggregated"), again
@@ -6912,8 +7042,14 @@ class Acceptance:
             assert f"after {convergence['best_total']:,} trials" in drawn["summary"], drawn[
                 "summary"
             ]
-            assert drawn["robust"] == ("drawn" if convergence["batches"] >= 2 else "empty"), drawn
-            assert f"{convergence['batches']} batches" in drawn["robustText"], drawn["robustText"]
+            needs = convergence["constants"]["MIN_BATCHES"]
+            size = convergence["constants"]["CONVERGENCE_BATCH"]
+            assert drawn["robust"] == ("drawn" if convergence["batches"] >= needs else "empty"), (
+                drawn
+            )
+            assert f"{convergence['batches']} batches of {size:,} trials" in drawn["robustText"], (
+                drawn["robustText"]
+            )
 
             # 8. The assumptions line on each analytic panel of the page (§7.11).
             assumed = self.lab_assumptions(
@@ -6994,26 +7130,116 @@ class Acceptance:
             page.locator("#lab-families-clear").click()  # the pick goes: the page is left clean
             self.lab_wait("document.getElementById('lab-families-drill')?.dataset.n === ''")
 
-            # 10. Leaving the page asks for no importance task: over two of the Lab's 2 s ticks
-            # (an absence has no event to wait for) no task view is requested from Trial Lab.
-            asked: list[str] = []
+            # 10. Leaving the page, on a finished source and on a running one. An absence has no
+            # event to wait for, so each is watched for a stated time after the leave: every POST
+            # /query (its view) and every GET .../tasks/<id> the page sends the worker.
+            task_views = {"importance", "interactions", "triples"}
+            tick = lab_benchmark.LAB_TICK_S
+            window_s = LAB_ASK_CADENCE_S + 2 * tick + 6.0  # one ask cadence, two ticks, a margin
+            seen: list[tuple[float, str, str, object]] = []
 
             def note(request):
-                if request.method == "POST" and "/query" in request.url:
+                url = request.url
+                if "/api/lab/" not in url:
+                    return
+                if request.method == "POST" and url.endswith("/query"):
                     try:
-                        asked.append(json.loads(request.post_data or "{}").get("view"))
+                        view = json.loads(request.post_data or "{}").get("view")
                     except ValueError:
-                        pass
+                        view = None
+                    seen.append((time.monotonic(), "view", str(view), request))
+                elif request.method == "GET" and "/tasks/" in url:
+                    seen.append((time.monotonic(), "task", url, request))
 
-            page.on("request", note)
+            def watch(leave, seconds: float) -> dict:
+                """`leave()` (the clicks that leave Screen E), then `seconds` of what the page asks
+                of the worker: the views it queried and the task status polls with their answers."""
+                seen.clear()
+                page.on("request", note)
+                left = time.monotonic()
+                try:
+                    leave()
+                    page.wait_for_timeout(int(max(0.0, seconds - (time.monotonic() - left)) * 1000))
+                finally:
+                    page.remove_listener("request", note)
+                polls = [(t - left, url, req) for t, kind, url, req in seen if kind == "task"]
+                states = []
+                for _, _, req in polls:
+                    response = req.response()
+                    states.append(None if response is None else response.json().get("state"))
+                return {
+                    "views": [v for _, kind, v, _ in seen if kind == "view"],
+                    "polls": [(round(t, 1), s) for (t, _, _), s in zip(polls, states, strict=True)],
+                    "ids": {url.rsplit("/", 1)[-1].split("?")[0] for _, url, _ in polls},
+                    "seconds": seconds,
+                }
+
+            def to_trial_lab(source_id: str):
+                def leave():
+                    self.lab_view("trials")
+                    page.locator("#lab-tab-heatmap").click()
+                    self.lab_wait_rows(source_id)
+
+                return leave
+
+            # (a) a finished source: nothing is running, so there is nothing to hand off.
+            done = watch(to_trial_lab(source), 4.5)
+            assert not task_views & set(done["views"]) and not done["polls"], done
+
+            # (b) a running source (RF2/3's fixture, another of it): Screen E opened while its
+            # importance task is queued or running, then left. The hand-off polls that one task's
+            # status route until it ends and stops; no view that asks for a task is sent.
+            leave_body = self.lab_experiment_body(f"{fixtures['name']}-leave", LAB_RUNNING_SURFACE)
+            posted = self.post("experiments", leave_body)
+            assert posted.status == 202, posted.text()
+            leave_id = posted.json()["experiment_id"]
+            fixtures["leave_experiment"] = leave_id
+            leave_source = listed(f"exp:{leave_id}")
+            self.lab_view("trials")
+            page.locator("#lab-source").select_option(leave_source)
+            self.lab_view("families")
             try:
-                self.lab_view("trials")
-                page.locator("#lab-tab-heatmap").click()
-                self.lab_wait_rows(source)
-                page.wait_for_timeout(4_500)
-            finally:
-                page.remove_listener("request", note)
-            assert asked and not {"importance", "interactions", "triples"} & set(asked), asked
+                page.wait_for_function(
+                    "() => ['queued', 'running'].includes("
+                    "document.getElementById('lab-families-task')?.dataset.state)",
+                    timeout=15_000,
+                )
+            except PlaywrightTimeout as exc:
+                raise AssertionError(
+                    "Screen E showed no queued or running importance task on the running "
+                    "experiment (it finished first): give LAB_RUNNING_SURFACE more cells"
+                ) from exc
+            at_leave = page.locator("#lab-families-task").get_attribute("data-state")
+            running = watch(lambda: page.locator("#lab-view-trials").click(), window_s)
+            assert at_leave in ("queued", "running"), at_leave
+            assert not task_views & set(running["views"]), running  # no view asks for a task
+            assert len(running["ids"]) <= 1, running  # the handed task's status, no other task's
+            polls = running["polls"]
+            terminal = ("done", "failed", "cancelled")
+            if polls:  # polled while the task ran, the last answer its end, then silence
+                assert polls[-1][1] in terminal, polls
+                assert not [t for t, s in polls[:-1] if s in terminal], polls
+                assert running["seconds"] - polls[-1][0] >= LAB_ASK_CADENCE_S, polls
+            assert self.wait_until(
+                lambda: self.experiment(leave_id)["status"] in ("done", "failed", "cancelled"), 60
+            )
+            leave_text = (
+                f"leaving Screen E on a finished source asked for no task view and no task status "
+                f"in 4.5 s; leaving it on {leave_source[:24]}… with its importance task {at_leave} "
+                f"asked for no importance / interactions / triples view in the {window_s:.0f} s after "
+                f"(one {LAB_ASK_CADENCE_S:.0f} s ask cadence and two {tick:.0f} s ticks), and "
+                + (
+                    f"{len(polls)} status poll(s) of the one handed task {polls}, the last "
+                    "answering its end and nothing for the "
+                    f"{running['seconds'] - polls[-1][0]:.0f} s after it"
+                    if polls
+                    else "no status poll: the task ended before the page was left, so the "
+                    "hand-off had nothing to poll"
+                )
+                + "; the ask timers of the pairs, the map, the sampled parallel view and the "
+                "chart (matrix, robustness, parallel, convergence views, which Trial Lab asks "
+                "for itself too) are not told apart"
+            )
             return (
                 f"{source[:24]}… ({completed:,} trials, {len(params)} parameters): the family tree "
                 f"(10 families, values and tested counts equal the summary's; 'rsi' keeps 2, 'zzz' "
@@ -7027,7 +7253,7 @@ class Acceptance:
                 f"convergence '{drawn['robustText']}'; assumptions on {assumed}; maximize hid the "
                 f"catalog and kept the trellis, Esc restored it, and with a brush in force Esc "
                 f"cleared the brush first and the maximize second, the chip's Clear keeping the pick; "
-                f"leaving for Trial Lab asked for {sorted(set(asked))} and no task view"
+                f"{leave_text}; screenshot {families_shot}"
             )
 
         self.item(first + 13, lab112)
@@ -7036,11 +7262,12 @@ class Acceptance:
             source = blocks_source()
             open_source(source)
             read = self.lab_robustness_read(source)
+            consts = self.lab_robustness_api(source)["constants"]
             # The candidate with the most to say: the plateau's first trial (A resolved), on a
             # source with blocks. B waits for an importance result of this snapshot: unknown.
             trial = next(r["trial"] for r in read["robust"] if r["text"].endswith("by A"))
             card = self.lab_pick_candidate("lab-robustness-robust", trial)
-            api = self.lab_check_card(source, trial, card)
+            api = self.lab_check_card(source, trial, card, consts, sampled=False)
             cats = card["cats"]
             assert [cats[k]["state"] for k in "ABCD"] == [
                 "resolved",
@@ -7059,7 +7286,9 @@ class Acceptance:
             # C: the blocks alone leave it unresolved, selection-period only, with its own finding.
             assert cats["C"]["verdict"] == "unresolved · selection-period only", cats["C"]
             assert cats["C"]["inputs"]["blocks"] == str(LAB_BLOCKS), cats["C"]["inputs"]
-            assert cats["C"]["inputs"]["folds"].startswith("0 (needs 3"), cats["C"]["inputs"]
+            assert cats["C"]["inputs"]["folds"] == (
+                f"0 (needs {consts['FOLDS_MIN']}, each with ≥ {consts['FOLD_MIN_TRADES']} trades)"
+            ), (cats["C"]["inputs"], consts)
             finding = card["finding"]
             ref = api["findings"][0]
             assert finding is not None and len(api["findings"]) == 1, (finding, api["findings"])
@@ -7071,8 +7300,10 @@ class Acceptance:
             # D: no stage-2 replay exists in this phase.
             assert cats["D"]["verdict"] == "no replay yet (stage 2)", cats["D"]
             assert cats["D"]["inputs"]["scenarios"] == "none yet", cats["D"]["inputs"]
-            # B: its reason is the worker's, verbatim (no importance result for this snapshot).
+            # B: its reason is the worker's, verbatim, and the text the report quotes: no
+            # importance result exists for this snapshot (nothing asked for the task here).
             assert cats["B"]["verdict"] == api["categories"]["B"]["reason"], cats["B"]
+            assert cats["B"]["verdict"] == "importance not computed for this snapshot", cats["B"]
             # Screen E's neighbourhood map prints A and B of the same trial: A tested, B unknown.
             self.lab_view("families")
             self.lab_wait(
@@ -7099,7 +7330,7 @@ class Acceptance:
                 60_000,
             )
             bench_card = page.evaluate(LAB_CARD_READ)
-            self.lab_check_card(bench, bench_trial, bench_card)
+            self.lab_check_card(bench, bench_trial, bench_card, consts, sampled=True)
             assert bench_card["cats"]["C"]["verdict"] == "no blocks or folds", bench_card["cats"][
                 "C"
             ]

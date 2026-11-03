@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import http.client
+import itertools
 import json
 import math
 import os
@@ -116,9 +117,53 @@ TRACK_A_BUDGETS_MS = {
 # §9.6a, the importance analytics task (spec:1145): in total, and its fine-grid stage, measured by
 # `analytics` beside a running job on the 1M fixture (10 parameters, no blocks).
 TRACK_ANALYTICS_LIMITS = {"importance_task_s": 180.0, "fine_stage_s": 30.0}
-ANALYTICS_NOT_MEASURED = (
-    "the 1M fixture has 10 parameters and no blocks, so the per-block mains (stage 2's K x 200 "
-    "cheap passes) and the d = 20 cost are not measured here"
+# What the 1M fixtures cannot give, each row with its owner (the record's `not_measured`).
+ANALYTICS_NOT_MEASURED = [
+    {
+        "row": "the importance task at d = 20 and K = 20 blocks (§9.4's 180 s budget at its stated scale)",
+        "why": "the 1M fixtures have 10 parameters and no blocks, so the per-block mains (stage 2's "
+        "K x 200 cheap passes) and the d = 20 cost are not measured here; the task is a "
+        "10-parameter, 50,000-row one",
+        "owner": "Phase 4's 20-parameter fixture (the Task 13 R3.5 note states the budget unmeasured "
+        "at its scale until then)",
+    },
+    {
+        "row": "the robustness ranking and a candidate's view at d = 20 (the cache entry, the "
+        "840 probes at m = 2)",
+        "why": "the fixtures have 10 parameters",
+        "owner": "Phase 4's 20-parameter fixture",
+    },
+    {
+        "row": "the Pareto all-on-front worst case",
+        "why": "not constructible over HTTP: a metric cannot be named twice (the view refuses "
+        "`an objective is named twice`) and no pair of the fixture's metrics is anti-correlated; "
+        "the widest front among all pairs is recorded as `pareto_widest` instead",
+        "owner": "R3.5 (a synthetic anti-correlated fixture) or the Pareto unit tests",
+    },
+    {
+        "row": "the `opt:` source's importance poll at MAX_CELLS over HTTP",
+        "why": "needs a finished 100,000-cell grid job in the store; `opt_frame_rebuild` is an "
+        "in-process proxy for the per-poll frame rebuild, without the view on top of it",
+        "owner": "R3.5",
+    },
+    {
+        "row": "plan against actual at K = 20 blocks",
+        "why": "the blocked run is K = 4",
+        "owner": "Task 2's price model; an R3.5 finding",
+    },
+]
+RECORDED_OPERATIONS = ("rankings", "convergence", "pareto_3")  # timed, never judged (no §9.6a line)
+WIDE_VALUES = 20  # values per parameter of the second pass's fixture
+BLOCKED_K = 4  # the screening blocks of the plan-against-actual run
+LAB_TICK_S = 2.0  # the Lab's own refresh tick, which the importance poll's cadence is set against
+QUIET_BASIS = (
+    "case A alone on the idle worker: steady rows over the run's chunks, its first chunk left "
+    "out; a whole-run rate, with the run's start-up gap and its compaction pause in it"
+)
+QUIET_MATCHED_BASIS = (
+    "the quiet run's chunks at the same offsets from its creation as the task's window sat "
+    "from the loaded run's: start-up and compaction weigh as they do in the loaded window; the "
+    "same rule as the loaded rate"
 )
 # The task is measured beside a job when the job's runs cover at least this share of its window.
 BESIDE_JOB_MIN_COVERAGE = 0.9
@@ -570,16 +615,61 @@ def _evaluate_analytics(record: dict) -> dict[str, bool | str]:
     the two views' §9.6a budgets (Pareto, neighbourhood). The job's throughput loss is recorded,
     never judged: the spec sets no line for it."""
     task = record.get("task") or {}
-    beside = task.get("beside_job") is True
+    wide = (record.get("wide") or {}).get("task") or {}
     out: dict[str, bool | str] = {}
     for key, limit in TRACK_ANALYTICS_LIMITS.items():
         measured = task.get("task_s" if key == "importance_task_s" else key)
-        out[key] = _at_most(measured, limit) if beside else ABSENT
+        out[key] = _at_most(measured, limit) if task.get("beside_job") is True else ABSENT
+    wide_beside = wide.get("beside_job") is True  # the second pass: 20 values per parameter
+    out["fine_stage_20_s"] = (
+        _at_most(wide.get("fine_stage_s"), TRACK_ANALYTICS_LIMITS["fine_stage_s"])
+        if wide_beside
+        else ABSENT
+    )
     operations = record.get("operations") or {}
-    for key in ("pareto", "neighbourhood"):
+    for key, row in (
+        ("pareto", "pareto"),
+        ("neighbourhood", "neighbourhood"),
+        (
+            "candidate",
+            "neighbourhood",
+        ),  # §9.6a's one row: "neighbourhood of one trial / robustness of one candidate"
+    ):
         measured = (operations.get(key) or {}).get("http_ms") or {}
-        out[key] = _at_most(measured.get("p95"), TRACK_A_BUDGETS_MS[key])
+        out[key] = _at_most(measured.get("p95"), TRACK_A_BUDGETS_MS[row])
     return out
+
+
+def evaluate_basis(record: dict) -> dict[str, str]:
+    """What each verdict of an analytics record rests on, in words, the fine stage's bound named:
+    stage 1 is read by a poll only when it is the latest stage delivered, so the stage a poll
+    first reads (stage 2) bounds it from above."""
+
+    def fine(task: dict, what: str) -> str:
+        if task.get("fine_stage_is_bound"):
+            return (
+                f"{what}: an upper bound, not a measurement: stage 1 finished before the first "
+                "poll that read a stage, so the first stage read bounds it from above (a pass is "
+                "sound, a fail would be conservative)"
+            )
+        return f"{what}: measured, stage 1's own server elapsed_s"
+
+    task = record.get("task") or {}
+    wide = (record.get("wide") or {}).get("task") or {}
+    limit = TRACK_A_BUDGETS_MS["neighbourhood"]
+    return {
+        "importance_task_s": "stage 3's server elapsed_s, the whole task from before its frame "
+        "opened, measured beside a job (absent otherwise)",
+        "fine_stage_s": fine(task, "the fine-grid stage at the 1M fixture's value counts"),
+        "fine_stage_20_s": fine(
+            wide, "the fine-grid stage at 20 values per parameter, 10 parameters"
+        ),
+        "pareto": f"p95 of the HTTP runs, two objectives, cold first included, against {TRACK_A_BUDGETS_MS['pareto']} ms",
+        "neighbourhood": f"p95 of the HTTP runs of one trial's neighbourhood against {limit} ms",
+        "candidate": f"p95 of the HTTP runs of one candidate's robustness view (A plus B's region "
+        f"read, the importance result live) against the {limit} ms of §9.6a's row "
+        "'neighbourhood of one trial / robustness of one candidate'",
+    }
 
 
 def evaluate(record: dict) -> dict[str, bool | str]:
@@ -836,8 +926,13 @@ def _folder_bytes(folder: Path) -> int:
 Step = tuple[str, str, dict | None]
 
 
-def _operations(document, total: int, seed: int) -> dict[str, Callable[[int], list[Step]]]:
-    """§9.6a's interactions as the requests the UI issues for them, per run."""
+def _operations(
+    document, total: int, seed: int, *, task_seed: int = 1, pool: Sequence[str] | None = None
+) -> dict[str, Callable[[int], list[Step]]]:
+    """§9.6a's interactions as the requests the UI issues for them, per run, and the recorded rows
+    beside them (`RECORDED_OPERATIONS`). With a ranking's `pool` of trial ids, also `candidate`:
+    one candidate's robustness view, a different trial of the pool each run, B reading the
+    importance result of `task_seed`."""
     paths = [p.path for p in document.surface.parameters]
     values = {p.path: p.values() for p in document.surface.parameters}
     objective = document.objective
@@ -861,7 +956,10 @@ def _operations(document, total: int, seed: int) -> dict[str, Callable[[int], li
     def query(flt: dict | None = None, **body) -> Step:
         return ("POST", f"{lab}/query", {"filter": flt or {}, **body})
 
-    return {
+    picks = None
+    if pool:
+        picks = np.random.default_rng([seed, 9_000_009]).permutation(len(pool))
+    operations = {
         "open": lambda i: [
             ("GET", f"{lab}/summary", None),
             query(**matrix),
@@ -885,10 +983,37 @@ def _operations(document, total: int, seed: int) -> dict[str, Callable[[int], li
                 metric=objective,
             )
         ],
+        # Recorded beside them (`RECORDED_OPERATIONS`): no §9.6a line is stated for these.
+        "pareto_3": lambda i: [
+            query(view="pareto", objectives=[objective, "max_drawdown", "trade_count"])
+        ],
+        "convergence": lambda i: [query(view="convergence", metric=objective)],
+        "rankings": lambda i: [
+            query(view="robustness", metric=objective, seed=task_seed)  # pool 300, k 20
+        ],
     }
+    if picks is not None:
+        operations["candidate"] = lambda i: [
+            query(
+                view="robustness",
+                trial=pool[int(picks[i % len(picks)])],
+                metric=objective,
+                seed=task_seed,
+            )
+        ]
+    return operations
 
 
-def _timed(call: Callable[[str, str, dict | None], Any], operation, runs: int, basis: str) -> dict:
+def _timed(
+    call: Callable[[str, str, dict | None], Any],
+    operation,
+    runs: int,
+    basis: str,
+    on_first: Callable[[], None] | None = None,
+) -> dict:
+    """`runs` runs of `operation`, each timed: the stats of all of them (the first included, which
+    is cold on a fresh worker), the first apart as `cold_ms` and the rest as `warm_ms`. `on_first`
+    is called once after the first run, outside its timing."""
     samples = []
     for i in range(runs):
         steps = operation(i)
@@ -896,10 +1021,14 @@ def _timed(call: Callable[[str, str, dict | None], Any], operation, runs: int, b
         for method, path, body in steps:
             call(method, path, body)
         samples.append((time.perf_counter() - started) * 1000)
+        if i == 0 and on_first is not None:
+            on_first()
     key = "http_ms" if basis == "http" else "inprocess_ms"
     return {
         "basis": basis,
         key: _stats(samples),
+        "cold_ms": round(samples[0], 3),
+        "warm_ms": _stats(samples[1:]) if len(samples) > 1 else None,
         "requests": [f"{method} {path}" for method, path, _ in operation(0)],
     }
 
@@ -930,13 +1059,17 @@ def _inprocess_caller(data_root: Path, experiment_id: str):
 # --- explore (Track A) ------------------------------------------------------------------------
 
 
-def fixture_id(trials: int) -> str:
-    return "demo-synthetic-1m" if trials == 1_000_000 else f"demo-synthetic-{trials}"
+def fixture_id(trials: int, values: int | None = None) -> str:
+    base = "demo-synthetic-1m" if trials == 1_000_000 else f"demo-synthetic-{trials}"
+    return base if values is None else f"{base}-{values}v"
 
 
-def _fixture(data_root: Path, experiment_id: str, trials: int, seed: int):
-    """The fixture under `data_root`: reused when it holds `trials` trials, written when absent.
-    Returns (document, seconds spent writing it or None)."""
+def _fixture(
+    data_root: Path, experiment_id: str, trials: int, seed: int, values: int | None = None
+):
+    """The fixture under `data_root`: reused when it holds `trials` trials (and `values` lattice
+    points on every parameter, when asked), written when absent. Returns (document, seconds spent
+    writing it or None)."""
     import lab_fixture
     from products.aegis.experiments import ExperimentStore
     from products.aegis.runs import JsonRunRepository
@@ -950,6 +1083,10 @@ def _fixture(data_root: Path, experiment_id: str, trials: int, seed: int):
         held = (document.counts or {}).get("scheduled")
         if held != trials:
             raise SystemExit(f"fixture {experiment_id} holds {held} trials, not {trials}")
+        if values is not None and any(
+            len(p.values()) != values for p in document.surface.parameters
+        ):
+            raise SystemExit(f"fixture {experiment_id} does not hold {values} values per parameter")
         return document, None
     cells = store.cells_dir(experiment_id)
     if cells.exists():
@@ -959,7 +1096,7 @@ def _fixture(data_root: Path, experiment_id: str, trials: int, seed: int):
         )
     started = time.perf_counter()
     document = lab_fixture.write_fixture(
-        data_root, experiment_id=experiment_id, trials=trials, seed=seed
+        data_root, experiment_id=experiment_id, trials=trials, seed=seed, values=values
     )
     return document, round(time.perf_counter() - started, 3)
 
@@ -1123,15 +1260,22 @@ def explore(
         if name != "open_cold":
             timed[name] = _timed(over_http, operations[name], runs, "http")
     after = worker_sample(listener)
+    for name in RECORDED_OPERATIONS:  # no §9.6a line: recorded, after the judged warm set
+        timed[name] = _timed(over_http, operations[name], runs, "http")
+    recorded = worker_sample(listener)
     http_client.close()
     record["worker"]["power_throttling"] = {"host": throttling_state(listener), "child": None}
     cells = data_root / "experiments" / f"{experiment_id}.cells"
     compaction = _compaction_proxy(data_root, document, seed)
     record["resources"] = {
         "worker_rss_delta_mb": round((after["working_set"] - before["working_set"]) / MB, 3),
+        "worker_rss_delta_after_recorded_rows_mb": round(
+            (recorded["working_set"] - before["working_set"]) / MB, 3
+        ),
         "worker_working_set_mb": {
             "before_first_open": round(before["working_set"] / MB, 3),
             "after_warm_set": round(after["working_set"] / MB, 3),
+            "after_recorded_rows": round(recorded["working_set"] / MB, 3),
         },
         "disk_mb": round(_folder_bytes(cells) / MB, 3),
         "compaction_1m_s": compaction["s"],
@@ -1157,8 +1301,10 @@ def explore(
 # --- execute (Track B) ------------------------------------------------------------------------
 
 
-def _experiment_body(label: str, case: BenchCase, strategy_id: str, stamp: str) -> dict:
-    return {
+def _experiment_body(
+    label: str, case: BenchCase, strategy_id: str, stamp: str, blocks: int = 0
+) -> dict:
+    body = {
         "name": f"lab-bench {label} {stamp}",
         "strategy_id": strategy_id,
         "data": {
@@ -1172,6 +1318,9 @@ def _experiment_body(label: str, case: BenchCase, strategy_id: str, stamp: str) 
         "budget": {"runs": case.trials},
         "seed": 1,
     }
+    if blocks:
+        body["blocks"] = blocks  # each configuration also scored on `blocks` periods (§7.3a)
+    return body
 
 
 def _write_ms(cells_dir: Path, seen: dict[str, float]) -> None:
@@ -1247,6 +1396,7 @@ def _run_case(
     listener: int,
     expected_workers: int,
     queries: _QueryLoad | _TaskLoad | None = None,
+    blocks: int = 0,
 ) -> dict:
     """One §9.1b case through the worker's API, polled every second until it finishes; with
     `queries`, that load runs against this very experiment from its creation to its end."""
@@ -1262,7 +1412,7 @@ def _run_case(
         host_before = worker_sample(listener)["working_set"]
         started = time.time()
         created = http_client.post(
-            "api/experiments", _experiment_body(label, case, strategy_id, stamp)
+            "api/experiments", _experiment_body(label, case, strategy_id, stamp, blocks)
         )
         experiment_id = created["experiment_id"]
         if created["job_id"] is None:
@@ -1317,6 +1467,18 @@ def _run_case(
     record = {
         "experiment_id": experiment_id,
         "status": document["status"],
+        "blocks": blocks,
+        "rate_unit": "evaluations" if blocks else "trials",  # a blocked trial is blocks + 1 rows
+        "plan": {  # what the planner priced the run at, to set against `wall_s`
+            key: created["plan"].get(key)
+            for key in (
+                "estimate_seconds",
+                "ms_per_cell_bar",
+                "workers",
+                "evaluations",
+                "price_source",
+            )
+        },
         "created_at": round(started, 3),  # epoch seconds: the job's interval, for `analytics`
         "final_at": None if final_at is None else round(final_at, 3),
         "timeframe": case.timeframe,
@@ -1616,20 +1778,106 @@ def matched_rate(
     }
 
 
-def fine_stage(stages: dict[str, dict]) -> tuple[float | None, str | None]:
+def fine_stage(stages: dict[str, dict]) -> tuple[float | None, str | None, bool | None]:
     """The fine-grid stage's time from the stages a poll read (`stage -> {wall_s, elapsed_s}`):
     stage 1's own server `elapsed_s` when it was read; else the first stage that was read, which
-    stage 1 finished before (an upper bound, named as one); else nothing."""
+    stage 1 finished before (an upper bound, named as one); else nothing. The third value says
+    whether the time is a bound."""
     elapsed = {k: e["elapsed_s"] for k, e in stages.items() if e.get("elapsed_s") is not None}
     if not elapsed:
-        return None, None
+        return None, None, None
     first = min(elapsed, key=int)
     if first == "1":
-        return elapsed["1"], "server elapsed_s of stage 1"
-    return elapsed[first], (
+        return elapsed["1"], "server elapsed_s of stage 1", False
+    basis = (
         f"server elapsed_s of stage {first}, the first stage a poll read "
         "(stage 1 finished before it: an upper bound)"
     )
+    return elapsed[first], basis, True
+
+
+def beside_job(result: dict, coverage: float) -> bool:
+    """A task measurement stands as one beside a running job when the task finished, was not
+    cached at request, and the job's runs covered at least BESIDE_JOB_MIN_COVERAGE of its window."""
+    return (
+        result.get("state") == "done"
+        and not result.get("cached_at_request")
+        and coverage >= BESIDE_JOB_MIN_COVERAGE
+    )
+
+
+def plan_vs_actual(estimate_s: float | None, actual_s: float | None) -> dict:
+    """The planner's estimate against the wall time the run took."""
+    ratio = None if not estimate_s or actual_s is None else round(actual_s / estimate_s, 3)
+    return {"estimate_s": estimate_s, "actual_s": actual_s, "actual_over_estimate": ratio}
+
+
+def widest_front(
+    fronts: dict[tuple[str, str], int],
+) -> tuple[tuple[str, str], int] | None:
+    """The pair of objectives with the widest front among `fronts` (pair -> front size)."""
+    if not fronts:
+        return None
+    pair = max(fronts, key=lambda p: fronts[p])
+    return pair, fronts[pair]
+
+
+def throughput_basis(
+    quiet: float | None,
+    quiet_after: float | None,
+    loaded: float | None,
+    chunks: int,
+    seconds: float,
+) -> str:
+    """The headline throughput loss in words: what its two rates are and which figure to read."""
+    article = "an" if str(chunks).startswith("8") or chunks in (11, 18) else "a"
+    return (
+        "1 - loaded.trials_per_s / quiet.trials_per_s. quiet.trials_per_s "
+        f"{quiet if quiet is None else round(quiet, 1)} (and quiet_after.trials_per_s "
+        f"{quiet_after if quiet_after is None else round(quiet_after, 1)}) are whole-run rates, a "
+        "run's start-up gap and its compaction pause in them; loaded.trials_per_s "
+        f"{loaded if loaded is None else round(loaded, 1)} is the rate of {article} {chunks}-chunk "
+        f"window ({seconds:.1f} s) while the task ran. They are not comparable here (the loaded "
+        "window sits clear of the pauses, so this figure reads as the job speeding up): read "
+        "throughput_loss_matched, the window against the quiet run at the same offsets"
+    )
+
+
+def a_rule(category: dict) -> str:
+    """§7.6's category A read back from its own inputs (the worker's card): distance and the peak
+    line are recomputed from the value and the quartiles, then the state the inputs require and
+    the classification they give are compared with the worker's. Returns the classification, or
+    `unresolved`; an AssertionError says which input disagrees."""
+    i = category["inputs"]
+    value, p25, p75, iqr = i.get("value"), i.get("p25"), i.get("p75"), i.get("iqr")
+    if value is not None and p25 is not None:
+        assert math.isclose(i["distance"], abs(value - p25), rel_tol=1e-9, abs_tol=1e-9), i
+    if p75 is not None and iqr is not None:
+        peak_line = p75 + i["peak_factor"] * iqr
+        assert math.isclose(i["peak_line"], peak_line, rel_tol=1e-9, abs_tol=1e-9), i
+    short = i["coverage"] < i["min_coverage"] or i["n"] < i["required_n"]
+    reason = category.get("reason") or ""
+    if not category["resolved"]:
+        if reason.startswith("untested surroundings"):
+            assert short, category  # untested surroundings name evidence that fell short
+        elif reason == "no spread in the metric (τ = 0)":
+            assert not short and i["tau"] <= 0, category  # enough evidence, nothing to tell apart
+        elif reason == "undefined metric value":
+            assert value is None, category
+        else:
+            raise AssertionError(f"an unresolved A whose reason the rule does not know: {category}")
+        return "unresolved"
+    assert not short, category  # a resolved A has the coverage and the n the rule asks for
+    assert i["tau"] > 0, category  # and a spread: τ <= 0 reads `no spread`, never a class
+    expected = (
+        "stable local"
+        if abs(value - p25) <= i["tau"]
+        else "isolated peak"
+        if value > p75 + i["peak_factor"] * iqr
+        else "mixed"
+    )
+    assert category["classification"] == expected, (category["classification"], expected, i)
+    return expected
 
 
 def job_coverage(intervals: Sequence[tuple[float, float]], start: float, end: float) -> float:
@@ -1695,7 +1943,9 @@ class _TaskLoad:
         try:
             self._wait_for_job(http_client)
             began, timer = time.time(), time.perf_counter()
+            sent = time.perf_counter()
             answer = http_client.post(path, body)
+            latencies = [(time.perf_counter() - sent) * 1000]  # the first is the placing request
             first = answer.get("task") or {}
             polls, status, cancelled = 0, first, False
             while True:
@@ -1719,11 +1969,13 @@ class _TaskLoad:
                     cancelled = True
                     break
                 time.sleep(ANALYTICS_POLL_S)
+                sent = time.perf_counter()
                 answer = http_client.post(path, body)
+                latencies.append((time.perf_counter() - sent) * 1000)
             ended, wall = time.time(), time.perf_counter() - timer
             final = answer.get("importance") or {}
             done = status.get("state") == "done" and final.get("stage") == final.get("stages")
-            fine, fine_basis = fine_stage(stages)
+            fine, fine_basis, fine_bound = fine_stage(stages)
             self.window = (began, ended)
             self.result = {
                 "source": self.source,
@@ -1741,6 +1993,9 @@ class _TaskLoad:
                 # first stage a poll did read, which stage 1 finished before (an upper bound).
                 "fine_stage_s": fine,
                 "fine_stage_basis": fine_basis,
+                "fine_stage_is_bound": fine_bound,
+                "poll_ms": _stats(latencies),
+                "poll_cadence_s": ANALYTICS_POLL_S,
                 "snapshot": final.get("snapshot"),
                 "n": final.get("n"),
                 "status": status,
@@ -1752,6 +2007,152 @@ class _TaskLoad:
         finally:
             http_client.close()
             self.finished.set()
+
+
+def _load_pass(
+    http_client: _Http,
+    base: str,
+    source: str,
+    *,
+    strategy_id: str,
+    stamp: str,
+    data_root: Path,
+    listener: int,
+    workers: int,
+    task_seed: int,
+    task_timeout_s: float,
+    max_runs: int,
+) -> dict:
+    """Case A back to back with the importance task of `source` polled to its end beside it (a
+    thread starting it once the first run commits a chunk; the last run finishing after it): the
+    runs, each run's chunk series and job interval, the task's window, how much of it the job
+    covered, and the task's record with the verdict `beside_job`."""
+    load = _TaskLoad(base, source, task_seed, task_timeout_s)
+    runs: list[dict] = []
+    try:
+        for n in range(max_runs):
+            runs.append(
+                _run_case(
+                    http_client,
+                    "A",
+                    strategy_id,
+                    f"{stamp}-{n + 1}",
+                    data_root,
+                    listener,
+                    workers,
+                    queries=load,
+                )
+            )
+            if load.finished.is_set():
+                break
+    finally:
+        load.join()
+    began, ended = load.window or (0.0, 0.0)
+    series = []
+    for run in runs:
+        _, rows, times = _chunk_times(data_root / "experiments" / f"{run['experiment_id']}.cells")
+        series.append((times, rows))
+    intervals = [(r["created_at"], r["final_at"]) for r in runs if r["final_at"] is not None]
+    coverage = job_coverage(intervals, began, ended)
+    task = load.result | {
+        "window_epoch_s": [round(began, 3), round(ended, 3)],
+        "job_coverage": round(coverage, 4),
+        "job_coverage_min": BESIDE_JOB_MIN_COVERAGE,
+        "error": load.error or load.result.get("error"),
+    }
+    task["beside_job"] = beside_job(task, coverage)
+    return {
+        "runs": runs,
+        "series": series,
+        "intervals": intervals,
+        "began": began,
+        "ended": ended,
+        "task": task,
+    }
+
+
+def opt_frame_rebuild(runs: int = 3) -> dict:
+    """What every poll of an `opt:` source's importance view pays before it computes anything: the
+    optimization's frame rebuilt from its cells (`sources.opt_frame`), at MAX_CELLS cells. In this
+    process over a status built here (a 316 x 316 grid of the default strategy's two lengths, no
+    engine run), so a proxy: no HTTP, no view on top of the frame."""
+    from products.aegis.lab.sources import opt_frame
+    from products.aegis.optimize import MAX_CELLS, expand_grid
+    from products.aegis.pool import METRICS
+    from products.aegis.strategy import OptimizationParameter, default_strategy
+
+    strategy = default_strategy()
+    side = strategy.long_side.model_copy(
+        update={
+            "optimization": [
+                OptimizationParameter(path="indicators.ema.length", start=1, stop=316, step=1),
+                OptimizationParameter(path="indicators.sma.length", start=400, stop=715, step=1),
+            ]
+        }
+    )
+    strategy = strategy.model_copy(update={"long_side": side})
+    plan = expand_grid(side)
+    assert not plan.skipped and len(plan.cells) <= MAX_CELLS, len(plan.cells)
+    cells = [
+        {
+            "params": params,
+            "fast": params.get(plan.fast_path),
+            "slow": params.get(plan.slow_path),
+            "metrics": {**dict.fromkeys(METRICS, 1.0), "net_pnl": float(i % 97) - 40.0},
+        }
+        for i, params in enumerate(plan.cells)
+    ]
+    status = {
+        "job_id": "opt-frame-proxy",
+        "side": "long",
+        "status": "done",
+        "objective": "net_pnl",
+        "strategy": strategy.model_dump(mode="json"),
+        "strategy_hash": "proxy",
+        "engine": "kernel",
+        "data": {"symbol": "QQQ"},
+        "cells": cells,
+        "total_cells": len(cells),
+        "skipped_cells": 0,
+    }
+    samples = []
+    for _ in range(runs):
+        started = time.perf_counter()
+        frame = opt_frame(status)
+        samples.append((time.perf_counter() - started) * 1000)
+    return {
+        "basis": INPROCESS_BASIS + ": the rebuild alone, without the view on top of it",
+        "cells": len(cells),
+        "max_cells": MAX_CELLS,
+        "rows": len(frame.table),
+        "ms": _stats(samples),
+    }
+
+
+def _row_bases(trials: int, runs: int, task_seed: int) -> dict[str, str]:
+    """What each recorded row measured, in words (`operations.<row>`'s counterpart)."""
+    return {
+        "pareto": f"{runs} HTTP runs, two objectives (the objective against max_drawdown), cold "
+        "first included; judged at §9.6a's 800 ms",
+        "pareto_3": f"{runs} HTTP runs, three objectives (adding trade_count); recorded beside "
+        "the 800 ms row, never judged",
+        "pareto_widest": "the pair of the fixture's metrics with the widest front among all pairs "
+        f"({runs} HTTP runs of it); the true all-on-front worst case is not constructible over "
+        "HTTP (see not_measured)",
+        "neighbourhood": f"{runs} HTTP runs of the neighbourhood view, a different seeded trial "
+        "each, cold first included; judged at §9.6a's 150 ms",
+        "convergence": f"{runs} HTTP runs at {trials:,} trials, d = 10: the first is cold (the "
+        "payload is cached after it), the rest warm; recorded with spec §9.6's ≈ 2 s line of the "
+        "Task 8 ruling in view, no §9.6a line is stated for it",
+        "rankings": "the robustness view's ranking (pool 300, k 20, B on the top 20) before any "
+        f"importance result exists, so B is not run: {runs} HTTP runs, the first cold",
+        "rankings_importance": "the same ranking with the importance task's result at this "
+        f"snapshot (seed {task_seed}), so B runs on the top 20: the costly half; recorded",
+        "candidate": f"{runs} HTTP runs of one candidate's robustness view (A plus B's region "
+        "read, the importance result live), a different seeded trial of the ranking's pool of "
+        "300 each, cold first included; judged at §9.6a's 150 ms row 'neighbourhood of one trial / "
+        "robustness of one candidate'",
+    }
 
 
 def analytics(
@@ -1766,15 +2167,23 @@ def analytics(
     workers: int = 10,
     max_runs: int = ANALYTICS_MAX_RUNS,
     task_timeout_s: float = ANALYTICS_TASK_TIMEOUT_S,
+    wide_values: int | None = WIDE_VALUES,
+    blocked: bool = True,
 ) -> dict:
-    """The importance task on the 1M fixture beside a running job (spec §9.4, R3.5): the Pareto
-    and neighbourhood views timed over HTTP (`runs` each) on the idle worker; case A alone, the
-    quiet run; then case A back to back, a thread starting the task once the first run commits a
-    chunk and polling it to done, the last run finishing after it. The record keeps the task's
-    time and its fine-grid stage (the server's own `elapsed_s` of stages 3 and 1), the job's
-    throughput over the chunks committed while the task ran against the quiet run's, and says
-    what the 1M fixture (10 parameters, no blocks) leaves unmeasured. Refuses the product store
-    and the product worker before anything else, as `main` does."""
+    """The importance task on the 1M fixture beside a running job (spec §9.4, R3.5), and the
+    Phase 3 views' rows over HTTP. In order, on the idle worker: the neighbourhood, convergence
+    and ranking views (each cold first; the worker's resident memory around each first call), the
+    Pareto views (two and three objectives, and the widest front among metric pairs); then case A
+    alone (the quiet run); case A back to back with a thread starting the importance task once the
+    first run commits a chunk and polling it to done (the loaded pass); case A alone again (so
+    run-order drift shows); with the task's result in, the ranking again and one candidate's
+    robustness view (B live); a K = 4 blocked case A against the planner's estimate; and, when
+    `wide_values` is set, a second loaded pass on a 1M fixture with that many values on each
+    parameter (the fine stage at 20 values). The record keeps the task's time and its fine-grid
+    stage (the server's own `elapsed_s` of stages 3 and 1), the job's throughput over the chunks
+    committed while the task ran against each quiet run (whole-run and at the same offsets), and
+    names what the fixtures leave unmeasured, each with an owner. Refuses the product store and
+    the product worker before anything else, as `main` does."""
     refuse_product_targets(data_root, base)
     from trading_core.process_power import opt_out_of_power_throttling
 
@@ -1793,6 +2202,7 @@ def analytics(
         "api/strategies",
         {"name": f"lab-bench-10p-{stamp}", "spec": bench_strategy().model_dump(mode="json")},
     )
+    build = http_client.get("api/lab/build")
     record.update(
         {
             "basis": HTTP_BASIS,
@@ -1802,7 +2212,6 @@ def analytics(
             "trials": trials,
             "parameters": len(document.surface.parameters),
             "blocks": int(getattr(document, "blocks", 0) or 0),
-            "not_measured": ANALYTICS_NOT_MEASURED,
             "seed": seed,
             "task_seed": task_seed,
             "runs": runs,
@@ -1810,91 +2219,229 @@ def analytics(
             "workers_expected": workers,
             "strategy_id": strategy["id"],
             "worker": worker,
-            "worker_engine_build": http_client.get("api/lab/build")["engine_build"],
+            "worker_engine_build": build["engine_build"],
+            "cache_entries_before": int(build["cache"]["entries"]),
+            "poll_cadence_s": ANALYTICS_POLL_S,
         }
     )
 
     def over_http(method: str, path: str, body: dict | None) -> Any:
         return http_client.call(method, "api/" + path, body)
 
-    operations = _operations(document, trials, seed)
-    for name in ("pareto", "neighbourhood"):
-        record["operations"][name] = _timed(over_http, operations[name], runs, "http")
+    def rss() -> int:
+        return int(worker_sample(listener)["working_set"])
+
+    operations = _operations(document, trials, seed, task_seed=task_seed)
+    timed = record["operations"]
+    first_call_rss: dict[str, float] = {}
+    resident_before = rss()
+    for name in ("neighbourhood", "convergence", "rankings"):  # each one's first call is cold
+        before, held = rss(), {}
+        timed[name] = _timed(
+            over_http,
+            operations[name],
+            runs,
+            "http",
+            on_first=lambda held=held: held.update(after=rss()),
+        )
+        first_call_rss[name] = round((held["after"] - before) / MB, 3)
+    timed["pareto"] = _timed(over_http, operations["pareto"], runs, "http")
+    timed["pareto_3"] = _timed(over_http, operations["pareto_3"], runs, "http")
+    from products.aegis.pool import METRICS
+
+    names = [*METRICS, "sharpe_trade"]
+    fronts: dict[tuple[str, str], int] = {}
+    query_path = f"lab/{quote(source, safe=':')}/query"
+    for pair in itertools.combinations(names, 2):
+        body = {"filter": {}, "view": "pareto", "objectives": list(pair)}
+        fronts[pair] = int(over_http("POST", query_path, body)["front_size"])
+    widest = widest_front(fronts)
+    if widest is not None:
+        pair, size = widest
+
+        def widest_front_request(i: int) -> list[Step]:
+            body = {"filter": {}, "view": "pareto", "objectives": list(pair)}
+            return [("POST", query_path, body)]
+
+        timed["pareto_widest"] = _timed(over_http, widest_front_request, runs, "http") | {
+            "pair": list(pair),
+            "front_size": size,
+            "pairs_probed": len(fronts),
+            "front_sizes": {
+                "|".join(p): n for p, n in sorted(fronts.items(), key=lambda kv: -kv[1])[:8]
+            },
+        }
+    resident_after = rss()
+    record["resources"] = {
+        "first_call_rss_delta_mb": first_call_rss,
+        "first_call_rss_note": "the worker's working set before and after each first call, in "
+        "this order; the three views read one cached table (design, pass, the ten paths, pos.k, "
+        "the metric), so the first call pays for it",
+        "worker_working_set_mb": {
+            "before_the_views": round(resident_before / MB, 3),
+            "after_the_views": round(resident_after / MB, 3),
+        },
+    }
 
     quiet = _run_case(
         http_client, "A", strategy["id"], f"{stamp}-quiet", data_root, listener, workers
     )
-    load = _TaskLoad(base, source, task_seed, task_timeout_s)
-    loaded_runs: list[dict] = []
-    try:
-        for n in range(max_runs):
-            loaded_runs.append(
-                _run_case(
-                    http_client,
-                    "A",
-                    strategy["id"],
-                    f"{stamp}-loaded-{n + 1}",
-                    data_root,
-                    listener,
-                    workers,
-                    queries=load,
-                )
-            )
-            if load.finished.is_set():
-                break
-    finally:
-        load.join()
-        http_client.close()
+    first = _load_pass(
+        http_client,
+        base,
+        source,
+        strategy_id=strategy["id"],
+        stamp=f"{stamp}-loaded",
+        data_root=data_root,
+        listener=listener,
+        workers=workers,
+        task_seed=task_seed,
+        task_timeout_s=task_timeout_s,
+        max_runs=max_runs,
+    )
+    quiet_after = _run_case(
+        http_client, "A", strategy["id"], f"{stamp}-quiet-after", data_root, listener, workers
+    )
+    task, began, ended = first["task"], first["began"], first["ended"]
 
-    began, ended = load.window or (0.0, 0.0)
-    series = []
-    for run in loaded_runs:
-        _, rows, times = _chunk_times(data_root / "experiments" / f"{run['experiment_id']}.cells")
-        series.append((times, rows))
-    overlap = overlap_rate(series, began, ended)
-    intervals = [
-        (run["created_at"], run["final_at"]) for run in loaded_runs if run["final_at"] is not None
-    ]
-    coverage = job_coverage(intervals, began, ended)
-    task = load.result | {
-        "window_epoch_s": [round(began, 3), round(ended, 3)],
-        "job_coverage": round(coverage, 4),
-        "job_coverage_min": BESIDE_JOB_MIN_COVERAGE,
-        "error": load.error or load.result.get("error"),
+    # With the importance result in: the ranking with B on its top k, and one candidate's view.
+    ranking_all = over_http(
+        "POST",
+        query_path,
+        {
+            "filter": {},
+            "view": "robustness",
+            "metric": document.objective,
+            "seed": task_seed,
+            "k": 300,
+        },
+    )["rankings"]
+    pool = [row["trial_id"] for row in ranking_all["peak_ranked"]]
+    live = _operations(document, trials, seed, task_seed=task_seed, pool=pool)
+    timed["rankings_importance"] = _timed(over_http, live["rankings"], runs, "http")
+    timed["candidate"] = _timed(over_http, live["candidate"], runs, "http")
+    record["ranking_pool"] = {
+        "pool": ranking_all["pool"],
+        "k": 20,
+        "candidates_drawn_from": len(pool),
+        "b_max": ranking_all["b_max"],
     }
-    task["beside_job"] = (
-        bool(load.result)
-        and not task.get("cached_at_request")
-        and coverage >= BESIDE_JOB_MIN_COVERAGE
+
+    # Plan against actual for a K = 4 blocked case A (the planner's estimate, then the run).
+    if blocked:
+        body = _experiment_body("A", BENCH_CASES["A"], strategy["id"], f"{stamp}-k4", BLOCKED_K)
+        planned = http_client.post("api/experiments/plan", body)
+        run = _run_case(
+            http_client,
+            "A",
+            strategy["id"],
+            f"{stamp}-k4",
+            data_root,
+            listener,
+            workers,
+            blocks=BLOCKED_K,
+        )
+        record["blocked"] = {
+            "blocks": BLOCKED_K,
+            "plan": {
+                k: planned[k]
+                for k in (
+                    "estimate_seconds",
+                    "ms_per_cell_bar",
+                    "workers",
+                    "evaluations",
+                    "planned_runs",
+                    "bars",
+                    "price_source",
+                )
+            },
+            "plan_vs_actual": plan_vs_actual(planned["estimate_seconds"], run["wall_s"]),
+            "k0_plan_vs_actual": plan_vs_actual(
+                (quiet.get("plan") or {}).get("estimate_seconds"), quiet["wall_s"]
+            ),
+            "case": run,
+            "basis": "the K = 4 case-A experiment (10,000 trials, each also scored on 4 blocks) "
+            "against the planner's own estimate (POST /experiments/plan, the endpoint the "
+            "planner uses) and the K = 0 quiet run's; rows of this run are evaluations (5 a "
+            "trial). The price model is Task 2's; a gap here is an R3.5 finding",
+        }
+
+    # The fine stage at `wide_values` values per parameter, beside a job (a second loaded pass).
+    not_measured = list(ANALYTICS_NOT_MEASURED)
+    wide_pass = None
+    if wide_values:
+        wide_id = fixture_id(trials, wide_values)
+        wide_document, wide_written = _fixture(data_root, wide_id, trials, seed, wide_values)
+        wide_pass = _load_pass(
+            http_client,
+            base,
+            f"exp:{wide_id}",
+            strategy_id=strategy["id"],
+            stamp=f"{stamp}-wide",
+            data_root=data_root,
+            listener=listener,
+            workers=workers,
+            task_seed=task_seed,
+            task_timeout_s=task_timeout_s,
+            max_runs=max_runs,
+        )
+        record["wide"] = {
+            "values_per_parameter": wide_values,
+            "experiment_id": wide_id,
+            "parameters": len(wide_document.surface.parameters),
+            "fixture_write_s": wide_written,
+            "task": wide_pass["task"],
+            "runs": [
+                {
+                    k: r[k]
+                    for k in ("experiment_id", "status", "created_at", "final_at", "trials_per_s")
+                }
+                for r in wide_pass["runs"]
+            ],
+            "basis": f"the importance task on a {trials:,}-trial fixture with {wide_values} "
+            "values on each of its 10 parameters, beside case A, as the first pass; 10 "
+            "parameters, not 20",
+        }
+    else:
+        not_measured.append(
+            {
+                "row": f"fine stage at {WIDE_VALUES} values per parameter beside a job",
+                "why": "the second pass was not run (`--no-wide`)",
+                "owner": "Task 13 Step 2, or Phase 4's 20-parameter fixture",
+            }
+        )
+    if not blocked:
+        not_measured.append(
+            {
+                "row": "plan against actual for a K = 4 blocked case A",
+                "why": "the blocked run was not made (`--no-blocked`)",
+                "owner": "Task 13 Step 2",
+            }
+        )
+    record["not_measured"] = not_measured
+
+    # The first pass's composition: the loaded rate, the quiet runs' (whole-run and matched).
+    overlap = overlap_rate(first["series"], began, ended)
+    offsets = window_offsets(first["intervals"], began, ended)
+    loaded_rate = overlap["trials_per_s"]
+    matched = matched_rate(_quiet_series(data_root, quiet), quiet["created_at"], offsets)
+    matched_after = matched_rate(
+        _quiet_series(data_root, quiet_after), quiet_after["created_at"], offsets
     )
-    quiet_rate, loaded_rate = quiet["trials_per_s"], overlap["trials_per_s"]
-    loss = throughput_loss(quiet_rate, loaded_rate)
-    _, quiet_rows, quiet_times = _chunk_times(
-        data_root / "experiments" / f"{quiet['experiment_id']}.cells"
-    )
-    matched = matched_rate(
-        (quiet_times, quiet_rows), quiet["created_at"], window_offsets(intervals, began, ended)
-    )
-    matched_loss = throughput_loss(matched["trials_per_s"], loaded_rate)
+    loss = throughput_loss(quiet["trials_per_s"], loaded_rate)
+    quiet["basis"] = QUIET_BASIS
+    quiet_after["basis"] = QUIET_BASIS + "; run after the loaded pass"
     record["task"] = task
     record["cases"] = {
         "quiet": quiet,
-        "quiet_matched": {
-            "trials_per_s": None
-            if matched["trials_per_s"] is None
-            else round(matched["trials_per_s"], 3),
-            "basis": "the quiet run's chunks at the same offsets from its creation as the task's "
-            "window sat from each loaded run's (its start-up and its compaction pause weigh the "
-            "same way); the same rule as the loaded rate",
-            "counted_rows": matched["rows"],
-            "counted_seconds": round(matched["seconds"], 3),
-            "windows": matched["windows"],
-        },
+        "quiet_matched": _matched_json(matched),
         "loaded": {
             "trials_per_s": None if loaded_rate is None else round(loaded_rate, 3),
             "basis": "steady rows of the chunks committed while the task ran, over their span, "
-            "per run, summed (the quiet run's rule: each run's first chunk is left out)",
+            "per run, summed (each run's first chunk in the window is left out): a window, "
+            f"{overlap['runs'][0]['chunks'] if overlap['runs'] else 0} chunks in the first run",
             "window_s": round(ended - began, 3),
+            "window_offsets_from_creation_s": [[round(a, 3), round(b, 3)] for a, b in offsets],
             "counted_rows": overlap["rows"],
             "counted_seconds": round(overlap["seconds"], 3),
             "overlap_runs": overlap["runs"],
@@ -1907,30 +2454,78 @@ def analytics(
                     "final_at": run["final_at"],
                     "pool_workers": run["pool_workers"],
                 }
-                for run in loaded_runs
+                for run in first["runs"]
             ],
         },
+        "quiet_after": quiet_after,
+        "quiet_after_matched": _matched_json(matched_after),
     }
+    rate_after = quiet_after["trials_per_s"]
     record["throughput_loss"] = None if loss is None else round(loss, 4)
-    record["throughput_loss_basis"] = "1 - loaded.trials_per_s / quiet.trials_per_s"
-    # The quiet run's whole-run rate carries its start-up and a compaction pause that a short
-    # window may not: the same loss against the quiet run's rate over the matched window.
-    record["throughput_loss_matched"] = None if matched_loss is None else round(matched_loss, 4)
-    record["throughput_loss_matched_basis"] = (
-        "1 - loaded.trials_per_s / quiet_matched.trials_per_s: the quiet run at the same offsets"
+    record["throughput_loss_basis"] = throughput_basis(
+        quiet["trials_per_s"],
+        rate_after,
+        loaded_rate,
+        sum(w["chunks"] for w in overlap["runs"]),
+        overlap["seconds"],
     )
+    matched_loss = throughput_loss(matched["trials_per_s"], loaded_rate)
+    matched_loss_after = throughput_loss(matched_after["trials_per_s"], loaded_rate)
+    record["throughput_loss_matched"] = None if matched_loss is None else round(matched_loss, 4)
+    record["throughput_loss_matched_after"] = (
+        None if matched_loss_after is None else round(matched_loss_after, 4)
+    )
+    rounded = [(round(a, 1), round(b, 1)) for a, b in offsets]
+    record["throughput_loss_matched_basis"] = (
+        "1 - loaded.trials_per_s / quiet_matched.trials_per_s (and / quiet_after_matched's, "
+        "`throughput_loss_matched_after`): the quiet run read at the same offsets from its "
+        f"creation as the task's window sat from the loaded run's, {rounded} seconds, "
+        f"{matched['rows']:,} rows over {matched['seconds']:.1f} s in {len(matched['windows'])} "
+        f"window against {overlap['rows']:,} rows over {overlap['seconds']:.1f} s of the loaded "
+        "window: a short window, so a range, not a point"
+    )
+    record["importance_poll"] = {
+        "poll_ms": task.get("poll_ms"),
+        "cadence_s": ANALYTICS_POLL_S,
+        "basis": "the importance view's HTTP latency over the first pass's task (an `exp:` "
+        "source: its frame is cached, so a poll reads it and answers the stage); the first "
+        f"sample is the request that placed the task. Polled every {ANALYTICS_POLL_S} s, four "
+        f"times the Lab's {LAB_TICK_S:g} s tick. The `opt:` source's per-poll frame rebuild is "
+        "`operations`-side: `opt_frame_rebuild`",
+    }
+    record["opt_frame_rebuild"] = opt_frame_rebuild()
+    record["row_bases"] = _row_bases(trials, runs, task_seed)
     record["worker"]["power_throttling"] = {
         "host": throttling_state(listener),
         "child": next(
             (
                 c["child_power_throttling"]
-                for c in (quiet, *loaded_runs)
+                for c in (quiet, quiet_after, *first["runs"])
                 if c["child_power_throttling"]
             ),
             None,
         ),
     }
+    http_client.close()
     return record
+
+
+def _quiet_series(data_root: Path, run: dict) -> tuple[list[float], list[int]]:
+    """A finished run's (chunk commit times, chunk rows), read from its cells folder."""
+    _, rows, times = _chunk_times(data_root / "experiments" / f"{run['experiment_id']}.cells")
+    return times, rows
+
+
+def _matched_json(matched: dict) -> dict:
+    return {
+        "trials_per_s": None
+        if matched["trials_per_s"] is None
+        else round(matched["trials_per_s"], 3),
+        "basis": QUIET_MATCHED_BASIS,
+        "counted_rows": matched["rows"],
+        "counted_seconds": round(matched["seconds"], 3),
+        "windows": matched["windows"],
+    }
 
 
 # --- the command line -------------------------------------------------------------------------
@@ -1987,6 +2582,19 @@ def main(argv: Sequence[str]) -> int:
     )
     analytics_args.add_argument("--runs", type=int, default=20)
     analytics_args.add_argument(
+        "--wide-values",
+        type=int,
+        default=WIDE_VALUES,
+        help="values per parameter of the second pass's 1M fixture (the fine stage at that many); "
+        "written into the scratch root when absent",
+    )
+    analytics_args.add_argument(
+        "--no-wide", action="store_true", help="skip the second pass (the fixture write and a pass)"
+    )
+    analytics_args.add_argument(
+        "--no-blocked", action="store_true", help="skip the K = 4 blocked case-A run"
+    )
+    analytics_args.add_argument(
         "--workers",
         type=int,
         default=10,
@@ -2017,6 +2625,8 @@ def main(argv: Sequence[str]) -> int:
                 task_seed=args.task_seed,
                 runs=args.runs,
                 workers=args.workers,
+                wide_values=None if args.no_wide else args.wide_values,
+                blocked=not args.no_blocked,
             )
         else:
             record = execute(
@@ -2031,6 +2641,8 @@ def main(argv: Sequence[str]) -> int:
         return 2
     previous = _previous(args.mode)
     record["evaluate"] = evaluate(record)
+    if args.mode == "analytics":
+        record["evaluate_basis"] = evaluate_basis(record)
     record["retest_due"] = retest_due(record, previous)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = ROOT / "logs" / f"lab-benchmark-{args.mode}-{stamp}.json"

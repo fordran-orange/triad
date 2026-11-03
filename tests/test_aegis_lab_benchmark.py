@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 import pytest
@@ -659,16 +660,27 @@ ANALYTICS = {
     "operations": {
         "pareto": {"basis": "http", "http_ms": {"p95": 500.0}},
         "neighbourhood": {"basis": "http", "http_ms": {"p95": 90.0}},
+        "candidate": {"basis": "http", "http_ms": {"p95": 120.0}},
+        "rankings": {"basis": "http", "http_ms": {"p95": 2_000.0}},  # recorded, never judged
     },
-    "task": {"task_s": 120.0, "fine_stage_s": 20.0, "beside_job": True},
+    "task": {
+        "task_s": 120.0,
+        "fine_stage_s": 20.0,
+        "fine_stage_is_bound": True,
+        "beside_job": True,
+    },
+    "wide": {"task": {"fine_stage_s": 25.0, "fine_stage_is_bound": False, "beside_job": True}},
     "cases": {"quiet": {"trials_per_s": 180.0}, "loaded": {"trials_per_s": 135.0}},
 }
-# One number per key pushed just past its line (§9.6a: the task budget, the fine stage, two views).
+# One number per key pushed just past its line (§9.6a: the task budget, the fine stage, two views;
+# the candidate's robustness shares the neighbourhood's 150 ms row; the fine stage at 20 values).
 ANALYTICS_PAST = {
     "importance_task_s": ("task", "task_s", 180.5),
     "fine_stage_s": ("task", "fine_stage_s", 30.5),
+    "fine_stage_20_s": ("wide", "fine_stage_s", 30.5),
     "pareto": ("operations", "pareto", 801.0),
     "neighbourhood": ("operations", "neighbourhood", 151.0),
+    "candidate": ("operations", "candidate", 151.0),
 }
 
 
@@ -676,8 +688,40 @@ def _analytics_past(record: dict, key: str) -> None:
     section, name, value = ANALYTICS_PAST[key]
     if section == "task":
         record["task"][name] = value
+    elif section == "wide":
+        record["wide"]["task"][name] = value
     else:
         record["operations"][name]["http_ms"]["p95"] = value
+
+
+class _ScriptedHttp:
+    """A worker's answers, scripted: `_TaskLoad` over it without a worker."""
+
+    answers: ClassVar[list] = []
+    posts: ClassVar[list] = []
+
+    def __init__(self, base):
+        self.base = base
+
+    def get(self, path):
+        return {"status": "running", "progress": {"cells_done": 5}}
+
+    def post(self, path, body):
+        _ScriptedHttp.posts.append((path, body))
+        answers = _ScriptedHttp.answers
+        return answers.pop(0) if len(answers) > 1 else answers[0]
+
+    def close(self):
+        pass
+
+
+def _importance_answer(state: str, stage: int | None, elapsed: float | None = None) -> dict:
+    """An `importance` view's answer: the task's status and the latest stage delivered."""
+    shown = (
+        None if stage is None else {"stage": stage, "stages": 3, "elapsed_s": elapsed, "n": 50_000}
+    )
+    task = {"id": "t1", "label": "importance", "state": state, "stage": stage or 0, "stages": 3}
+    return {"task": task, "importance": shown, "reason": None}
 
 
 def test_analytics_record(monkeypatch):
@@ -710,6 +754,24 @@ def test_analytics_record(monkeypatch):
     result = evaluate(idle)
     assert result["importance_task_s"] == "absent" and result["fine_stage_s"] == "absent"
     assert result["pareto"] is True and result["neighbourhood"] is True
+    assert result["candidate"] is True and result["fine_stage_20_s"] is True
+    # The 20-value pass is judged under its own key, beside a job or not at all, and `absent`
+    # when it was not run (the 1M fixture with 20 values is optional).
+    wide_idle = copy.deepcopy(ANALYTICS)
+    wide_idle["wide"]["task"]["beside_job"] = False
+    assert evaluate(wide_idle)["fine_stage_20_s"] == "absent"
+    no_wide = {key: value for key, value in ANALYTICS.items() if key != "wide"}
+    assert evaluate(no_wide)["fine_stage_20_s"] == "absent"
+    assert evaluate(no_wide)["fine_stage_s"] is True
+    # `rankings`, `convergence` and the Pareto variants are recorded, never judged (the spec's
+    # §9.6a states no line for them): they are no key of the verdict.
+    assert not set(evaluate(ANALYTICS)) & {"rankings", "convergence", "pareto_3", "pareto_widest"}
+    # M-1: the fine stage is a bound when stage 1 was not read; the record's evaluate basis says
+    # so beside the verdict, and says "measured" when stage 1's own time was read.
+    basis = lab_benchmark.evaluate_basis(ANALYTICS)
+    assert "upper bound" in basis["fine_stage_s"] and "measured" in basis["fine_stage_20_s"], basis
+    assert "150" in basis["candidate"] and "robustness of one candidate" in basis["candidate"]
+    assert set(basis) == set(ANALYTICS_PAST), basis
     # The job's throughput loss is recorded, never judged: no key of the verdict carries it.
     assert not [key for key in verdict if "loss" in key or "throughput" in key]
 
@@ -757,22 +819,57 @@ def test_analytics_record(monkeypatch):
     assert lab_benchmark.window_offsets(two, 120.0, 150.0) == [(20.0, 30.0), (0.0, 15.0)]
     assert lab_benchmark.window_offsets(two, 131.0, 134.0) == []
     assert lab_benchmark.window_offsets([(100.0, 130.0)], 200.0, 210.0) == []
-    quiet = ([10.0 + t for t in range(60)], [200] * 60)  # a quiet run created at 0
-    matched = lab_benchmark.matched_rate(quiet, 0.0, [(10.0, 22.0), (0.0, 15.0)])
-    # (10, 22): chunks at 10 .. 22, 12 of 200 over 12 s; (0, 15): chunks at 10 .. 15, 5 over 5 s
+    # A quiet run created at 1000 s whose first chunk lands 10 s later (a rate of 200 a second
+    # to 1,030, then 100 a second): a window read from the creation, not from the epoch.
+    times = [1_010.0 + t for t in range(20)] + [1_030.0 + 2.0 * t for t in range(1, 21)]
+    quiet = (times, [200] * 20 + [200] * 20)
+    matched = lab_benchmark.matched_rate(quiet, 1_000.0, [(10.0, 22.0), (0.0, 15.0)])
+    # (10, 22): chunks at 1,010 .. 1,022, 12 of 200 over 12 s; (0, 15): chunks at 1,010 .. 1,015,
+    # 5 of 200 over 5 s
     assert matched["rows"] == 12 * 200 + 5 * 200 and matched["seconds"] == pytest.approx(17.0)
     assert matched["trials_per_s"] == pytest.approx(200.0)
-    assert lab_benchmark.matched_rate(quiet, 0.0, [])["trials_per_s"] is None
+    assert [w["chunks"] for w in matched["windows"]] == [13, 6]
+    slow = lab_benchmark.matched_rate(quiet, 1_000.0, [(31.0, 39.0)])  # the 100 a second part
+    assert slow["trials_per_s"] == pytest.approx(100.0)
+    assert lab_benchmark.matched_rate(quiet, 1_000.0, [])["trials_per_s"] is None
+    # Dropping the creation from the window (reading it from the epoch) finds no chunk at all.
+    assert lab_benchmark.matched_rate(quiet, 0.0, [(10.0, 22.0)])["trials_per_s"] is None
 
     # The fine-grid stage: stage 1's own elapsed time when a poll read it; when stage 2 had already
     # landed, the first stage read is an upper bound and says so; nothing read, nothing claimed.
     both = {"1": {"wall_s": 6.0, "elapsed_s": 5.5}, "2": {"wall_s": 7.0, "elapsed_s": 6.5}}
-    assert lab_benchmark.fine_stage(both) == (5.5, "server elapsed_s of stage 1")
+    assert lab_benchmark.fine_stage(both) == (5.5, "server elapsed_s of stage 1", False)
     late = {"3": {"wall_s": 12.0, "elapsed_s": 11.4}, "2": {"wall_s": 7.4, "elapsed_s": 6.7}}
-    value, basis = lab_benchmark.fine_stage(late)
+    value, basis, bound = lab_benchmark.fine_stage(late)
     assert value == 6.7 and "stage 2" in basis and "upper bound" in basis, (value, basis)
-    assert lab_benchmark.fine_stage({}) == (None, None)
-    assert lab_benchmark.fine_stage({"2": {"wall_s": 7.0, "elapsed_s": None}}) == (None, None)
+    assert bound is True
+    assert lab_benchmark.fine_stage({}) == (None, None, None)
+    assert lab_benchmark.fine_stage({"2": {"wall_s": 7.0, "elapsed_s": None}}) == (None, None, None)
+
+    # "Beside a job" as a rule: a task that finished (not cached at request, not stopped) whose
+    # window the job's runs covered at 0.9 or more.
+    done = {"state": "done", "cached_at_request": False}
+    assert lab_benchmark.beside_job(done, 0.9) is True
+    assert lab_benchmark.beside_job(done, 0.89) is False
+    assert lab_benchmark.beside_job({**done, "cached_at_request": True}, 1.0) is False
+    assert lab_benchmark.beside_job({**done, "state": "cancelled"}, 1.0) is False
+    assert lab_benchmark.beside_job({}, 1.0) is False  # the thread failed: no result at all
+
+    # The plan against the actual wall time of a case, and the widest front among pairs.
+    assert lab_benchmark.plan_vs_actual(100.0, 440.0) == {
+        "estimate_s": 100.0,
+        "actual_s": 440.0,
+        "actual_over_estimate": 4.4,
+    }
+    assert lab_benchmark.plan_vs_actual(None, 440.0)["actual_over_estimate"] is None
+    fronts = {("a", "b"): 10, ("a", "c"): 57, ("b", "c"): 3}
+    assert lab_benchmark.widest_front(fronts) == (("a", "c"), 57)
+    assert lab_benchmark.widest_front({}) is None
+
+    # The headline's basis says what the two rates are and which figure to read.
+    text = lab_benchmark.throughput_basis(150.0, 152.0, 184.0, 8, 7.6)
+    assert "whole-run" in text and "8-chunk" in text and "not comparable" in text, text
+    assert "throughput_loss_matched" in text and "150.0" in text and "152.0" in text, text
 
     # The two views' requests, as the UI sends them: a Pareto front of the objective against max
     # drawdown, and the neighbourhood of a seeded trial (a different one every run).
@@ -794,6 +891,36 @@ def test_analytics_record(monkeypatch):
             {"filter": {}, "view": "pareto", "objectives": ["net_pnl", "max_drawdown"]},
         )
     ]
+    pool = [f"exp:demo-synthetic-1m#{n}" for n in range(1_000, 1_300)]  # the ranking's 300
+    with_pool = lab_benchmark._operations(document, 1_000_000, 1, task_seed=3, pool=pool)
+    assert "candidate" not in operations  # no pool, no candidate: explore has no importance
+    chosen = []
+    for i in range(20):
+        ((method, path, body),) = with_pool["candidate"](i)
+        assert (method, path) == ("POST", f"{lab}/query"), (method, path)
+        assert body["view"] == "robustness" and body["trial"] in pool, body
+        assert body["metric"] == "net_pnl" and body["seed"] == 3, body  # B reads this seed's task
+        chosen.append(body["trial"])
+    assert len(set(chosen)) == 20  # 20 different candidates of the pool
+    second = lab_benchmark._operations(document, 1_000_000, 2, pool=pool)
+    assert chosen != [second["candidate"](i)[0][2]["trial"] for i in range(20)]
+    assert with_pool["rankings"](0) == [
+        (
+            "POST",
+            f"{lab}/query",
+            {"filter": {}, "view": "robustness", "metric": "net_pnl", "seed": 3},
+        )
+    ]
+    assert with_pool["convergence"](0)[0][2]["view"] == "convergence"
+    three = with_pool["pareto_3"](0)[0][2]
+    assert three["view"] == "pareto" and len(three["objectives"]) == 3, three
+    # Every body is what the worker's endpoint takes (extra fields are forbidden, `view` a literal).
+    from products.aegis import api
+
+    for name in ("pareto", "neighbourhood", "candidate", "rankings", "convergence", "pareto_3"):
+        for i in range(3):
+            for _, _, request_body in with_pool[name](i):
+                api.QueryRequest.model_validate(request_body)
     trials = []
     for i in range(20):
         ((method, path, body),) = operations["neighbourhood"](i)
@@ -807,10 +934,28 @@ def test_analytics_record(monkeypatch):
     assert len(set(trials)) == 20  # a different trial every run
     again = lab_benchmark._operations(document, 1_000_000, 1)["neighbourhood"]
     assert [int(again(i)[0][2]["trial"].partition("#")[2]) for i in range(20)] == trials
-    other = lab_benchmark._operations(document, 1_000_000, 2)["neighbourhood"]
-    assert [int(other(i)[0][2]["trial"].partition("#")[2]) for i in range(20)] != trials
-    # explore times both beside the Phase 2 rows, from the one budget table.
+    for seed in (2, 7):  # a different trial every run for other seeds too, and other trials
+        other = lab_benchmark._operations(document, 1_000_000, seed)["neighbourhood"]
+        picked = [int(other(i)[0][2]["trial"].partition("#")[2]) for i in range(20)]
+        assert len(set(picked)) == 20 and picked != trials, seed
+    # explore times both beside the Phase 2 rows, from the one budget table, and records the
+    # rows no §9.6a line states.
     assert set(TRACK_A_BUDGETS_MS) - {"open_cold"} <= set(operations)  # open_cold is open, once
+    assert set(lab_benchmark.RECORDED_OPERATIONS) == {"rankings", "convergence", "pareto_3"}
+    assert set(lab_benchmark.RECORDED_OPERATIONS) <= set(with_pool)
+
+    # `_timed` keeps the cold first sample apart, and calls `on_first` after the first run only.
+    seen = []
+
+    def call(method, path, body):
+        seen.append(path)
+
+    timed = lab_benchmark._timed(
+        call, operations["pareto"], 5, "http", on_first=lambda: seen.append("first")
+    )
+    assert seen[:2] == [f"{lab}/query", "first"] and seen.count("first") == 1, seen
+    assert timed["cold_ms"] == timed["http_ms"]["samples"][0]
+    assert timed["warm_ms"]["n"] == 4 and timed["http_ms"]["n"] == 5
 
     # An analytics record as the command builds it: the host, the engine build, the commit, the
     # operations (the two views) and the cases (the quiet run and the loaded rate).
@@ -818,14 +963,54 @@ def test_analytics_record(monkeypatch):
     assert record["mode"] == "analytics" and "operations" in record and "cases" in record
     assert len(record["engine_build"]) == 64 and len(record["git_head"]) == 40
     # It says what it does not measure: the fixture has no blocks and ten parameters.
-    note = lab_benchmark.ANALYTICS_NOT_MEASURED
-    assert "10 parameters" in note and "no blocks" in note
-    assert "per-block mains" in note and "d = 20" in note
+    rows = lab_benchmark.ANALYTICS_NOT_MEASURED
+    assert all({"row", "why", "owner"} <= set(entry) and entry["owner"] for entry in rows), rows
+    text = " ".join(f"{entry['row']} {entry['why']}" for entry in rows)
+    assert "10 parameters" in text and "no blocks" in text
+    assert "per-block mains" in text and "d = 20" in text and "K = 20" in text
+    assert "all-on-front" in text and "opt:" in text
     # The re-test triggers read it like the others (rates from its cases).
     due = retest_due(
         ANALYTICS | {"host": PREVIOUS["host"]}, PREVIOUS | {"cases": ANALYTICS["cases"]}
     )
     assert set(due) == RETEST_KEYS
+
+    # The task thread over scripted answers: it waits for the job, requests the task, polls to
+    # done, keeps the stages it read (stage 1 missed: a bound), the poll latencies and the window.
+    monkeypatch.setattr(lab_benchmark, "_Http", _ScriptedHttp)
+    monkeypatch.setattr(lab_benchmark, "ANALYTICS_POLL_S", 0.0)
+    _ScriptedHttp.posts = []
+    _ScriptedHttp.answers = [
+        _importance_answer("running", None),
+        _importance_answer("running", 2, 6.5),
+        _importance_answer("done", 3, 11.0),
+    ]
+    load = lab_benchmark._TaskLoad("http://x/aegis/", "exp:demo", 1, 60.0)
+    load.start("exp:job")
+    load.join()
+    assert load.finished.is_set() and load.error is None, load.error
+    result = load.result
+    assert result["state"] == "done" and result["task_s"] == 11.0 and result["polls"] == 3
+    assert result["fine_stage_s"] == 6.5 and result["fine_stage_is_bound"] is True, result
+    assert result["cached_at_request"] is False and sorted(result["stages_seen"]) == ["2", "3"]
+    assert len(result["poll_ms"]["samples"]) == 3 and result["poll_cadence_s"] == 0.0
+    assert load.window is not None and load.window[1] >= load.window[0]
+    assert all(body["view"] == "importance" for _, body in _ScriptedHttp.posts)
+    # A worker that answers no task: the thread records why and stops the loop.
+    _ScriptedHttp.answers = [{"task": None, "importance": None, "reason": "no rows"}]
+    refused = lab_benchmark._TaskLoad("http://x/aegis/", "exp:demo", 1, 60.0)
+    refused.start("exp:job")
+    refused.join()
+    assert refused.finished.is_set() and "no importance task: no rows" in (refused.error or "")
+    # A task still running at the timeout is cancelled through its route.
+    _ScriptedHttp.posts = []
+    _ScriptedHttp.answers = [_importance_answer("running", 1, 3.0)]
+    slow = lab_benchmark._TaskLoad("http://x/aegis/", "exp:demo", 1, 0.0)
+    slow.start("exp:job")
+    slow.join()
+    assert slow.result["cancelled_at_timeout"] is True and slow.result["task_s"] is None
+    assert any(path.endswith("/tasks/t1/cancel") for path, _ in _ScriptedHttp.posts)
+    monkeypatch.undo()
 
     # analytics refuses the product targets itself, before any request, process or file; and the
     # command refuses before anything else.
@@ -859,3 +1044,106 @@ def test_analytics_record(monkeypatch):
     logs = sorted((CHECKOUT / "logs").glob("lab-benchmark-*.json"))
     assert lab_benchmark.main(argv) == 2
     assert sorted((CHECKOUT / "logs").glob("lab-benchmark-*.json")) == logs
+
+
+# --- category A read back from its inputs (the walk's items 111 and 124) -----------------------
+
+
+def _a_card(resolved=True, classification=None, reason=None, **changes) -> dict:
+    inputs = {
+        "n": 7,
+        "valid": 8,
+        "tested": 7,
+        "undefined": 0,
+        "coverage": 0.875,
+        "min_coverage": 0.5,
+        "required_n": 7,
+        "r": 1,
+        "m": 2,
+        "probes": 8,
+        "valid_basis": "frame",
+        "p25": 90.0,
+        "p75": 110.0,
+        "iqr": 20.0,
+        "tau": 15.0,
+        "value": 100.0,
+        "distance": 10.0,
+        "peak_factor": 3.0,
+        "peak_line": 170.0,
+        "orientation": 1,
+    } | changes
+    return {
+        "resolved": resolved,
+        "classification": classification,
+        "reason": reason,
+        "inputs": inputs,
+    }
+
+
+def test_a_rule_reads_a_card_back_from_its_inputs():
+    rule = lab_benchmark.a_rule
+    # The three classifications, from the worker's own numbers.
+    assert rule(_a_card(classification="stable local")) == "stable local"  # |100 - 90| <= 15
+    mixed = _a_card(classification="mixed", value=150.0, distance=60.0)
+    assert rule(mixed) == "mixed"  # 60 > 15 and 150 <= 170
+    peak = _a_card(classification="isolated peak", value=200.0, distance=110.0)
+    assert rule(peak) == "isolated peak"  # 200 > 170 = 110 + 3 x 20
+    # A label the inputs do not give fails, whichever way it is wrong.
+    for card in (
+        _a_card(classification="mixed"),  # stable by the inputs
+        _a_card(classification="isolated peak", value=150.0, distance=60.0),  # not above the line
+        _a_card(classification="stable local", value=150.0, distance=60.0),  # not within tau
+    ):
+        with pytest.raises(AssertionError):
+            rule(card)
+    # The rule recomputes distance and the peak line: a worker feeding it a wrong one is caught.
+    with pytest.raises(AssertionError):
+        rule(_a_card(classification="stable local", distance=1.0))  # |100 - 90| is 10
+    with pytest.raises(AssertionError):
+        rule(_a_card(classification="mixed", value=150.0, distance=60.0, peak_line=120.0))
+    # A resolved card needs the coverage, the n and a spread: any shortfall fails.
+    for short in ({"coverage": 0.4}, {"n": 6}, {"tau": 0.0}):
+        with pytest.raises(AssertionError):
+            rule(_a_card(classification="stable local", **short))
+    # An unresolved card names the shortfall it has, for every reason the worker gives.
+    unmet = _a_card(False, reason="untested surroundings (coverage 0.0 of 0.5)", coverage=0.0, n=0)
+    assert rule(unmet) == "unresolved"
+    few = _a_card(False, reason="untested surroundings (n 3 of 7)", n=3, tested=3)
+    assert rule(few) == "unresolved"
+    flat = _a_card(False, reason="no spread in the metric (τ = 0)", tau=0.0)
+    assert rule(flat) == "unresolved"
+    gone = _a_card(False, reason="undefined metric value", value=None, distance=None)
+    assert rule(gone) == "unresolved"
+    for card in (
+        _a_card(False, reason="untested surroundings (coverage 0.9 of 0.5)"),  # enough evidence
+        _a_card(False, reason="no spread in the metric (τ = 0)"),  # tau > 0
+        _a_card(False, reason="no spread in the metric (τ = 0)", tau=0.0, coverage=0.1),  # short
+        _a_card(False, reason="undefined metric value"),  # the value is defined
+        _a_card(False, reason="a reason nobody sends"),
+    ):
+        with pytest.raises(AssertionError):
+            rule(card)
+
+
+def test_fixture_values_option(tmp_path):
+    root = tmp_path / "aegis"
+    document = lab_fixture.write_fixture(
+        root,
+        experiment_id="demo-wide",
+        trials=2_000,
+        parameters=10,
+        seed=3,
+        part_rows=1_000,
+        values=20,
+    )
+    saved = ExperimentStore(JsonRunRepository(root)).get(document.id)
+    assert "20 values per parameter" in saved.name
+    for k, parameter in enumerate(saved.surface.parameters):
+        assert parameter.path == BENCH_SURFACE[k].path and parameter.start == BENCH_SURFACE[k].start
+        assert parameter.step == BENCH_SURFACE[k].step
+        assert len(Parameter(**parameter.model_dump()).values()) == 20
+    trials = read_latest(ExperimentStore(JsonRunRepository(root)).cells_dir(document.id))
+    positions = np.column_stack([trials.table.column(f"pos.{k}").to_numpy() for k in range(10)])
+    assert positions.max() == 19 and len(trials.table) == 2_000  # 20 values reached on a path
+    assert lab_benchmark.fixture_id(1_000_000, 20) == "demo-synthetic-1m-20v"
+    assert lab_benchmark.fixture_id(1_000_000) == "demo-synthetic-1m"

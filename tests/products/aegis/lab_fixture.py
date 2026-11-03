@@ -32,7 +32,7 @@ from products.aegis.pool import METRICS, SCOPES
 from products.aegis.results import strategy_hash
 from products.aegis.runs import JsonRunRepository
 from products.aegis.strategy import StrategySpec
-from products.aegis.surface import Budget, Grid, Plan, Surface, build_grid
+from products.aegis.surface import Budget, Grid, Parameter, Plan, Surface, build_grid
 
 # The known function. Positions are compared with the midpoint of each path's position range
 # (BENCH_SURFACE's value counts), so a trial's structure never depends on the other trials.
@@ -52,7 +52,9 @@ ENGINE = "synthetic"
 PASS = "sample"
 
 
-def known_metrics(positions: np.ndarray, rng: np.random.Generator) -> dict[str, np.ndarray]:
+def known_metrics(
+    positions: np.ndarray, rng: np.random.Generator, top: np.ndarray | None = None
+) -> dict[str, np.ndarray]:
     """Every `<scope>.<metric>` (the ten metrics and `sharpe_trade`) of each row of `positions`
     ((n, d) uint16, d ≥ 7; only p0..p6 are read), NaN where undefined.
 
@@ -70,7 +72,9 @@ def known_metrics(positions: np.ndarray, rng: np.random.Generator) -> dict[str, 
         )
     n = len(positions)
     p = positions[:, :STRUCTURE_PATHS].astype(np.float64)
-    top = np.array([BENCH_SURFACE[k].n_values - 1 for k in range(STRUCTURE_PATHS)], np.float64)
+    if top is None:  # the bench surface's own value counts
+        top = np.array([BENCH_SURFACE[k].n_values - 1 for k in range(STRUCTURE_PATHS)], np.float64)
+    top = np.asarray(top, dtype=np.float64)[:STRUCTURE_PATHS]
     high = p > top / 2
     u = p / top
     xor = np.logical_xor(high[:, 0], high[:, 1])
@@ -140,7 +144,7 @@ def _tables(
     n = len(trial_nos)
     positions = np.column_stack([rng.integers(0, size, n) for size in grid.shape])
     positions = positions.astype(np.uint16)
-    metrics = known_metrics(positions, rng)
+    metrics = known_metrics(positions, rng, top=np.asarray(grid.shape, dtype=np.float64) - 1)
     elapsed = 40.0 + rng.gamma(2.0, 4.0, n)
     cells = positions.astype(np.int64) @ np.asarray(grid.strides, dtype=np.int64)
     values = [np.asarray(lattice, dtype=np.float64) for lattice in grid.values]
@@ -230,6 +234,7 @@ def write_fixture(
     parameters: int = 10,
     seed: int = 1,
     part_rows: int = 100_000,
+    values: int | None = None,
 ) -> ExperimentDocument:
     """`experiments/<id>.json.gz` (status done, layout 2) over the first `parameters` paths of
     BENCH_SURFACE, and `<id>.cells/` holding `part-<g>.parquet` for g in 1..trials / part_rows
@@ -244,6 +249,16 @@ def write_fixture(
         )
     spec = bench_strategy()
     surface = Surface(parameters=bench_surface().parameters[:parameters])
+    if values is not None:  # the same starts and steps, `values` lattice points on every path
+        surface = Surface(
+            parameters=[
+                Parameter(
+                    path=p.path, start=p.start, stop=p.start + p.step * (values - 1), step=p.step
+                )
+                for p in surface.parameters
+            ]
+        )
+        assert all(len(p.values()) == values for p in surface.parameters), values
     store = ExperimentStore(JsonRunRepository(Path(data_root)))
     cells_dir = store.cells_dir(experiment_id)
     documents = [cells_dir.parent / f"{experiment_id}{suffix}" for suffix in (".json.gz", ".json")]
@@ -294,7 +309,9 @@ def write_fixture(
             updated_at=created.isoformat(),
         ),
     )
-    document = _document(experiment_id, spec, surface, grid, trials, seed, unique, parts, created)
+    document = _document(
+        experiment_id, spec, surface, grid, trials, seed, unique, parts, created, values
+    )
     store.save(document)
     return document
 
@@ -309,6 +326,7 @@ def _document(
     unique: int,
     parts: int,
     created: datetime,
+    values: int | None = None,
 ) -> ExperimentDocument:
     case = BENCH_CASES["A"]
     planned = Plan(
@@ -342,6 +360,8 @@ def _document(
         unique_generation=parts,
     )
     name = "DEMO · synthetic 1M" if trials == 1_000_000 else f"DEMO · synthetic {trials:,}"
+    if values is not None:
+        name += f" ({values} values per parameter)"
     now = created.isoformat()
     return ExperimentDocument(
         id=experiment_id,
