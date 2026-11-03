@@ -3306,7 +3306,10 @@ class Acceptance:
             self.library_open("study", self.study_id)
             page.locator("#library-open").click()
             page.wait_for_selector(f'[id="study-row-{self.study_id}"].selected', timeout=60_000)
-            assert self.js(f"!!document.querySelector('[id=\"exp-{self.exp_id}\"].selected')")
+            # The study row renders from the experiment document; the experiment row needs the
+            # experiments list, which lands later on a large store (0 rows at the instant the study
+            # row is selected on a 134-experiment scratch store, selected 30 ms later): wait for it.
+            page.wait_for_selector(f'[id="exp-{self.exp_id}"].selected', timeout=60_000)
             return (
                 f"optimization {self.opt_job_id[:8]}: 40 matrix cells and 40 rows, a pick enables Load; "
                 f"walk-forward {self.wf_status['job_id'][:8]}: 6 windows, stitched and stability; "
