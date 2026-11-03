@@ -6,7 +6,9 @@ experiment the Lab routes read; the benchmark strategy carries the ten ranged pa
 2.87 × 10¹¹-cell surface; and `lab_benchmark.py` imports nothing heavy at module level, so the
 walk can import it on the Core interpreter."""
 
+import ast
 import copy
+import json
 import math
 import os
 import subprocess
@@ -897,6 +899,17 @@ def test_analytics_record(monkeypatch):
     text = lab_benchmark.throughput_basis(150.0, 152.0, 184.0, 8, 7.6)
     assert "whole-run" in text and "8-chunk" in text and "not comparable" in text, text
     assert "throughput_loss_matched" in text and "150.0" in text and "152.0" in text, text
+    # N-3: the matched figure is aligned by chunk position, and the tail says so (no "offsets");
+    # N-8: the window is named with a plain article, whatever its chunk count.
+    assert "at the same chunk positions" in text and "offsets" not in text, text
+    for chunks in (8, 9, 11, 18):
+        said = lab_benchmark.throughput_basis(150.0, 152.0, 184.0, chunks, 7.6)
+        assert f"the {chunks}-chunk window" in said, said
+    # N-4: the "about 2 s" of the convergence row is the Task 8 ruling's, not a spec line.
+    convergence = lab_benchmark._row_bases(1_000_000, 20, 1)["convergence"]
+    assert "Task 8 ruling" in convergence and "spec" not in convergence.replace("§9.6a", ""), (
+        convergence
+    )
 
     # The two views' requests, as the UI sends them: a Pareto front of the objective against max
     # drawdown, and the neighbourhood of a seeded trial (a different one every run).
@@ -994,8 +1007,19 @@ def test_analytics_record(monkeypatch):
     assert all({"row", "why", "owner"} <= set(entry) and entry["owner"] for entry in rows), rows
     text = " ".join(f"{entry['row']} {entry['why']}" for entry in rows)
     assert "10 parameters" in text and "no blocks" in text
-    assert "per-block mains" in text and "d = 20" in text and "K = 20" in text
+    assert "per-block mains" in text and "d = 20" in text
+    # N-2: "K = 20" is no configuration (a request takes 0 or 2-8 blocks, default 4): the rows say
+    # what d = 20 with blocks is, and two rows the fixtures also cannot give are named.
+    assert "d = 20 with blocks (K = 4 by default, up to 8)" in text and "K = 20" not in text
     assert "all-on-front" in text and "opt:" in text
+    by_row = {entry["row"]: entry for entry in rows}
+    fine = next(e for r, e in by_row.items() if r.startswith("the fine stage at d = 20"))
+    assert "20 values" in fine["row"] and "24-41 s" in fine["why"] and "30 s" in fine["why"]
+    assert "Phase 4" in fine["owner"], fine
+    card = next(e for r, e in by_row.items() if "candidate's card on a blocked experiment" in r)
+    assert "trial_blocks" in card["why"] and "K > 0" in card["why"], card
+    assert card["owner"] == "R3.5 or the blocked fixture", card
+    assert len(rows) == 7, [entry["row"] for entry in rows]
     # The re-test triggers read it like the others (rates from its cases).
     due = retest_due(
         ANALYTICS | {"host": PREVIOUS["host"]}, PREVIOUS | {"cases": ANALYTICS["cases"]}
@@ -1199,3 +1223,97 @@ def test_fixture_values_option(tmp_path):
     assert positions.max() == 19 and len(trials.table) == 2_000  # 20 values reached on a path
     assert lab_benchmark.fixture_id(1_000_000, 20) == "demo-synthetic-1m-20v"
     assert lab_benchmark.fixture_id(1_000_000) == "demo-synthetic-1m"
+
+
+# --- the memory rows: the sample, the cache bytes, B of the sampled candidates (fix round 2) ------
+
+NO_IMPORTANCE = "importance not computed for this snapshot"
+
+
+def test_memory_rows_parse_the_sample_and_the_build_answer():
+    # N-1: the sample the sampler reads carries the process's high-water mark beside its working
+    # set (Windows trims the working set between calls, so the post-call reading is noisy), and the
+    # build answer carries the Lab cache's bytes and entries, which are deterministic.
+    assert "PeakWorkingSet64" in lab_benchmark._SAMPLE
+    text = json.dumps(
+        {
+            "listener": 42,
+            "working_set": 600_000_000,
+            "peak_working_set": 760_000_000,
+            "rows": [
+                {"ProcessId": 42, "ParentProcessId": 7, "Name": "python.exe", "WorkingSetSize": 1},
+                {
+                    "ProcessId": 43,
+                    "ParentProcessId": 42,
+                    "Name": "python.exe",
+                    "WorkingSetSize": 150_000_000,
+                },
+            ],
+        }
+    )
+    sample = lab_benchmark._decode_sample(text)
+    assert sample["working_set"] == 600_000_000 and sample["peak_working_set"] == 760_000_000
+    assert sample["parent"] == 7 and sample["children"] == [{"pid": 43, "working_set": 150_000_000}]
+    gone = lab_benchmark._decode_sample(
+        json.dumps({"listener": 42, "working_set": None, "rows": []})
+    )
+    assert gone["working_set"] is None and gone["peak_working_set"] is None
+    build = {"engine_build": "e" * 64, "cache": {"bytes": 231_000_000, "entries": 3, "hits": 9}}
+    assert lab_benchmark.cache_read(build) == {"bytes": 231_000_000, "entries": 3}
+
+    before = {
+        "working_set": 500_000_000,
+        "peak_working_set": 520_000_000,
+        "cache": {"bytes": 1_000_000, "entries": 2},
+    }
+    after = {
+        "working_set": 480_000_000,
+        "peak_working_set": 700_000_000,
+        "cache": {"bytes": 232_000_000, "entries": 3},
+    }
+    assert lab_benchmark.first_call_memory(before, after) == {
+        "working_set_delta_mb": -20.0,
+        "peak_working_set_mb": 700.0,
+        "cache_bytes_before": 1_000_000,
+        "cache_bytes_after": 232_000_000,
+        "cache_delta_mb": 231.0,
+        "cache_entries_before": 2,
+        "cache_entries_after": 3,
+    }
+    note = lab_benchmark.FIRST_CALL_MEMORY_NOTE
+    assert "noisy" in note and "PeakWorkingSet64" in note and "cache" in note, note
+
+
+def test_candidate_cards_prove_that_b_ran():
+    # N-7: the candidate row times A plus B's region read; B reads the importance result, so a seed
+    # that missed it would make every card say so and the row would time A alone.
+    def card(resolved: bool, reason: str | None = None) -> dict:
+        return {"card": {"categories": {"B": {"resolved": resolved, "reason": reason}}}}
+
+    few = "too few sampled trials in the region (3 of 30)"
+    answers = [card(False, NO_IMPORTANCE)] * 18 + [card(True), card(False, few)]
+    summary = lab_benchmark.candidate_b_summary(answers)
+    assert summary == {
+        "cards": 20,
+        "b_resolved": 1,
+        "b_ran": 2,
+        "b_reasons": {NO_IMPORTANCE: 18, few: 1},
+    }
+    assert lab_benchmark.NO_IMPORTANCE == NO_IMPORTANCE
+    lab_benchmark.check_candidate_b(summary, importance_live=True)  # two ran
+    none = lab_benchmark.candidate_b_summary([card(False, NO_IMPORTANCE)] * 20)
+    assert none["b_ran"] == 0 and none["b_resolved"] == 0
+    with pytest.raises(AssertionError, match="timed A alone"):
+        lab_benchmark.check_candidate_b(none, importance_live=True)
+    lab_benchmark.check_candidate_b(none, importance_live=False)  # no result to read: not asked
+
+
+def test_module_docstrings_hold_no_control_character():
+    # N-5: a single backslash in a normal docstring (`data\temp`, `products\aegis`) is a TAB, a
+    # BEL; `argparse` prints the walk's module docstring in `--help`. Both modules, as text.
+    for name in ("browser_workstation.py", "lab_benchmark.py"):
+        tree = ast.parse((BENCH_DIR / name).read_text(encoding="utf-8"))
+        doc = ast.get_docstring(tree, clean=False)
+        assert doc, name
+        bad = [(i, hex(ord(c))) for i, c in enumerate(doc) if ord(c) < 32 and c != "\n"]
+        assert not bad, (name, bad)

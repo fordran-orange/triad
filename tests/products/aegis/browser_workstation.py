@@ -12,10 +12,10 @@ Run:  .venv/Scripts/python.exe tests/products/aegis/browser_workstation.py [--ba
       [--only lab] [--port N] [--data-root PATH] [--pid-file PATH]
 The Lab block against a scratch worker (never the product's; -Workers 10 only speeds the bench
 fixture's build, no asserted value reads it):
-      tools\\start_aegis_scratch.ps1 -Port 8103 -DataRoot C:\\Triad\\data\temp\\lab-scratch -Workers 10
-      C:\\Triad\\.venv\\Scripts\\python.exe tests\\products\aegis\browser_workstation.py
-        --base http://127.0.0.1:8103/aegis/ --only lab --data-root C:\\Triad\\data\temp\\lab-scratch
-        --pid-file logs\aegis-scratch.pid
+      tools\\start_aegis_scratch.ps1 -Port 8103 -DataRoot C:\\Triad\\data\\temp\\lab-scratch -Workers 10
+      C:\\Triad\\.venv\\Scripts\\python.exe tests\\products\\aegis\\browser_workstation.py
+        --base http://127.0.0.1:8103/aegis/ --only lab --data-root C:\\Triad\\data\\temp\\lab-scratch
+        --pid-file logs\\aegis-scratch.pid
 Exit code 0 only when every item run PASSES with no page errors.
 Needs `pip install playwright` and `python -m playwright install chromium`.
 """

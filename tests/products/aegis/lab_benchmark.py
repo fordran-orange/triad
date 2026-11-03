@@ -120,7 +120,7 @@ TRACK_ANALYTICS_LIMITS = {"importance_task_s": 180.0, "fine_stage_s": 30.0}
 # What the 1M fixtures cannot give, each row with its owner (the record's `not_measured`).
 ANALYTICS_NOT_MEASURED = [
     {
-        "row": "the importance task at d = 20 and K = 20 blocks (§9.4's 180 s budget at its stated scale)",
+        "row": "the importance task at d = 20 with blocks (K = 4 by default, up to 8) (§9.4's 180 s budget at its stated scale)",
         "why": "the 1M fixtures have 10 parameters and no blocks, so the per-block mains (stage 2's "
         "K x 200 cheap passes) and the d = 20 cost are not measured here; the task is a "
         "10-parameter, 50,000-row one",
@@ -147,9 +147,21 @@ ANALYTICS_NOT_MEASURED = [
         "owner": "R3.5",
     },
     {
-        "row": "plan against actual at K = 20 blocks",
-        "why": "the blocked run is K = 4",
+        "row": "plan against actual at d = 20 with blocks (K = 4 by default, up to 8)",
+        "why": "the blocked run is K = 4 at d = 10",
         "owner": "Task 2's price model; an R3.5 finding",
+    },
+    {
+        "row": "the fine stage at d = 20 with 20 values per parameter beside a job",
+        "why": "Task 4 measured 24-41 s alone against the 30 s line; `fine_stage_20_s` is the "
+        "10-parameter, 20-value row, which at d = 10 reads as it does at 12-19 values",
+        "owner": "Phase 4's 20-parameter fixture",
+    },
+    {
+        "row": "a candidate's card on a blocked experiment",
+        "why": "`trial_blocks` reads the trial's block rows only when K > 0 and no K = 0 fixture "
+        "exercises it; the card's C finding is not timed",
+        "owner": "R3.5 or the blocked fixture",
     },
 ]
 RECORDED_OPERATIONS = ("rankings", "convergence", "pareto_3")  # timed, never judged (no §9.6a line)
@@ -813,7 +825,8 @@ _SAMPLE = (
     " | Select-Object ProcessId, ParentProcessId, Name, WorkingSetSize); "
     "$p = Get-Process -Id $l -ErrorAction SilentlyContinue; "
     "ConvertTo-Json -Compress -Depth 4 -InputObject @{listener = $l; "
-    "working_set = $(if ($p) { $p.WorkingSet64 } else { $null }); rows = $rows}"
+    "working_set = $(if ($p) { $p.WorkingSet64 } else { $null }); "
+    "peak_working_set = $(if ($p) { $p.PeakWorkingSet64 } else { $null }); rows = $rows}"
 )
 
 
@@ -840,8 +853,73 @@ def _decode_sample(text: str) -> dict:
         "listener": listener,
         "parent": parent,
         "working_set": raw.get("working_set"),
+        "peak_working_set": raw.get("peak_working_set"),  # PeakWorkingSet64: the high-water mark
         "children": children,
     }
+
+
+def cache_read(build: dict) -> dict:
+    """The Lab cache's size from `GET /api/lab/build`: its bytes and entries, which are the
+    deterministic size of what a first call put there (the working set is not)."""
+    cache = build["cache"]
+    return {"bytes": int(cache["bytes"]), "entries": int(cache["entries"])}
+
+
+def first_call_memory(before: dict, after: dict) -> dict:
+    """What one first (cold) call did to the worker's memory, from a probe before it and one just
+    after it (`{working_set, peak_working_set, cache}`, bytes): the working set's change, which is
+    noisy; the process's peak working set after it; and the Lab cache's bytes and entries."""
+    return {
+        "working_set_delta_mb": round((after["working_set"] - before["working_set"]) / MB, 3),
+        "peak_working_set_mb": round(after["peak_working_set"] / MB, 3),
+        "cache_bytes_before": before["cache"]["bytes"],
+        "cache_bytes_after": after["cache"]["bytes"],
+        "cache_delta_mb": round((after["cache"]["bytes"] - before["cache"]["bytes"]) / MB, 3),
+        "cache_entries_before": before["cache"]["entries"],
+        "cache_entries_after": after["cache"]["entries"],
+    }
+
+
+FIRST_CALL_MEMORY_NOTE = (
+    "the worker's memory around each row's first (cold) call, in this order. `working_set_delta_mb` "
+    "is a post-call working-set reading and noisy (Windows trims it between calls: the same code "
+    "read +231 and +7 MB for one call): read `peak_working_set_mb` (the process's PeakWorkingSet64, "
+    "its high-water mark) and the cache bytes (`cache_delta_mb`, deterministic) instead. The three "
+    "views read one cached table (design, pass, the ten paths, pos.k, the metric), so the first "
+    "call pays for it"
+)
+NO_IMPORTANCE = (
+    "importance not computed for this snapshot"  # B's reason without an importance result
+)
+
+
+def candidate_b_summary(answers: list[dict]) -> dict:
+    """How many of the sampled candidate cards had B run: `b_ran` counts those whose B did not read
+    NO_IMPORTANCE (resolved, or unresolved for another reason such as too few sampled trials);
+    `b_resolved` those it resolved; `b_reasons` what the unresolved ones said."""
+    reasons: dict[str, int] = {}
+    resolved = 0
+    for answer in answers:
+        b = answer["card"]["categories"]["B"]
+        if b["resolved"]:
+            resolved += 1
+        else:
+            reasons[b["reason"]] = reasons.get(b["reason"], 0) + 1
+    return {
+        "cards": len(answers),
+        "b_resolved": resolved,
+        "b_ran": len(answers) - reasons.get(NO_IMPORTANCE, 0),
+        "b_reasons": reasons,
+    }
+
+
+def check_candidate_b(summary: dict, *, importance_live: bool) -> None:
+    """With the importance result live, at least one sampled card's B must have run, or the
+    `candidate` row timed A alone (a seed that missed the result)."""
+    assert not importance_live or summary["b_ran"] > 0, (
+        f"the candidate row timed A alone: all {summary['cards']} sampled cards read "
+        f"'{NO_IMPORTANCE}' with the importance result live (a seed mismatch?)"
+    )
 
 
 def worker_sample(listener: int) -> dict:
@@ -1026,16 +1104,19 @@ def _timed(
     runs: int,
     basis: str,
     on_first: Callable[[], None] | None = None,
+    collect: list | None = None,
 ) -> dict:
     """`runs` runs of `operation`, each timed: the stats of all of them (the first included, which
     is cold on a fresh worker), the first apart as `cold_ms` and the rest as `warm_ms`. `on_first`
-    is called once after the first run, outside its timing."""
+    is called once after the first run, outside its timing; with `collect`, every answer is kept."""
     samples = []
     for i in range(runs):
         steps = operation(i)
         started = time.perf_counter()
         for method, path, body in steps:
-            call(method, path, body)
+            answer = call(method, path, body)
+            if collect is not None:
+                collect.append(answer)
         samples.append((time.perf_counter() - started) * 1000)
         if i == 0 and on_first is not None:
             on_first()
@@ -1846,16 +1927,15 @@ def throughput_basis(
     seconds: float,
 ) -> str:
     """The headline throughput loss in words: what its two rates are and which figure to read."""
-    article = "an" if str(chunks).startswith("8") or chunks in (11, 18) else "a"
     return (
         "1 - loaded.trials_per_s / quiet.trials_per_s. quiet.trials_per_s "
         f"{quiet if quiet is None else round(quiet, 1)} (and quiet_after.trials_per_s "
         f"{quiet_after if quiet_after is None else round(quiet_after, 1)}) are whole-run rates, a "
         "run's start-up gap and its compaction pause in them; loaded.trials_per_s "
-        f"{loaded if loaded is None else round(loaded, 1)} is the rate of {article} {chunks}-chunk "
+        f"{loaded if loaded is None else round(loaded, 1)} is the rate of the {chunks}-chunk "
         f"window ({seconds:.1f} s) while the task ran. They are not comparable here (the loaded "
         "window sits clear of the pauses, so this figure reads as the job speeding up): read "
-        "throughput_loss_matched, the window against the quiet run at the same offsets"
+        "throughput_loss_matched, the window against the quiet run at the same chunk positions"
     )
 
 
@@ -2206,8 +2286,8 @@ def _row_bases(trials: int, runs: int, task_seed: int) -> dict[str, str]:
         "neighbourhood": f"{runs} HTTP runs of the neighbourhood view, a different seeded trial "
         "each, cold first included; judged at §9.6a's 150 ms",
         "convergence": f"{runs} HTTP runs at {trials:,} trials, d = 10: the first is cold (the "
-        "payload is cached after it), the rest warm; recorded with spec §9.6's ≈ 2 s line of the "
-        "Task 8 ruling in view, no §9.6a line is stated for it",
+        "payload is cached after it), the rest warm; recorded with the ≈ 2 s of the Task 8 "
+        "ruling in view; §9.6a states no line for it",
         "rankings": "the robustness view's ranking (pool 300, k 20, B on the top 20) before any "
         f"importance result exists, so B is not run: {runs} HTTP runs, the first cold",
         "rankings_importance": "the same ranking with the importance task's result at this "
@@ -2292,23 +2372,38 @@ def analytics(
     def over_http(method: str, path: str, body: dict | None) -> Any:
         return http_client.call(method, "api/" + path, body)
 
-    def rss() -> int:
-        return int(worker_sample(listener)["working_set"])
+    def probe() -> dict:
+        """The worker's working set and its peak (the sampler) and the Lab cache's size (the build
+        read), now."""
+        sample = worker_sample(listener)
+        return {
+            "working_set": int(sample["working_set"]),
+            "peak_working_set": int(sample["peak_working_set"]),
+            "cache": cache_read(http_client.get("api/lab/build")),
+        }
+
+    first_calls: dict[str, dict] = {}
+
+    def timed_cold(name: str, operation, collect: list | None = None) -> dict:
+        """`operation`'s runs with a probe before the first call and one just after it."""
+        held: dict = {}
+        before = probe()
+        row = _timed(
+            over_http,
+            operation,
+            runs,
+            "http",
+            on_first=lambda: held.update(after=probe()),
+            collect=collect,
+        )
+        first_calls[name] = first_call_memory(before, held["after"])
+        return row
 
     operations = _operations(document, trials, seed, task_seed=task_seed)
     timed = record["operations"]
-    first_call_rss: dict[str, float] = {}
-    resident_before = rss()
+    resident_before = probe()
     for name in ("neighbourhood", "convergence", "rankings"):  # each one's first call is cold
-        before, held = rss(), {}
-        timed[name] = _timed(
-            over_http,
-            operations[name],
-            runs,
-            "http",
-            on_first=lambda held=held: held.update(after=rss()),
-        )
-        first_call_rss[name] = round((held["after"] - before) / MB, 3)
+        timed[name] = timed_cold(name, operations[name])
     timed["pareto"] = _timed(over_http, operations["pareto"], runs, "http")
     timed["pareto_3"] = _timed(over_http, operations["pareto_3"], runs, "http")
     from products.aegis.pool import METRICS
@@ -2335,15 +2430,23 @@ def analytics(
                 "|".join(p): n for p, n in sorted(fronts.items(), key=lambda kv: -kv[1])[:8]
             },
         }
-    resident_after = rss()
-    record["resources"] = {
-        "first_call_rss_delta_mb": first_call_rss,
-        "first_call_rss_note": "the worker's working set before and after each first call, in "
-        "this order; the three views read one cached table (design, pass, the ten paths, pos.k, "
-        "the metric), so the first call pays for it",
+    resident_after = probe()
+    resources = record["resources"] = {
+        "first_call_memory": first_calls,
+        "first_call_memory_note": FIRST_CALL_MEMORY_NOTE,
         "worker_working_set_mb": {
-            "before_the_views": round(resident_before / MB, 3),
-            "after_the_views": round(resident_after / MB, 3),
+            "before_the_views": round(resident_before["working_set"] / MB, 3),
+            "after_the_views": round(resident_after["working_set"] / MB, 3),
+        },
+        # The process's high-water mark: the peak of any transient (the "460 MB peak" row against
+        # the 450 MB resource line), which a post-call working set cannot see.
+        "worker_peak_working_set_mb": {
+            "before_the_views": round(resident_before["peak_working_set"] / MB, 3),
+            "after_the_views": round(resident_after["peak_working_set"] / MB, 3),
+        },
+        "lab_cache": {
+            "before_the_views": resident_before["cache"],
+            "after_the_views": resident_after["cache"],
         },
     }
 
@@ -2382,8 +2485,18 @@ def analytics(
     )["rankings"]
     pool = [row["trial_id"] for row in ranking_all["peak_ranked"]]
     live = _operations(document, trials, seed, task_seed=task_seed, pool=pool)
-    timed["rankings_importance"] = _timed(over_http, live["rankings"], runs, "http")
-    timed["candidate"] = _timed(over_http, live["candidate"], runs, "http")
+    timed["rankings_importance"] = timed_cold("rankings_importance", live["rankings"])
+    candidate_answers: list[dict] = []
+    timed["candidate"] = timed_cold("candidate", live["candidate"], collect=candidate_answers)
+    # The candidate row is A plus B's region read only if B ran: count the cards on which it did,
+    # and stop here, not after the long passes, if the importance result was live and none did.
+    record["candidate_b"] = candidate_b_summary(candidate_answers)
+    check_candidate_b(record["candidate_b"], importance_live=task.get("state") == "done")
+    after_cards = probe()
+    resources["worker_peak_working_set_mb"]["after_the_candidate_rows"] = round(
+        after_cards["peak_working_set"] / MB, 3
+    )
+    resources["lab_cache"]["after_the_candidate_rows"] = after_cards["cache"]
     record["ranking_pool"] = {
         "pool": ranking_all["pool"],
         "k": 20,
