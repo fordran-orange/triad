@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from trading_core.api import local_headers
 from trading_core.process_power import opt_out_of_power_throttling
+from trading_core.settings import AegisSettings
 from trading_core.store import Store
 
 import products.aegis
@@ -80,7 +81,9 @@ def live():
 
 
 @app.get("/aegis/api/status")
-def status():
+def status(settings: AegisSettings = api.WORKER_SETTINGS):
+    # The product's work items on Core's store, with the worker's own view of the configuration.
+    work = Store(settings=settings, scope="aegis").list_work()
     return {
         "product": "aegis",
         "mode": "human_directed",
@@ -89,7 +92,7 @@ def status():
         "exchange": "CLOSED",
         "kernel_available": kernel.AVAILABLE,
         "kernel_error": kernel.IMPORT_ERROR,
-        "work_items": [w.model_dump(mode="json") for w in Store(scope="aegis").list_work()],
+        "work_items": [w.model_dump(mode="json") for w in work],
     }
 
 

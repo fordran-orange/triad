@@ -24,6 +24,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from trading_core.settings import AegisSettings
 
 from products.aegis import display, phrases
 from products.aegis import experiments as experiments_module
@@ -149,11 +150,19 @@ def get_learned(repository: RunRepository = REPOSITORY) -> LearnedPhrases:
     return LearnedPhrases(Path(root) if root is not None else aegis_data_root())
 
 
-def get_core_reasoning() -> CoreReasoning:
-    """Mission 14: Core's read-only reasoning route, with this product's own key."""
-    from trading_core.settings import Settings
+def get_worker_settings() -> AegisSettings:
+    """The worker's view of Core's configuration, read per request as before: its work-item
+    store and its own product key, never the whole `Settings` with the operator token
+    (docs/AEGIS_WORKER_ENVIRONMENT.md)."""
+    return AegisSettings()
 
-    return CoreReasoning(key=Settings().aegis_product_key.get_secret_value())
+
+WORKER_SETTINGS = Depends(get_worker_settings)
+
+
+def get_core_reasoning(settings: AegisSettings = WORKER_SETTINGS) -> CoreReasoning:
+    """Mission 14: Core's read-only reasoning route, with this product's own key."""
+    return CoreReasoning(key=settings.aegis_product_key.get_secret_value())
 
 
 LEARNED = Depends(get_learned)

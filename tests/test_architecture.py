@@ -118,7 +118,7 @@ def test_aegis_shell_and_legacy_redirect(monkeypatch):
 
     from fastapi.testclient import TestClient
     from platform_host.api import app as gateway
-    from products.aegis import server
+    from products.aegis import api, server
     from products.aegis.server import app as product
 
     response = TestClient(product).get("/aegis")
@@ -127,6 +127,8 @@ def test_aegis_shell_and_legacy_redirect(monkeypatch):
     assert TestClient(product).get("/health/live").json()["product"] == "aegis"
     # The governance contract is the status shape, not the page copy: human-directed,
     # exchange closed. Triad's post-merge verifier and Core dashboards read these fields.
+    # No Core configuration is read: the worker's settings and its store are stood in for.
+    monkeypatch.setitem(product.dependency_overrides, api.get_worker_settings, lambda: None)
     monkeypatch.setattr(server, "Store", lambda **_: SimpleNamespace(list_work=list))
     status = TestClient(product).get("/aegis/api/status").json()
     assert status["product"] == "aegis" and status["mode"] == "human_directed"
@@ -167,3 +169,37 @@ def test_product_libraries_absent_from_core_and_triad():
             [str(python), "-c", probe], capture_output=True, text=True, timeout=60, check=False
         )
         assert result.stdout.strip() == expected, (environment, result.stdout, result.stderr)
+
+
+def test_product_settings_carry_no_core_only_secret():
+    """A product worker builds its own view of Core's configuration, never the whole `Settings`
+    (docs/AEGIS_WORKER_ENVIRONMENT.md): the store it is scoped to and its own key. Core's model
+    keeps its fields and its required set; the product model shares the one `.env`, no second file."""
+    from trading_core.settings import AegisSettings, Settings, StoreSettings
+
+    core_only = {
+        "triad_operator_token",
+        "neo4j_password",
+        "neo4j_user",
+        "neo4j_uri",
+        "ollama_url",
+        "ollama_model",
+        "local_model_enabled",
+    }
+    store = set(StoreSettings.model_fields)
+    assert store == {
+        "postgres_host",
+        "postgres_port",
+        "postgres_db",
+        "postgres_user",
+        "postgres_password",
+    }
+    assert set(Settings.model_fields) == store | core_only | {"aegis_product_key"}
+    required = {name for name, field in Settings.model_fields.items() if field.is_required()}
+    assert required == {"postgres_password", "neo4j_password"}
+    assert set(AegisSettings.model_fields) == store | {"aegis_product_key"}
+    assert not issubclass(AegisSettings, Settings)
+    assert not (core_only & set(dir(AegisSettings)))
+    for model in (Settings, AegisSettings):
+        assert model.model_config["env_file"] == ROOT / ".env"
+        assert model.model_config["extra"] == "ignore"

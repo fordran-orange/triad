@@ -68,6 +68,7 @@ def client(tmp_path, monkeypatch, lab_cache):
     # One instance per test, captured: an override runs on every request, so a fresh cache per
     # call would never hit and an evict in a test would reach no route's cache.
     server.app.dependency_overrides[api.get_lab_cache] = lambda: lab_cache
+    server.app.dependency_overrides[api.get_worker_settings] = lambda: None  # no Core configuration
     monkeypatch.setattr(server, "Store", lambda **_: SimpleNamespace(list_work=list))
     # No Lab request ever builds the worker's own runner on the real store, nor its Lab task
     # executor: one per test reads the test's runner and is shut down when the test ends.
