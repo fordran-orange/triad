@@ -157,3 +157,42 @@ def test_no_product_module_names_cores_whole_settings():
             ):
                 offenders.append((str(path.relative_to(package)), ["trading_core.settings"]))
     assert offenders == []
+
+
+@pytest.fixture
+def unconfigured_worker(monkeypatch, no_process_values):
+    """The worker's settings cannot be built: the dependency meets the real error a checkout
+    without `.env` raises, while the process holds dummy values an answer must never show."""
+    monkeypatch.setenv("TRIAD_OPERATOR_TOKEN", dummy("TRIAD_OPERATOR_TOKEN"))
+    monkeypatch.setenv("POSTGRES_HOST", dummy("POSTGRES_HOST"))
+    with pytest.raises(ValidationError) as caught:
+        AegisSettings(_env_file=None)
+    error = caught.value
+
+    def raising():
+        raise error
+
+    monkeypatch.setattr(api, "AegisSettings", raising)
+    monkeypatch.setattr(server, "Store", lambda **_: pytest.fail("the store must not be built"))
+    return TestClient(server.app, raise_server_exceptions=False)
+
+
+def test_a_missing_store_credential_is_a_503_naming_the_field(unconfigured_worker):
+    answer = unconfigured_worker.get("/aegis/api/status")
+    assert answer.status_code == 503
+    detail = answer.json()["detail"]
+    assert detail["reason"] == "worker_unconfigured"
+    assert detail["fields"] == [{"name": "postgres_password", "type": "missing"}]
+    assert "postgres_password" in detail["message"]
+    assert dummy("TRIAD_OPERATOR_TOKEN") not in answer.text
+    assert dummy("POSTGRES_HOST") not in answer.text
+
+
+def test_the_providers_route_answers_the_same_503(unconfigured_worker):
+    answer = unconfigured_worker.get("/aegis/api/phrases/providers")
+    assert answer.status_code == 503
+    assert answer.json()["detail"]["reason"] == "worker_unconfigured"
+
+
+def test_health_live_needs_no_configuration(unconfigured_worker):
+    assert unconfigured_worker.get("/health/live").json()["status"] == "ok"

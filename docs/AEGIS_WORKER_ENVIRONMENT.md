@@ -103,9 +103,18 @@ python-dotenv on quoting. It remains available as a later hardening with its own
 - Core's own callers (`Store()`, the gateway's engine, the supervisor, the tools) keep building
   `Settings`; the class name, fields and required set are unchanged.
 
-**Boundary kept:** the only Core file changed is `app/trading_core/settings.py` (the model). The
-one-line widening of `Store.__init__`'s annotation (`Settings | None` → `StoreSettings | None`,
-no runtime effect) is left for the operator's word, as is anything else under `app/trading_core/`.
+**Boundary kept:** the Core files changed are `app/trading_core/settings.py` (the model) and,
+on the operator's word of 2026-11-04 ("Yes, both"), the one-line widening of `Store.__init__`'s
+annotation in `store.py` (`Settings | None` → `StoreSettings | None`, no runtime effect). Nothing
+else under `app/trading_core/`.
+
+**Added on the same word:** a configuration the worker cannot build is a 503 instead of a bare
+500. `api.get_worker_settings` turns the pydantic error into
+`{"reason": "worker_unconfigured", "fields": [{"name": ..., "type": ...}], "message": ...}`: field
+names and error types only, never a value, and the pydantic error is not chained (its `errors()`
+carry the present values). `/health/live` needs no configuration and is unchanged, so the
+supervisor's view does not move; the phrase bar already shows a failed providers call as its
+unavailable message.
 
 ## 3. What changed
 
@@ -114,15 +123,17 @@ no runtime effect) is left for the operator's word, as is anything else under `a
 | `app/trading_core/settings.py:15` | `StoreSettings`: the five `postgres_*` fields, `env_file=ROOT / ".env"`, `extra="ignore"` |
 | `app/trading_core/settings.py:28` | `Settings(StoreSettings)`: the same thirteen fields and two required ones as before, now on the base |
 | `app/trading_core/settings.py:42` | `AegisSettings(StoreSettings)`: `aegis_product_key` and nothing else |
-| `app/products/aegis/api.py:153-160` | `get_worker_settings()` builds `AegisSettings` per request; `WORKER_SETTINGS = Depends(...)` |
+| `app/products/aegis/api.py:153-175` | `get_worker_settings()` builds `AegisSettings` per request, or answers 503 `worker_unconfigured` naming the fields and error types; `WORKER_SETTINGS = Depends(...)` |
+| `app/trading_core/store.py:12,33` | `Store.__init__(settings: StoreSettings | None)`: the annotation names the base every product view is built on (operator's word, 2026-11-04) |
 | `app/products/aegis/api.py:163-165` | `get_core_reasoning(settings=WORKER_SETTINGS)` takes the key from the worker's settings (was `Settings().aegis_product_key`) |
 | `app/products/aegis/server.py:84-86` | the status route takes `WORKER_SETTINGS` and calls `Store(settings=settings, scope="aegis")` (was `Store(scope="aegis")`) |
-| `tests/test_aegis_settings.py` (new, aegis) | eight tests, §4 below |
-| `tests/test_architecture.py:174` (core) | `test_product_settings_carry_no_core_only_secret`; the shell test (`:131`) overrides the settings dependency |
+| `tests/test_aegis_settings.py` (new, aegis) | eleven tests, §4 below (the last three: the 503) |
+| `tests/test_architecture.py:174`, `:208` (core) | `test_product_settings_carry_no_core_only_secret`, `test_the_store_accepts_a_product_settings_view`; the shell test (`:131`) overrides the settings dependency |
 | `tests/test_aegis_api.py:53`, `tests/test_aegis_lab_api.py:71` | the client fixtures override `api.get_worker_settings`, so no request reads `ROOT/.env` |
 
 Unchanged: `tools/start_product.ps1`, `tools/ensure_product_worker.py`, `tools/start_aegis_scratch.ps1`,
-`app/platform_host/`, `app/products/triad/`, `app/trading_core/store.py`, `.env.example`.
+`app/platform_host/`, `app/products/triad/`, `.env.example`; `app/trading_core/store.py` only in
+its annotation and import line.
 
 ## 4. Proof (2026-11-03, this worktree; the main checkout untouched)
 
@@ -158,16 +169,25 @@ Unchanged: `tools/start_product.ps1`, `tools/ensure_product_worker.py`, `tools/s
   | --- | --- | --- | --- | --- |
   | N1 | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `AEGIS_PRODUCT_KEY` and nothing else from `.env` (no Neo4j value at all) | 200 | **200**, 29 work items from Core's Postgres | **200**, Claude / Codex / Grok available, answered by Core against the product key |
   | N2 | none | 200 | 500, log: `1 validation error for AegisSettings ... Field required ... input_value={}` (`postgres_password`) | 500, the same |
+  | N3 (after the 503 change, 2026-11-04) | none | 200 | **503** `{"detail": {"reason": "worker_unconfigured", "fields": [{"name": "postgres_password", "type": "missing"}], "message": "the worker's configuration is incomplete (postgres_password missing); see .env.example"}}` | 503, the same |
 
   Before the change the same N1 environment failed both routes on `neo4j_password` (§1.3, run 1
   and the dummy in run 3). The worker on 8102 was not touched.
+- 2026-11-04, the two additions on the operator's word, tests first and watched fail (500 on both
+  routes; the annotation naming only `Settings`): `tests/test_aegis_settings.py` 11 tests with
+  `test_aegis_api` and `test_aegis_ai_reading` 97 passed; core `test_architecture` (10 tests, the
+  two worktree-only failures as before), `test_core_product_reasoning_api`, `test_api` and
+  `test_product_worker_supervisor` green except `test_api::test_no_governance_or_trading_endpoints`,
+  which wants a `.env` for the operator check and passes with this code once `TRADING_HOME` points
+  Core's root at the main checkout. Lint green on the scope and on `store.py`, `settings.py`.
 - The walk is not re-run by this branch (a credential change is QA'd independently); item 98 and
   the status reads exercise the two changed call sites.
 
 Full Aegis scope record (`.venv-aegis`, `PYTHONPATH` on this worktree, `pytest -q -p no:cacheprovider`
 from the worktree root): `scope aegis: 1282 run, the full scope; 1662 owned by other scopes
 deselected (core 604, triad 1058)`; `1280 passed, 2 skipped` (the QQQ archive is not on this
-machine; live integration) in 10 min 59 s.
+machine; live integration) in 10 min 59 s. After the two additions of 2026-11-04: `scope aegis:
+1285 run, the full scope`; `1283 passed, 2 skipped` in 12 min 1 s.
 
 ## 5. Independent QA must check (dispatched by the operator's session)
 
@@ -190,13 +210,18 @@ machine; live integration) in 10 min 59 s.
    `TestClient` requests never read `ROOT/.env` (run the aegis scope from a checkout without
    `.env`, as this worktree is: the overrides make it pass).
 
-## 6. Open points for the operator
+## 6. Open points for the operator (his answers of 2026-11-04 in brackets)
 
 1. Widen `Store.__init__`'s annotation to `StoreSettings | None` (one line in `store.py`)?
+   [Yes: done on this branch, §3.]
 2. The worker imports `trading_core.api` for `local_headers`, which loads Core's operator surface
    (Brain, Orchestrator, runtime) into the product process. A lighter home for the middleware would
-   shrink the product's Core surface; it is a Core change beyond this note.
-3. The launcher allow-list (§2, not chosen): wanted later as defence in depth, or not?
+   shrink the product's Core surface; it is a Core change beyond this note. [Started as its own
+   session, "Core: a lighter home for local_headers".]
+3. The launcher allow-list (§2, not chosen): wanted later as defence in depth, or not? [Advised
+   against: the launcher passes nothing from `.env`; an allow-list would need a PowerShell `.env`
+   parser on the supervisor's recovery path. Open.]
 4. A missing store credential is a bare 500 on `/aegis/api/status`; a 503 naming the missing field
-   would read better in the walk and the supervisor log. Product-only, not done here.
-5. The Aegis work item chip `task_1efcb8c1` (the standing item) closes after merge.
+   would read better in the walk and the supervisor log. [Yes: done on this branch, §2 and §3.]
+5. The Aegis work item chip `task_1efcb8c1` (the standing item) closes after merge. [Operator's
+   action after the merge.]

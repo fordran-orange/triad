@@ -153,8 +153,24 @@ def get_learned(repository: RunRepository = REPOSITORY) -> LearnedPhrases:
 def get_worker_settings() -> AegisSettings:
     """The worker's view of Core's configuration, read per request as before: its work-item
     store and its own product key, never the whole `Settings` with the operator token
-    (docs/AEGIS_WORKER_ENVIRONMENT.md)."""
-    return AegisSettings()
+    (docs/AEGIS_WORKER_ENVIRONMENT.md). A configuration that cannot be built is a 503 naming
+    the fields and their error types, never a value, and the error is not chained."""
+    try:
+        return AegisSettings()
+    except ValidationError as exc:
+        fields = [
+            {"name": ".".join(str(part) for part in error["loc"]), "type": error["type"]}
+            for error in exc.errors()
+        ]
+        named = ", ".join(f"{field['name']} {field['type']}" for field in fields)
+        raise HTTPException(
+            503,
+            {
+                "reason": "worker_unconfigured",
+                "fields": fields,
+                "message": f"the worker's configuration is incomplete ({named}); see .env.example",
+            },
+        ) from None
 
 
 WORKER_SETTINGS = Depends(get_worker_settings)
