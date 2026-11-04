@@ -18,10 +18,12 @@ export interface Reading {
 
 const LEVELS = ['stop_loss_pct', 'take_profit_pct'] as const;
 
-/** A disabled range around a stop or target, as a new indicator gets one around its length. */
+/** A disabled range around a stop or target, as a new indicator gets one around its length:
+ * half the percentage to twice it in quarter steps, as `defaultRanges` ranges a parameter, with
+ * no floor (a 0.2% stop ranges 0.1 to 0.4) and a stop loss kept below the contract's 100. */
 export function levelRange(path: (typeof LEVELS)[number], pct: number): OptimizationParameter {
   const stop = path === 'stop_loss_pct' ? Math.min(99, pct * 2) : pct * 2;
-  return { path, enabled: false, start: Math.max(0.5, Math.round(pct * 5) / 10), stop, step: 0.5 };
+  return { path, enabled: false, start: pct / 2, stop, step: pct / 4 };
 }
 
 /** The side with default (disabled) ranges for each indicator and level `isNew` accepts, as an

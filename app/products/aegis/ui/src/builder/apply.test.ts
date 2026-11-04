@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RuleSpec, StrategySide, StrategySpec } from '../contracts';
 import { defaultRanges } from '../state/workspace';
-import { applyReading } from './apply';
+import { applyReading, levelRange } from './apply';
 
 const rule = (left: string, operator: string, right: string): RuleSpec => ({ left, operator, right, timing: 'bar_close' });
 const indicator = (id: string, kind: string, length: number) => ({ id, kind, length, source: 'close', overlay: true });
@@ -50,5 +50,26 @@ describe('applyReading', () => {
     expect(strategy.long_side.optimization!.slice(0, 2)).toEqual(reference.long_side.optimization);
     expect(paths).toContain('indicators.rsi.length');
     expect(graphs.long!.blocks.some((b) => b.settings.badge)).toBe(false);
+  });
+});
+
+describe('levelRange (Mission 13 review I1)', () => {
+  const LEVELS = ['stop_loss_pct', 'take_profit_pct'] as const;
+
+  it.each([0.05, 0.1, 0.2, 0.25, 2, 60])('gives a %s%% stop or target a range the server accepts: start ≤ stop, step > 0', (pct) => {
+    for (const path of LEVELS) {
+      const range = levelRange(path, pct);
+      expect(range.enabled).toBe(false);
+      expect(range.start).toBeGreaterThan(0);
+      expect(range.start).toBeLessThanOrEqual(range.stop);
+      expect(range.step).toBeGreaterThan(0);
+      if (path === 'stop_loss_pct') expect(range.stop).toBeLessThan(100);
+    }
+  });
+
+  it('mirrors defaultRanges: half the value to twice it in quarter steps, a stop loss clamped below 100', () => {
+    expect(levelRange('stop_loss_pct', 0.2)).toEqual({ path: 'stop_loss_pct', enabled: false, start: 0.1, stop: 0.4, step: 0.05 });
+    expect(levelRange('take_profit_pct', 60)).toEqual({ path: 'take_profit_pct', enabled: false, start: 30, stop: 120, step: 15 });
+    expect(levelRange('stop_loss_pct', 60)).toEqual({ path: 'stop_loss_pct', enabled: false, start: 30, stop: 99, step: 15 });
   });
 });
