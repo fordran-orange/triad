@@ -226,7 +226,9 @@ function levelOf(graph: SideGraph, port: 'stop' | 'target'): number | undefined 
 const levelPath = (path: string) => path === 'stop_loss_pct' || path === 'take_profit_pct';
 
 /** The side the graph describes, built on `base` (its direction, switch and ranges), or the first
- * problem by name. Loose blocks are ignored; a group with one input counts as that input. */
+ * problem by name. Loose blocks are ignored, an indicator block among them (spec §4.6: the canvas
+ * keeps it greyed, the side and so the engine's warm-up never see it, and its ranges go with it);
+ * a group with one input counts as that input. */
 export function sideFromGraph(graph: SideGraph, base: StrategySide): { side: StrategySide; problem: null } | { side: null; problem: string } {
   try {
     const entryWire = inputsOf(graph, 'entry').find((w) => w.toPort === 'rule');
@@ -237,7 +239,8 @@ export function sideFromGraph(graph: SideGraph, base: StrategySide): { side: Str
     const stop = levelOf(graph, 'stop');
     const target = levelOf(graph, 'target');
     if (exit === undefined && stop === undefined && target === undefined) throw new Problem('Exit has nothing wired in');
-    const specs = graph.blocks.filter((b) => b.type === 'indicator').map((b) => ({ ...b.settings.indicator!, id: b.id }));
+    const loose = looseBlocks(graph);
+    const specs = graph.blocks.filter((b) => b.type === 'indicator' && !loose.has(b.id)).map((b) => ({ ...b.settings.indicator!, id: b.id }));
     const order = (base.indicators ?? []).map((i) => i.id);
     const indicators = [
       ...order.flatMap((id) => specs.filter((s) => s.id === id)),
@@ -277,12 +280,17 @@ function canonical(value: unknown): string {
 }
 
 /** Whether a saved graph still reads as this side (ranges aside): if not, the side is laid out
- * afresh rather than drawing a canvas that no longer matches the strategy. */
+ * afresh rather than drawing a canvas that no longer matches the strategy. An indicator the side
+ * lists but no rule reads is drawn loose and left out of the reading, so it is left out of the
+ * side here too while the graph draws that same indicator loose. */
 export function readsAs(graph: SideGraph, side: StrategySide): boolean {
   const read = sideFromGraph(graph, side);
   if (read.side === null) return false;
-  const strip = (s: StrategySide) => ({ ...s, optimization: undefined });
-  return canonical(strip(read.side)) === canonical(strip(side));
+  const loose = looseBlocks(graph);
+  const drawnLoose = (spec: IndicatorSpec) =>
+    graph.blocks.some((b) => b.type === 'indicator' && b.id === spec.id && loose.has(b.id) && canonical({ ...b.settings.indicator, id: b.id }) === canonical(spec));
+  const strip = (s: StrategySide, indicators = s.indicators) => ({ ...s, indicators, optimization: undefined });
+  return canonical(strip(read.side)) === canonical(strip(side, (side.indicators ?? []).filter((i) => !drawnLoose(i))));
 }
 
 // -- wiring rules ---------------------------------------------------------------------------------

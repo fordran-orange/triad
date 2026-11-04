@@ -152,3 +152,47 @@ describe('readsAs and layout', () => {
     expect(new Set(places).size).toBe(places.length);
   });
 });
+
+describe('loose indicator blocks (Mission 13 review I2)', () => {
+  const sma200 = { id: 'sma200', kind: 'SMA', length: 200, source: 'close', overlay: true };
+  const withLoose = (): SideGraph => {
+    const graph = graphFromSide(reference);
+    return { ...graph, blocks: [...graph.blocks, { id: 'sma200', type: 'indicator', x: 0, y: 600, settings: { indicator: sma200 } }] };
+  };
+
+  it('leaves an unwired indicator out of the side, with its ranges, while the canvas keeps it', () => {
+    const graph = withLoose();
+    const base: StrategySide = { ...reference, optimization: [...reference.optimization!, { path: 'indicators.sma200.length', enabled: false, start: 100, stop: 400, step: 20 }] };
+    const read = sideFromGraph(graph, base);
+    expect(read.problem).toBeNull();
+    expect(read.side!.indicators!.map((i) => i.id)).toEqual(['ema', 'sma']);
+    expect(read.side!.optimization!.map((r) => r.path)).toEqual(['indicators.ema.length']);
+    expect(graph.blocks.some((b) => b.id === 'sma200')).toBe(true);
+    expect([...looseBlocks(graph)]).toEqual(['sma200']);
+  });
+
+  it('counts the indicator again once a wire leads from it to Entry', () => {
+    const graph = withLoose();
+    const into = graph.wires.find((w) => w.to === 'entry')!;
+    const wired: SideGraph = {
+      blocks: [...graph.blocks, { id: 'condition-9', type: 'condition', x: 0, y: 0, settings: { operator: 'greater_than' } }],
+      wires: [
+        ...graph.wires.filter((w) => w !== into),
+        { id: 'w-a', from: 'price', fromPort: 'close', to: 'condition-9', toPort: 'left' },
+        { id: 'w-b', from: 'sma200', fromPort: 'value', to: 'condition-9', toPort: 'right' },
+        { id: 'w-c', from: 'condition-9', fromPort: 'out', to: 'entry', toPort: 'rule' },
+      ],
+    };
+    const read = sideFromGraph(wired, reference);
+    expect(read.side!.indicators!.map((i) => i.id)).toEqual(['ema', 'sma', 'sma200']);
+    expect(read.side!.entry).toEqual(rule('price.close', 'greater_than', 'sma200'));
+  });
+
+  it('still reads as the side with the loose block drawn, and as a side that lists that same unread indicator', () => {
+    const graph = withLoose();
+    expect(readsAs(graph, reference)).toBe(true);
+    expect(readsAs(graph, { ...reference, indicators: [ema, sma, sma200] })).toBe(true);
+    expect(readsAs(graph, { ...reference, indicators: [ema, sma, { ...sma200, length: 50 }] })).toBe(false);
+    expect(readsAs(graphFromSide({ ...reference, indicators: [ema, sma, sma200] }), { ...reference, indicators: [ema, sma, sma200] })).toBe(true);
+  });
+});

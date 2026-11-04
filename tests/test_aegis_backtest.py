@@ -456,3 +456,51 @@ def test_evaluate_walks_nested_groups():
     ]
     for rule, expected in cases:
         assert evaluate(frame, RuleGroup.model_validate(rule)).tolist() == expected, rule
+
+
+def test_a_loose_indicator_block_leaves_the_backtest_alone(tmp_path):
+    """Mission 13 review I2 (spec §4.6): a canvas block not wired to Entry or Exit is left out of
+    the side the builder reads (ui/src/builder/graph.ts `sideFromGraph`), so a saved strategy
+    whose canvas holds a loose SMA 200 runs on 120 bars; the engine reads the spec alone, and the
+    same indicator in the spec is refused by name, as the review reproduced."""
+    from products.aegis.runs import JsonRunRepository
+    from products.aegis.strategies import StrategyLibrary
+    from products.aegis.strategy import IndicatorSpec
+    from test_aegis_walkforward import wave_bars
+
+    rows = wave_bars(n=120)
+    sma200 = {"id": "sma200", "kind": "SMA", "length": 200, "source": "close", "overlay": True}
+    canvas = {
+        "version": 1,
+        "long": {
+            "blocks": [
+                {
+                    "id": "sma200",
+                    "type": "indicator",
+                    "x": 0,
+                    "y": 600,
+                    "settings": {"indicator": sma200},
+                }
+            ],
+            "wires": [],
+        },
+        "short": {"blocks": [], "wires": []},
+    }
+    library = StrategyLibrary(JsonRunRepository(tmp_path / "aegis"))
+    saved = library.create("Loose SMA 200", default_strategy(), canvas=canvas)
+    assert library.get(saved.id).canvas["long"]["blocks"][0]["id"] == "sma200"
+    result = run_backtest(BacktestRequest(strategy=saved.spec, bars=rows))
+    assert result["long"]["metrics"]["trade_count"] >= 1
+    assert "sma200" not in result["long"]["series"]
+
+    wired = saved.spec.model_copy(
+        update={
+            "long_side": saved.spec.long_side.model_copy(
+                update={"indicators": [*saved.spec.long_side.indicators, IndicatorSpec(**sma200)]}
+            )
+        }
+    )
+    with pytest.raises(
+        ValueError, match=r"insufficient bars: 120 bars cannot complete the warm-up of SMA\(200\)"
+    ):
+        run_backtest(BacktestRequest(strategy=wired, bars=rows))
