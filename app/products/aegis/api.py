@@ -85,6 +85,7 @@ from products.aegis.runs import (
 )
 from products.aegis.strategies import (
     BuiltinRefused,
+    StrategyConflict,
     StrategyLibrary,
     StrategyReferenced,
     check_canvas,
@@ -742,6 +743,9 @@ class StrategyUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     spec: StrategySpec | None = None
     canvas: dict | None = None  # Mission 13: kept as saved when absent
+    # Mission 13 review I3: the document's `updated_at` as the caller loaded it (required); a
+    # document saved since answers 409 and is left as that save left it.
+    updated_at: str | None
 
     @field_validator("canvas")
     @classmethod
@@ -797,11 +801,17 @@ def create_strategy(request: StrategyCreate, library: StrategyLibrary = LIBRARY)
 @router.put("/strategies/{strategy_id}")
 def update_strategy(strategy_id: str, request: StrategyUpdate, library: StrategyLibrary = LIBRARY):
     try:
-        return library.update(strategy_id, request.name, request.spec, request.canvas).model_dump(
-            mode="json"
-        )
+        return library.update(
+            strategy_id,
+            request.name,
+            request.spec,
+            request.canvas,
+            updated_at=request.updated_at,
+        ).model_dump(mode="json")
     except BuiltinRefused as exc:
         raise HTTPException(422, str(exc)) from exc
+    except StrategyConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(404, f"unknown strategy {strategy_id!r}") from exc
     except ValidationError as exc:

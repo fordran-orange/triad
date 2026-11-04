@@ -83,7 +83,7 @@ export function ExperimentsPage() {
   };
   const saveDocument = () =>
     act(async () => {
-      if (document && strategy) dispatch({ type: 'SET_DOCUMENT', document: await api.updateStrategy(document.id, { spec: strategy }) });
+      if (document && strategy) dispatch({ type: 'SET_DOCUMENT', document: await api.updateStrategy(document.id, { spec: strategy, updated_at: document.updated_at }) });
     });
 
   const progress = selected?.progress as { cells_done: number; cells_planned: number; chunks_done: number; chunks_total: number } | undefined;

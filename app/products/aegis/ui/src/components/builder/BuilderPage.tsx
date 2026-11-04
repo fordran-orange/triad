@@ -4,6 +4,7 @@ import { api, errorMessage } from '../../api/client';
 import type { StrategySide } from '../../contracts';
 import { sideFromGraph, type SideGraph } from '../../builder/graph';
 import { History } from '../../builder/history';
+import { saveDocument } from '../../state/documents';
 import { useRunBacktest } from '../../state/run';
 import { withDefaultRanges } from '../../builder/apply';
 import { currentCanvas, SIDE_KEY, sideGraph, unsavedEdits, useDispatch, useWorkspace, type Side } from '../../state/workspace';
@@ -27,6 +28,9 @@ export function BuilderPage() {
   const [flash, setFlash] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Mission 13 review I3: the worker refused Save because the document was saved elsewhere since
+  // it was opened here; the message stays until the saved version is reloaded.
+  const [conflict, setConflict] = useState<string | null>(null);
   const histories = useRef<Record<string, History<Snapshot>>>({});
   const readOnly = !!document?.builtin;
 
@@ -97,12 +101,24 @@ export function BuilderPage() {
     if (!document || readOnly) return;
     setSaving(true);
     setError(null);
+    setConflict(null);
+    const outcome = await saveDocument(document, { spec: strategy, canvas: currentCanvas(state) });
+    if (outcome.kind === 'saved') dispatch({ type: 'SET_DOCUMENT', document: outcome.document });
+    else if (outcome.kind === 'conflict') setConflict(outcome.message);
+    else setError(outcome.message);
+    setSaving(false);
+  };
+
+  /** The saved version replaces what is here; nothing unsaved goes silently, the operator is asked. */
+  const reload = async () => {
+    if (!document) return;
+    if (!window.confirm('Reload the saved strategy? The edits made here since you opened it will be lost.')) return;
     try {
-      dispatch({ type: 'SET_DOCUMENT', document: await api.updateStrategy(document.id, { spec: strategy, canvas: currentCanvas(state) }) });
+      dispatch({ type: 'SET_DOCUMENT', document: await api.strategyDocument(document.id) });
+      setConflict(null);
+      setError(null);
     } catch (e) {
       setError(errorMessage(e));
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -164,6 +180,14 @@ export function BuilderPage() {
       <div className={'builder-status' + (status === 'Ready' ? ' ready' : ' problem')} id="builder-status" role="status">
         {status}
         {error && <span className="badge error">{error}</span>}
+        {conflict && (
+          <span className="badge error" id="builder-conflict">
+            {conflict}{' '}
+            <button type="button" className="btn" id="builder-reload" onClick={() => void reload()} title="Replace what is here with the saved strategy; you are asked first">
+              Reload
+            </button>
+          </span>
+        )}
       </div>
     </div>
   );

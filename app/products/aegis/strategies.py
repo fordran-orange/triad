@@ -13,7 +13,7 @@ import hashlib
 import json
 import re
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
 
@@ -67,6 +67,13 @@ class BuiltinRefused(ValueError):
         super().__init__("the built-in strategy is read-only; duplicate it")
 
 
+class StrategyConflict(ValueError):
+    """Mission 13 review I3: a save made from a document that was saved elsewhere since."""
+
+    def __init__(self, identifier: str) -> None:
+        super().__init__(f"strategy {identifier} was saved elsewhere since you opened it; reload")
+
+
 class StrategyReferenced(Exception):
     def __init__(self, identifier: str, counts: dict[str, int]) -> None:
         self.counts = counts
@@ -86,6 +93,15 @@ def slug(name: str) -> str:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _after(stamp: str | None) -> str:
+    """Now, or one microsecond past `stamp` when the clock has not moved past it: a document's
+    `updated_at` changes on every write, so a save that carries a stale one is always refused."""
+    now = _now()
+    if stamp is None or now > stamp:
+        return now
+    return (datetime.fromisoformat(stamp) + timedelta(microseconds=1)).isoformat()
 
 
 def _strategy_id(summary: dict) -> str | None:
@@ -219,12 +235,18 @@ class StrategyLibrary:
         name: str | None = None,
         spec: StrategySpec | None = None,
         canvas: dict | None = None,
+        *,
+        updated_at: str | None,
     ) -> StrategyDocument:
-        """A new name, spec or canvas; what is not given stays as saved."""
+        """A new name, spec or canvas; what is not given stays as saved. `updated_at` is the
+        document's as the caller loaded it: a document saved since is a StrategyConflict, and
+        nothing is written (Mission 13 review I3)."""
         if identifier == BUILTIN_ID:
             raise BuiltinRefused()
         current = self.get(identifier)
-        now = max(_now(), current.updated_at or "")
+        if updated_at != current.updated_at:
+            raise StrategyConflict(identifier)
+        now = _after(current.updated_at)
         return self._save(
             identifier,
             name if name is not None else current.name,
@@ -252,6 +274,7 @@ class StrategyLibrary:
 __all__ = [
     "BUILTIN_ID",
     "BuiltinRefused",
+    "StrategyConflict",
     "StrategyDocument",
     "StrategyLibrary",
     "StrategyReferenced",
