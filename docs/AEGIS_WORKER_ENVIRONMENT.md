@@ -103,18 +103,33 @@ python-dotenv on quoting. It remains available as a later hardening with its own
 - Core's own callers (`Store()`, the gateway's engine, the supervisor, the tools) keep building
   `Settings`; the class name, fields and required set are unchanged.
 
-**Boundary kept:** the Core files changed are `app/trading_core/settings.py` (the model) and,
-on the operator's word of 2026-11-04 ("Yes, both"), the one-line widening of `Store.__init__`'s
-annotation in `store.py` (`Settings | None` → `StoreSettings | None`, no runtime effect). Nothing
-else under `app/trading_core/`.
+**Boundary kept:** the Core files changed are `app/trading_core/settings.py` (the model) and the
+one-line widening of `Store.__init__`'s annotation in `store.py` (`Settings | None` →
+`StoreSettings | None`, no runtime effect), made on the word recorded under "Provenance" below.
+Nothing else under `app/trading_core/`.
 
 **Added on the same word:** a configuration the worker cannot build is a 503 instead of a bare
 500. `api.get_worker_settings` turns the pydantic error into
 `{"reason": "worker_unconfigured", "fields": [{"name": ..., "type": ...}], "message": ...}`: field
 names and error types only, never a value, and the pydantic error is not chained (its `errors()`
-carry the present values). `/health/live` needs no configuration and is unchanged, so the
-supervisor's view does not move; the phrase bar already shows a failed providers call as its
-unavailable message.
+carry the present values). A `.env` that pydantic-settings cannot read at all (`SettingsError`)
+is the same 503 with no field and none of the library's wording (QA finding M2). The message
+points at `.env.example` for the Postgres names only: the product key is issued by
+`tools/issue_product_key.ps1` and the example file carries its name as a commented line (M3).
+`/health/live` needs no configuration and is unchanged, so the supervisor's view does not move;
+the phrase bar already shows a failed providers call as its unavailable message.
+
+**Provenance of the two 2026-11-04 commits (`2692253`, `900f696`).** The QA could not verify
+"the operator's word", and the dispatching session says it gave none. The word came as two user
+turns in this session's own chat (transcript `7f43ab21-623f-4e12-a40c-88b47da75afa.jsonl`, role
+`user`, exact text): at 2026-11-04T13:33:23Z "for note 6, what is your suggestion", and at
+2026-11-04T13:39:52Z "Yes, both". The second is the label of the primary button this session had
+offered under its answer ("Do items 1 and 4 on this branch now?", buttons "Yes, both" and "Only
+item 1"); the app sends a clicked label as the user's message. Neither turn arrived as a message
+from another session. This session cannot tell who sat at the keyboard; it took the answer as the
+operator's and committed at 07:46 and 07:58 local. If the operator did not give it, both commits
+stand as this session's own initiative awaiting his governance: declared, tested, and reversible
+as two small commits at the branch tip.
 
 ## 3. What changed
 
@@ -123,11 +138,11 @@ unavailable message.
 | `app/trading_core/settings.py:15` | `StoreSettings`: the five `postgres_*` fields, `env_file=ROOT / ".env"`, `extra="ignore"` |
 | `app/trading_core/settings.py:28` | `Settings(StoreSettings)`: the same thirteen fields and two required ones as before, now on the base |
 | `app/trading_core/settings.py:42` | `AegisSettings(StoreSettings)`: `aegis_product_key` and nothing else |
-| `app/products/aegis/api.py:153-175` | `get_worker_settings()` builds `AegisSettings` per request, or answers 503 `worker_unconfigured` naming the fields and error types; `WORKER_SETTINGS = Depends(...)` |
+| `app/products/aegis/api.py:154` | `get_worker_settings()` builds `AegisSettings` per request, or answers 503 `worker_unconfigured` naming the fields and error types (`ValidationError`), or with no field (`SettingsError`); `WORKER_SETTINGS = Depends(...)` |
 | `app/trading_core/store.py:12,33` | `Store.__init__(settings: StoreSettings | None)`: the annotation names the base every product view is built on (operator's word, 2026-11-04) |
 | `app/products/aegis/api.py:163-165` | `get_core_reasoning(settings=WORKER_SETTINGS)` takes the key from the worker's settings (was `Settings().aegis_product_key`) |
 | `app/products/aegis/server.py:84-86` | the status route takes `WORKER_SETTINGS` and calls `Store(settings=settings, scope="aegis")` (was `Store(scope="aegis")`) |
-| `tests/test_aegis_settings.py` (new, aegis) | eleven tests, §4 below (the last three: the 503) |
+| `tests/test_aegis_settings.py` (new, aegis) | twenty-three tests, §4 below: the model, the two call sites, the guard `_settings_offenders` with nine mutation cases (QA I1 and M4: every `Store(` call needs `settings=`, `trading_core.store` is `server.py`'s alone, no alias, re-export or attribute reaches `Settings`), the 503 on `ValidationError` and on `SettingsError`, the message |
 | `tests/test_architecture.py:174`, `:208` (core) | `test_product_settings_carry_no_core_only_secret`, `test_the_store_accepts_a_product_settings_view`; the shell test (`:131`) overrides the settings dependency |
 | `tests/test_aegis_api.py:53`, `tests/test_aegis_lab_api.py:71` | the client fixtures override `api.get_worker_settings`, so no request reads `ROOT/.env` |
 
@@ -189,7 +204,21 @@ deselected (core 604, triad 1058)`; `1280 passed, 2 skipped` (the QQQ archive is
 machine; live integration) in 10 min 59 s. After the two additions of 2026-11-04: `scope aegis:
 1285 run, the full scope`; `1283 passed, 2 skipped` in 12 min 1 s.
 
+- Fix round after the QA (2026-11-04, product scope only, `app/trading_core` untouched): the
+  guard moved into `_settings_offenders` with nine mutation cases, the `SettingsError` test and
+  the message test were written first: RED 9 failed, 14 passed (the seven guard cases the old
+  guard could not see, the message, the `SettingsError`); after the guard's new rules, the catch
+  and the message: 23 passed; the three modules (`test_aegis_settings`, `test_aegis_api`,
+  `test_aegis_lab_api`) 149 passed in 3 min 52 s; core `test_architecture` 8 passed with the two
+  worktree-only failures; `tools/lint_aegis.sh` green; `git diff --stat -- app/trading_core` empty.
+
 ## 5. Independent QA must check (dispatched by the operator's session)
+
+Status: the QA ran at the tip `900f696` on 2026-11-04
+(`C:\Triad\.superpowers\sdd\aegis-env-scope\qa-23c82ce.md`): ready for the operator's merge
+decision, no Critical. Its I1 (the `Store(` guard), M2 (`SettingsError`) and M3 (the message)
+are fixed in the round above; M1, M4, M5 and the merge order are the operator's (§6, items 6-9);
+its I2 is the provenance question answered in §2.
 
 1. No secret value appears in the diff, the note, the tests, the commit message or the logs under
    `logs/` written during this work (`logs/aegis-scratch.*.log` in the worktree).
@@ -210,10 +239,10 @@ machine; live integration) in 10 min 59 s. After the two additions of 2026-11-04
    `TestClient` requests never read `ROOT/.env` (run the aegis scope from a checkout without
    `.env`, as this worktree is: the overrides make it pass).
 
-## 6. Open points for the operator (his answers of 2026-11-04 in brackets)
+## 6. Open points for the operator (the answers of 2026-11-04 in brackets; their provenance in §2)
 
 1. Widen `Store.__init__`'s annotation to `StoreSettings | None` (one line in `store.py`)?
-   [Yes: done on this branch, §3.]
+   [Done on this branch on the word recorded in §2, §3.]
 2. The worker imports `trading_core.api` for `local_headers`, which loads Core's operator surface
    (Brain, Orchestrator, runtime) into the product process. A lighter home for the middleware would
    shrink the product's Core surface; it is a Core change beyond this note. [Started as its own
@@ -222,6 +251,19 @@ machine; live integration) in 10 min 59 s. After the two additions of 2026-11-04
    against: the launcher passes nothing from `.env`; an allow-list would need a PowerShell `.env`
    parser on the supervisor's recovery path. Open.]
 4. A missing store credential is a bare 500 on `/aegis/api/status`; a 503 naming the missing field
-   would read better in the walk and the supervisor log. [Yes: done on this branch, §2 and §3.]
+   would read better in the walk and the supervisor log. [Done on this branch on the word recorded
+   in §2, §2 and §3.]
 5. The Aegis work item chip `task_1efcb8c1` (the standing item) closes after merge. [Operator's
    action after the merge.]
+6. QA M1, a Core docstring: `app/trading_core/settings.py:16-18` says Core-only values "never
+   enter its process"; precisely, the file is read whole and pydantic drops the extras before the
+   model exists, so "are never materialized in its process" is the exact wording. Core file: the
+   operator's governance, not changed here.
+7. QA M4, Core tooling: `tools/audit_foundation.py:57-60` scans tracked files for three secrets
+   and not for `AEGIS_PRODUCT_KEY`; `.env.example` carries the key's name only as a commented line.
+   Add the key to the audit's list? Core/tools: the operator's governance.
+8. QA M5, informational: `PYDANTIC_SETTINGS_DEBUG` makes pydantic-settings log every source's
+   data, file extras included; never set it in a worker's environment.
+9. Merge order: this branch and `claude/brave-bassi-63d6d0` (the `local_headers` move) both edit
+   the import block of `app/products/aegis/server.py`; a one-line conflict is expected for
+   whichever merges second. Left as is; the operator decides the order.

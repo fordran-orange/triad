@@ -24,6 +24,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic_settings import SettingsError
 from trading_core.settings import AegisSettings
 
 from products.aegis import display, phrases
@@ -154,7 +155,10 @@ def get_worker_settings() -> AegisSettings:
     """The worker's view of Core's configuration, read per request as before: its work-item
     store and its own product key, never the whole `Settings` with the operator token
     (docs/AEGIS_WORKER_ENVIRONMENT.md). A configuration that cannot be built is a 503 naming
-    the fields and their error types, never a value, and the error is not chained."""
+    the fields and their error types, never a value, and the error is not chained; a `.env` that
+    cannot be read at all (`SettingsError`) is the same 503 with no field and none of the
+    library's wording. The Postgres names are documented in `.env.example`; the product key is
+    issued by `tools/issue_product_key.ps1`, so the message does not send the reader there."""
     try:
         return AegisSettings()
     except ValidationError as exc:
@@ -163,14 +167,18 @@ def get_worker_settings() -> AegisSettings:
             for error in exc.errors()
         ]
         named = ", ".join(f"{field['name']} {field['type']}" for field in fields)
-        raise HTTPException(
-            503,
-            {
-                "reason": "worker_unconfigured",
-                "fields": fields,
-                "message": f"the worker's configuration is incomplete ({named}); see .env.example",
-            },
-        ) from None
+        message = f"the worker's configuration is incomplete ({named})"
+    except SettingsError:
+        fields = []
+        message = "the worker's configuration could not be read"
+    raise HTTPException(
+        503,
+        {
+            "reason": "worker_unconfigured",
+            "fields": fields,
+            "message": f"{message}; the Postgres names are in .env.example",
+        },
+    ) from None
 
 
 WORKER_SETTINGS = Depends(get_worker_settings)

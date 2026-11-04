@@ -140,23 +140,104 @@ def test_the_worker_dependency_builds_the_product_model(monkeypatch):
     assert api.get_worker_settings() is built
 
 
-def test_no_product_module_names_cores_whole_settings():
-    """The product imports Core's product-scoped model and nothing else from its settings."""
-    package = Path(products.aegis.__file__).parent
+ALLOWED_FROM_SETTINGS = {"AegisSettings", "ROOT"}
+
+
+def _settings_offenders(package: Path) -> list[tuple[str, str]]:
+    """Every way a module of `package` could reach Core's whole `Settings`, or build Core's store
+    on it (the QA's mutations M4 and M5): each as (file, what)."""
     offenders = []
-    for path in package.rglob("*.py"):
+    for path in sorted(package.rglob("*.py")):
+        relative = path.relative_to(package).as_posix()
         if "ui" in path.relative_to(package).parts:
             continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module == "trading_core.settings":
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
                 names = {alias.name for alias in node.names}
-                if not names <= {"AegisSettings", "ROOT"}:
-                    offenders.append((str(path.relative_to(package)), sorted(names)))
-            elif isinstance(node, ast.Import) and any(
-                alias.name == "trading_core.settings" for alias in node.names
-            ):
-                offenders.append((str(path.relative_to(package)), ["trading_core.settings"]))
-    assert offenders == []
+                if module == "trading_core.settings" and not names <= ALLOWED_FROM_SETTINGS:
+                    offenders.append((relative, f"from {module} import {sorted(names)}"))
+                elif module == "trading_core" and names & {"settings", "store"}:
+                    offenders.append((relative, "a Core module alias that reaches Settings"))
+                elif module.startswith("trading_core") and "Settings" in names:
+                    offenders.append((relative, f"Settings re-exported by {module}"))
+                elif module == "trading_core.store" and relative != "server.py":
+                    offenders.append((relative, "the store is server.py's alone"))
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in (
+                        "trading_core",
+                        "trading_core.settings",
+                        "trading_core.store",
+                    ):
+                        offenders.append((relative, f"import {alias.name}"))
+            elif isinstance(node, ast.Name) and node.id == "Settings":
+                offenders.append((relative, "the name Settings"))
+            elif isinstance(node, ast.Attribute) and node.attr == "Settings":
+                offenders.append((relative, "an attribute Settings"))
+            elif isinstance(node, ast.Call):
+                func = node.func
+                is_store = (isinstance(func, ast.Name) and func.id == "Store") or (
+                    isinstance(func, ast.Attribute) and func.attr == "Store"
+                )
+                if is_store and not any(keyword.arg == "settings" for keyword in node.keywords):
+                    offenders.append((relative, "Store(...) without settings="))
+    return offenders
+
+
+def _package(tmp_path: Path, **modules: str) -> Path:
+    """A product-shaped package: `server.py` holds the store import, the rest is the test's."""
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "server.py").write_text("from trading_core.store import Store\n", encoding="utf-8")
+    for name, source in modules.items():
+        (package / f"{name}.py").write_text(source, encoding="utf-8")
+    return package
+
+
+def test_no_product_module_names_cores_whole_settings():
+    """The product imports Core's product-scoped model and nothing else from its settings."""
+    assert _settings_offenders(Path(products.aegis.__file__).parent) == []
+
+
+def test_the_guard_accepts_the_products_own_shape(tmp_path):
+    package = _package(tmp_path, api="from trading_core.settings import AegisSettings, ROOT\n")
+    (package / "server.py").write_text(
+        "from trading_core.settings import AegisSettings\n"
+        "from trading_core.store import Store\n"
+        "Store(settings=AegisSettings(), scope='aegis')\n",
+        encoding="utf-8",
+    )
+    assert _settings_offenders(package) == []
+
+
+@pytest.mark.parametrize(
+    ("file", "source"),
+    [
+        ("other", "from trading_core.settings import Settings\n"),
+        ("other", "from trading_core.store import Settings\n"),  # a re-export (QA mutation M4)
+        ("other", "from trading_core import settings as cfg\ncfg.Settings()\n"),
+        ("other", "from trading_core import store\nstore.Settings()\n"),
+        ("other", "import trading_core.settings\n"),
+        ("other", "import trading_core\ntrading_core.store.Settings()\n"),
+        ("other", "from trading_core.store import Store\n"),  # the store is server.py's alone
+        ("server", "from trading_core.store import Store\nStore(scope='aegis')\n"),  # QA M5
+        ("other", "import trading_core.store as s\ns.Store(scope='aegis')\n"),
+    ],
+    ids=[
+        "settings-import",
+        "store-reexport",
+        "settings-module-alias",
+        "store-module-alias",
+        "settings-module",
+        "package-attribute",
+        "store-import-elsewhere",
+        "store-without-settings",
+        "aliased-store-without-settings",
+    ],
+)
+def test_the_guard_catches_every_way_to_cores_whole_settings(tmp_path, file, source):
+    assert _settings_offenders(_package(tmp_path, **{file: source})), source
 
 
 @pytest.fixture
@@ -196,3 +277,28 @@ def test_the_providers_route_answers_the_same_503(unconfigured_worker):
 
 def test_health_live_needs_no_configuration(unconfigured_worker):
     assert unconfigured_worker.get("/health/live").json()["status"] == "ok"
+
+
+def test_the_503_points_at_the_example_file_for_the_postgres_names_only(unconfigured_worker):
+    """`.env.example` documents the Postgres names; the product key is issued by
+    `tools/issue_product_key.ps1`, so the message must not send the reader there for it."""
+    message = unconfigured_worker.get("/aegis/api/status").json()["detail"]["message"]
+    assert message.endswith("the Postgres names are in .env.example")
+    assert "see .env.example" not in message
+
+
+def test_an_unreadable_configuration_is_the_same_503(monkeypatch, no_process_values):
+    """A `.env` pydantic-settings cannot read raises `SettingsError`, not `ValidationError`
+    (QA finding M2); the answer names no field and echoes nothing of the library's message."""
+    from pydantic_settings import SettingsError
+
+    def raising():
+        raise SettingsError('error parsing value for field "postgres_port" from source "DotEnv"')
+
+    monkeypatch.setattr(api, "AegisSettings", raising)
+    monkeypatch.setattr(server, "Store", lambda **_: pytest.fail("the store must not be built"))
+    answer = TestClient(server.app, raise_server_exceptions=False).get("/aegis/api/status")
+    assert answer.status_code == 503
+    detail = answer.json()["detail"]
+    assert detail["reason"] == "worker_unconfigured" and detail["fields"] == []
+    assert "could not be read" in detail["message"] and "DotEnv" not in answer.text
