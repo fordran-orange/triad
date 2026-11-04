@@ -146,5 +146,6 @@ diff from every base (`app/trading_core/http.py`, `app/products/triad/server.py`
    beside it). After the merge, re-cutting the governance items on one base and one list would
    read cleaner; a walk-only change.
 4. `test_api::test_no_governance_or_trading_endpoints` is a third worktree-only failure (no
-   `.env`), beside the two the sibling note recorded; worth adding to the worktree memory.
+   `.env`), beside the two the sibling note recorded. It fails the same way on an unmodified
+   worktree checkout; nothing to fix, only to expect.
 5. The walk and `tools\verify.ps1` run on `main` after the merge, as for every Core change.
