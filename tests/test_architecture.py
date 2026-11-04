@@ -203,3 +203,19 @@ def test_product_settings_carry_no_core_only_secret():
     for model in (Settings, AegisSettings):
         assert model.model_config["env_file"] == ROOT / ".env"
         assert model.model_config["extra"] == "ignore"
+
+
+def test_the_store_accepts_a_product_settings_view():
+    """`Store(settings=...)` is typed on the base every product view is built on, not on Core's
+    whole `Settings`, and keeps the view it is given (docs/AEGIS_WORKER_ENVIRONMENT.md)."""
+    import inspect
+    import typing
+
+    from pydantic import SecretStr
+    from trading_core.settings import AegisSettings, StoreSettings
+    from trading_core.store import Store
+
+    annotation = inspect.signature(Store.__init__).parameters["settings"].annotation
+    assert StoreSettings in typing.get_args(annotation)
+    view = AegisSettings(_env_file=None, postgres_password=SecretStr("dummy-not-a-secret"))
+    assert Store(settings=view, scope="aegis").settings is view
