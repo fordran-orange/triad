@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from trading_core.api import local_headers
+from trading_core.http import local_headers
 from trading_core.process_power import opt_out_of_power_throttling
 from trading_core.store import Store
 

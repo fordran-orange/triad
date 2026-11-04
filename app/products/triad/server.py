@@ -7,7 +7,8 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
-from trading_core.api import denied_operation, invalid_operation, local_headers, not_found
+from trading_core.api import denied_operation, invalid_operation, not_found
+from trading_core.http import local_headers
 from trading_core.process_power import opt_out_of_power_throttling
 
 from products.triad.api import router
