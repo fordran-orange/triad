@@ -82,16 +82,24 @@ if (!(Test-Path -LiteralPath $Python)) {
     throw "Missing ${Python}: run tools/bootstrap.ps1 -Product aegis"
 }
 
-# The raw archives: a checkout without them links the archive root's folder (gitignored under
-# data/raw/*). Pinned relative paths are identical on both roots, so pins stay portable.
+# The raw archives: a checkout without them gets a COPY of the archive root's folder (gitignored
+# under data/raw/*). Never a junction: on 2026-11-03 a worktree removal followed the junction this
+# script used to make and emptied the canonical archive. Pinned relative paths are identical on
+# both roots, so pins stay portable. An existing junction is refused, not reused.
 $Archives = Join-Path $Root 'data\raw\HFDataLibrary'
+if ((Test-Path -LiteralPath $Archives) -and ((Get-Item -LiteralPath $Archives -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    throw "${Archives} is a junction into the archive root: remove the junction (not its target) and rerun; a worktree removal through it empties the canonical archive"
+}
 if (!(Test-Path -LiteralPath $Archives)) {
     $Source = Join-Path $ArchiveRoot 'data\raw\HFDataLibrary'
     if (!(Test-Path -LiteralPath $Source)) {
-        throw "Missing ${Source}: no raw archives to link"
+        throw "Missing ${Source}: no raw archives to copy"
     }
-    New-Item -ItemType Directory -Force -Path (Split-Path $Archives -Parent) | Out-Null
-    New-Item -ItemType Junction -Path $Archives -Target $Source | Out-Null
+    New-Item -ItemType Directory -Force -Path $Archives | Out-Null
+    robocopy $Source $Archives /E /COPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+    if ($LASTEXITCODE -ge 8) {
+        throw "Copying the raw archives from ${Source} failed (robocopy exit $LASTEXITCODE)"
+    }
 }
 New-Item -ItemType Directory -Force -Path $DataRoot, (Join-Path $Root 'logs'), (Split-Path $PidFile -Parent) | Out-Null
 
