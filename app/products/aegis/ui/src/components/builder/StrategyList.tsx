@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, errorMessage, type StrategySummary } from '../../api/client';
+import { api, ApiError, errorMessage, type StrategySummary } from '../../api/client';
 import { DASH, shortHash, timeLabel } from '../../format';
 import { unsavedEdits, useDispatch, useWorkspace } from '../../state/workspace';
 
@@ -41,6 +41,8 @@ export function StrategyList({ collapsed, onToggle }: { collapsed: boolean; onTo
       refresh();
     } catch (e) {
       setError(errorMessage(e));
+      // A rename refused as a conflict (saved elsewhere since the list loaded) needs the fresh row.
+      if (e instanceof ApiError && e.status === 409) refresh();
     } finally {
       setBusy(false);
     }
@@ -66,7 +68,8 @@ export function StrategyList({ collapsed, onToggle }: { collapsed: boolean; onTo
     const { id, mode, name } = editing;
     if (mode === 'rename')
       void act(async () => {
-        dispatch({ type: 'DOCUMENT_RENAMED', document: await api.updateStrategy(id, { name }) });
+        const updated_at = items?.find((item) => item.id === id)?.updated_at ?? null;
+        dispatch({ type: 'DOCUMENT_RENAMED', document: await api.updateStrategy(id, { name, updated_at }) });
       });
     else if (mode === 'duplicate') void act(() => api.duplicateStrategy(id, name));
     else

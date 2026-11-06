@@ -331,7 +331,8 @@ export const api = {
   strategies: () => request<StrategySummary[]>('/strategies'),
   strategyDocument: (id: string) => request<StrategyDocument>(doc(id)),
   createStrategy: (name: string, spec: StrategySpec) => request<StrategyDocument>('/strategies', post({ name, spec })),
-  updateStrategy: (id: string, patch: { name?: string; spec?: StrategySpec; canvas?: Canvas }) => request<StrategyDocument>(doc(id), put(patch)),
+  // Mission 13 review I3: `updated_at` is the document's as loaded; a document saved since is a 409.
+  updateStrategy: (id: string, patch: { name?: string; spec?: StrategySpec; canvas?: Canvas; updated_at: string | null }) => request<StrategyDocument>(doc(id), put(patch)),
   readText: (text: string, strategy: StrategySpec, provider?: ReaderProvider, signal?: AbortSignal, ai = true) =>
     request<Reading>('/strategies/read', { ...post({ text, strategy, provider, ai }), signal }),
   learn: (body: { text: string; rewrite: string; substitutions: { from: string; to: string }[]; provider?: string | null; model?: string | null; run_id?: string | null; strategy: StrategySpec }) =>

@@ -7,6 +7,7 @@ from products.aegis.runs import JsonRunRepository
 from products.aegis.strategies import (
     BUILTIN_ID,
     BuiltinRefused,
+    StrategyConflict,
     StrategyLibrary,
     StrategyReferenced,
     slug,
@@ -48,10 +49,10 @@ def test_slug_collisions_get_a_hash_suffix(library):
 def test_update_changes_the_spec_hash_and_updated_at(library):
     doc = library.create("Breakout", default_strategy())
     spec = doc.spec.model_copy(update={"description": "edited"})
-    updated = library.update(doc.id, spec=spec)
+    updated = library.update(doc.id, spec=spec, updated_at=doc.updated_at)
     assert updated.strategy_hash != doc.strategy_hash
     assert updated.updated_at >= doc.updated_at and updated.created_at == doc.created_at
-    renamed = library.update(doc.id, name="Breakout v2")
+    renamed = library.update(doc.id, name="Breakout v2", updated_at=updated.updated_at)
     assert renamed.name == "Breakout v2" and renamed.spec.name == "Breakout v2"
     assert renamed.id == doc.id and renamed.spec.id == doc.id
 
@@ -72,7 +73,7 @@ def test_builtin_is_listed_byte_identical_and_read_only(library):
     )
     assert library.list()[0]["id"] == BUILTIN_ID
     with pytest.raises(BuiltinRefused):
-        library.update(BUILTIN_ID, name="mine now")
+        library.update(BUILTIN_ID, name="mine now", updated_at=None)
     with pytest.raises(BuiltinRefused):
         library.delete(BUILTIN_ID)
 
@@ -144,10 +145,14 @@ CANVAS = {
 
 def test_the_canvas_is_kept_outside_the_hash(library):
     doc = library.create("Breakout", default_strategy())
-    updated = library.update(doc.id, canvas=CANVAS)
+    updated = library.update(doc.id, canvas=CANVAS, updated_at=doc.updated_at)
     assert updated.canvas == CANVAS and updated.strategy_hash == doc.strategy_hash
     assert library.get(doc.id).canvas == CANVAS
-    respec = library.update(doc.id, spec=doc.spec.model_copy(update={"description": "edited"}))
+    respec = library.update(
+        doc.id,
+        spec=doc.spec.model_copy(update={"description": "edited"}),
+        updated_at=updated.updated_at,
+    )
     assert respec.canvas == CANVAS  # a spec saved without a canvas keeps the saved one
 
 
@@ -161,10 +166,28 @@ def test_a_canvas_over_256_kb_is_refused(library):
     doc = library.create("Breakout", default_strategy())
     big = {**CANVAS, "short": {"blocks": [], "wires": [], "note": "x" * 262_144}}
     with pytest.raises(ValueError, match="canvas too large"):
-        library.update(doc.id, canvas=big)
+        library.update(doc.id, canvas=big, updated_at=doc.updated_at)
 
 
 def test_duplicate_copies_the_canvas(library):
     doc = library.create("Breakout", default_strategy())
-    library.update(doc.id, canvas=CANVAS)
+    library.update(doc.id, canvas=CANVAS, updated_at=doc.updated_at)
     assert library.duplicate(doc.id, "Breakout copy").canvas == CANVAS
+
+
+def test_update_refuses_a_document_saved_since_it_was_loaded(library, monkeypatch):
+    """Mission 13 review I3: two tabs edit one strategy. A save carries the `updated_at` of the
+    document it loaded; the second save, made from the state the first replaced, is refused and
+    changes nothing. `updated_at` moves on every write whatever the clock says, so the refusal
+    cannot be missed by two saves inside one tick (or a clock set back)."""
+    import products.aegis.strategies as module
+
+    doc = library.create("Breakout", default_strategy())
+    monkeypatch.setattr(module, "_now", lambda: doc.updated_at)  # a clock that does not move
+    first = library.update(doc.id, name="Tab A", updated_at=doc.updated_at)
+    assert first.updated_at > doc.updated_at
+    with pytest.raises(StrategyConflict, match="saved elsewhere since you opened it; reload"):
+        library.update(doc.id, name="Tab B", updated_at=doc.updated_at)
+    assert library.get(doc.id) == first
+    second = library.update(doc.id, name="Tab B", updated_at=first.updated_at)
+    assert second.name == "Tab B" and second.updated_at > first.updated_at

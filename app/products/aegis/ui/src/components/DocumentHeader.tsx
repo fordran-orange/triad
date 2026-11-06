@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import { shortHash } from '../format';
+import { saveDocument } from '../state/documents';
 import { currentCanvas, unsavedEdits, useDispatch, useWorkspace } from '../state/workspace';
 
 /** The loaded strategy document: its name, whether the workspace has unsaved edits, Save, Revert. */
@@ -9,6 +10,7 @@ export function DocumentHeader() {
   const { document, strategy } = state;
   const dispatch = useDispatch();
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<string | null>(null); // Mission 13 review I3
   const [saving, setSaving] = useState(false);
   const edited = unsavedEdits(state);
 
@@ -16,14 +18,26 @@ export function DocumentHeader() {
     if (!document || !strategy) return;
     setSaving(true);
     setError(null);
+    setConflict(null);
+    // Mission 13: blocks moved or loose blocks added in the builder are saved with the strategy.
+    const canvas = state.canvasEdited ? { canvas: currentCanvas(state) } : {};
+    const outcome = await saveDocument(document, { spec: strategy, ...canvas });
+    if (outcome.kind === 'saved') dispatch({ type: 'SET_DOCUMENT', document: outcome.document });
+    else if (outcome.kind === 'conflict') setConflict(outcome.message);
+    else setError(outcome.message);
+    setSaving(false);
+  };
+
+  /** The saved version replaces what is here; the operator is asked first, nothing goes silently. */
+  const reload = async () => {
+    if (!document) return;
+    if (!window.confirm('Reload the saved strategy? The edits made here since you opened it will be lost.')) return;
     try {
-      // Mission 13: blocks moved or loose blocks added in the builder are saved with the strategy.
-      const canvas = state.canvasEdited ? { canvas: currentCanvas(state) } : {};
-      dispatch({ type: 'SET_DOCUMENT', document: await api.updateStrategy(document.id, { spec: strategy, ...canvas }) });
+      dispatch({ type: 'SET_DOCUMENT', document: await api.strategyDocument(document.id) });
+      setConflict(null);
+      setError(null);
     } catch (e) {
       setError(errorMessage(e));
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -65,6 +79,14 @@ export function DocumentHeader() {
         </div>
       )}
       {error && <div className="notice warn">{error}</div>}
+      {conflict && (
+        <div className="notice warn" id="document-conflict">
+          {conflict}{' '}
+          <button type="button" className="btn" id="document-reload" onClick={() => void reload()} title="Replace what is here with the saved strategy; you are asked first">
+            Reload
+          </button>
+        </div>
+      )}
     </div>
   );
 }

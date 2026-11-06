@@ -780,7 +780,10 @@ def test_strategy_routes_round_trip(client):
     doc = created.json()
     assert doc["id"] == "breakout" and doc["spec"]["id"] == "breakout"
     assert c.get("/aegis/api/strategies/breakout").json() == doc
-    renamed = c.put("/aegis/api/strategies/breakout", json={"name": "Breakout v2"})
+    renamed = c.put(
+        "/aegis/api/strategies/breakout",
+        json={"name": "Breakout v2", "updated_at": doc["updated_at"]},
+    )
     assert renamed.status_code == 200 and renamed.json()["spec"]["name"] == "Breakout v2"
     copy = c.post("/aegis/api/strategies/breakout/duplicate", json={"name": "Copy"})
     assert copy.status_code == 201 and copy.json()["parent"] == "breakout"
@@ -792,7 +795,9 @@ def test_strategy_route_refusals(client):
     c, _, _ = client
     assert c.get("/aegis/api/strategies/nope").status_code == 404
     assert c.delete("/aegis/api/strategies/nope").status_code == 404
-    builtin = c.put("/aegis/api/strategies/ema9-sma30-cross-v1", json={"name": "x"})
+    builtin = c.put(
+        "/aegis/api/strategies/ema9-sma30-cross-v1", json={"name": "x", "updated_at": None}
+    )
     assert builtin.status_code == 422 and "read-only" in builtin.text
     assert c.delete("/aegis/api/strategies/ema9-sma30-cross-v1").status_code == 422
     assert (
@@ -1160,7 +1165,10 @@ def test_a_stored_strategy_that_no_longer_parses_is_422_naming_the_field(client,
     path.write_bytes(gzip.compress(json.dumps(raw).encode("utf-8")))
     for response in (
         c.get("/aegis/api/strategies/breakout"),
-        c.put("/aegis/api/strategies/breakout", json={"name": "Breakout v2"}),
+        c.put(
+            "/aegis/api/strategies/breakout",
+            json={"name": "Breakout v2", "updated_at": raw["updated_at"]},
+        ),
         c.post("/aegis/api/strategies/breakout/duplicate", json={"name": "Copy"}),
     ):
         assert response.status_code == 422, response.text
@@ -1645,8 +1653,34 @@ def test_update_saves_the_canvas(client):  # Mission 13
         "long": {"blocks": [], "wires": []},
         "short": {"blocks": [], "wires": []},
     }
-    saved = c.put(f"/aegis/api/strategies/{created['id']}", json={"canvas": canvas})
+    saved = c.put(
+        f"/aegis/api/strategies/{created['id']}",
+        json={"canvas": canvas, "updated_at": created["updated_at"]},
+    )
     assert saved.status_code == 200, saved.text
     assert saved.json()["canvas"] == canvas
     assert saved.json()["strategy_hash"] == created["strategy_hash"]
     assert "canvas" not in created
+
+
+def test_update_needs_the_loaded_updated_at_and_is_409_when_saved_elsewhere(client):
+    """Mission 13 review I3: PUT /strategies/{id} carries the `updated_at` the caller loaded; a
+    document saved since answers 409 and is left as the other save left it."""
+    c, _, _ = client
+    created = c.post(
+        "/aegis/api/strategies",
+        json={"name": "Two tabs", "spec": default_strategy().model_dump(mode="json")},
+    ).json()
+    url, loaded = f"/aegis/api/strategies/{created['id']}", created["updated_at"]
+    missing = c.put(url, json={"name": "Tab A"})
+    assert missing.status_code == 422 and "updated_at" in missing.text, missing.text
+    first = c.put(url, json={"name": "Tab A", "updated_at": loaded})
+    assert first.status_code == 200, first.text
+    second = c.put(url, json={"name": "Tab B", "updated_at": loaded})
+    assert second.status_code == 409, second.text
+    assert second.json()["detail"] == (
+        f"strategy {created['id']} was saved elsewhere since you opened it; reload"
+    )
+    assert c.get(url).json() == first.json()
+    third = c.put(url, json={"name": "Tab B", "updated_at": first.json()["updated_at"]})
+    assert third.status_code == 200 and third.json()["name"] == "Tab B"

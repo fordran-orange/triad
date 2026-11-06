@@ -417,3 +417,29 @@ def test_ranging_an_unset_stop_is_refused():
         ValueError, match="take_profit_pct: the long side has no take profit to range"
     ):
         apply_parameters(default_strategy().long_side, {"take_profit_pct": 2})
+
+
+# -- Mission 13 review I1: the builder's default range around a stop or target -----------------
+
+
+@pytest.mark.parametrize("pct", [0.05, 0.1, 0.2, 0.25, 2, 60])
+def test_the_builders_default_level_range_is_accepted(pct):
+    """`levelRange` (ui/src/builder/apply.ts) mirrors `defaultRanges`: half the percentage to
+    twice it in quarter steps, a stop loss kept below 100. The formula is written out here so
+    the server's validator pins it: every range validates on a side with that level, and the far
+    end of the range applies as a level the side accepts."""
+    for path in ("stop_loss_pct", "take_profit_pct"):
+        stop = min(99, pct * 2) if path == "stop_loss_pct" else pct * 2
+        data = _with_levels(stop=pct, target=pct).model_dump(mode="json")
+        data["optimization"] = [
+            {"path": path, "enabled": False, "start": pct / 2, "stop": stop, "step": pct / 4}
+        ]
+        side = StrategySide.model_validate(data)
+        assert apply_parameters(side, {path: stop}).model_dump(mode="json")[path] == stop
+
+
+def test_the_old_builder_level_range_was_refused_below_a_quarter_percent():
+    """What the review reproduced: a floor of 0.5 on the start put it above a 0.2% stop's 0.4,
+    refused on Save or Run while the builder's status read Ready."""
+    with pytest.raises(ValidationError, match="stop_loss_pct: start 0.5 above stop 0.4"):
+        OptimizationParameter(path="stop_loss_pct", enabled=False, start=0.5, stop=0.4, step=0.5)

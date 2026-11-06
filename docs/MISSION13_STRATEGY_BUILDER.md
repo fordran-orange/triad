@@ -137,3 +137,52 @@ ran in the app and was not touched.
 209 subtests; aegis 522 / 1; "all three scopes green"). The milestone QA and the whole-branch review
 were not run: the operator declined the model question and asked to merge and push. They can run
 later on `main` if wanted.
+
+## Fix pass (2026-11-04): the review's three Important findings
+
+The retroactive review (`docs/MISSION13_REVIEW.md`, `fa06d91` on `claude/peaceful-moore-81f40e`)
+found no Critical and three Important issues. Fixed test-first on `claude/elegant-tharp-468712`,
+cut from `main` at `7c30d15`; nothing pushed or merged, the operator's decision.
+
+| Finding | Fix | Tests (RED -> GREEN) |
+|---|---|---|
+| **I1** `levelRange` floored the start at 0.5 and stepped 0.5, so a stop or target under 0.25% got a disabled range the server refused on Save or Run ("stop_loss_pct: start 0.5 above stop 0.4") while the status read Ready | `ui/src/builder/apply.ts` `levelRange`: half the percentage to twice it in quarter steps, no floor, a stop loss clamped to 99, as `defaultRanges` ranges a parameter (`16242b8`) | `apply.test.ts` "levelRange": 0.05, 0.1, 0.2, 0.25, 2 and 60 each give both levels a range with start <= stop and step > 0 (RED: "expected 0.5 to be less than or equal to 0.4"); `test_aegis_strategy.py` pins the server accepting each range on a side with that level and the far end applying as a level, the old formula's refusal kept as the negative case (7 passed) |
+| **I2** a block not wired to Entry or Exit stayed an indicator of the side, so the warm-up check, `side_warmup` (the walk-forward's floor) and the Lab's "insufficient bars" counted it and the chart drew it, against spec 4.6 and the block's tooltip | `ui/src/builder/graph.ts` `sideFromGraph` leaves loose indicator blocks out of the side, their ranges with them, while the canvas keeps them greyed; `readsAs` also leaves out of the side an indicator the graph draws loose with the same settings, so a saved canvas with a loose block still reads as its strategy and is kept (the review's option (a); `2b91e14`) | `graph.test.ts` "loose indicator blocks": an unwired SMA 200 beside the reference is in neither the side nor its ranges while the canvas keeps it; wired into a condition it counts again; `readsAs` holds with and without that unread indicator (RED: the side listed `sma200`, `readsAs` false); `test_aegis_backtest.py`: a saved strategy whose canvas holds the loose SMA 200 runs on 120 bars and the same indicator in the spec is refused "insufficient bars: 120 bars cannot complete the warm-up of SMA(200)"; engine goldens 14 passed, fixture untouched |
+| **I3** `PUT /strategies/{id}` had no precondition, so two tabs editing one strategy overwrote each other silently | `strategies.py`: `update()` takes `updated_at` (keyword, required), compares it with the stored document and raises `StrategyConflict`; `updated_at` moves on every write even under a clock that does not (`_after`). `api.py`: `StrategyUpdate.updated_at` required; the route answers 409 "strategy <id> was saved elsewhere since you opened it; reload". UI: `updateStrategy` requires `updated_at`; `state/documents.ts` `saveDocument` sends the loaded stamp and turns the 409 into a conflict outcome; the builder's status line and the document header show the message with a Reload that asks before replacing the unsaved edits; the strategy list's rename sends its row's stamp and refreshes the list on a 409; the experiments page's save sends the document's | `test_aegis_strategies.py`: two updates from one loaded state under a frozen clock, the second refused and the stored document unchanged, the next save with the fresh stamp accepted (RED: no `StrategyConflict`); `test_aegis_api.py`: a PUT without the stamp 422, the stale one 409 with the message, the stored document equal to the first save, the fresh stamp 200 (RED: the stale PUT answered 200); `documents.test.ts`: the save carries the loaded stamp, a 409 becomes a conflict with the worker's message, another refusal a failure (RED: `saveDocument is not a function`) |
+
+API change: `PUT /strategies/{id}` now requires `updated_at`, the document's as the caller loaded it
+(`null` only for a document that has none). No caller outside `ui/src` sent a PUT (the walk, the
+benchmark and `builder_identity.py` read or POST), so nothing keeps the old shape.
+
+Tooltip: unchanged. "Not wired to Entry or Exit: backtests ignore it" now holds for every block
+the canvas makes. The window left: an indicator added in the Indicators tab and never wired stays
+in the spec, and the engine counts it, until the canvas is next read.
+
+Checks: `tools/lint_aegis.sh fix` clean; the aegis scope `tests/test_aegis_*` 675 passed, 2 skipped
+(the archive and the integration skips) in 413 s; `npm test -- --run` 727 passed (715 before, 12 new);
+`npm run build` clean; `test_architecture` + `test_isolation` 6 passed with the two known
+worktree-environment failures, which pass with Core's root at the main checkout.
+
+Walk: the whole browser acceptance on a scratch worker started from this worktree (8103, the Lab
+scratch store seeded at R3.5, Core's root at the main checkout for `.env`): **118/118 PASS, 0 FAIL,
+page errors 0**, `docs/evidence/aegis-acceptance-20261104T182321Z.json`. Items 91 to 97 as before
+(91: 11 blocks, 2 default badges, 16 long trades all closed by a level; 92: RSI, a condition and an
+AND dropped and wired, the second wire into Entry refused, the deleted RSI named, Ctrl+Z, saved; 93:
+14 blocks back at their saved places, the pre-builder strategy laid out as 9 blocks, not edited,
+hash unchanged; 94: stop loss 1, 2, 3% -> 3 cells; 95: the panel's text with both levels; 96: the
+refusal naming "vwap"; 97: governance); the items the fixes touch (37 and 92 save through the
+builder, item 7's hash `c9b6f8f821c0` and item 22's recorded Mission 3 hash reproduced). Two earlier
+runs are in the worktree's logs: 12/118 before the archive copies (no symbol on the worker) and
+101/118 with copies but no coverage CSVs (every number identical, every hash different from the
+recorded ones: the pinned source's `coverage_pct` is hashed); the CSVs were regenerated from the
+parquets with the audit tool's `inspect()` and reproduce the product's figures to the last digit.
+
+Deployed: on a scratch worker (8103, this worktree's code on the Lab scratch store) a strategy was
+created, saved with its stamp (200), saved again with the stale stamp (409, the stored document
+unchanged), saved with the fresh stamp (200) and deleted.
+
+Found on the way, not this pass's to fix: the raw archive folder
+`data/raw/HFDataLibrary/20260919T233952760505Z/` on the main checkout was emptied on 2026-11-03
+13:26; the original parquets survive at the checkout root with the pinned hashes, the daily-coverage
+CSVs do not. A hand-over note names the probable cause (the scratch launcher's junction into that
+folder, followed by a worktree removal). The walk ran on hash-verified copies inside this worktree.
