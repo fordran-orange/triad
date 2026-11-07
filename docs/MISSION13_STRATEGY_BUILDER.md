@@ -186,3 +186,27 @@ Found on the way, not this pass's to fix: the raw archive folder
 13:26; the original parquets survive at the checkout root with the pinned hashes, the daily-coverage
 CSVs do not. A hand-over note names the probable cause (the scratch launcher's junction into that
 folder, followed by a worktree removal). The walk ran on hash-verified copies inside this worktree.
+
+## Fix pass merged
+
+2026-11-06, Randall's "Merge it": `main` took the three fix-pass commits in a merge commit, `7d6bf5a`
+(`main` had moved by one commit since the branch was cut: `8da837e`, the scratch launcher copying the
+raw archives into a checkout instead of junctioning them). The milestone gate on `main`:
+
+| Check | Result |
+|---|---|
+| `tools/verify.ps1` on `main` at `7d6bf5a` | exit 0 in 976 s: lint and format clean (110 files); inventory core 603, triad 1058, aegis 1284 (this pass's ten tests over the Phase 3 gate's 1274); core 413 passed / 190 skipped; triad 634 / 424 with 209 subtests; aegis 1283 / 1; all three scopes green. |
+| `npm test -- --run` and `npm run build` | 727 / 727 in 48 files; the build clean; the main chunk's hash moved with the UI change (`index-K0riCVDp.js`), `vela-CThRMBD9.js` and `index-DDH0Tl65.css` as before. |
+| The product worker on 8102 | the machine rebooted on 2026-11-07 08:50 while the gate was open; the supervisor relaunched Core and both workers by 09:09 on `main`'s tree, so the 8102 worker serves the merged code (its `/openapi.json` lists `updated_at` as required on `StrategyUpdate`); `/health/live` names `C:/Triad/app` and the product store. |
+| The whole browser acceptance | on a scratch worker started from `main` on 8103 against the Lab scratch store (seeded at the Phase 3 gate; the seeding re-run found nothing to add): **118/118 PASS, 0 FAIL, page errors 0** in 1,073 s, `docs/evidence/aegis-acceptance-20261107T155835Z.json`. Item 7's hash `c9b6f8f821c0` and item 22's Mission 3 hash reproduced; 51 and 63 restarted the worker through the pid file; 73 waited for the experiment row; 82 and 87 opened the seeded format-1 run; 92 wired and saved through the builder; 93 laid out the pre-builder `untitled-strategy-04a547` as 9 blocks with its hash unchanged; 96 refused `vwap`. The product store was never a data root of the gate; the scratch worker was stopped after the run. |
+
+A first attempt of the walk on 2026-11-06 never started: run as one background command behind the
+scratch launcher, its pipeline waited on a handle the detached worker had inherited (the hazard the
+launcher's notes name for Python callers) and the chained walk sat 13 hours without a request until
+the desktop app quit. The run above was started on its own after the launcher, with unbuffered output
+to a log.
+
+The raw archive folder named at the end of the fix-pass section was restored on 2026-11-06: the three
+parquets from the checkout root, digests equal to the product's pins, and the nine CSVs regenerated
+with the audit tool; the launcher no longer junctions (`8da837e`). Nothing is pushed; the push is
+Randall's.
