@@ -48,6 +48,9 @@ def client(tmp_path, monkeypatch):
     # Mission 14: no test reaches the real gateway; a reading the phrase reader refuses meets an
     # AI reading that is not set up (tests that need one override this).
     server.app.dependency_overrides[api.get_core_reasoning] = lambda: NoCore()
+    # No test reads Core's configuration: the worker's settings and its work-item store are
+    # stood in for (docs/AEGIS_WORKER_ENVIRONMENT.md).
+    server.app.dependency_overrides[api.get_worker_settings] = lambda: None
     monkeypatch.setattr(server, "Store", lambda **_: SimpleNamespace(list_work=list))
     yield TestClient(server.app, raise_server_exceptions=False), store, repository
     server.app.dependency_overrides.clear()

@@ -12,13 +12,22 @@ ROOT = Path(
 ).resolve()
 
 
-class Settings(BaseSettings):
+class StoreSettings(BaseSettings):
+    """What Core's `Store` needs: the Postgres connection. A product worker builds a product view
+    on this base (below) instead of the whole `Settings`, so Core-only values never enter its
+    process (docs/AEGIS_WORKER_ENVIRONMENT.md). One `.env`, read for fewer names."""
+
     model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore")
     postgres_host: str = "127.0.0.1"
     postgres_port: int = 55432
     postgres_db: str = "triad"
     postgres_user: str = "triad_admin"
     postgres_password: SecretStr
+
+
+class Settings(StoreSettings):
+    """Core's whole configuration: the gateway, the supervisor and the tools build this."""
+
     neo4j_uri: str = "bolt://127.0.0.1:57687"
     neo4j_user: str = "neo4j"
     neo4j_password: SecretStr
@@ -27,4 +36,11 @@ class Settings(BaseSettings):
     local_model_enabled: bool = False
     triad_operator_token: SecretStr = SecretStr("")
     # Mission 14: a product worker's key for its read-only reasoning route; never the operator token.
+    aegis_product_key: SecretStr = SecretStr("")
+
+
+class AegisSettings(StoreSettings):
+    """The Aegis worker's view: its work-item store and its own product key, nothing of Core's
+    alone (no operator token, no Neo4j, no Ollama)."""
+
     aegis_product_key: SecretStr = SecretStr("")

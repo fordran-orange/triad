@@ -9,7 +9,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from trading_core.settings import Settings
+from trading_core.settings import Settings, StoreSettings
 from trading_core.work import HandoffLifecycle, Record, WorkItem, now
 
 ID_FIELDS = {
@@ -30,7 +30,7 @@ class ConcurrentUpdate(RuntimeError):
 
 
 class Store:
-    def __init__(self, settings: Settings | None = None, *, scope=None):
+    def __init__(self, settings: StoreSettings | None = None, *, scope=None):
         from trading_core.product_identity import canonical_product, lineage_owners
 
         self.scope = canonical_product(scope) if scope is not None else None
