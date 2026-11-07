@@ -267,3 +267,24 @@ its I2 is the provenance question answered in §2.
 9. Merge order: this branch and `claude/brave-bassi-63d6d0` (the `local_headers` move) both edit
    the import block of `app/products/aegis/server.py`; a one-line conflict is expected for
    whichever merges second. Left as is; the operator decides the order.
+
+## 7. Merged
+
+2026-11-07, Randall's "Merge them" (the two Core touches approved as governed Core changes): `main`
+took this branch at `f2fe886` in the merge commit `4fd0052`, then the `local_headers` home
+(`claude/brave-bassi-63d6d0` at `058587e`) in `5586f47`. The import block of
+`app/products/aegis/server.py` auto-merged; the one conflict was the two branches' new tests in
+`tests/test_architecture.py`, kept side by side. The milestone gate on `main`:
+
+| Check | Result |
+|---|---|
+| `tools/verify.ps1` on `main` at `5586f47` | exit 0 in 1,015 s: lint and format clean (112 files); inventory core 606, triad 1058, aegis 1311; core 416 passed / 190 skipped; triad 634 / 424 with 209 subtests; aegis 1310 / 1; all three scopes green. |
+| `npm test -- --run` and `npm run build` | 727 / 727 in 48 files; the build clean (neither branch changes the UI). |
+| Independent QA of the `local_headers` home | its review had said a separate QA was still owed; dispatched read-only on merged `main` (`.superpowers/sdd/aegis-env-scope/qa-local-headers-5586f47.md`): ready as a governed Core change, yes with findings. I-1: the walk's Core-change baselines on merged `main` lacked this branch's two Core files (this branch never touched the walk), so eleven governance items would fail; fixed in `8c5e0d3` (`ENV_SCOPE_FILES` joins both lists and the sentences). Minor: a line number in the home's note; `trading_core.http` shares the stdlib `http` name (harmless under absolute imports and `-m`); the workers predated the merge until the restart below. |
+| The whole browser acceptance | on a scratch worker started from `main` on 8103 against the Lab scratch store. Run 1 at `5586f47`: 105/118, page errors 0; the eleven governance items (the lists, QA I-1) and items 82 and 87, which open the plain pre-Mission-10 run under the strategy with the fewest runs by searching its name: the eight plain runs seeded at the Phase 3 gate all belong to the default strategy, which passed the Library's 50-row page on the scratch store during the day's walks. Three plain runs under single-run strategies were seeded from the product store, read-only. Run 2 at `8c5e0d3`: **118/118 PASS, 0 FAIL, page errors 0** in 1,134 s, `docs/evidence/aegis-acceptance-20261107T194828Z.json`; the governance sentences name the worker settings view; items 82 and 87 opened run `21930eba`. |
+| The product worker on 8102 | restarted detached through `tools/start_product.ps1` on the merged code (the listener relaunched at 14:08 local on `.venv-aegis`); `/health/live` ok; `/aegis/api/status` 200 with 47 work items, through the worker's own settings view with `.env` carrying `AEGIS_PRODUCT_KEY`; `/aegis/api/phrases/providers` 200. |
+
+Open point 5, the work item chip `task_1efcb8c1`: no record with that id is among the Aegis scope's
+work items (47, all completed product readings) or in Core's `/api/work`; the id appears only in the
+AI reading design spec. Its close stays the operator's. Open points 6 and 7 (QA M1 and M4) stay Core
+items for the operator. Nothing is pushed.

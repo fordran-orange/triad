@@ -149,3 +149,17 @@ diff from every base (`app/trading_core/http.py`, `app/products/triad/server.py`
    `.env`), beside the two the sibling note recorded. It fails the same way on an unmodified
    worktree checkout; nothing to fix, only to expect.
 5. The walk and `tools\verify.ps1` run on `main` after the merge, as for every Core change.
+
+## 7. Merged
+
+2026-11-07, Randall's "Merge them": the merge commit `5586f47` on `main`, after the worker settings
+view (`4fd0052`); the one conflict was the two branches' new tests in `tests/test_architecture.py`,
+kept side by side. The independent QA section 5 asked for ran read-only on merged `main`
+(`.superpowers/sdd/aegis-env-scope/qa-local-headers-5586f47.md`): items 1, 2, 3, 4, 6 and 8 hold
+(the body byte-identical to the one removed from `api.py`, framework-only imports,
+`api.local_headers is http.local_headers`, the gateway's one middleware, Triad's three handlers
+answering 404 / 409 / 403, 4 + 11 tests green); item 7 held at the branch head but not on merged
+`main` until `8c5e0d3`, where the walk's lists gained the settings view's two files; item 5 awaited
+the 8102 restart, done the same afternoon. Open point 3 (one base, one list) stands. The gate's
+figures are in `docs/AEGIS_WORKER_ENVIRONMENT.md` section 7; the walk's record is
+`docs/evidence/aegis-acceptance-20261107T194828Z.json`. Nothing is pushed.
