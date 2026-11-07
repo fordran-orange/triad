@@ -111,7 +111,7 @@ ITEMS = [
     "rerun the new strategy's backtest unchanged and obtain the same result_hash",
     "the Indicators tab lists kind, parameters, source, pane and latest values; removing a read indicator is refused",
     "invalid rules and parameters are refused with 422 naming the problem",
-    "governance unchanged and no file under Core, the platform host or Triad changed but Mission 14's Core files, the two Core fixes merged from main and the local_headers home",
+    "governance unchanged and no file under Core, the platform host or Triad changed but Mission 14's Core files, the two Core fixes merged from main, the local_headers home and the worker settings view",
     # Mission 6 (spec §2 items 1–13)
     "every earlier item ran on the kernel engine: the status reports it available and the recorded Mission 3 and 5 hashes are reproduced",
     "define the 252-cell experiment on the breakout document (four parameters across both sides, MAR): the plan says exhaustive, 252 runs, priced",
@@ -125,7 +125,7 @@ ITEMS = [
     "plan the over-budget experiment (step 1, budget 2,000): sampled with its fraction and the levers; freezing the two short-side parameters gives 682 cells, exhaustive",
     "recompute the finished experiment's report with net P&L and tolerance 0.10 without rerunning: both reports kept",
     "every refusal is honest over HTTP: no parameters, eleven, a path on the wrong side, a fractional step, a budget of zero, a pause on a finished experiment, a delete of a running one",
-    "governance unchanged, no file under Core, the platform host or Triad changed but Mission 14's Core files, the two Core fixes merged from main and the local_headers home, and pyproject.toml changed by the one optional-extra line only",
+    "governance unchanged, no file under Core, the platform host or Triad changed but Mission 14's Core files, the two Core fixes merged from main, the local_headers home and the worker settings view, and pyproject.toml changed by the one optional-extra line only",
     # Mission 8 (spec §3 items 1–9)
     "plan a study from the finished breakout experiment: per symbol the windows, 252 cells per window exhaustive, the runs and an estimate priced from the measured cost",
     "start it on QQQ, SPY and ITOT 1h 2016-09-19 → 2026-09-18 with 3,493 + 873 bars: progress advances by window while the status route answers under 500 ms",
@@ -135,7 +135,7 @@ ITEMS = [
     "an identical study reproduces every per-rule result hash",
     "every refusal answers 422 or 409 naming the problem",
     "record the decision accepted with a note: shown on the study and in the list under its experiment",
-    "governance unchanged and no file under Core, the platform host or Triad changed but Mission 14's Core files, the two Core fixes merged from main and the local_headers home since the Mission 8 plan",
+    "governance unchanged and no file under Core, the platform host or Triad changed but Mission 14's Core files, the two Core fixes merged from main, the local_headers home and the worker settings view since the Mission 8 plan",
     # Mission 9 (spec §3 items 1–7)
     "the Library lists saved results of all five kinds with each kind's headline numbers, 50 rows per page",
     "filters, search and sort narrow and order the list; a label and star set on item 22's run are found by search and by Starred",
@@ -143,7 +143,7 @@ ITEMS = [
     "item 21's optimization opens with its matrix and table, item 28's walk-forward with its windows, stitched equity and stability; the experiment and study open on the Experiments page selected",
     "item 22's pair compares as identical; item 39's run against item 54's lists exactly the differing parameters, carries ▲/▼ marks and draws both curves on one calendar axis",
     "delete → Recently deleted → restore keeps the result hash; the refusals answer 409 naming a parent with studies, a running study and a study whose parent is trashed",
-    "governance unchanged, no file under Core, the platform host or Triad changed but Mission 14's Core files, the two Core fixes merged from main and the local_headers home since the Mission 9 plan, items 1–69 still pass and Recently deleted was never emptied",
+    "governance unchanged, no file under Core, the platform host or Triad changed but Mission 14's Core files, the two Core fixes merged from main, the local_headers home and the worker settings view since the Mission 9 plan, items 1–69 still pass and Recently deleted was never emptied",
     # the limits change (2026-10-20)
     "a ten-year 15m backtest (65,107 bars) runs and its chart loads under the 2,000,000-bar guard",
     "a three-parameter grid of more than 400 cells runs on the pool; its matrix switches axes, a square's best cell loads and its backtest equals the cell",
@@ -174,7 +174,7 @@ ITEMS = [
     'what Claude substituted for "crosses up" is listed as learned, and the same phrasing is then read by the phrase reader with no provider',
     "Remove forgets it: the same sentence goes to the provider again, and Cancel stops the wait with the text kept",
     "the provider chosen is remembered across a reload, then set back as found; the save mode untouched",
-    "governance: Core changed since the Mission 14 plan only in its own files, the two fixes merged from main and the local_headers home, nothing else under the platform host or Triad, the key only in the ignored .env; exchange CLOSED, schedule disabled, items 1–101 pass",
+    "governance: Core changed since the Mission 14 plan only in its own files, the two fixes merged from main, the local_headers home and the worker settings view, nothing else under the platform host or Triad, the key only in the ignored .env; exchange CLOSED, schedule disabled, items 1–101 pass",
 ]
 # Optimization Lab v2, Phase 1 (plan Task 7, and the final review's fix wave), Phase 2 (Task 12,
 # the five on the real 12,000-trial experiment) and Phase 3 (Task 12: 111, 112 and 124): sixteen
@@ -197,7 +197,7 @@ LAB_ITEMS = [
     "(111) a spike and a plateau are labelled: the bench's Robustness tab ranks by peak and by robustness and its top peak shows category A with its inputs (untested surroundings, never a peak), and a fully tested grid's plateau reads stable local with its inputs",
     "(112) Parameter Families on the 10-parameter bench: the family tree and its search, the trellis with n per square, maximize and Esc, and a square's n equals the drill-down table's total, count-preserving (unmerged, thin and merged squares)",
     "(124) a candidate card shows four categories with tested / unknown states and the reason for each: C reads unresolved · selection-period only beside its informational finding, D reads no replay yet (stage 2)",
-    "governance unchanged since the Optimization Lab v2 plan (LAB_BASE) but Mission 14's fix pass merged from main and the local_headers home, and the Lab items pass",
+    "governance unchanged since the Optimization Lab v2 plan (LAB_BASE) but Mission 14's fix pass merged from main, the local_headers home and the worker settings view, and the Lab items pass",
 ]
 ITEMS += LAB_ITEMS
 LAB_BASE = "1882c81"  # Mission 14 merged into the Lab branch; Core, platform host and Triad frozen
@@ -527,14 +527,21 @@ LOCAL_HEADERS_FILES = [  # the local-only middleware's own home (2026-11-04, a g
     "app/products/triad/server.py",  # imports local_headers from trading_core.http; nothing else
     "app/trading_core/http.py",  # local_headers, moved out of api.py (which re-exports it)
 ]  # app/trading_core/api.py changed too; Mission 14's list already names it
-EXPECTED_CORE_CHANGES = sorted(MISSION14_CORE_FILES + MAIN_CORE_FILES + LOCAL_HEADERS_FILES)
+ENV_SCOPE_FILES = [  # the Aegis worker's own view of Core's configuration (2026-11-04, governed)
+    "app/trading_core/settings.py",  # StoreSettings base and AegisSettings (Mission 14's list too)
+    "app/trading_core/store.py",  # Store typed on the base; an annotation only
+]
+EXPECTED_CORE_CHANGES = sorted(  # settings.py is in two lists; one name each
+    set(MISSION14_CORE_FILES + MAIN_CORE_FILES + LOCAL_HEADERS_FILES + ENV_SCOPE_FILES)
+)
 CORE_CHANGE_NOTE = (
     f"but Mission 14's {len(MISSION14_CORE_FILES)} Core files, "
-    f"the {len(MAIN_CORE_FILES)} Core fixes merged from main and the local_headers home's "
-    f"{len(LOCAL_HEADERS_FILES)}"
+    f"the {len(MAIN_CORE_FILES)} Core fixes merged from main, the local_headers home's "
+    f"{len(LOCAL_HEADERS_FILES)} and the worker settings view's store.py"
 )
-# The Lab's governance item: Mission 14's fix pass since LAB_BASE, and the local_headers home.
-LAB_EXPECTED_CORE_CHANGES = sorted(LAB_MAIN_CORE_FILES + LOCAL_HEADERS_FILES)
+# The Lab's governance item: Mission 14's fix pass since LAB_BASE, the local_headers home and
+# the worker settings view.
+LAB_EXPECTED_CORE_CHANGES = sorted(set(LAB_MAIN_CORE_FILES + LOCAL_HEADERS_FILES + ENV_SCOPE_FILES))
 AI_SENTENCE = "buy when 9 ema crosses up 30 sma, exit when it crosses back down"
 LEARNED_SENTENCE = "buy when 9 ema crosses up 30 sma"  # readable once "crosses up" is learned
 ONE_MINUTE_SURFACE = [  # item 89: 2 × 2 = 4 cells on QQQ 1m, a parent finished in seconds
@@ -4933,7 +4940,8 @@ class Acceptance:
                 f"enabled={schedule['enabled']}; since {AI_READING_BASE} Core changed only in "
                 f"Mission 14's {', '.join(p.rsplit('/', 1)[1] for p in MISSION14_CORE_FILES)}, "
                 f"main's {', '.join(p.rsplit('/', 1)[1] for p in MAIN_CORE_FILES)} and the "
-                f"local_headers home's {', '.join(LOCAL_HEADERS_FILES)}, nothing else under "
+                f"local_headers home's {', '.join(LOCAL_HEADERS_FILES)} and the worker settings "
+                f"view's {', '.join(p.rsplit('/', 1)[1] for p in ENV_SCOPE_FILES)}, nothing else under "
                 f"app/platform_host or app/products/triad; .env ignored by git; items 1–101 PASS"
             )
 
@@ -7400,7 +7408,8 @@ class Acceptance:
                 f"aegis {state['mode']} / {state['exchange']}; DailySchedule {schedule['id'][:8]} "
                 f"enabled={schedule['enabled']}; no change under {', '.join(paths)} since "
                 f"{LAB_BASE} but Mission 14's {len(LAB_MAIN_CORE_FILES)} fix-pass files merged from "
-                f"main and the local_headers home's {len(LOCAL_HEADERS_FILES)}; Lab items "
+                f"main, the local_headers home's {len(LOCAL_HEADERS_FILES)} and the worker "
+                f"settings view's {len(ENV_SCOPE_FILES)}; Lab items "
                 f"{first}–{first + 14} PASS; fixtures {fixtures}{served}"
             )
 
