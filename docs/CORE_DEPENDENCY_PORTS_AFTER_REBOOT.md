@@ -440,3 +440,37 @@ Desktop logs under `%LOCALAPPDATA%\Docker\log\host`, `settings-store.json` and `
 variables only); `Get-ItemProperty` on the `Run` and `StartupApproved\Run` keys; `grep` over the
 repository; and the bind probes in section 3.4. Nothing was stopped, restarted, installed or
 edited.
+
+## 9. Update 2026-11-07: a seventh boot and a third port-block snapshot
+
+Read-only, the same sources as above. Nothing has been decided or implemented since section 7.
+
+**The boot.** Windows started at 08:50:31 (Kernel-General event 12). The supervisor's first run
+at 08:55:18 failed on the Docker pipe, as did the runs at 08:57:11 and 09:02:40 (three
+`docker compose dependency startup failed (1)` lines, the launcher log holding the same pipe
+error). Docker Desktop was started between 09:02:43 and 09:07:32; the 09:07:32 run brought Core
+back at 09:08:19. Boot to Core 17 m 48 s; outage as the supervisor saw it 13.0 minutes. Docker's
+`AutoStart` is still `false`. The seven-boot totals are now 297 pipe failures and 1,478.6 minutes
+(24.6 hours) of Core down, every one of them Docker not running, none a port.
+
+**The blocks.** `netsh int ipv4 show excludedportrange protocol=tcp` at 14:50, six hours after
+the boot:
+
+```
+      5357        5357
+     49152       49251
+     49409       49508
+     50000       50059     *
+     64952       65051
+     65052       65151
+     65254       65353
+     65391       65490
+```
+
+Six dynamic blocks of 100 ports again (600 in all), this time two at the bottom of the range
+and four at the top. 55432, 57474 and 57687 are in none of them; all three are listened on by
+`com.docker.backend`. The three snapshots (57225-57824 on 10-19; 56805-64814 on 11-04;
+49152-49508 and 64952-65490 today) now span the whole dynamic range, so section 4's uniform
+estimate (about 3.7 % per port per boot, about 10 % that one of the three is hit) is the right
+order of magnitude and the "upper part" remark in section 3.3 no longer holds. One hit in seven
+boots. Nothing in this update changes the recommendation in section 6.
