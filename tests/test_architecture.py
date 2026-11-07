@@ -219,3 +219,21 @@ def test_the_store_accepts_a_product_settings_view():
     assert StoreSettings in typing.get_args(annotation)
     view = AegisSettings(_env_file=None, postgres_password=SecretStr("dummy-not-a-secret"))
     assert Store(settings=view, scope="aegis").settings is view
+
+
+def test_local_headers_home_imports_only_the_framework():
+    """The local-only middleware (2026-11-04) lives in `trading_core.http`, which imports the web
+    framework and nothing of Core, so a product worker mounting it loads no operator surface;
+    `trading_core.api` mounts and re-exports the same function."""
+    from trading_core import api, http
+
+    tree = ast.parse((ROOT / "app/trading_core/http.py").read_text(encoding="utf-8"))
+    imported = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.extend(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported.append(node.module or "")
+    assert imported and all(n.split(".")[0] in {"fastapi", "starlette"} for n in imported), imported
+    assert api.local_headers is http.local_headers
+    assert [m.kwargs.get("dispatch") for m in api.app.user_middleware] == [http.local_headers]

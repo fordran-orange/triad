@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from trading_core.brain import Brain
+from trading_core.http import local_headers  # re-exported from its framework-only home
 from trading_core.orchestrator import Orchestrator
 from trading_core.process_power import opt_out_of_power_throttling
 from trading_core.runtime import ProviderError
@@ -86,19 +87,7 @@ def require_operator(
         raise HTTPException(401, "Operator authorization required")
 
 
-@app.middleware("http")
-async def local_headers(request: Request, call_next):
-    host = request.headers.get("host", "").split(":")[0]
-    if host not in {"127.0.0.1", "localhost", "testserver"}:
-        return JSONResponse({"detail": "Local host required"}, status_code=403)
-    response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "no-referrer"
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
-    )
-    return response
+app.middleware("http")(local_headers)
 
 
 @app.exception_handler(KeyError)
