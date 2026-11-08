@@ -648,10 +648,22 @@ product workers.
 Rollback at any step: the four `.env` lines back to 55432 / 57687 / 57474 / 57687, edited the
 same way and with the same `icacls` check, `docker compose up -d --wait`, step 4, step 5. The
 dump of step 1 is the last resort for a volume that is lost, which a port change does not cause,
-and a TimescaleDB database is not restored with a bare `pg_restore` (QA finding 3): into a
-database whose extension is at the image's version (2.25.2), first
-`psql -c "SELECT timescaledb_pre_restore();"`, then `pg_restore -Fc -d <db> < postgres.dump`
-(through `docker exec -i triad-postgres-1 ...`), then `psql -c "SELECT timescaledb_post_restore();"`.
+and a TimescaleDB database is not restored with a bare `pg_restore` (QA finding 3, re-check R1
+and R2). The target is a database that holds the extension at the image's version (2.25.2) and
+nothing else: on a fresh volume the image's init runs `infrastructure/postgres/001_foundation.sql`
+and creates the foundation schema first, so a full dump restored over it collides; make a new
+empty database instead, which inherits the extension from `template1`, and point the readers at
+it afterwards (or drop the init-created objects first). Every command names the role and the
+database, since the container's OS user is `root` and `timescaledb_pre_restore()` acts on the
+database `psql` is connected to; local socket auth is `trust`, so nothing from `.env` is typed:
+
+```
+docker exec triad-postgres-1 sh -c 'createdb -U "$POSTGRES_USER" triad_restore'
+docker exec triad-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d triad_restore -c "SELECT timescaledb_pre_restore();"'
+docker exec -i triad-postgres-1 sh -c 'pg_restore -U "$POSTGRES_USER" -d triad_restore -Fc' < postgres.dump
+docker exec triad-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d triad_restore -c "SELECT timescaledb_post_restore();"'
+```
+
 `pg_dump`'s warnings about circular foreign keys on `hypertable`, `chunk` and `continuous_agg`
 are expected on stderr and must not be redirected into the dump (step 1 redirects stdout only).
 Measured by the QA: 209 MB for a 629 MB database, about 33 s.
@@ -697,5 +709,18 @@ push and the live move are each the operator's word. `tools\verify.ps1` at the m
   recreated container logged on success); finding 8 as the success-path line in the script.
   Finding 9 is the operator's click (10.1); finding 10 is grep noise in `C:\Triad` only
   (`build/lib`, `__pycache__`, a generated vault page). After the round: 21 passed in the three
-  supervisor modules (9 new, 12 existing); lint and format clean. QA re-check of the round: see
-  below once recorded.
+  supervisor modules (9 new, 12 existing); lint and format clean.
+- QA re-check of the round (the same report, section "Re-check d398645"): merging READY WITH
+  FINDINGS stands; executing 10.4 READY WITH FINDINGS. Step 2's snippet was run verbatim on a
+  scratch file with the live file's variable names, CRLF endings and the same three explicit
+  ACEs, under PowerShell 5.1 and 7: ACL kept, 15 CRLF kept and no lone LF, no byte-order mark,
+  the four values changed and everything else byte-identical, the rollback restoring the
+  original bytes; the re-apply line with the bare account name turned an inherited ACL into the
+  three explicit entries. The five tests pin the table's rows; 21 passed for the QA too; lint and
+  format clean. The success-path line is one per resource compose created or recreated, nothing
+  on a normal pass, no value in it, the exit code untouched. Two textual corrections to the
+  rollback's last-resort restore (R1: every command names the role and the database, since the
+  container's OS user is `root`; R2: the target database holds the extension and nothing else),
+  applied above in the commit after d398645. The extension's premises hold on the machine:
+  `timescaledb 2.25.2` in the target database and in `template1`, server 17.7,
+  `shared_preload_libraries = timescaledb`, both restore functions present.
