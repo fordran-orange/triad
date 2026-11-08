@@ -741,3 +741,27 @@ live `.env` still names 55432, 57474 and 57687, and the containers were not touc
 untested: no boot since it was applied, Docker Desktop running since 2026-11-07 09:07, `AutoStart`
 still `true` and the approval flag still `02`. Not pushed. Next, each on the operator's word: the
 push, and the live move of 10.4.
+
+### 10.8 The live move
+
+Run at the operator's "Run the move" on 2026-11-08, by the procedure of 10.4, from this session's
+tool shells with the two long-lived relaunches detached. Times are local (CST).
+
+| Step | When | What happened |
+| --- | --- | --- |
+| 0 Preconditions | 10:41 | 8000, 8101 and 8102 `ok`; both containers healthy on the old ports, held by `com.docker.backend`; nothing on 15432, 17474 or 17687; Aegis status 47 work items; the `.env` ACL its three explicit entries; 52 GB free; the four old lines present by name |
+| 1 Dump | 10:42:26-10:43:08 | `pg_dump -Fc` inside the container to `data/temp/ports-move-20261108T164226Z/postgres.dump`: 209,649,745 bytes in 42 s, sha256 `b608a97a1565153b2348cd6674641e6b5f1983545bd01d66587383560846ed78`; `pg_restore --list` read back 169 TOC entries; stderr held the expected circular-key warnings (`hypertable`, `chunk`, `continuous_agg`) and nothing else |
+| 2 `.env` | 10:47:30 | the snippet of step 2 verbatim; `icacls` unchanged (Administrators, SYSTEM, `RAGNAROK\fordr`, all `(F)`, no `(I)`); four new lines by name; first bytes `23 20 43 6F`, no byte-order mark |
+| 3 Containers | 10:47:31-10:48:04 | `docker compose stop` (both Stopped), `docker compose up -d --wait --wait-timeout 240`: both `Recreate`, `Recreated`, `Started`, `Healthy`, exit 0; `docker ps` showing `127.0.0.1:15432->5432`, `127.0.0.1:17474->7474`, `127.0.0.1:17687->7687`; 33 s for the step |
+| 4 Core | 10:48:33-10:48:56 | `tools\ensure_core.ps1 -Restart` through a detached `Win32_Process` `Create`; the log: `Core restart requested; ensuring database dependencies` at 10:48:39, `Core recovered and healthy on port 8000` at 10:48:56; the 8000 listener's owner 3720 → 28592, its parent `.venv\Scripts\python.exe` |
+| 5 Workers | 10:48:56-10:49:52 | `start_product.ps1 -Product triad` then `-Product aegis`, each detached the same way; 8101 owner 14096 → 24600 (parent `.venv-triad`), 8102 owner 5372 → 22232 (parent `.venv-aegis`); both `ok` within 30 s |
+| 6 Verify | 10:50-10:52 | `tools/health_check.py` on `.venv`: Postgres `triad`, TimescaleDB 2.25.2, the `core.candles_1m` hypertable, read and write, Neo4j read, write and the seven constraints, all passed; 8000, 8101, 8102 `ok`; Aegis status 47 work items, exchange CLOSED, human-directed; the providers route 200; Neo4j Browser 200 on 17474; the three new ports held by `com.docker.backend`, nothing on the three old ones; the `.env` ACL unchanged; the supervisor's next tick at 10:52:10 `Core healthy on port 8000` and the product supervisor's `HEALTHY` for Aegis at 10:52:11 |
+
+Steps 2 to 5 ran inside one supervisor window, 10:47:30 to 10:49:52, after the 10:47:10 tick, so
+no pass overlapped the move. Core and its databases were apart from 10:47:31 (the stop) to
+10:48:56 (Core healthy on the new ports), 85 s; the Triad worker was down for about 20 s and the
+Aegis worker for about 30 s inside that span's tail. No rollback was needed. The old numbers now
+appear only in the dated evidence documents and this note's history. The dump stays under
+`data/temp` (git-ignored) for the operator to delete once satisfied. Anything outside the
+repository that pointed at 55432, 57474 or 57687 is the operator's to repoint; none was named.
+Not pushed.
