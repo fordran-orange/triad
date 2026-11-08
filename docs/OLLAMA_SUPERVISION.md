@@ -35,3 +35,11 @@ Builder tests exercise the actual PowerShell scripts with mocked network/process
 seams, including healthy Core with failed Ollama, busy ports, missing models,
 nonlocal/mismatched endpoints, hidden launch, and real Windows task construction
 without registration. Independent QA remains required before deployment.
+
+November 7 (`docs/CORE_DEPENDENCY_PORTS_AFTER_REBOOT.md`, section 10): every logged dependency
+failure since September was Docker Desktop not running at sign-in. `tools/ensure_core.ps1` now
+waits up to `-EngineWaitSeconds` (40) for the Docker engine before `docker compose up`, names a
+Docker Desktop that is not running, and on a failed dependency start writes compose's last lines
+and Windows' excluded TCP port ranges to `core-supervisor.log`, timestamped, so a reserved port
+no longer reads like a missing engine. `tests/test_core_dependency_supervisor.py` drives those
+seams the same way, with `docker`, `netsh`, the web and the clock mocked.
