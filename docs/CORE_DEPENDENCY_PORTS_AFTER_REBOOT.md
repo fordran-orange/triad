@@ -507,10 +507,14 @@ documents one.
 Untested until the next sign-in, which is the only test there is. The supervisor log's logon run
 tells: with C2 in place it should read `Docker engine unavailable; waiting up to 40 s for Docker
 Desktop`, then `Docker engine available after N s`, then `Core recovered and healthy` within about
-a minute of sign-in. If Docker Desktop's General settings show the box unticked after its next
-start, tick it there: Docker writes `settings-store.json` from its own memory on a settings save
-(it wrote the file at 09:07:04 today, a second before its process started), and this edit was
-made while it was running. Undo: `AutoStart` back to `false` and the flag back to its old bytes.
+a minute of sign-in. Before the next sign-out the operator ticks Settings > General > "Start Docker
+Desktop when you sign in" in Docker Desktop's own window, so that its memory matches the file:
+Docker writes `settings-store.json` from memory (it wrote the file at 09:07:04 today, a second
+before its process started) and this edit was made while it was running; if it rewrote
+`AutoStart: false` at exit and removed the `Run` value with it, the next sign-in would not start
+it (QA finding 9). The same page's "Open Docker Dashboard when Docker Desktop starts" is worth
+unticking, or the dashboard opens at every sign-in. Undo: `AutoStart` back to `false` and the
+flag back to its old bytes.
 
 ### 10.2 C2, `tools/ensure_core.ps1` (this branch)
 
@@ -520,8 +524,11 @@ made while it was running. Undo: `AutoStart` back to `false` and the flag back t
   `Docker engine unavailable; waiting up to 40 s for Docker Desktop`, then
   `Docker engine available after N s` when it appears. If it does not, the pass ends with
   `Core recovery failed: Docker engine unavailable after 40 s; Docker Desktop is not running`
-  and compose is not run. 40 s keeps the paper worst case of one pass (section 2: 560 s) inside
-  the task's unchanged `PT10M` limit; the task was not touched.
+  and compose is not run. 40 s puts the paper worst case of one pass (section 2: 560 s) at the
+  task's unchanged `PT10M` limit, a few seconds over it once the probes' own timeouts are counted
+  (QA finding 4); that case needs every maximum at once and fails anyway, and `IgnoreNew` drops
+  the tick that would overlap. The task was not touched; the first sign-in measures whether 40 s
+  is enough on this laptop's sign-in load.
 - Compose's output is captured (the error preference set to `Continue` around the native call,
   since under `Stop` a redirected stderr line is a terminating error in PowerShell 5.1). On a
   non-zero exit its last 20 non-empty lines go to `core-supervisor.log` as `compose: ...`, each
@@ -529,13 +536,18 @@ made while it was running. Undo: `AutoStart` back to `false` and the flag back t
   `netsh int ipv4 show excludedportrange protocol=tcp` joined with ` | `. That is the permanent
   snapshot of decision 3: the next reserved-port incident is measured where it happens, and a
   blocked port no longer reads like a missing engine. Compose's stderr no longer passes through
-  to the untimestamped `supervisor-launcher.log`; on a successful start nothing of it is kept.
+  to the untimestamped `supervisor-launcher.log`; on a successful start only the lines naming a
+  created or recreated container are kept, as `compose: ...` too (QA finding 8).
 - Tests, `tests/test_core_dependency_supervisor.py` (core scope; the real PowerShell with
   `docker`, `netsh`, the web, the process and the clock mocked; nothing starts):
   a missing engine is waited for, named, and compose and Core's launcher are not reached;
   a failed compose leaves its stderr and the excluded-port table in the log, timestamped;
   an engine that appears during the wait lets the pass run compose and recover Core as before;
-  the default wait is 40 s and Core's 90 s wait is unchanged. The existing supervisor tests
+  the default wait is 40 s and Core's 90 s wait is unchanged; and, after the QA (finding 6), a
+  `docker` missing from PATH ends the pass before the launcher, `-Restart` with the engine down
+  waits and stops, a recovered Core still returns Ollama's failure, 25 compose lines keep the
+  last 20 beside a failing `netsh`, and a recreated container is logged on a successful start.
+  The existing supervisor tests
   (`test_ollama_supervisor.py`, `test_quiet_supervisor.py`) hold.
 - `docs/OLLAMA_SUPERVISION.md` gains a paragraph pointing here.
 
@@ -578,10 +590,30 @@ product workers.
    to prove the dump reads. The container's own environment supplies the names; nothing from
    `.env` is printed. Neo4j is a rebuildable projection (`CORE_STATE_AUDIT.md`) and its volume is
    equally untouched; no dump.
-2. **The live `.env`**, four lines by name, nothing else read or printed:
-   `sed -i -E 's/^POSTGRES_PORT=.*/POSTGRES_PORT=15432/; s#^NEO4J_URI=.*#NEO4J_URI=bolt://127.0.0.1:17687#; s/^NEO4J_HTTP_PORT=.*/NEO4J_HTTP_PORT=17474/; s/^NEO4J_BOLT_PORT=.*/NEO4J_BOLT_PORT=17687/' C:/Triad/.env`
-   and confirm with `grep -c` of the four new lines. No copy of `.env` is made anywhere; the
-   rollback is the same four edits with the old numbers.
+2. **The live `.env`**, four lines by name, nothing else read or printed, edited in place from
+   PowerShell so that the file object and its restricted ACL survive (QA finding 1: GNU `sed -i`
+   renames a new file over the old one, and on this machine the new file takes the folder's
+   inherited ACL, which exposes the credentials to every local user; QA finding 2: `.*` would
+   also eat the CR of this CRLF file, so the pattern stops at `\r`):
+
+   ```powershell
+   $path = 'C:\Triad\.env'; $text = [IO.File]::ReadAllText($path)
+   foreach ($pair in @(@('POSTGRES_PORT', 'POSTGRES_PORT=15432'), @('NEO4J_URI', 'NEO4J_URI=bolt://127.0.0.1:17687'),
+                       @('NEO4J_HTTP_PORT', 'NEO4J_HTTP_PORT=17474'), @('NEO4J_BOLT_PORT', 'NEO4J_BOLT_PORT=17687'))) {
+       $text = [regex]::Replace($text, '(?m)^' + $pair[0] + '=[^\r\n]*', $pair[1])
+   }
+   [IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($false))
+   icacls C:\Triad\.env
+   ```
+
+   `icacls` must show exactly `BUILTIN\Administrators:(F)`, `NT AUTHORITY\SYSTEM:(F)` and
+   `RAGNAROK\fordr:(F)`, no `(I)`; if it does not, re-apply the line `tools/init_env.py` uses,
+   `icacls C:\Triad\.env /inheritance:r /grant:r "fordr:(F)" "*S-1-5-18:(F)" "*S-1-5-32-544:(F)"`
+   (the bare account name is what `getpass.getuser()` gives it; `icacls` lists it as
+   `RAGNAROK\fordr`).
+   The encoding is UTF-8 without a byte-order mark; a mark would corrupt the first key for both
+   readers. Then confirm the four new lines by name with `grep -c`. No copy of `.env` is made
+   anywhere; the rollback is the same four edits with the old numbers, the same way.
 3. **Recreate the containers** from `C:\Triad`: `docker compose stop`, then
    `docker compose up -d --wait --wait-timeout 240`. Compose reads the project's `.env`, sees the
    changed port mappings and recreates both containers against the existing volumes
@@ -590,12 +622,17 @@ product workers.
 4. **Core**: `tools\ensure_core.ps1 -Restart` (its pass: Ollama, the engine, compose as a no-op,
    `start_backend.ps1 -CoreOnly`, which stops the `uvicorn platform_host.api:app` listener on 8000
    and relaunches it on `.venv`, then the 90 s health wait). Core reads the new `.env` at start.
-5. **Workers**: both read `.env` once at start (Aegis through `AegisSettings`, Triad through
-   `Settings`) and hold the old port otherwise. Relaunch each detached, as the 8102 restarts of
-   2026-11-07 were done (a `Win32_Process` `Create` of
-   `tools\start_product.ps1 -Product triad`, then `-Product aegis`, each of which stops the
-   worker's listener and relaunches it on its own environment). The product-development lease
-   keeps the supervisor from launching a second copy meanwhile.
+5. **Workers**: Triad builds its `Store` once at start and holds the old port until relaunched;
+   Aegis builds `AegisSettings` per request and opens a connection per call
+   (`app/products/aegis/api.py`, `app/trading_core/store.py`), so it follows the new port by
+   itself after step 2 and fails against it until step 3 is done (QA finding 5). Relaunch both
+   all the same, so the three processes are uniform: detached, as the 8102 restarts of
+   2026-11-07 were done (a `Win32_Process` `Create` of `tools\start_product.ps1 -Product triad`,
+   then `-Product aegis`, each of which stops the worker's listener and relaunches it on its own
+   environment). A manual relaunch takes no lease; what guards against a second copy is the
+   launcher's listener check and the supervisor's `occupied()` probe, with a window of a few
+   seconds between the stop and the new bind in which a tick could start a second uvicorn (the
+   loser exits on address-in-use). Step 0's timing covers it.
 6. **Verify**: `/health/live` on 8000, 8101 and 8102; `tools/health_check.py` on `.venv`
    (authenticated Postgres and Neo4j through `Settings`, so through the new ports; JSON without
    credentials); `/aegis/api/status` 200 with the same work-item count as before (47 on
@@ -603,15 +640,21 @@ product workers.
    `127.0.0.1:15432->5432`, `127.0.0.1:17474->7474`, `127.0.0.1:17687->7687`;
    `Get-NetTCPConnection -State Listen` on the three new ports owned by `com.docker.backend` and
    nothing on the three old ones; the supervisor's next tick `Core healthy`; Neo4j Browser at
-   `http://127.0.0.1:17474`.
+   `http://127.0.0.1:17474`; `icacls C:\Triad\.env` showing only the three explicit `(F)` entries.
 7. **Record** the move here (times, the `Recreated` lines, the verification) and in the
    operator's memory; anything outside the repository on the old numbers (a database client, a
    Neo4j Browser bookmark) is the operator's to repoint, and none was named.
 
-Rollback at any step: the four `.env` lines back to 55432 / 57687 / 57474 / 57687, `docker compose
-up -d --wait`, step 4, step 5. The dump of step 1 is the last resort for a volume that is lost,
-which a port change does not cause: `docker exec -i triad-postgres-1 pg_restore -U <user> -d
-<db> --clean < postgres.dump`.
+Rollback at any step: the four `.env` lines back to 55432 / 57687 / 57474 / 57687, edited the
+same way and with the same `icacls` check, `docker compose up -d --wait`, step 4, step 5. The
+dump of step 1 is the last resort for a volume that is lost, which a port change does not cause,
+and a TimescaleDB database is not restored with a bare `pg_restore` (QA finding 3): into a
+database whose extension is at the image's version (2.25.2), first
+`psql -c "SELECT timescaledb_pre_restore();"`, then `pg_restore -Fc -d <db> < postgres.dump`
+(through `docker exec -i triad-postgres-1 ...`), then `psql -c "SELECT timescaledb_post_restore();"`.
+`pg_dump`'s warnings about circular foreign keys on `hypertable`, `chunk` and `continuous_agg`
+are expected on stderr and must not be redirected into the dump (step 1 redirects stdout only).
+Measured by the QA: 209 MB for a 629 MB database, about 33 s.
 
 ### 10.5 Governance
 
@@ -621,3 +664,38 @@ the Core tests run on this branch before the merge; an independent, read-only QA
 and of the procedure in 10.4 runs before the merge and before 10.4 is executed; the merge, the
 push and the live move are each the operator's word. `tools\verify.ps1` at the merge, in
 `C:\Triad` on `main`. Results are recorded in 10.6 as they come.
+
+### 10.6 Checks
+
+- Core scope from the worktree (`TRIAD_PYTEST_SCOPE=core`, `PYTHONPATH` on the worktree's `app`
+  and `tests`, `.venv`'s interpreter), before the fix round: 417 passed, 190 skipped, 3 failed, the
+  three that fail in any worktree for environment reasons
+  (`test_api::test_no_governance_or_trading_endpoints`,
+  `test_architecture::test_core_startup_with_product_imports_blocked`,
+  `test_architecture::test_product_libraries_absent_from_core_and_triad`); inventory 610.
+- Native-command probe under Windows PowerShell 5.1 (5.1.26100.9711) against the real Docker and
+  `netsh`: `Invoke-Native` hands back stderr as lines and the native exit code and restores the
+  `Stop` preference; `docker version --format '{{.Server.Version}}'` exits 0 with the engine up and 1
+  against a nonexistent pipe; `netsh int ipv4 show excludedportrange protocol=tcp` exits 0 with 12
+  rows. The compose project's services and volumes resolve (`postgres`, `neo4j`; `neo4j_data`,
+  `neo4j_logs`, `postgres_data` under project `triad`); the container's environment carries
+  `POSTGRES_USER` and `POSTGRES_DB`; nothing listens on 15432, 17474 or 17687.
+- Independent QA, read-only, on 79e45d5
+  (`.superpowers/sdd/core-dependency-ports/qa-79e45d5.md`, Fable 5.1): merging READY WITH FINDINGS;
+  executing 10.4 NOT READY as written until the `.env` edit preserves the file's ACL (finding 1)
+  and the last-resort restore is written for TimescaleDB (finding 3), READY WITH FINDINGS then.
+  Verified clean: `Invoke-Native`'s claims under 5.1 `-NonInteractive`; the probe's exit codes and
+  times (214 ms up, 65-76 ms down); every carrier of the three numbers; nothing running changes at
+  the merge; compose's project, volumes and a dry run showing both containers Recreated on the new
+  mapping; `start_backend.ps1`'s listener check against the running Core; the supervisor race;
+  `health_check.py` on the new ports; the new ports free and bindable; the dump binary-safe (209 MB,
+  33 s); log hygiene; C1's state; governance and the walk's lists.
+- Fix round, the commit after 79e45d5: findings 1, 2, 3 and 5 in the procedure text of 10.4;
+  finding 4 in the script's comment, the test's docstring and 10.2; finding 6's rows as five more
+  tests (a `docker` missing from PATH; `-Restart` with the engine down; a recovered Core still
+  returning Ollama's failure; 25 compose lines keeping the last 20 beside a failing `netsh`; a
+  recreated container logged on success); finding 8 as the success-path line in the script.
+  Finding 9 is the operator's click (10.1); finding 10 is grep noise in `C:\Triad` only
+  (`build/lib`, `__pycache__`, a generated vault page). After the round: 21 passed in the three
+  supervisor modules (9 new, 12 existing); lint and format clean. QA re-check of the round: see
+  below once recorded.

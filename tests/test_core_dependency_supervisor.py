@@ -160,9 +160,119 @@ def test_an_engine_that_appears_during_the_wait_lets_the_pass_recover_core(tmp_p
     assert (tmp_path / "launched.txt").read_text().split() == ["8000", "True"]
 
 
-def test_the_default_wait_fits_the_tasks_ten_minute_limit():
+def test_the_default_wait_sits_at_the_tasks_ten_minute_limit():
     """40 s: the paper worst case of one pass (Ollama 30 s, compose 240 s, Core 90 s, two workers
-    100 s each) plus the wait stays inside the task's PT10M execution limit (note section 2)."""
+    100 s each: 560 s) plus the wait is at the task's PT10M execution limit, a few seconds over it
+    with the probes' own timeouts; that case needs every maximum at once and fails anyway (note
+    sections 2 and 10)."""
     script = (ROOT / "tools" / "ensure_core.ps1").read_text(encoding="utf-8")
     assert "[int]$EngineWaitSeconds = 40" in script
     assert "$CoreStartSeconds = 90" in script
+
+
+def test_a_docker_cli_missing_from_path_ends_the_pass_before_the_launcher(tmp_path):
+    """A missing docker command is a terminating error even under the 'Continue' preference; it
+    reaches the pass's one catch and the log, and never Core's launcher (QA finding 6)."""
+    no_docker = (
+        "$env:PATH = (($env:PATH -split ';') | Where-Object { $_ -notlike '*Docker*' }) -join ';'\n"
+    )
+    result = run(tmp_path, CORE_DOWN + no_docker, ["-EngineWaitSeconds", "1"])
+    assert result.returncode == 1, result.stderr
+    lines = log_lines(tmp_path)
+    assert any(
+        "recovery failed" in line and "docker" in line and "not recognized" in line
+        for line in lines
+    ), lines
+    assert not (tmp_path / "launched.txt").exists()
+
+
+def test_a_restart_with_the_engine_down_waits_and_stops(tmp_path):
+    """-Restart skips the liveness check but not the engine wait: a live Core is left alone, and
+    nothing is launched against a Docker Desktop that is not running (QA finding 6)."""
+    core_live = (
+        "function Invoke-RestMethod { param($Uri, $TimeoutSec, $MaximumRedirection)\n"
+        " if ($Uri -like '*/health/live') { return [pscustomobject]@{status='ok'} }\n"
+        " " + TAGS + " }\n"
+        "function Get-NetTCPConnection { return $null }\n"
+        "function Start-Process { throw 'UNEXPECTED_PROCESS_LAUNCH' }\n"
+        "function Start-Sleep { param($Seconds, $Milliseconds) }\n"
+    )
+    result = run(tmp_path, core_live + ENGINE_DOWN, ["-Restart", "-EngineWaitSeconds", "1"])
+    assert result.returncode == 1, result.stderr
+    lines = log_lines(tmp_path)
+    assert any("Core restart requested" in line for line in lines), lines
+    assert any("Docker Desktop is not running" in line for line in lines), lines
+    assert not any("Core healthy" in line for line in lines), lines
+    assert not (tmp_path / "launched.txt").exists()
+
+
+def test_a_recovered_core_still_returns_ollamas_failure(tmp_path):
+    """Ollama's exit code is the pass's exit code on every path that reaches Core, as before: a
+    Core recovered behind an occupied Ollama port exits 1 (QA finding 6)."""
+    ollama_down_core_recovers = (
+        "$script:live = 0\n"
+        "function Invoke-RestMethod { param($Uri, $TimeoutSec, $MaximumRedirection)\n"
+        " if ($Uri -like '*/health/live') { $script:live++; if ($script:live -le 1) { throw 'down' }\n"
+        "  return [pscustomobject]@{status='ok'} }\n"
+        " throw 'offline' }\n"
+        "function Get-NetTCPConnection { [pscustomobject]@{OwningProcess=123} }\n"
+        "function Start-Process { throw 'UNEXPECTED_PROCESS_LAUNCH' }\n"
+        "function Start-Sleep { param($Seconds, $Milliseconds) }\n"
+        "function docker { param([Parameter(ValueFromRemainingArguments=$true)]$Arguments) cmd /c exit 0 }\n"
+    )
+    result = run(tmp_path, ollama_down_core_recovers)
+    assert result.returncode == 1, result.stderr + result.stdout
+    lines = log_lines(tmp_path)
+    assert any("Core recovered and healthy" in line for line in lines), lines
+    assert "port is occupied" in (tmp_path / "logs/ollama-supervisor.log").read_text()
+    assert (tmp_path / "launched.txt").read_text().split() == ["8000", "True"]
+
+
+def test_a_long_compose_failure_keeps_its_last_twenty_lines_and_a_broken_netsh_its_own(tmp_path):
+    """The log keeps compose's last 20 lines, not all of them, and a netsh that fails still leaves
+    the excluded-ranges line with what it said (QA finding 6)."""
+    noisy_compose_broken_netsh = (
+        "function docker { param([Parameter(ValueFromRemainingArguments=$true)]$Arguments)\n"
+        " if ($Arguments[0] -eq 'compose') {\n"
+        '  1..25 | ForEach-Object { cmd /c "echo compose-line$_ 1>&2" }\n'
+        "  cmd /c exit 1; return }\n"
+        " cmd /c exit 0 }\n"
+        'function netsh { cmd /c "echo netsh-broken 1>&2 & exit 1" }\n'
+    )
+    result = run(tmp_path, CORE_DOWN + noisy_compose_broken_netsh)
+    assert result.returncode == 1, result.stderr
+    lines = log_lines(tmp_path)
+    compose_lines = [line for line in lines if "compose:" in line]
+    assert len(compose_lines) == 20, compose_lines
+    assert "compose-line6" in compose_lines[0] and "compose-line25" in compose_lines[-1]
+    assert not any("compose-line5" in line for line in lines), lines
+    assert any("excluded TCP port ranges: netsh-broken" in line for line in lines), lines
+    assert any("dependency startup failed (1)" in line for line in lines), lines
+
+
+def test_a_recreated_container_is_logged_on_a_successful_start(tmp_path):
+    """Compose's success output is otherwise kept nowhere; a container it created or recreated gets
+    its line, the rest of its progress does not (QA finding 8)."""
+    recreating_compose = (
+        "$script:live = 0\n"
+        "function docker { param([Parameter(ValueFromRemainingArguments=$true)]$Arguments)\n"
+        " if ($Arguments[0] -eq 'compose') {\n"
+        '  cmd /c "echo  Container triad-postgres-1  Recreated 1>&2 & echo  Container triad-postgres-1  Started 1>&2 & exit 0"\n'
+        "  return }\n"
+        " cmd /c exit 0 }\n"
+        "function Invoke-RestMethod { param($Uri, $TimeoutSec, $MaximumRedirection)\n"
+        " if ($Uri -like '*/health/live') { $script:live++; if ($script:live -le 1) { throw 'down' }\n"
+        "  return [pscustomobject]@{status='ok'} }\n"
+        " " + TAGS + " }\n"
+        "function Get-NetTCPConnection { return $null }\n"
+        "function Start-Process { throw 'UNEXPECTED_PROCESS_LAUNCH' }\n"
+        "function Start-Sleep { param($Seconds, $Milliseconds) }\n"
+    )
+    result = run(tmp_path, recreating_compose)
+    assert result.returncode == 0, result.stderr + result.stdout
+    lines = log_lines(tmp_path)
+    assert any("compose:" in line and "triad-postgres-1  Recreated" in line for line in lines), (
+        lines
+    )
+    assert not any("Started" in line for line in lines), lines
+    assert any("Core recovered and healthy" in line for line in lines), lines

@@ -3,9 +3,11 @@ param(
     [string]$LogPath = "",
     [switch]$Restart,
     # Docker Desktop starts at sign-in and its engine follows about 12 s later; a pass that begins
-    # first waits this long for the engine instead of failing on its pipe at once. 40 s keeps the
-    # paper worst case of one pass (Ollama 30 s, compose 240 s, Core 90 s, two workers 100 s each)
-    # inside the task's 10-minute limit (docs/CORE_DEPENDENCY_PORTS_AFTER_REBOOT.md, sections 2, 5).
+    # first waits this long for the engine instead of failing on its pipe at once. 40 s puts the
+    # paper worst case of one pass (Ollama 30 s, compose 240 s, Core 90 s, two workers 100 s each:
+    # 560 s) at the task's 10-minute limit, a few seconds over it with the probes' own timeouts;
+    # that case needs every maximum at once and fails anyway, and IgnoreNew drops the tick that
+    # would overlap (docs/CORE_DEPENDENCY_PORTS_AFTER_REBOOT.md, sections 2, 5 and 10).
     [ValidateRange(0, 300)][int]$EngineWaitSeconds = 40
 )
 $ErrorActionPreference = 'Stop'
@@ -91,6 +93,11 @@ try {
             ForEach-Object { $_.Trim() } | Where-Object { $_ })
         Write-SupervisorLog ("excluded TCP port ranges: " + ($ranges -join ' | '))
         throw "docker compose dependency startup failed ($($compose.ExitCode))"
+    }
+    # A container compose created or recreated on a successful start is worth its line; the rest of
+    # compose's progress is not kept anywhere.
+    foreach ($line in @($compose.Lines | ForEach-Object { $_.Trim() } | Where-Object { $_ -match 'Recreated|Created' })) {
+        Write-SupervisorLog "compose: $line"
     }
 
     & (Join-Path $PSScriptRoot 'start_backend.ps1') -Port $Port -CoreOnly
