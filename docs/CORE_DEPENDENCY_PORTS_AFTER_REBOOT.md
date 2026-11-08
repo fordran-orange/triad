@@ -724,3 +724,20 @@ push and the live move are each the operator's word. `tools\verify.ps1` at the m
   applied above in the commit after d398645. The extension's premises hold on the machine:
   `timescaledb 2.25.2` in the target database and in `template1`, server 17.7,
   `shared_preload_libraries = timescaledb`, both restore functions present.
+
+### 10.7 Merged
+
+Merged into `main` at the operator's "Merge" on 2026-11-08: merge commit 5ec7aeb at 08:32:12
+local, the branch at 4ece29f (seven commits, rebased on 4684cac, so the merge carried nothing
+else). The gate on `main` in `C:\Triad`, `tools\verify.ps1`, exit 0 in 1,231 s: lint and format
+clean on 112 files; inventory core 615, triad 1058, aegis 1311; core 425 passed and 190 skipped;
+triad 634 passed and 424 skipped with 209 subtests; aegis 1310 passed and 1 skipped; the
+foundation audit passed. The browser walk was not run: no product or interface file changed, and
+the QA confirmed the walk's Core-change lists hold (`settings.py` is already in them; the compose
+file and `tools/` are outside the paths they diff). The supervisor's first pass on the merged
+script, 08:37:09, logged `Core healthy on port 8000`: the healthy path, which the change leaves as
+it was (the merge landed in the same second as the previous tick). Nothing running changed: the
+live `.env` still names 55432, 57474 and 57687, and the containers were not touched. C1 is still
+untested: no boot since it was applied, Docker Desktop running since 2026-11-07 09:07, `AutoStart`
+still `true` and the approval flag still `02`. Not pushed. Next, each on the operator's word: the
+push, and the live move of 10.4.
