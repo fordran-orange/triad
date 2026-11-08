@@ -60,9 +60,9 @@ The machine's inherited root-directory ACL exposed `.env` to other local users;
 | Service | Loopback address |
 |---|---|
 | Triad operator API/UI | http://127.0.0.1:8000 |
-| PostgreSQL / TimescaleDB | 127.0.0.1:55432 |
-| Neo4j browser / HTTP | http://127.0.0.1:57474 |
-| Neo4j Bolt | bolt://127.0.0.1:57687 |
+| PostgreSQL / TimescaleDB | 127.0.0.1:15432 |
+| Neo4j browser / HTTP | http://127.0.0.1:17474 |
+| Neo4j Bolt | bolt://127.0.0.1:17687 |
 
 Containers: `triad-postgres-1`, `triad-neo4j-1`. Volumes:
 `triad_postgres_data`, `triad_neo4j_data`, `triad_neo4j_logs`.

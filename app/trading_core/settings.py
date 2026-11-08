@@ -19,7 +19,9 @@ class StoreSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore")
     postgres_host: str = "127.0.0.1"
-    postgres_port: int = 55432
+    # Published below Windows' dynamic port range (49152 up), which the networking stack carves
+    # blocks out of at boot (docs/CORE_DEPENDENCY_PORTS_AFTER_REBOOT.md, Option A, 2026-11-07).
+    postgres_port: int = 15432
     postgres_db: str = "triad"
     postgres_user: str = "triad_admin"
     postgres_password: SecretStr
@@ -28,7 +30,7 @@ class StoreSettings(BaseSettings):
 class Settings(StoreSettings):
     """Core's whole configuration: the gateway, the supervisor and the tools build this."""
 
-    neo4j_uri: str = "bolt://127.0.0.1:57687"
+    neo4j_uri: str = "bolt://127.0.0.1:17687"
     neo4j_user: str = "neo4j"
     neo4j_password: SecretStr
     ollama_url: str = "http://127.0.0.1:11434"
