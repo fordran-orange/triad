@@ -1,6 +1,6 @@
 # Core's database dependencies after a reboot: measurements and a decision note
 
-Date: 2026-11-04. Status: **decision note for the operator. Nothing was implemented.** No
+Date: 2026-11-04; decided 2026-11-07 (section 10). Status: **sections 1-9 are the measurement and the options as they stood for the decision; nothing in them was implemented when they were written.** No
 change was made to Windows, Docker, the "Triad Core Supervisor" task, the compose file or any
 script. Every command behind the numbers below was read-only (Appendix A). The one exception
 that opens anything is a set of loopback bind probes that listened on a port for an instant and
@@ -474,3 +474,150 @@ and four at the top. 55432, 57474 and 57687 are in none of them; all three are l
 estimate (about 3.7 % per port per boot, about 10 % that one of the three is hit) is the right
 order of magnitude and the "upper part" remark in section 3.3 no longer holds. One hit in seven
 boots. Nothing in this update changes the recommendation in section 6.
+
+## 10. Decision 2026-11-07 and what was built
+
+The operator's word, 2026-11-07 evening, after the four questions of section 7 were put to him
+with the recommendation of section 6: **"Approve C then A"**. Read as the recommendation says:
+C1 and C2 with the 40 s wait inside the current task limit, no C3, the excluded-range snapshot
+permanent; then A with the proposed numbers 15432 / 17474 / 17687. He named no external client of
+the old numbers; the question stands in 10.4.
+
+### 10.1 C1, applied on the machine the same evening (no repository change)
+
+What Docker Desktop's own toggle writes, written directly, because this session cannot click in
+Docker's window and its CLI (`docker desktop`, 4.97.0) has no command for the setting:
+
+| Where | Before | After |
+| --- | --- | --- |
+| `%APPDATA%\Docker\settings-store.json`, key `AutoStart` | `false` | `true` (the one key replaced in the 308-byte file; a copy of the file as it was is in the session's scratchpad) |
+| `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`, value `Docker Desktop` | `01 00 00 00 00 00 00 00 00 00 00 00` | `02 00 00 00 00 00 00 00 00 00 00 00` |
+| `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Docker Desktop` | `C:\Program Files\Docker\Docker\Docker Desktop.exe` | unchanged |
+
+Why both: Docker's forum reports that the toggle adds and removes the `Run` value, and that
+Windows' `StartupApproved` flag beside it is what Task Manager's Startup tab toggles. The `Run`
+value was already present, so Docker's own flag alone could not have been what kept it from
+starting; the `StartupApproved` value was the only entry under that key on this machine, so
+Docker Desktop was the only startup item carrying an explicit flag. `02` is the value every
+source gives for "enabled" and `03` for "disabled"; none documents `01`, and the informal readings
+(an odd first byte, or anything but `02`) both call it disabled, which matches seven boots
+without a start. No `-Autostart` argument was added to the `Run` value: no Docker source
+documents one.
+
+Untested until the next sign-in, which is the only test there is. The supervisor log's logon run
+tells: with C2 in place it should read `Docker engine unavailable; waiting up to 40 s for Docker
+Desktop`, then `Docker engine available after N s`, then `Core recovered and healthy` within about
+a minute of sign-in. If Docker Desktop's General settings show the box unticked after its next
+start, tick it there: Docker writes `settings-store.json` from its own memory on a settings save
+(it wrote the file at 09:07:04 today, a second before its process started), and this edit was
+made while it was running. Undo: `AutoStart` back to `false` and the flag back to its old bytes.
+
+### 10.2 C2, `tools/ensure_core.ps1` (this branch)
+
+- A new parameter `-EngineWaitSeconds` (default 40, range 0-300). Before `docker compose up`,
+  `docker version --format '{{.Server.Version}}'` probes the engine by the road compose takes;
+  while it fails the pass waits, probing every 2 s, and logs once
+  `Docker engine unavailable; waiting up to 40 s for Docker Desktop`, then
+  `Docker engine available after N s` when it appears. If it does not, the pass ends with
+  `Core recovery failed: Docker engine unavailable after 40 s; Docker Desktop is not running`
+  and compose is not run. 40 s keeps the paper worst case of one pass (section 2: 560 s) inside
+  the task's unchanged `PT10M` limit; the task was not touched.
+- Compose's output is captured (the error preference set to `Continue` around the native call,
+  since under `Stop` a redirected stderr line is a terminating error in PowerShell 5.1). On a
+  non-zero exit its last 20 non-empty lines go to `core-supervisor.log` as `compose: ...`, each
+  timestamped, followed by one line `excluded TCP port ranges: ...` holding the rows of
+  `netsh int ipv4 show excludedportrange protocol=tcp` joined with ` | `. That is the permanent
+  snapshot of decision 3: the next reserved-port incident is measured where it happens, and a
+  blocked port no longer reads like a missing engine. Compose's stderr no longer passes through
+  to the untimestamped `supervisor-launcher.log`; on a successful start nothing of it is kept.
+- Tests, `tests/test_core_dependency_supervisor.py` (core scope; the real PowerShell with
+  `docker`, `netsh`, the web, the process and the clock mocked; nothing starts):
+  a missing engine is waited for, named, and compose and Core's launcher are not reached;
+  a failed compose leaves its stderr and the excluded-port table in the log, timestamped;
+  an engine that appears during the wait lets the pass run compose and recover Core as before;
+  the default wait is 40 s and Core's 90 s wait is unchanged. The existing supervisor tests
+  (`test_ollama_supervisor.py`, `test_quiet_supervisor.py`) hold.
+- `docs/OLLAMA_SUPERVISION.md` gains a paragraph pointing here.
+
+### 10.3 A, the repository side (this branch; harmless to merge before the live move)
+
+| File | Change |
+| --- | --- |
+| `app/trading_core/settings.py` | `postgres_port` default 55432 → 15432; `neo4j_uri` default `bolt://127.0.0.1:57687` → `bolt://127.0.0.1:17687`; a two-line comment naming this note |
+| `docker-compose.yml` | the three `:-` defaults: 55432 → 15432, 57474 → 17474, 57687 → 17687 |
+| `.env.example` | `POSTGRES_PORT`, `NEO4J_URI`, `NEO4J_HTTP_PORT`, `NEO4J_BOLT_PORT` |
+| `docs/DAY1_SETUP.md` | the three rows of the service table |
+
+The live `C:\Triad\.env` still carries the old numbers and overrides every default, so merging
+this changes nothing that runs until 10.4 is carried out. Dated evidence (`DAY2_VERIFICATION.md`,
+`CORE_STATE_AUDIT.md`, `MISSION8_PLATEAU_WALK_FORWARD.md`) keeps the old numbers as history.
+`tests/test_aegis_settings.py` writes `POSTGRES_PORT=55432` into its own temporary env file and
+reads it back; it tests the file, not the default, and is unchanged. The browser walk's
+Core-change lists already name `settings.py` (Mission 14's list and the worker settings view's);
+`docker-compose.yml` and `tools/` are outside `app/trading_core`, so the lists hold.
+
+### 10.4 A, the live move (procedure; nothing executed yet)
+
+Core shared infrastructure that recreates the container holding canonical Postgres: under
+`AGENTS.md` it runs only after the independent QA of this procedure (10.5) and on the operator's
+word. Everything below is reversible; the data volumes are named and are not touched by a port
+change. Expect one to two minutes without Core and its databases, and a few more without the
+product workers.
+
+0. **Preconditions.** Core healthy; `docker ps` shows both containers healthy; nothing listens on
+   15432, 17474 or 17687 (`Get-NetTCPConnection -State Listen -LocalPort 15432,17474,17687` is
+   empty; all three are below the dynamic range, so no excluded block can cover them). Start
+   right after a supervisor tick (a `Core healthy` line; the ticks fall about every five minutes
+   on the clock pattern of the log) so that the task does not run its own pass mid-move. If it
+   does, it runs `docker compose up` with the same new `.env` and launches Core: the same steps,
+   not a conflict.
+1. **Postgres dump, belt and braces.** From Git Bash, binary-safe:
+   `D=C:/Triad/data/temp/ports-move-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$D";`
+   `docker exec triad-postgres-1 sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$D/postgres.dump"`
+   then `sha256sum` and size, and `docker exec -i triad-postgres-1 pg_restore --list < "$D/postgres.dump" | head`
+   to prove the dump reads. The container's own environment supplies the names; nothing from
+   `.env` is printed. Neo4j is a rebuildable projection (`CORE_STATE_AUDIT.md`) and its volume is
+   equally untouched; no dump.
+2. **The live `.env`**, four lines by name, nothing else read or printed:
+   `sed -i -E 's/^POSTGRES_PORT=.*/POSTGRES_PORT=15432/; s#^NEO4J_URI=.*#NEO4J_URI=bolt://127.0.0.1:17687#; s/^NEO4J_HTTP_PORT=.*/NEO4J_HTTP_PORT=17474/; s/^NEO4J_BOLT_PORT=.*/NEO4J_BOLT_PORT=17687/' C:/Triad/.env`
+   and confirm with `grep -c` of the four new lines. No copy of `.env` is made anywhere; the
+   rollback is the same four edits with the old numbers.
+3. **Recreate the containers** from `C:\Triad`: `docker compose stop`, then
+   `docker compose up -d --wait --wait-timeout 240`. Compose reads the project's `.env`, sees the
+   changed port mappings and recreates both containers against the existing volumes
+   (`triad_postgres_data`, `triad_neo4j_data`, `triad_neo4j_logs`). Expect `Recreated` and both
+   `Healthy`.
+4. **Core**: `tools\ensure_core.ps1 -Restart` (its pass: Ollama, the engine, compose as a no-op,
+   `start_backend.ps1 -CoreOnly`, which stops the `uvicorn platform_host.api:app` listener on 8000
+   and relaunches it on `.venv`, then the 90 s health wait). Core reads the new `.env` at start.
+5. **Workers**: both read `.env` once at start (Aegis through `AegisSettings`, Triad through
+   `Settings`) and hold the old port otherwise. Relaunch each detached, as the 8102 restarts of
+   2026-11-07 were done (a `Win32_Process` `Create` of
+   `tools\start_product.ps1 -Product triad`, then `-Product aegis`, each of which stops the
+   worker's listener and relaunches it on its own environment). The product-development lease
+   keeps the supervisor from launching a second copy meanwhile.
+6. **Verify**: `/health/live` on 8000, 8101 and 8102; `tools/health_check.py` on `.venv`
+   (authenticated Postgres and Neo4j through `Settings`, so through the new ports; JSON without
+   credentials); `/aegis/api/status` 200 with the same work-item count as before (47 on
+   2026-11-07) and the providers route 200; `docker ps --format '{{.Names}} {{.Ports}}'` showing
+   `127.0.0.1:15432->5432`, `127.0.0.1:17474->7474`, `127.0.0.1:17687->7687`;
+   `Get-NetTCPConnection -State Listen` on the three new ports owned by `com.docker.backend` and
+   nothing on the three old ones; the supervisor's next tick `Core healthy`; Neo4j Browser at
+   `http://127.0.0.1:17474`.
+7. **Record** the move here (times, the `Recreated` lines, the verification) and in the
+   operator's memory; anything outside the repository on the old numbers (a database client, a
+   Neo4j Browser bookmark) is the operator's to repoint, and none was named.
+
+Rollback at any step: the four `.env` lines back to 55432 / 57687 / 57474 / 57687, `docker compose
+up -d --wait`, step 4, step 5. The dump of step 1 is the last resort for a volume that is lost,
+which a port change does not cause: `docker exec -i triad-postgres-1 pg_restore -U <user> -d
+<db> --clean < postgres.dump`.
+
+### 10.5 Governance
+
+Core shared infrastructure under `AGENTS.md`: the supervisor script and Core's settings defaults
+are shared runtime, and 10.4 recreates the container that holds retained canonical data. So:
+the Core tests run on this branch before the merge; an independent, read-only QA of C2's change
+and of the procedure in 10.4 runs before the merge and before 10.4 is executed; the merge, the
+push and the live move are each the operator's word. `tools\verify.ps1` at the merge, in
+`C:\Triad` on `main`. Results are recorded in 10.6 as they come.
